@@ -36113,12 +36113,28 @@
                       {
                         "name": "action",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "name"
+                          },
+                          {
+                            "key": "action"
+                          }
+                        ]
                       },
                       {
                         "name": "jid",
                         "kind": "user_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "name"
+                          },
+                          {
+                            "key": "wid"
+                          }
+                        ]
                       }
                     ],
                     "children": [],
@@ -45921,7 +45937,16 @@
                       {
                         "name": "id",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "categories",
+                            "list": true
+                          },
+                          {
+                            "key": "id"
+                          }
+                        ]
                       }
                     ],
                     "children": [],
@@ -46002,7 +46027,16 @@
                     "attrs": [],
                     "children": [],
                     "content": {
-                      "kind": "dynamic"
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "serviceAreas",
+                          "list": true
+                        },
+                        {
+                          "key": "areaDescription"
+                        }
+                      ]
                     },
                     "repeats": true,
                     "argPath": [
@@ -46016,6 +46050,18 @@
                     "tag": "area_radius_meters",
                     "attrs": [],
                     "children": [],
+                    "content": {
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "serviceAreas",
+                          "list": true
+                        },
+                        {
+                          "key": "radius"
+                        }
+                      ]
+                    },
                     "repeats": true,
                     "argPath": [
                       {
@@ -46040,6 +46086,18 @@
                     "tag": "latitude",
                     "attrs": [],
                     "children": [],
+                    "content": {
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "serviceAreas",
+                          "list": true
+                        },
+                        {
+                          "key": "latitude"
+                        }
+                      ]
+                    },
                     "repeats": true,
                     "argPath": [
                       {
@@ -46052,6 +46110,18 @@
                     "tag": "longitude",
                     "attrs": [],
                     "children": [],
+                    "content": {
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "serviceAreas",
+                          "list": true
+                        },
+                        {
+                          "key": "longitude"
+                        }
+                      ]
+                    },
                     "repeats": true,
                     "argPath": [
                       {

@@ -10,13 +10,13 @@
     },
     "iq": {
       "builder": {
-        "argPathAttrs": 223,
-        "argPathAttrsMissing": 59,
+        "argPathAttrs": 226,
+        "argPathAttrsMissing": 56,
         "argPathChildren": 108,
         "argPathChildrenMissing": 12,
-        "argPathContents": 38,
-        "argPathContentsMissing": 22,
-        "elementValues": 61,
+        "argPathContents": 42,
+        "argPathContentsMissing": 21,
+        "elementValues": 64,
         "optionalChildren": 33,
         "presenceFlagChildren": 31,
         "repeatBounds": 35
@@ -86,7 +86,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "45832ccdd62a8cf3e0b187a449983310f3c20535e8d509998890d2e6f8975b9e"
+      "sha256": "32b8983ec51efe772801844412e84891771657e0ca254e8e1d322111402ba68a"
     },
     "mex": {
       "file": "mex/index.json",
@@ -110,7 +110,7 @@
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "e8109f56c446040c01444e2529f01ef53af05bb945effae61b071b833ba30606"
+      "sha256": "6033d09eae364bcaf530dd644608a56655ffa144267f151f7d6202cfbcea1ffa"
     },
     "tokens": {
       "file": "tokens/index.json",

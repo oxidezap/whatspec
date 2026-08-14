@@ -506,12 +506,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         },
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageServerId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -533,7 +543,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -589,7 +604,12 @@
         {
           "name": "media_id",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageMediaId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -811,7 +831,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1301,12 +1326,22 @@
         {
           "name": "from",
           "kind": "group_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         },
         {
           "name": "phash",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messagePhash"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1416,27 +1451,52 @@
         {
           "name": "t",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageT"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         },
         {
           "name": "selected",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageSelected"
+            }
+          ]
         },
         {
           "name": "unsent",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageUnsent"
+            }
+          ]
         },
         {
           "name": "deleted_reason",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageDeletedReason"
+            }
+          ]
         }
       ],
       "children": [
@@ -1509,22 +1569,42 @@
         {
           "name": "participant",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageParticipant"
+            }
+          ]
         },
         {
           "name": "participant_type",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageParticipantType"
+            }
+          ]
         },
         {
           "name": "member_tag",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageMemberTag"
+            }
+          ]
         },
         {
           "name": "member_tag_ts_s",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageMemberTagTsS"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1576,7 +1656,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1598,7 +1683,12 @@
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1654,12 +1744,22 @@
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageServerId"
+            }
+          ]
         },
         {
           "name": "response_server_id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageResponseServerId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1728,7 +1828,12 @@
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1795,7 +1900,12 @@
         {
           "name": "reported_push_name",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageReportedPushName"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1874,7 +1984,12 @@
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1925,22 +2040,42 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "recipientJid"
+            }
+          ]
         },
         {
           "name": "phash",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "phash"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageType"
+            }
+          ]
         }
       ],
       "children": [
@@ -2050,7 +2185,21 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "sendMsgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
@@ -2060,7 +2209,12 @@
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "edit",
@@ -2122,7 +2276,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         }
       ],
       "children": [
@@ -2169,7 +2328,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -2190,22 +2354,51 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "device_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "edit",
@@ -2296,17 +2489,41 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "edit",
@@ -2572,7 +2789,21 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
@@ -2582,27 +2813,64 @@
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "peer_recipient_pn",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "peer_recipient_lid",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "peerRecipientLid"
+            }
+          ]
         },
         {
           "name": "peer_recipient_username",
@@ -2622,7 +2890,18 @@
         {
           "name": "push_priority",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "option"
+            },
+            {
+              "key": "pushPriority"
+            }
+          ]
         },
         {
           "name": "privacy_sensitive",
@@ -2778,12 +3057,37 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "type",
@@ -3112,7 +3416,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "receiptTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -3135,7 +3444,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "receiptId"
+            }
+          ]
         }
       ],
       "children": [
@@ -3242,12 +3556,22 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         }
       ],
       "children": [
@@ -3275,22 +3599,42 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "type",
@@ -3533,22 +3877,42 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "type",
@@ -3666,7 +4030,15 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         }
       ],
       "children": [
@@ -4370,12 +4742,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4576,7 +4958,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4793,12 +5180,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4832,12 +5229,22 @@
         {
           "name": "to",
           "kind": "group_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "chatId"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4854,7 +5261,12 @@
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "author"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5073,27 +5485,52 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "class",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaClass"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "type"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5368,7 +5805,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5385,7 +5827,12 @@
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5406,7 +5853,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5597,32 +6049,62 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "ackId"
+            }
+          ]
         },
         {
           "name": "class",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "ackClass"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "type"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "error",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "error"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5659,12 +6141,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5685,12 +6177,22 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5701,12 +6203,22 @@
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "ackString"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5800,17 +6312,32 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5863,17 +6390,32 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callTo"
+            }
+          ]
         },
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callFrom"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callId"
+            }
+          ]
         }
       ],
       "children": [
@@ -5989,7 +6531,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callTo"
+            }
+          ]
         }
       ],
       "children": [
@@ -6193,7 +6740,12 @@
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "peerJid"
+            }
+          ]
         },
         {
           "name": "id",
@@ -6242,7 +6794,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "chatstateTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6320,12 +6877,22 @@
         {
           "name": "type",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceType"
+            }
+          ]
         },
         {
           "name": "name",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceName"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6352,17 +6919,32 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "presenceTo"
+            }
+          ]
         },
         {
           "name": "name",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceName"
+            }
+          ]
         },
         {
           "name": "context",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceContext"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6383,12 +6965,22 @@
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusServerId"
+            }
+          ]
         },
         {
           "name": "t",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusT"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6513,7 +7105,12 @@
         {
           "name": "from",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "statusFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6534,12 +7131,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusId"
+            }
+          ]
         },
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusServerId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6561,7 +7168,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6583,7 +7195,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6880,7 +7497,12 @@
         {
           "name": "media_id",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "statusMediaId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6902,7 +7524,12 @@
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusServerId"
+            }
+          ]
         }
       ],
       "children": [

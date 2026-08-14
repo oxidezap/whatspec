@@ -22,7 +22,10 @@ use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::enum_link::EnumResolver;
 use crate::helper_index::HelperIndex;
-use crate::request::{VarScope, build_var_scope, enforce_argument_boundary, resolve_child_node};
+use crate::request::{
+    VarScope, annotate_attr_arg_paths, build_var_scope, enforce_argument_boundary,
+    resolve_child_node,
+};
 
 /// The outgoing stanzas this scanner recognizes, by top-level tag. IQ has its own
 /// path; the incoming dispatch side comes later.
@@ -219,10 +222,24 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
         if let Some(wap) = parse_wap_call(call, self.aliases)
             && let Some(stanza_type) = stanza_tag(wap.tag)
         {
-            let attrs = wap
+            let mut attrs = wap
                 .attrs_node
                 .map(|n| extract_attrs_from_obj(n, self.source, self.aliases))
                 .unwrap_or_default();
+            // The root's own attributes are argument-backed too — `<presence to=… name=…
+            // context=…>` is most of what that builder writes — and unlike `<iq>`, whose
+            // root attrs are consumed into `namespace`/`iqType`/`target`, they are
+            // published as attributes. Without this they were the one place a consumer
+            // could see a dynamic value and not where to supply it.
+            if let Some(n) = wap.attrs_node {
+                annotate_attr_arg_paths(
+                    &mut attrs,
+                    n,
+                    self.scope,
+                    self.source,
+                    Some(n.span().start as usize),
+                );
+            }
             // The `type` attr distinguishes stanza subtypes (`receipt type="read"`, …).
             let subtype = attrs
                 .iter()

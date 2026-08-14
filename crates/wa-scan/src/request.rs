@@ -575,7 +575,15 @@ fn relative_arg_path(
             cur = m.object();
         }
         keys.reverse();
-        let base = relative_arg_path(cur, scope, module_source, ref_off, depth + 1)?;
+        // The BASE is resolved by a restricted walk that refuses calls, and that
+        // restriction is the whole point. `var t = attrFromReference(attrStanzaId, e,
+        // ["id"]); … STANZA_ID(t.value)` reads a value out of the stanza being ACKED, not
+        // out of the builder's options object — but the general walk descends into a
+        // call's arguments, finds the bare parameter there and reports the empty path,
+        // which then absorbs `.value` and publishes `value` as an address. A call's
+        // result is a computed value; only the parameter itself, or a chain rooted at it,
+        // can be the object a key is read off.
+        let base = base_arg_path(cur, scope, module_source, ref_off, depth + 1)?;
         let mut out = base;
         out.extend(
             keys.into_iter()
@@ -628,6 +636,66 @@ fn relative_arg_path(
         };
     }
 
+    None
+}
+
+/// The argument path of the OBJECT a member chain is read off: the enclosing frame's
+/// parameter, or an alias that itself resolves to one.
+///
+/// Deliberately narrower than [`relative_arg_path`] — no calls, no conditionals. Those
+/// produce a computed value, and a key read off a computed value is not an address into
+/// the argument object however the value was derived. See the call site for the shape
+/// that made this necessary.
+fn base_arg_path(
+    e: &Expression,
+    scope: &VarScope,
+    module_source: &str,
+    ref_off: Option<usize>,
+    depth: u32,
+) -> Option<WapArgPath> {
+    if depth > MAX_ALIAS_DEPTH {
+        return None;
+    }
+    if let Expression::ParenthesizedExpression(p) = e {
+        return base_arg_path(&p.expression, scope, module_source, ref_off, depth);
+    }
+    let (fn_start, _, root) = scope.arg_root_at(ref_off?)?;
+    if let Some(name) = as_identifier(e) {
+        if name == root {
+            return Some(Vec::new());
+        }
+        let mut found: Option<WapArgPath> = None;
+        for init in scope.vars.get(name)? {
+            if !scope.same_fn(fn_start, init.init_start) {
+                continue;
+            }
+            if let Some((s, en)) = init.owner_fn
+                && !matches!(ref_off, Some(o) if s <= o && o < en)
+            {
+                continue;
+            }
+            let slice = &module_source[init.init_start..init.init_end];
+            let alloc = Allocator::default();
+            let parsed = wa_oxc::parse_cjs(&alloc, slice);
+            let Some(expr) = first_expression(&parsed.program) else {
+                continue;
+            };
+            let Some(p) = base_arg_path(expr, scope, module_source, ref_off, depth + 1) else {
+                continue;
+            };
+            // Same disagreement rule as the general walk: two different sources for one
+            // name is no address at all.
+            match &found {
+                Some(prev) if *prev != p => return None,
+                Some(_) => {}
+                None => found = Some(p),
+            }
+        }
+        return found;
+    }
+    if e.as_member_expression().is_some() {
+        return relative_arg_path(e, scope, module_source, ref_off, depth);
+    }
     None
 }
 
@@ -702,7 +770,7 @@ fn mentions(e: &Expression, root: &str) -> bool {
 /// A `Const` attribute is skipped: the builder writes the literal itself, so there is
 /// no argument to point at, and an absent path there means "nothing to supply" rather
 /// than "we failed".
-fn annotate_attr_arg_paths(
+pub(crate) fn annotate_attr_arg_paths(
     attrs: &mut [WapAttrDef],
     attrs_node: &Expression,
     scope: &VarScope,
@@ -1412,7 +1480,17 @@ fn resolve_map_call(
         Expression::FunctionExpression(func) => {
             let body = func.body.as_ref()?;
             let body_code = &node_source[body.span.start as usize..body.span.end as usize];
-            find_wap_calls_in_body(body_code, aliases)
+            // The callback's own parameter is the element it maps, and every key it reads
+            // hangs off that; `rebase_template` then prefixes the receiver.
+            let element = param_names(&func.params);
+            find_wap_calls_in_body(
+                body_code,
+                aliases,
+                match element.as_slice() {
+                    [only] => Some(only.as_str()),
+                    _ => None,
+                },
+            )
         }
         // Reference mapper — a cross-module helper or a local function.
         _ => resolve_mapper_ref(
@@ -1612,7 +1690,7 @@ fn resolve_function_return(
     }
     // No resolvable returns: fall back to a flat scan, then `return helper(...)` chains.
     let body = &module_source[body_start..body_end];
-    let direct = find_wap_calls_in_body(body, aliases);
+    let direct = find_wap_calls_in_body(body, aliases, None);
     if !direct.is_empty() {
         return direct;
     }
@@ -1821,16 +1899,33 @@ impl<'a> Visit<'a> for MergeFnFinder<'_> {
 /// The body is re-parsed in isolation, so smax aliases local to the enclosing
 /// module aren't visible; we rebuild a local alias map from this body so any
 /// `(X = o("WASmaxJsx"))` inside it is still resolved.
-fn find_wap_calls_in_body(body_code: &str, outer: &AliasMap) -> Vec<WapChildNode> {
+fn find_wap_calls_in_body(
+    body_code: &str,
+    outer: &AliasMap,
+    arg_root: Option<&str>,
+) -> Vec<WapChildNode> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, body_code);
     let local = build_alias_map(&ret.program);
+    // A scope over this body ALONE, with the callback's parameter as its argument root.
+    // That is all a mapper needs: it reads one element and nothing else, so every path it
+    // states is relative to that parameter — and the caller rebases the lot onto the
+    // receiver afterwards. Without the root the collector produced nodes whose keys were
+    // simply absent, so a consumer could find the list and not what to put in it.
+    let mut scope = build_var_scope(&ret.program);
+    if let Some(root) = arg_root {
+        scope
+            .fn_params
+            .push((0, body_code.len(), vec![root.to_string()]));
+    }
     let mut c = WapCollector {
         out: Vec::new(),
         source: body_code,
         // Prefer the body-local aliases; fall back to the outer ones.
         local: &local,
         outer,
+        scope: &scope,
+        rooted: arg_root.is_some(),
     };
     c.visit_program(&ret.program);
     c.out
@@ -1841,23 +1936,33 @@ struct WapCollector<'s> {
     source: &'s str,
     local: &'s AliasMap,
     outer: &'s AliasMap,
+    /// The body's own scope, carrying the callback parameter as an argument root when
+    /// there is one.
+    scope: &'s VarScope,
+    /// Whether that root exists. Without it the sweep has no reference context and every
+    /// path is unrecoverable by construction, which is a different thing from failing to
+    /// resolve one.
+    rooted: bool,
 }
 
 impl<'a> Visit<'a> for WapCollector<'_> {
     fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
         let parsed = parse_wap_call(call, self.local).or_else(|| parse_wap_call(call, self.outer));
         if let Some(wap) = parsed {
-            let attrs = wap
+            let mut attrs = wap
                 .attrs_node
                 .map(|n| extract_attrs_from_obj(n, self.source, self.local))
                 .unwrap_or_default();
+            // Offset 0 is inside the synthetic body span, so it names the callback frame.
+            let ref_off = self.rooted.then_some(0);
+            if let Some(n) = wap.attrs_node {
+                annotate_attr_arg_paths(&mut attrs, n, self.scope, self.source, ref_off);
+            }
             self.out.push(WapChildNode {
                 tag: wap.tag.to_string(),
                 attrs,
                 children: Vec::new(),
-                // A flat sweep over a body with no reference context: argument paths
-                // are unrecoverable here by construction, and stay absent.
-                content: leaf_content(wap.child_args, &VarScope::default(), "", None),
+                content: leaf_content(wap.child_args, self.scope, self.source, ref_off),
                 repeats: false,
                 variant_groups: Vec::new(),
                 ..Default::default()
@@ -2494,6 +2599,48 @@ mod tests {
             vec![("productIds".to_string(), true)],
             "the node addresses the list it is mapped over"
         );
+        assert_eq!(
+            path_of(&p.attrs[0].arg_path),
+            vec![
+                ("productIds".to_string(), true),
+                ("productId".to_string(), false)
+            ],
+            "and its keys are read off an element, not off the request's arguments"
+        );
+    }
+
+    #[test]
+    fn a_key_read_off_a_call_result_is_not_an_argument_path() {
+        // `attrFromReference(accessor, e, ["id"])` reads out of the stanza being ACKED.
+        // The general walk descends into a call's arguments, finds the bare parameter and
+        // reports the empty path, which then absorbs `.value` — publishing `value` as an
+        // address into the builder's options object, which it is not. A key read off a
+        // computed value is not an address however the value was derived.
+        let code = r#"
+            function b(e){ var t = o("M").attrFromReference(o("P").attrStanzaId, e, ["id"]);
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxJsx").smax("ack", {id: o("WAWap").STANZA_ID(t.value)})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let ack = out.iter().find(|c| c.tag == "ack").expect("ack");
+        assert!(ack.attrs[0].arg_path.is_none(), "{:?}", ack.attrs[0]);
+    }
+
+    #[test]
+    fn a_key_read_off_the_parameter_is_still_an_argument_path() {
+        // The counterpart, so the restriction above stays a restriction on CALLS rather
+        // than on member chains: a nested read off the parameter is a plain address.
+        let code = r#"
+            function b(e){ var t = e.outer;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxJsx").smax("x", {v: o("WAWap").CUSTOM_STRING(t.inner)})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let x = out.iter().find(|c| c.tag == "x").expect("x");
+        assert_eq!(
+            path_of(&x.attrs[0].arg_path),
+            vec![("outer".to_string(), false), ("inner".to_string(), false)]
+        );
     }
 
     #[test]
@@ -2885,7 +3032,7 @@ mod tests {
     #[test]
     fn find_wap_calls_collects_flat() {
         let body = r#"{ var a = e.wap("one", {}); foo(); return e.wap("two", {z:"9"}); }"#;
-        let out = find_wap_calls_in_body(body, &AliasMap::default());
+        let out = find_wap_calls_in_body(body, &AliasMap::default(), None);
         let tags: Vec<_> = out.iter().map(|c| c.tag.as_str()).collect();
         assert_eq!(tags, ["one", "two"]);
         assert!(out.iter().all(|c| !c.repeats && c.children.is_empty()));
