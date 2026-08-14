@@ -77,18 +77,17 @@ mod tests {
         kind: EnumValueKind,
         vs: &[(&str, Scalar)],
     ) -> InternalEnumDef {
-        InternalEnumDef {
-            name: name.into(),
-            module: module.into(),
-            value_kind: kind,
-            variants: vs
-                .iter()
+        InternalEnumDef::new(
+            name.into(),
+            module.into(),
+            kind,
+            vs.iter()
                 .map(|(n, v)| EnumVariant {
                     name: (*n).into(),
                     value: v.clone(),
                 })
                 .collect(),
-        }
+        )
     }
 
     #[test]

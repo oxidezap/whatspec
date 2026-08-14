@@ -292,6 +292,7 @@ const FIELD_TYPE_VARIANTS: &[&str] = &[
     "JidTyped",
     "Bool",
     "Union",
+    "Node",
 ];
 
 /// The generated variant name for an IR field type. Exhaustive on purpose; see
@@ -318,6 +319,7 @@ fn field_type_variant(t: wa_ir::ParsedFieldType) -> &'static str {
         T::JidTyped => "JidTyped",
         T::Bool => "Bool",
         T::Union => "Union",
+        T::Node => "Node",
     }
 }
 
@@ -553,7 +555,7 @@ mod tests {
                             method: "attrString".into(),
                             name: "id".into(),
                             field_type: ParsedFieldType::String,
-                            required: true,
+                            parser_required: true,
                             ..Default::default()
                         }],
                         ..Default::default()

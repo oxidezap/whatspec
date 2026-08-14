@@ -135,7 +135,7 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
             // Content has no NAME — it is the node's own payload — so the descent path is the
             // whole of its identity, which is exactly what distinguishes one node's content
             // from another's.
-            if reached && f.required && wa_ir::wap::is_content_method(&f.method) {
+            if reached && f.parser_required && wa_ir::wap::is_content_method(&f.method) {
                 out.insert(format!("{}/content", path.join("/")));
             }
             // …and a REPEATED child fails on nothing. Its parser iterates `get_children_by_tag`
@@ -144,7 +144,7 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
             // gate then admitted a union whose first arm accepts the later arm's response.
             let repeated = f.repeats == Some(true);
             if reached
-                && f.required
+                && f.parser_required
                 && !repeated
                 && (f.method == "child" || f.method.starts_with("attr"))
             {
@@ -166,7 +166,7 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
                 // recorded it anyway, and once round forty-six qualified these keys by path
                 // that false requirement could differ from a later variant's real one — so the
                 // subset gate admitted a union whose first arm then took the later response.
-                walk(kids, &inner, reached && f.required, out);
+                walk(kids, &inner, reached && f.parser_required, out);
             }
         }
     }
@@ -1036,7 +1036,7 @@ mod tests {
         };
         let content = field(serde_json::json!({
             "method": "contentString", "name": "elementValue", "type": "string",
-            "required": true
+            "parserRequired": true
         }));
         assert!(
             !fail_required_fields(std::slice::from_ref(&content)).is_empty(),
@@ -1046,15 +1046,15 @@ mod tests {
         // content must not stand in for another's. Both shapes below require the same child, so
         // the child entry cannot be what tells them apart — only where the content sits can.
         let content_inside = vec![field(serde_json::json!({
-            "method": "child", "name": "detail", "type": "string", "required": true,
+            "method": "child", "name": "detail", "type": "string", "parserRequired": true,
             "children": [{
                 "method": "contentString", "name": "elementValue", "type": "string",
-                "required": true
+                "parserRequired": true
             }]
         }))];
         let content_outside = vec![
             field(serde_json::json!({
-                "method": "child", "name": "detail", "type": "string", "required": true
+                "method": "child", "name": "detail", "type": "string", "parserRequired": true
             })),
             content.clone(),
         ];
@@ -1067,9 +1067,9 @@ mod tests {
         // vector where the child is absent, so it cannot tell one variant from another.
         let repeated = field(serde_json::json!({
             "method": "child", "name": "item", "tag": "item", "type": "string",
-            "required": true, "repeats": true,
+            "parserRequired": true, "repeats": true,
             "children": [{"method": "attrString", "name": "v", "wireName": "v",
-                          "type": "string", "required": true}]
+                          "type": "string", "parserRequired": true}]
         }));
         assert!(
             !fail_required_fields(std::slice::from_ref(&repeated))
@@ -1081,9 +1081,9 @@ mod tests {
         // repetition rather than about children.
         let single = field(serde_json::json!({
             "method": "child", "name": "item", "tag": "item", "type": "string",
-            "required": true,
+            "parserRequired": true,
             "children": [{"method": "attrString", "name": "v", "wireName": "v",
-                          "type": "string", "required": true}]
+                          "type": "string", "parserRequired": true}]
         }));
         assert!(
             fail_required_fields(std::slice::from_ref(&single))
@@ -1095,7 +1095,7 @@ mod tests {
         // back a `None` the field holds rather than an error.
         let optional = field(serde_json::json!({
             "method": "contentString", "name": "elementValue", "type": "string",
-            "required": false
+            "parserRequired": false
         }));
         assert!(
             fail_required_fields(std::slice::from_ref(&optional)).is_empty(),
@@ -1352,7 +1352,7 @@ mod tests {
                 method: "attrString".into(),
                 name: name.into(),
                 field_type: ParsedFieldType::String,
-                required: true,
+                parser_required: true,
                 ..Default::default()
             }
         }
@@ -1420,7 +1420,7 @@ mod tests {
                 method: "attrString".into(),
                 name: name.into(),
                 field_type: ParsedFieldType::String,
-                required: true,
+                parser_required: true,
                 ..Default::default()
             }
         }
@@ -1488,7 +1488,7 @@ mod tests {
                 method: "attrString".into(),
                 name: name.into(),
                 field_type: ParsedFieldType::String,
-                required: true,
+                parser_required: true,
                 ..Default::default()
             }
         }
@@ -1570,7 +1570,7 @@ mod tests {
                 .into(),
                 name: name.into(),
                 field_type: ParsedFieldType::String,
-                required,
+                parser_required: required,
                 ..Default::default()
             }
         }
@@ -1580,7 +1580,7 @@ mod tests {
                 name: tag.into(),
                 tag: Some(tag.into()),
                 field_type: ParsedFieldType::String,
-                required: false,
+                parser_required: false,
                 children: Some(kids),
                 ..Default::default()
             }
@@ -1616,7 +1616,7 @@ mod tests {
         let mut op = stanza("WASmaxOutFooOptRequest", Some("makeOptRequest"));
         let mut required_child = optional_child("detail", vec![attr("code", true)]);
         required_child.method = "child".into();
-        required_child.required = true;
+        required_child.parser_required = true;
         op.response = ParsedResponse {
             parser_name: "FooOptRPC".into(),
             variants: vec![
@@ -1690,7 +1690,7 @@ mod tests {
                 name: name.into(),
                 wire_name: Some("code".into()),
                 field_type: ParsedFieldType::String,
-                required: true,
+                parser_required: true,
                 ..Default::default()
             }
         }
@@ -1795,7 +1795,7 @@ mod tests {
                 method: "attrString".into(),
                 name: name.into(),
                 field_type: ParsedFieldType::String,
-                required: true,
+                parser_required: true,
                 ..Default::default()
             }
         }
@@ -1869,7 +1869,7 @@ mod tests {
                 method: "attrString".into(),
                 name: name.into(),
                 field_type: ParsedFieldType::String,
-                required: true,
+                parser_required: true,
                 ..Default::default()
             }
         }

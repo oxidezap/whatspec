@@ -159,7 +159,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "clientExpirationT")
             .expect("optional int field");
-        assert!(!t.required);
+        assert!(!t.parser_required);
     }
 
     #[test]

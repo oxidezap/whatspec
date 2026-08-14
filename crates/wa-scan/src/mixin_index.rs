@@ -283,16 +283,9 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                     Some("set") => self.frag.iq_type = Some(IqType::Set),
                     _ => {}
                 }
-                let to_group = attrs.iter().any(|a| {
-                    a.name == "to"
-                        && a.kind == WapAttrKind::Const
-                        && a.value.as_deref() == Some("g.us")
-                });
-                if to_group {
-                    self.frag.target = Some(IqTarget::Group);
-                } else if attrs.iter().any(|a| a.name == "to") {
-                    self.frag.target = Some(IqTarget::Server);
-                }
+                // Same rule as a request's own root, so a fragment's `to` and a
+                // request's cannot be read differently.
+                self.frag.target = crate::module::iq_target_from_to(&attrs);
             }
             // The fragment's own children (e.g. `spam_list{spam_flow}`) — merged by
             // tag into a Request's children so cross-module attrs/children survive.
@@ -370,9 +363,11 @@ pub(crate) fn resolve(
                 _ => {}
             }
         }
-        // First Group wins for target; Server is the default elsewhere.
+        // First Group wins; otherwise the first fragment that resolved an addressee at
+        // all does, and an unresolved one never displaces a resolved one.
         if target != Some(IqTarget::Group)
             && let Some(tg) = frag.target
+            && (tg.is_resolved() || target.is_none())
         {
             target = Some(tg);
         }

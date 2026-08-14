@@ -220,14 +220,58 @@ pub enum IqType {
     Set,
 }
 
-/// IQ target server.
+/// Who the builder addresses an `<iq>` to — the `to` attribute it writes on the root.
+///
+/// Only [`Server`] and [`Group`] are claims about the wire. The other two record what
+/// the builder does when no server can be named: [`Unset`] means it writes no `to` at
+/// all, [`Unknown`] that it writes one whose value the scan could not resolve to a
+/// server. Neither is a polite spelling of "server" — an `<iq>` addressed to a runtime
+/// JID is exactly the case a `s.whatsapp.net` default sends to the wrong place, which is
+/// how every `w:g2` request came to claim the server while the client addressed the
+/// group.
+///
+/// [`Server`]: IqTarget::Server
+/// [`Group`]: IqTarget::Group
+/// [`Unset`]: IqTarget::Unset
+/// [`Unknown`]: IqTarget::Unknown
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IqTarget {
+    /// `to="s.whatsapp.net"` — written as the literal or as WA's `S_WHATSAPP_NET`
+    /// constant.
     #[serde(rename = "s.whatsapp.net")]
     Server,
+    /// The group server — `to="g.us"` (literal or `G_US`), or a `GROUP_JID(…)` value,
+    /// which is a `<group>@g.us` JID computed at runtime. Says the request belongs to a
+    /// group, not that `g.us` is the literal string to send.
     #[serde(rename = "g.us")]
     Group,
+    /// The builder writes **no** `to` attribute, and no mixin it folds in adds one. A
+    /// fact about the request, not a failure: `deprecatedSendIq` adds nothing of its
+    /// own, so the stanza really does go out without the attribute. An emitter should
+    /// omit it too rather than substitute a server.
+    #[serde(rename = "unset")]
+    Unset,
+    /// The builder writes a `to` whose value is a runtime JID the scan could not resolve
+    /// to a server (`JID(x)`, `DOMAIN_JID(x)`, a field of an argument). The addressee is
+    /// a parameter of the call, so the IR states that it does not know it — counted
+    /// under `manifest.diagnostics.iq.targets.unknown`, never rounded to [`Server`].
+    ///
+    /// [`Server`]: IqTarget::Server
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+impl IqTarget {
+    /// Whether the scan named a server for this request. `false` for [`Unset`] and
+    /// [`Unknown`] alike — the two differ in *why* no server is named, not in whether
+    /// one is.
+    ///
+    /// [`Unset`]: IqTarget::Unset
+    /// [`Unknown`]: IqTarget::Unknown
+    pub fn is_resolved(&self) -> bool {
+        matches!(self, IqTarget::Server | IqTarget::Group)
+    }
 }
 
 /// The outgoing request half of an IQ operation.
@@ -348,6 +392,22 @@ pub enum ParsedFieldType {
     /// A discriminated union (`{name, value}` smax disjunction) — the alternatives
     /// are carried in [`ParsedField::union_variants`].
     Union,
+    /// A structural container, not a value: the field has **no accessor of its own**
+    /// (`method` is empty) and its content is entirely in [`ParsedField::children`] —
+    /// a smax payload mixin folded into the response (`groupAddressingModeMixin`,
+    /// `wAMOSubMixin`, …), read off this same node when [`same_node`] is set.
+    ///
+    /// It exists because the alternative was worse: `method_field_type("")` fell through
+    /// to [`String`], so 517 containers in `iq/index.json` alone declared a scalar type
+    /// they have no value for, and a codegen switching on `type` emitted `String` for a
+    /// node with children. Carrying no scalar type at all is the fact.
+    ///
+    /// It says nothing about the *identity* of the mixin that was folded in — that
+    /// survives only in the field's camelCase name.
+    ///
+    /// [`String`]: ParsedFieldType::String
+    /// [`same_node`]: ParsedField::same_node
+    Node,
 }
 
 impl ParsedFieldType {
@@ -370,6 +430,38 @@ impl ParsedFieldType {
                 | ParsedFieldType::JidTyped
         )
     }
+}
+
+/// What a response parser does when the wire carries a value **outside** the legal set
+/// a field's accessor checks against.
+///
+/// The second dimension of an accessor, next to the type it decodes to
+/// ([`crate::wap::method_field_type`]): WA spells both into one method name, and only
+/// the first was ever published. See [`ParsedField::unknown_value`] for why the
+/// difference is not cosmetic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum UnknownValuePolicy {
+    /// The parse fails: an unrecognised value makes the whole node unparseable, so the
+    /// variant does not match and the stanza falls through to the next one (or is
+    /// rejected outright). `attrEnum`, `attrStringEnum`, `contentEnum`, `attrJidEnum`.
+    /// A consumer may generate a closed enum — the client cannot see a value outside it
+    /// either.
+    Reject,
+    /// The field becomes null and the parse continues — `attrEnumOrNullIfUnknown`. The
+    /// wire may legitimately carry a value this bundle's enum does not list (a newer
+    /// server), so a consumer needs a fallback variant or an optional field; closing the
+    /// enum here rejects traffic the official client accepts.
+    Null,
+    /// The accessor has a closed value set and this build does **not** know which of the
+    /// above it does with a value outside it. Emitted rather than silently folded into
+    /// [`Reject`], the commoner state: a new WA enum accessor must be visible as
+    /// unclassified — `scripts/lint-ir.py` counts it and holds the count at zero — rather
+    /// than arriving with a policy nobody checked.
+    ///
+    /// [`Reject`]: UnknownValuePolicy::Reject
+    Unclassified,
 }
 
 /// How a child/leaf node's content is accessed in the response parser.
@@ -441,7 +533,38 @@ pub struct ParsedField {
     pub wire_name: Option<String>,
     #[serde(rename = "type")]
     pub field_type: ParsedFieldType,
-    pub required: bool,
+    /// **The accessor does not tolerate absence** — it is `attrX`, not `maybeAttrX`, so
+    /// the parser rejects the node when the value is missing *at the point it reads it*.
+    ///
+    /// Deliberately not called `required`, which is what it was called and what it never
+    /// meant. `<meta polltype>` is read with a non-`maybe` accessor and so is
+    /// `parserRequired`, but the client only reaches that read when the envelope's
+    /// `type` is `poll` — 1 of 7 values. A consumer that treated the old name as "the
+    /// wire always carries this" and validated on it rejected legitimate traffic.
+    ///
+    /// The IR models shape and constraint, not control flow: **no domain carries the
+    /// branch condition** that decides whether a field is read at all, so `true` here is
+    /// an upper bound on presence, never a guarantee of it. `false` is the sharper
+    /// claim — the parser accepts the node without the value.
+    ///
+    /// On the *request* side [`WapAttrDef::required`] is a different statement (the
+    /// builder always writes the attribute) and keeps its name.
+    #[serde(rename = "parserRequired")]
+    pub parser_required: bool,
+    /// What the parser does with a wire value **outside** this field's legal set — the
+    /// dimension the accessor's name carried and the IR did not. Present only for an
+    /// accessor that has a closed set to fall outside of (the enum accessors, plus
+    /// `attrJidEnum`'s server-kind set); absent means there is no set, not that anything
+    /// goes.
+    ///
+    /// Without it `attrEnum` and `attrEnumOrNullIfUnknown` are the same field — same
+    /// `type`, same `parserRequired` — while one rejects the whole stanza on an
+    /// unrecognised value and the other yields null. Which one a wire enum is decides
+    /// whether a consumer may close its generated enum or must give it a fallback
+    /// variant, so reading it off the WhatsApp method name in English was the last step
+    /// a consumer had to do by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown_value: Option<UnknownValuePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byte_length: Option<u32>,
     /// Inclusive lower bound on the byte-content length, enforced via
@@ -716,6 +839,23 @@ pub struct ParsedResponse {
     pub pending_drops: Vec<String>,
 }
 
+impl ParsedResponse {
+    /// Stamp every field in this shape — the root ones and each variant's — with the
+    /// accessor classification that is derived rather than scanned
+    /// ([`ParsedField::unknown_value`]).
+    ///
+    /// Every domain that emits a [`ParsedResponse`] must run this before serializing;
+    /// `scripts/lint-ir.py` fails the build for one that does not, so a domain added
+    /// later cannot ship enum fields with no policy the way `incoming` and `notif` once
+    /// shipped enum links that resolved to nothing.
+    pub fn classify_accessors(&mut self) {
+        crate::wap::classify_unknown_values(&mut self.fields);
+        for v in &mut self.variants {
+            crate::wap::classify_unknown_values(&mut v.fields);
+        }
+    }
+}
+
 // ─── IQ operation ────────────────────────────────────────────────────────────────
 
 /// A complete IQ operation: its request shape and response parser.
@@ -859,6 +999,15 @@ pub struct IqIr {
     pub unparseable: Vec<Unparseable>,
 }
 
+impl IqIr {
+    /// Run [`ParsedResponse::classify_accessors`] over every stanza's response.
+    pub fn classify_accessors(&mut self) {
+        for s in &mut self.stanzas {
+            s.response.classify_accessors();
+        }
+    }
+}
+
 /// The versioned generalized-stanza IR document: every outgoing non-IQ stanza the
 /// bundle builds (`receipt`, `presence`, `chatstate`, `ack`, …), in the same
 /// `{ waVersion, … }` envelope as the other domains.
@@ -868,6 +1017,17 @@ pub struct IqIr {
 pub struct StanzaIr {
     pub wa_version: String,
     pub stanzas: Vec<StanzaDef>,
+}
+
+impl StanzaIr {
+    /// Run [`ParsedResponse::classify_accessors`] over every stanza that has a response.
+    pub fn classify_accessors(&mut self) {
+        for s in &mut self.stanzas {
+            if let Some(r) = s.response.as_mut() {
+                r.classify_accessors();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -896,7 +1056,7 @@ mod tests {
             method: "maybeChild".into(),
             name: "media".into(),
             field_type: ParsedFieldType::JidTyped,
-            required: false,
+            parser_required: false,
             byte_length: None,
             enum_keys: None,
             tag: Some("media".into()),

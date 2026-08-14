@@ -33,6 +33,16 @@ from pathlib import Path
 # recover is now being lost, and the number has to be updated with a reason.
 BASELINE = {
     "content integer with no byte width": 0,
+    # An accessor that checks a value set whose out-of-set behaviour `wa_ir::wap` has not
+    # judged. Held at zero: a new WA enum accessor must be classified, not silently
+    # assumed to reject, which is what the whole `unknownValue` dimension exists to stop.
+    "enum accessor with no judged unknown-value policy": 0,
+    # `<iq>` requests the scan could not address. `unset` is the honest answer for the
+    # four newsletter builders that write no `to` at all — an emitter should write none
+    # either. Counted here rather than floor-guarded because it must FALL as extraction
+    # improves; `diagnostics.iq.targets.resolved` guards the other direction in
+    # `check_floor`, so a request cannot move from an address to no address unseen.
+    "iq request with no resolved addressee": 4,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -122,8 +132,16 @@ FIELD_TYPES = {
     "string", "integer", "timestamp", "timestamp_millis", "enum", "bytes",
     "jid", "user_jid", "lid_user_jid", "device_jid", "lid_device_jid",
     "group_jid", "newsletter_jid", "call_jid", "broadcast_jid", "status_jid",
-    "jid_typed", "bool", "union",
+    "jid_typed", "bool", "union", "node",
 }
+
+# The `UnknownValuePolicy` vocabulary, mirroring `wa_ir::UnknownValuePolicy`.
+UNKNOWN_VALUE_POLICIES = {"reject", "null", "unclassified"}
+
+# Addressee values that name no server. `wa_ir::IqTarget::is_resolved` is their negation;
+# the two must agree, so a variant added on one side and not the other is a lint failure
+# rather than a number that quietly stops counting anything.
+UNRESOLVED_TARGETS = {"unset", "unknown"}
 
 
 def collect_unresolved_enums(data, domain, proto_enums, out):
@@ -431,6 +449,57 @@ def check_field(f, path, domain, errors, counts, proto_enums):
             f"which pin the value to different things"
         )
 
+    # A field with NO accessor whose content is its children is a structural container,
+    # not a value. It used to declare `string` — `method_field_type("")` fell through to
+    # the default — so a generator switching on `type` emitted a scalar for a node with a
+    # subtree, 617 times across the emitted documents.
+    if not method and f.get("children") and t != "node":
+        errors.append(
+            f"{path}: no accessor and {len(f['children'])} child(ren), but declares "
+            f"scalar type {t!r} — a container is not a value"
+        )
+    # And the converse, so the type cannot be handed out to anything else: `node` is only
+    # ever a container. A `node` with an accessor would be claiming both at once.
+    if t == "node" and (method or not f.get("children")):
+        errors.append(
+            f"{path}: type 'node' with "
+            f"{'an accessor' if method else 'no children'} — `node` means the field IS "
+            f"its children and reads nothing itself"
+        )
+
+    # The out-of-set dimension. It must be present exactly where the accessor checks a
+    # value set, and absent where it does not: emitting it on an accessor with no set
+    # would point a consumer at a set it cannot read, and omitting it on one that has a
+    # set leaves the `attrEnum`/`attrEnumOrNullIfUnknown` pair indistinguishable — same
+    # `type`, same `parserRequired`, opposite behaviour on an unrecognised value.
+    #
+    # The predicate mirrors `wa_ir::wap::has_closed_value_set`, which derives it from the
+    # spelling rather than from a list.
+    #
+    # Only where the accessor is recorded: a notification ACTION field carries the policy
+    # but never the accessor it came from (`wa-notif` stamps it at extraction, since the
+    # shape has nowhere to keep the spelling), so there is nothing here to cross-check it
+    # against and inventing a mismatch would be the lint contradicting the IR.
+    policy = f.get("unknownValue")
+    checks_a_set = "Enum" in method and not method.endswith("FromReference")
+    if policy is not None and policy not in UNKNOWN_VALUE_POLICIES:
+        errors.append(f"{path}: unknownValue {policy!r} is not in the policy vocabulary")
+    elif "method" not in f:
+        pass
+    elif checks_a_set and policy is None:
+        errors.append(
+            f"{path}: accessor {method!r} checks a value set but carries no "
+            f"unknownValue — whether an unrecognised value is rejected or nulled is "
+            f"what decides if a generated enum may be closed"
+        )
+    elif policy is not None and not checks_a_set:
+        errors.append(
+            f"{path}: unknownValue {policy!r} on accessor {method!r}, which checks no "
+            f"value set — a policy for a set that is not published"
+        )
+    if policy == "unclassified":
+        counts["enum accessor with no judged unknown-value policy"] += 1
+
 
 def check_enum_ref(node, path, errors, seen_refs=None):
     """An `enumRef` anywhere, not only on a `ParsedField`.
@@ -629,6 +698,69 @@ def check_enum_catalog_refs(data, domain, errors):
             errors.append(f"{domain}{path}: enum reference {module!r} resolves to no values")
 
     walk(data, visit)
+
+
+def collect_catalog_keys(path):
+    """`(module, name)` for every entry in the enum catalog, and the collisions in it.
+
+    Returns `(keys, duplicates)`. The key is the PAIR: four names in the catalog are
+    defined twice, and `EventType`'s two definitions disagree on `valueKind`, so a
+    consumer indexing by name generates a type from the wrong universe. Reading the
+    catalog once here, rather than per-document, keeps the reference check O(refs).
+    """
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None, []
+    keys, dupes = set(), []
+    for e in data.get("enums") or []:
+        if not isinstance(e, dict):
+            continue
+        k = (e.get("module"), e.get("name"))
+        if k in keys:
+            dupes.append(k)
+        keys.add(k)
+    return keys, dupes
+
+
+def check_catalog_resolution(data, domain, catalog_keys, errors):
+    """Every `enumRef` in the document names an entry of the enum catalog.
+
+    The promise the catalog now makes: one index, one key, and a reference that always
+    lands. Before it did not — 75 of the 87 `(module, name)` pairs the IR referenced
+    existed nowhere in `enums/index.json`, so a generator reading the catalog emitted a
+    fraction of the types the IR names and hand-wrote the rest. Nothing said so, because
+    each reference carried its own copy of the variants and looked complete in place.
+    """
+    if catalog_keys is None:
+        return
+
+    def visit(node, path):
+        ref = node.get("enumRef")
+        if not isinstance(ref, dict):
+            return
+        key = (ref.get("module"), ref.get("name"))
+        if key not in catalog_keys:
+            errors.append(
+                f"{domain}{path}/enumRef: {key[0]}.{key[1]} resolves against no catalog "
+                f"entry — a consumer indexing enums/index.json cannot generate this type"
+            )
+
+    walk(data, visit)
+
+
+def count_unresolved_targets(data, domain, counts):
+    """`<iq>` requests whose addressee the scan could not name.
+
+    A counted state, not an error: `unset` is a true statement about a builder that
+    writes no `to`. It is here so it can only fall — the number rising means requests
+    stopped resolving, which is how all 143 came to claim `s.whatsapp.net`.
+    """
+    if domain != "iq":
+        return
+    for st in data.get("stanzas") or []:
+        if isinstance(st, dict) and st.get("target") in UNRESOLVED_TARGETS:
+            counts["iq request with no resolved addressee"] += 1
 
 
 def check_event_codes(data, domain, errors):
@@ -1143,6 +1275,14 @@ def main() -> int:
     # The protobuf enums an appstate `protoEnum` may name. A path that resolves to
     # nothing is not a constraint — it only looks like one because the string is present,
     # and the schema accepts any string.
+    # The one index every `enumRef` in every domain has to resolve against.
+    catalog_keys, catalog_dupes = collect_catalog_keys(root / "enums" / "index.json")
+    for m, n in catalog_dupes:
+        errors.append(
+            f"enums: ({m}, {n}) is defined more than once — (module, name) is the "
+            f"catalog key and a duplicate makes it unresolvable"
+        )
+
     proto_enums = collect_proto_enums(root / "proto" / "WAProto.proto")
     proto_messages = collect_proto_messages(root / "proto" / "WAProto.proto")
     sync_fields = collect_sync_action_fields(root / "proto" / "WAProto.proto")
@@ -1207,6 +1347,8 @@ def main() -> int:
         )
         check_tokens(data, domain, errors)
         check_notif_identifiers(data, domain, errors)
+        check_catalog_resolution(data, domain, catalog_keys, errors)
+        count_unresolved_targets(data, domain, counts)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 
     ok = True

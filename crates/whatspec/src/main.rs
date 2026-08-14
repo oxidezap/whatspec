@@ -774,6 +774,8 @@ struct Counts {
     /// `manifest.diagnostics.iq.{stanzas,typedResponses}`.
     iq_stanzas: usize,
     iq_typed_responses: usize,
+    /// Requests whose addressee the scan named — see [`IqTargetCounts::resolved`].
+    iq_targets_resolved: usize,
     /// Validation-constraint coverage, mirroring
     /// `manifest.diagnostics.iq.constraints` — see [`IqConstraintCounts`].
     iq_reference_constraints: usize,
@@ -834,6 +836,48 @@ struct IqDiagnostics {
     cross_module: wa_scan::CrossModuleStats,
     /// Validation-constraint coverage — see [`IqConstraintCounts`].
     constraints: IqConstraintCounts,
+    /// Who the emitted requests are addressed to — see [`IqTargetCounts`].
+    targets: IqTargetCounts,
+}
+
+/// How the addressee of each emitted `<iq>` resolved.
+///
+/// The point of the split is that the last two are not addresses. They used to be
+/// reported as `s.whatsapp.net` because [`wa_ir::IqTarget`] had no third state, so a
+/// consumer could not tell the 106 requests that really name the server from the ones
+/// nothing named at all.
+#[derive(Debug, Default, Clone, Copy)]
+struct IqTargetCounts {
+    server: usize,
+    group: usize,
+    /// The builder writes no `to` and no fragment it folds in adds one.
+    unset: usize,
+    /// A `to` is written and the scan could not resolve it to a server.
+    unknown: usize,
+}
+
+impl IqTargetCounts {
+    /// Requests whose addressee is named — the coverage number, guarded against
+    /// *falling* by `check_floor` exactly like `typedResponses`. The other two are held
+    /// against *rising* by `scripts/lint-ir.py`, since they shrink as extraction
+    /// improves; one direction each, and between them a request cannot quietly move from
+    /// an address to no address.
+    fn resolved(self) -> usize {
+        self.server + self.group
+    }
+
+    fn of(stanzas: &[wa_ir::IqStanzaDef]) -> Self {
+        let mut c = Self::default();
+        for s in stanzas {
+            match s.target {
+                wa_ir::IqTarget::Server => c.server += 1,
+                wa_ir::IqTarget::Group => c.group += 1,
+                wa_ir::IqTarget::Unset => c.unset += 1,
+                wa_ir::IqTarget::Unknown => c.unknown += 1,
+            }
+        }
+        c
+    }
 }
 
 /// How many *validation constraints* the IQ IR carries, counted over the emitted
@@ -1717,11 +1761,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             let c = push_abprops(&mut a, wa_version, source, &module_defs)?;
             Ok((a, c))
         });
-        let enums = s.spawn(|| -> Result<_> {
-            let mut a = Vec::new();
-            let c = push_enums(&mut a, wa_version, source, &module_defs)?;
-            Ok((a, c))
-        });
+        let enums = s.spawn(|| scan_enums(wa_version, source, &module_defs));
         let wam = s.spawn(|| -> Result<_> {
             let mut a = Vec::new();
             let c = push_wam(&mut a, wa_version, source, &module_defs)?;
@@ -1812,7 +1852,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (mex_arts, mex_count) = mex.expect(checked);
     let (appstate_arts, appstate_count) = appstate.expect(checked);
     let (abprops_arts, abprops_count) = abprops.expect(checked);
-    let (enums_arts, enums_count) = enums.expect(checked);
+    let mut enums_ir = enums.expect(checked);
     let (wam_arts, wam_count) = wam.expect(checked);
     let (notif_arts, notif_counts) = notif.expect(checked);
     let NotifCounts {
@@ -1828,6 +1868,39 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (incoming_arts, (incoming_count, incoming_drops)) = incoming.expect(checked);
     let (srvreq_arts, srvreq_count) = srvreq.expect(checked);
     let (wasm_arts, (wasm_binaries, wasm_resources, wasm_wasm_handles)) = wasm.expect(checked);
+
+    // The catalog is only complete once the enums the other domains reference inline
+    // are in it: 75 of the 87 `(module, name)` pairs referenced across iq/incoming/
+    // notif/srvreq/stanza existed nowhere in it, so a generator that read the catalog
+    // and nothing else emitted a fraction of the types the IR names. Folded in here
+    // rather than in the enums extractor because only this point has seen every domain.
+    let enum_merge = merge_referenced_enums(
+        &mut enums_ir,
+        [
+            &iq_arts,
+            &notif_arts,
+            &stanza_arts,
+            &incoming_arts,
+            &srvreq_arts,
+        ],
+    )?;
+    let enums_count = enums_ir.enums.len();
+    eprintln!(
+        "enums: {enums_count} definitions ({} promoted from inline references, \
+         {} referenced pair(s) disagreed with the catalog)",
+        enum_merge.promoted, enum_merge.divergent,
+    );
+    let enums_arts = vec![
+        Artifact {
+            rel_path: PathBuf::from("enums/index.json"),
+            content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&enums_ir))? + "\n",
+        },
+        // Reference Rust catalog (per-module `(variant, value)` const tables).
+        Artifact {
+            rel_path: PathBuf::from("enums/enums.rs"),
+            content: wa_codegen::generate_enums(&enums_ir),
+        },
+    ];
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -1891,6 +1964,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         notif_stanza_tags: notif_tags,
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
+        iq_targets_resolved: iq_diag.targets.resolved(),
         iq_reference_constraints: iq_diag.constraints.reference_constraints,
         iq_field_literals: iq_diag.constraints.field_literals,
         iq_field_enum_refs: iq_diag.constraints.field_enum_refs,
@@ -1999,6 +2073,13 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                     "requestsEnriched": iq_diag.cross_module.requests_enriched,
                     "fieldsRecovered": iq_diag.cross_module.fields_recovered,
                 },
+                "targets": {
+                    "server": iq_diag.targets.server,
+                    "group": iq_diag.targets.group,
+                    "unset": iq_diag.targets.unset,
+                    "unknown": iq_diag.targets.unknown,
+                    "resolved": iq_diag.targets.resolved(),
+                },
                 "constraints": {
                     "referenceConstraints": iq_diag.constraints.reference_constraints,
                     "fieldLiterals": iq_diag.constraints.field_literals,
@@ -2089,6 +2170,19 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
                 regressions.push(format!("iq.{key}: {prev} → {new}"));
             }
         }
+        // Addressee coverage. Guarded upward only: a request whose `to` stops resolving
+        // moves from `server`/`group` into `unset`/`unknown`, which this sees and the
+        // stanza count cannot. The two unresolved states are held against *rising* by
+        // `scripts/lint-ir.py`, so neither direction is unwatched.
+        if let Some(t) = iq.get("targets")
+            && let Some(prev) = t.get("resolved").and_then(serde_json::Value::as_u64)
+            && (counts.iq_targets_resolved as u64) < prev
+        {
+            regressions.push(format!(
+                "iq.targets.resolved: {prev} → {}",
+                counts.iq_targets_resolved
+            ));
+        }
         // The validation-constraint layer. Each counter keys on a distinct JS construct
         // (`attrStringFromReference`, `literal`/`optionalLiteral`, the enum accessors,
         // the error mixins), so a WA refactor that hides one shows up here rather than
@@ -2168,10 +2262,13 @@ fn push_stanza(
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<usize> {
-    let ir = wa_ir::StanzaIr {
+    let mut ir = wa_ir::StanzaIr {
         wa_version: wa_version.to_string(),
         stanzas: wa_scan::scan_stanzas_from_modules(source, module_defs),
     };
+    // Derived accessor classification, filled in before serialization so every
+    // domain publishes it — see `ParsedResponse::classify_accessors`.
+    ir.classify_accessors();
     let count = ir.stanzas.len();
     artifacts.push(Artifact {
         rel_path: PathBuf::from("stanza/index.json"),
@@ -2327,10 +2424,13 @@ fn push_incoming(
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<(usize, std::collections::BTreeMap<String, usize>)> {
     let (incoming, drops) = wa_scan::scan_incoming_with_diagnostics(source, module_defs);
-    let ir = wa_ir::IncomingIr {
+    let mut ir = wa_ir::IncomingIr {
         wa_version: wa_version.to_string(),
         incoming,
     };
+    // Derived accessor classification, filled in before serialization so every
+    // domain publishes it — see `ParsedResponse::classify_accessors`.
+    ir.classify_accessors();
     let count = ir.incoming.len();
     artifacts.push(Artifact {
         rel_path: PathBuf::from("incoming/index.json"),
@@ -2349,10 +2449,13 @@ fn push_srvreq(
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<usize> {
-    let ir = wa_ir::ServerRequestIr {
+    let mut ir = wa_ir::ServerRequestIr {
         wa_version: wa_version.to_string(),
         requests: wa_scan::scan_server_requests_from_modules(source, module_defs),
     };
+    // Derived accessor classification, filled in before serialization so every
+    // domain publishes it — see `ParsedResponse::classify_accessors`.
+    ir.classify_accessors();
     let count = ir.requests.len();
     artifacts.push(Artifact {
         rel_path: PathBuf::from("srvreq/index.json"),
@@ -2396,8 +2499,11 @@ fn push_iq(
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<(usize, IqDiagnostics)> {
-    let (ir, scan_stats) =
+    let (mut ir, scan_stats) =
         wa_scan::extract_iq_from_modules_with_diagnostics(source, module_defs, wa_version);
+    // Derived accessor classification, filled in before serialization so every
+    // domain publishes it — see `ParsedResponse::classify_accessors`.
+    ir.classify_accessors();
     let cross_module = scan_stats.cross_module;
 
     // M8/M9 diagnostics. Every IQ candidate module yields ≥1 stanza or exactly one
@@ -2469,6 +2575,7 @@ fn push_iq(
         drops_by_reason,
         cross_module,
         constraints: iq_constraint_counts(&ir),
+        targets: IqTargetCounts::of(&ir.stanzas),
     };
 
     // Neutral, language-agnostic IR (the cross-language contract): the same
@@ -2571,25 +2678,120 @@ fn push_abprops(
     Ok(count)
 }
 
-fn push_enums(
-    artifacts: &mut Vec<Artifact>,
+/// What [`merge_referenced_enums`] did, for the manifest.
+#[derive(Debug, Clone, Copy, Default)]
+struct EnumMergeStat {
+    /// Enums referenced inline that the catalog did not have, now in it.
+    promoted: usize,
+    /// Referenced `(module, name)` pairs whose inline variants disagree with the
+    /// catalog's. The definition wins; the count exists so a disagreement cannot be
+    /// silent — it means one of the two extraction paths is reading the enum wrong.
+    divergent: usize,
+}
+
+/// Fold every enum referenced inline by a domain document into the catalog, so
+/// `(module, name)` resolves for **every** `enumRef` in the IR.
+///
+/// Reads the emitted JSON rather than the typed IRs on purpose. A typed walk has to name
+/// each field that can hold an `enumRef` and each level it can nest under, and the one it
+/// forgets fails silently and invisibly — which is the shape of the bug this whole change
+/// is about. Walking the document we are actually shipping cannot miss a site, and covers
+/// a new one for free. It costs one re-parse of each domain document (~60 ms on the
+/// current bundle) against a run of several seconds.
+fn merge_referenced_enums<'a>(
+    ir: &mut wa_ir::EnumsIr,
+    domains: impl IntoIterator<Item = &'a Vec<Artifact>>,
+) -> Result<EnumMergeStat> {
+    let mut refs: BTreeMap<(String, String), Vec<wa_ir::EnumVariant>> = BTreeMap::new();
+    for arts in domains {
+        for a in arts {
+            if a.rel_path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let doc: serde_json::Value = serde_json::from_str(&a.content).with_context(|| {
+                format!("re-reading {} for enum references", a.rel_path.display())
+            })?;
+            collect_enum_refs(&doc, &mut refs);
+        }
+    }
+    let mut stat = EnumMergeStat::default();
+    let known: std::collections::HashMap<(&str, &str), &wa_ir::InternalEnumDef> = ir
+        .enums
+        .iter()
+        .map(|e| ((e.module.as_str(), e.name.as_str()), e))
+        .collect();
+    let mut promoted = Vec::new();
+    for ((module, name), variants) in &refs {
+        match known.get(&(module.as_str(), name.as_str())) {
+            Some(def) => {
+                if def.variants != *variants {
+                    stat.divergent += 1;
+                }
+            }
+            None => promoted.push(wa_ir::InternalEnumDef::new(
+                name.clone(),
+                module.clone(),
+                // Every inline reference is resolved to a string-valued enum before it
+                // is published (`AttrEnumVariant::value` is a `String`), so the kind is
+                // not a guess.
+                wa_ir::EnumValueKind::String,
+                variants.clone(),
+            )),
+        }
+    }
+    stat.promoted = promoted.len();
+    ir.enums.extend(promoted);
+    // The catalog's documented order, re-established after the merge.
+    ir.enums
+        .sort_by(|a, b| a.module.cmp(&b.module).then_with(|| a.name.cmp(&b.name)));
+    Ok(stat)
+}
+
+/// Every `enumRef` object anywhere in `v`, keyed `(module, name)`.
+fn collect_enum_refs(
+    v: &serde_json::Value,
+    out: &mut BTreeMap<(String, String), Vec<wa_ir::EnumVariant>>,
+) {
+    match v {
+        serde_json::Value::Object(map) => {
+            for (k, child) in map {
+                if k == "enumRef"
+                    && let Ok(r) = serde_json::from_value::<wa_ir::AttrEnumRef>(child.clone())
+                    && !r.variants.is_empty()
+                {
+                    out.entry((r.module, r.name)).or_insert_with(|| {
+                        r.variants
+                            .into_iter()
+                            .map(|v| wa_ir::EnumVariant {
+                                name: v.name,
+                                value: wa_ir::Scalar::Str(v.value),
+                            })
+                            .collect()
+                    });
+                }
+                collect_enum_refs(child, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for i in items {
+                collect_enum_refs(i, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract the wire-enum catalog. Emits no artifact: the catalog is not complete until
+/// the enums the other domains reference inline are folded into it
+/// ([`merge_referenced_enums`]), and those domains run in sibling threads.
+fn scan_enums(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<usize> {
-    let ir = wa_enums::extract_enums_from_modules(source, module_defs, wa_version);
-    let count = ir.enums.len();
-    eprintln!("enums: {count} definitions");
-    artifacts.push(Artifact {
-        rel_path: PathBuf::from("enums/index.json"),
-        content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
-    });
-    // Reference Rust catalog (per-module `(variant, value)` const tables).
-    artifacts.push(Artifact {
-        rel_path: PathBuf::from("enums/enums.rs"),
-        content: wa_codegen::generate_enums(&ir),
-    });
-    Ok(count)
+) -> Result<wa_ir::EnumsIr> {
+    let mut ir = wa_enums::extract_enums_from_modules(source, module_defs, wa_version);
+    wa_enums::mark_bit_position_enums(&mut ir, source);
+    Ok(ir)
 }
 
 /// `(notification types, types with a recovered typed content shape)`.
@@ -2599,8 +2801,11 @@ fn push_notif(
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<NotifCounts> {
-    let (ir, notif_drops) =
+    let (mut ir, notif_drops) =
         wa_notif::extract_notif_with_diagnostics(source, module_defs, wa_version);
+    // Derived accessor classification, filled in before serialization so every
+    // domain publishes it — see `ParsedResponse::classify_accessors`.
+    ir.classify_accessors();
     let count = ir.notifications.len();
     let stanza_tags = ir.stanza_tags.len();
     let typed = ir
@@ -2965,6 +3170,7 @@ mod tests {
             notif_stanza_tags: 0,
             iq_stanzas: 0,
             iq_typed_responses: 0,
+            iq_targets_resolved: 0,
             stanza_defs: 0,
             incoming_defs: 0,
             server_request_defs: 0,
@@ -3005,6 +3211,7 @@ mod tests {
             iq_modules: 33,
             iq_stanzas: 90,
             iq_typed_responses: 40,
+            iq_targets_resolved: 0,
             ..Default::default()
         };
         let regressions = check_floor(&dir, &counts).unwrap();

@@ -2016,6 +2016,7 @@ fn read_field<'b, 'a>(
         required: !optional_by_guard && !wap::is_optional_method(&acc.method),
         content: acc.content,
         enum_ref,
+        unknown_value: wap::method_unknown_value_policy(&acc.method),
     })
 }
 
@@ -2069,6 +2070,7 @@ fn value_selection<'b, 'a>(
                     wire_name: x.wire_name,
                     content: x.content,
                     enum_ref: x.enum_arg.and_then(|a| consts.enum_ref(a)),
+                    unknown_value: wap::method_unknown_value_policy(&x.method),
                 }))
             } else {
                 Some(None) // two sources for one key: refuse
@@ -2209,6 +2211,7 @@ fn guarded_field(key: &str, acc: Accessor, consts: &ConstResolver) -> NotifActio
         required: false,
         content: acc.content,
         enum_ref,
+        unknown_value: wap::method_unknown_value_policy(&acc.method),
     }
 }
 
@@ -2510,6 +2513,7 @@ fn collect_accessor_fields<'b, 'a>(
                         required: !wap::is_optional_method(&acc.method),
                         content: acc.content,
                         enum_ref,
+                        unknown_value: wap::method_unknown_value_policy(&acc.method),
                     }
                 })
                 .into_iter()

@@ -3,7 +3,7 @@
 //! can't drift — a past drift silently dropped `maybeAttrEnum`. Pure and
 //! dependency-free, so it stays WASM-safe like the rest of the IR contract.
 
-use crate::ParsedFieldType;
+use crate::{ParsedField, ParsedFieldType, UnknownValuePolicy};
 
 // Attribute accessors.
 pub const ATTR_STRING: &str = "attrString";
@@ -170,6 +170,83 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
     }
 }
 
+/// Whether an accessor validates what it reads against an **enum table**, and so has an
+/// out-of-set behaviour at all. `attrString` accepts whatever is there and has none.
+///
+/// Derived from the spelling, the way [`is_attr_method`] is and for the same reason:
+/// WA names every one of these `…Enum…` and a second hand-kept list of them would drift
+/// from the first. `…FromReference` is excluded on the same grounds as there — it reads
+/// off the request, not the node.
+///
+/// The JID accessors are **not** in this set even though `attrJidWithType` does throw on
+/// an unrecognised server. Their set is a format rule with no table in the IR, so saying
+/// "rejects values outside the set" would point a consumer at a set it cannot read.
+/// `attrJidEnum` is in, because it takes a real enum table as its argument.
+pub fn has_closed_value_set(m: &str) -> bool {
+    m.contains("Enum") && !m.ends_with("FromReference")
+}
+
+/// What a parser does with a value outside the set the accessor `m` checks against, or
+/// `None` when `m` checks against no set at all (see [`has_closed_value_set`]).
+///
+/// `maybeAttrX` derives from `attrX` here for the same reason it does in
+/// [`method_field_type`], and it is worth stating why the derivation is *sound* and not
+/// merely convenient: `maybe` governs a value that is **absent**, this governs one that
+/// is **present and unrecognised**, and the two are independent. `maybeAttrEnum` yields
+/// null for a missing attribute and still rejects `type="wat"` — which is why the
+/// optionality already published as `parserRequired` never answered this question.
+pub fn method_unknown_value_policy(m: &str) -> Option<UnknownValuePolicy> {
+    if !has_closed_value_set(m) {
+        return None;
+    }
+    if let Some(rest) = m.strip_prefix("maybe")
+        && let Some(first) = rest.chars().next()
+    {
+        let attr: String = first.to_lowercase().chain(rest.chars().skip(1)).collect();
+        return method_unknown_value_policy(&attr);
+    }
+    Some(match m {
+        // `WAHasProperty(set, v) ? set[v] : null` — the value is dropped, the parse
+        // survives, and the field is null on a value this bundle's enum does not list.
+        "attrEnumOrNullIfUnknown" => UnknownValuePolicy::Null,
+        // The legacy accessors `throw` on a miss (`to have "type"={a|b} but has value
+        // "c"`), and their smax counterparts return a failed `ResultOrError` the caller
+        // propagates — the node does not parse either way.
+        //
+        // `attrEnumValues` takes an OPTIONAL third argument it would return instead of
+        // throwing; no call site in the bundle passes one, and the argument is not in
+        // the IR, so a build where one appears must not keep reading `reject` here.
+        // `attrJidEnum` checks a set of JID servers rather than wire tokens, and fails
+        // the same way on a server outside it.
+        ATTR_ENUM | ATTR_ENUM_VALUES | "attrStringEnum" | "attrJidEnum" | "contentEnum"
+        | "contentStringEnum" => UnknownValuePolicy::Reject,
+        // A new enum accessor: visible as unjudged rather than assumed to reject.
+        _ => UnknownValuePolicy::Unclassified,
+    })
+}
+
+/// Stamp [`ParsedField::unknown_value`] from each field's accessor, throughout the
+/// subtree (children and union variants alike).
+///
+/// The policy is a property of the accessor, so it is filled in once here rather than at
+/// every site that builds a [`ParsedField`] — five domains build them and the sixth one
+/// added would forget. `scripts/lint-ir.py` re-checks the invariant against the emitted
+/// documents so a domain that skips this pass fails the build rather than shipping enum
+/// fields with no policy.
+pub fn classify_unknown_values(fields: &mut [ParsedField]) {
+    for f in fields {
+        f.unknown_value = method_unknown_value_policy(&f.method);
+        if let Some(children) = f.children.as_mut() {
+            classify_unknown_values(children);
+        }
+        if let Some(variants) = f.union_variants.as_mut() {
+            for v in variants {
+                classify_unknown_values(&mut v.fields);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,6 +390,113 @@ mod tests {
         ] {
             assert_eq!(method_field_type(m), ParsedFieldType::String, "{m}");
         }
+    }
+
+    #[test]
+    fn every_closed_set_accessor_has_a_policy() {
+        // The accessors WA checks a value set with, swept from the bundle, with what its
+        // implementation actually does on a miss. `attrEnum` throws
+        // (`to have "type"={a|b} but has value "c"`); the smax spellings return a failed
+        // `ResultOrError` the caller propagates; `attrEnumOrNullIfUnknown` returns null.
+        //
+        // Pinned so a spelling that appears in a later bundle has to be judged: an
+        // accessor that falls through classifies `Unclassified`, which this asserts none
+        // of these does, and which `scripts/lint-ir.py` holds at zero in the emitted
+        // documents.
+        for (m, want) in [
+            (ATTR_ENUM, UnknownValuePolicy::Reject),
+            (MAYBE_ATTR_ENUM, UnknownValuePolicy::Reject),
+            (ATTR_ENUM_VALUES, UnknownValuePolicy::Reject),
+            ("attrStringEnum", UnknownValuePolicy::Reject),
+            ("contentEnum", UnknownValuePolicy::Reject),
+            ("contentStringEnum", UnknownValuePolicy::Reject),
+            ("attrJidEnum", UnknownValuePolicy::Reject),
+            ("attrEnumOrNullIfUnknown", UnknownValuePolicy::Null),
+        ] {
+            assert_eq!(method_unknown_value_policy(m), Some(want), "{m}");
+        }
+        // An accessor that checks no table has no policy — absent is "there is no set",
+        // not "anything goes past a set we forgot". `attrJidWithType` validates a JID
+        // format and publishes no table, so it is deliberately in this half.
+        for m in [
+            ATTR_STRING,
+            ATTR_INT,
+            CONTENT_BYTES,
+            ATTR_USER_JID,
+            HAS_ATTR,
+            ATTR_JID_WITH_TYPE,
+            "attrStringFromReference",
+        ] {
+            assert_eq!(method_unknown_value_policy(m), None, "{m}");
+        }
+        // An unjudged closed-set accessor is visible, never rounded to the common state.
+        assert_eq!(
+            method_unknown_value_policy("attrEnumSomethingNew"),
+            Some(UnknownValuePolicy::Unclassified),
+        );
+    }
+
+    #[test]
+    fn maybe_spellings_inherit_their_unknown_value_policy() {
+        // Same derivation rule as `method_field_type`, and it has to be: the two
+        // questions are independent. `maybe` says the ATTRIBUTE may be absent; the policy
+        // says what happens when it is present with a value the enum does not list.
+        // `maybeAttrEnum` is `hasAttr(x) ? attrEnum(x) : null`, so it still rejects
+        // `type="wat"` — enumerating the `maybe` spellings separately is how one of them
+        // would eventually get the other answer.
+        for base in [ATTR_ENUM, ATTR_ENUM_VALUES, "attrStringEnum", "attrJidEnum"] {
+            let maybe = format!("maybe{}{}", base[..1].to_uppercase(), &base[1..]);
+            assert_eq!(
+                method_unknown_value_policy(&maybe),
+                method_unknown_value_policy(base),
+                "{maybe} must judge unknown values like {base}",
+            );
+        }
+        assert!(is_optional_method(MAYBE_ATTR_ENUM));
+        assert_eq!(
+            method_unknown_value_policy(MAYBE_ATTR_ENUM),
+            Some(UnknownValuePolicy::Reject),
+        );
+    }
+
+    #[test]
+    fn classification_reaches_children_and_union_variants() {
+        // The pass must not stop at the root: an enum field nested under a mixin
+        // container or inside a union arm is where the policy matters most, since that is
+        // where a generator decides whether to close the enum.
+        let leaf = |m: &str| ParsedField {
+            method: m.to_string(),
+            field_type: method_field_type(m),
+            ..Default::default()
+        };
+        let mut fields = vec![
+            ParsedField {
+                method: String::new(),
+                field_type: ParsedFieldType::Node,
+                children: Some(vec![leaf(ATTR_ENUM)]),
+                ..Default::default()
+            },
+            ParsedField {
+                method: String::new(),
+                field_type: ParsedFieldType::Union,
+                union_variants: Some(vec![crate::UnionVariant {
+                    name: "A".into(),
+                    fields: vec![leaf("attrEnumOrNullIfUnknown")],
+                    assertions: vec![],
+                }]),
+                ..Default::default()
+            },
+        ];
+        classify_unknown_values(&mut fields);
+        assert_eq!(fields[0].unknown_value, None, "the container has no set");
+        assert_eq!(
+            fields[0].children.as_ref().unwrap()[0].unknown_value,
+            Some(UnknownValuePolicy::Reject),
+        );
+        assert_eq!(
+            fields[1].union_variants.as_ref().unwrap()[0].fields[0].unknown_value,
+            Some(UnknownValuePolicy::Null),
+        );
     }
 
     #[test]
