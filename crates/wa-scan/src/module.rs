@@ -154,6 +154,15 @@ pub fn scan_module_outcome(
     } else {
         (None, None, None)
     };
+    // The union names the fragments the MODULE folds in, not the ones this call does.
+    // With one `<iq>` builder in the module those are the same statement; with more than
+    // one they are not, and handing a sibling's addressee to a request that writes no `to`
+    // publishes an address it may never send to. Withheld rather than guessed — and the
+    // withholding is remembered, because "some fragment in this module names an addressee
+    // and we cannot say whose" is `Unknown`, not `Unset`.
+    let one_builder = scanner.iq_calls.len() == 1;
+    let mixin_target = if one_builder { mixin_resolved.2 } else { None };
+    let target_unattributable = !one_builder && mixin_resolved.2.is_some();
     // Cross-module `mergeStanzas` fragments: the children/attrs the referenced
     // mixins add to the `<iq>` (e.g. `spam_list{spam_flow}`). Merged by tag into the
     // locally-built children so those cross-module fields aren't lost.
@@ -190,10 +199,14 @@ pub fn scan_module_outcome(
             // request that has one — which is the shape of all four newsletter requests,
             // `smax("iq", null, …)` locally with `mergeNewsletterIQGetRequestMixin`
             // supplying `to: WAWap.JID(x)`.
-            iq.target = Some(match (iq.target, mixin_resolved.2) {
+            iq.target = Some(match (iq.target, mixin_target) {
                 (Some(local), _) if local.is_resolved() => local,
                 (None, Some(from_mixin)) if from_mixin.is_resolved() => from_mixin,
                 (Some(IqTarget::Unknown), _) | (_, Some(IqTarget::Unknown)) => IqTarget::Unknown,
+                // A module-scoped addressee this call cannot be shown to fold in. The
+                // request may well have one, so `Unset` — "the client writes no `to`" —
+                // would be a false statement about it.
+                (None, None) if target_unattributable => IqTarget::Unknown,
                 // Nothing wrote a `to` on either side. `iq_target_from_to` yields `None`
                 // for that, never `Unset`, so this is the only arm that can produce it.
                 _ => IqTarget::Unset,
@@ -747,6 +760,37 @@ mod tests {
         let s = scan_module_source(m, &mixins, &ri(), &hi());
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].target, IqTarget::Unknown);
+    }
+
+    #[test]
+    fn a_sibling_builders_mixin_does_not_address_this_one() {
+        // The mixin union is per MODULE. With two `<iq>` builders in one module and a
+        // target-bearing fragment folded in, handing that addressee to the builder that
+        // writes no `to` would publish an address it may never send to — and `g.us` on a
+        // request meant for the server is exactly the failure this PR exists to remove.
+        // `unknown` is the honest answer: something in the module names an addressee and
+        // the scan cannot say whose.
+        let mixin = r#"__d("WASmaxOutBarIQGetRequestMixin",["WAWap","WASmaxJsx"],function(g,r,d,o,e,i){
+            e.mergeBarIQGetRequestMixin = function(s){ return o("WASmaxJsx").smax("iq", { to: o("WAWap").G_US, xmlns: "w:g2", type: "get" }); };
+        });"#;
+        // Two builders, one module, one folded-in mixin. Only `a` calls it.
+        let m = r#"__d("WASmaxOutBarRequest",["WASmaxJsx","WASmaxOutBarIQGetRequestMixin"],function(g,r,d,o,e,i){
+            e.makeA = function(){ var q = o("WASmaxJsx").smax("iq", { xmlns: "w:g2", type: "get" }); o("WASmaxOutBarIQGetRequestMixin").mergeBarIQGetRequestMixin(q); return q; };
+            e.makeB = function(){ return o("WASmaxJsx").smax("iq", { xmlns: "w:other", type: "set" }); };
+        });"#;
+        let bundle = format!("{mixin}\n{m}");
+        let defs = wa_transform::extract_module_definitions(&bundle);
+        let mixins = crate::mixin_index::build_pass(&defs, &bundle, &hi());
+        let s = scan_module_source(m, &mixins, &ri(), &hi());
+        assert_eq!(s.len(), 2);
+        for st in &s {
+            assert_eq!(
+                st.target,
+                IqTarget::Unknown,
+                "{}: a module-scoped addressee is not this call's",
+                st.namespace
+            );
+        }
     }
 
     #[test]

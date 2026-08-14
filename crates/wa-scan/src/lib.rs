@@ -348,14 +348,18 @@ pub fn extract_iq_from_modules_with_diagnostics(
     wa_version: &str,
 ) -> (IqIr, IqScanStats) {
     let (scan, stats) = scan_iq_with_diagnostics(source, module_defs);
-    (
-        IqIr {
-            wa_version: wa_version.to_string(),
-            stanzas: scan.stanzas,
-            unparseable: scan.unparseable,
-        },
-        stats,
-    )
+    let mut ir = IqIr {
+        wa_version: wa_version.to_string(),
+        stanzas: scan.stanzas,
+        unparseable: scan.unparseable,
+    };
+    // Here, not in the caller. This function is where the versioned IR is minted, and
+    // `unknownValue` is part of what that IR says — a library consumer serializing the
+    // return value of a documented extractor must not get a document `lint-ir.py` would
+    // reject for a normalization step it was never told about. The pass fills silence
+    // only, so the pipeline's own call after this one is a no-op rather than a conflict.
+    ir.classify_accessors();
+    (ir, stats)
 }
 
 /// Convenience: split a whole bundle into modules, then extract the IQ IR.
