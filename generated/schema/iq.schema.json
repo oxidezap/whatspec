@@ -235,17 +235,22 @@
       ]
     },
     "IqTarget": {
-      "description": "Who the builder addresses an `<iq>` to — the `to` attribute it writes on the root.\n\nOnly [`Server`] and [`Group`] are claims about the wire. The other two record what\nthe builder does when no server can be named: [`Unset`] means it writes no `to` at\nall, [`Unknown`] that it writes one whose value the scan could not resolve to a\nserver. Neither is a polite spelling of \"server\" — an `<iq>` addressed to a runtime\nJID is exactly the case a `s.whatsapp.net` default sends to the wrong place, which is\nhow every `w:g2` request came to claim the server while the client addressed the\ngroup.\n\n[`Server`]: IqTarget::Server\n[`Group`]: IqTarget::Group\n[`Unset`]: IqTarget::Unset\n[`Unknown`]: IqTarget::Unknown",
+      "description": "Who the builder addresses an `<iq>` to — the `to` attribute it writes on the root.\n\nThe first three are claims about the wire and are **three different addresses**, not\ntwo. WA keeps `<group>@g.us` and the bare `g.us` apart in its own mixin names\n(`WASmaxOutGroupsBaseGetGroupMixin` writes `GROUP_JID(x)`,\n`…BaseGetServerMixin` writes `g.us`), and 26 of the 33 `w:g2` requests take the\nfirst: collapsing them told an emitter to send a group's subject change to the group\nserver, which answers nothing.\n\nThe last two record what the builder does when no server can be named: [`Unset`]\nmeans it writes no `to` at all, [`Unknown`] that it writes one whose value the scan\ncould not resolve. Neither is a polite spelling of \"server\" — an `<iq>` addressed to a\nruntime JID is exactly the case a `s.whatsapp.net` default sends to the wrong place,\nwhich is how every `w:g2` request came to claim the server while the client addressed\nthe group.\n\n[`Unset`]: IqTarget::Unset\n[`Unknown`]: IqTarget::Unknown",
       "oneOf": [
         {
-          "description": "`to=\"s.whatsapp.net\"` — written as the literal or as WA's `S_WHATSAPP_NET`\nconstant.",
+          "description": "`to=\"s.whatsapp.net\"` — written as the literal or as WA's `S_WHATSAPP_NET`\nconstant. The literal string to send.",
           "type": "string",
           "const": "s.whatsapp.net"
         },
         {
-          "description": "The group server — `to=\"g.us\"` (literal or `G_US`), or a `GROUP_JID(…)` value,\nwhich is a `<group>@g.us` JID computed at runtime. Says the request belongs to a\ngroup, not that `g.us` is the literal string to send.",
+          "description": "`to=\"g.us\"` — the group *server*, written as the literal or as `G_US`. Also the\nliteral string to send. Used by the operations that are not about one group:\ncreating one, listing, exiting.\n\nDistinct from [`GroupJid`], which is a specific group.\n\n[`GroupJid`]: IqTarget::GroupJid",
           "type": "string",
           "const": "g.us"
+        },
+        {
+          "description": "`to=GROUP_JID(x)` — a `<group>@g.us` JID built at runtime from the call's\nargument. **Not a literal to send**: the server is fixed, the JID is not, so an\nemitter has to supply the group. Serialized as `group_jid` rather than a JID-like\nstring for exactly that reason — there is no string here to copy.",
+          "type": "string",
+          "const": "group_jid"
         },
         {
           "description": "The builder writes **no** `to` attribute, and no mixin it folds in adds one. A\nfact about the request, not a failure: `deprecatedSendIq` adds nothing of its\nown, so the stanza really does go out without the attribute. An emitter should\nomit it too rather than substitute a server.",

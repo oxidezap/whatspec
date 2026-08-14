@@ -33,7 +33,8 @@
       "excludedFragments": 66,
       "stanzas": 143,
       "targets": {
-        "group": 33,
+        "groupJid": 27,
+        "groupServer": 6,
         "resolved": 139,
         "server": 106,
         "unknown": 4,
@@ -81,7 +82,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "2d2205820b71f9d5fdd276ec5f9187d992ffc55df0964ad399c539c4e1421cc4"
+      "sha256": "db97f41c5a5dcc96e1a5fc00965fd29215804aad458658e3e0aa854cb73a965c"
     },
     "mex": {
       "file": "mex/index.json",

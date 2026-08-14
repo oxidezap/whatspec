@@ -50323,7 +50323,7 @@
       "moduleName": "WASmaxOutGroupsGetGroupInfoRequest",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsGetGroupInfoRPC",
       "exportedFunction": "makeGetGroupInfoRequestQueryAddRequest",
       "allExports": [
@@ -50333,7 +50333,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "query",
@@ -54085,7 +54085,7 @@
       "moduleName": "WASmaxOutGroupsGetGroupProfilePicturesRequest",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsGetGroupProfilePicturesRPC",
       "exportedFunction": "makeGetGroupProfilePicturesRequest",
       "allExports": [
@@ -54094,7 +54094,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "g.us",
+        "target": "group_jid",
         "children": []
       },
       "response": {
@@ -58205,7 +58205,7 @@
       "moduleName": "WASmaxOutGroupsGetLinkedGroupRequest",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsGetLinkedGroupRPC",
       "exportedFunction": "makeGetLinkedGroupRequest",
       "allExports": [
@@ -58214,7 +58214,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "g.us",
+        "target": "group_jid",
         "children": []
       },
       "response": {
@@ -61242,7 +61242,7 @@
       "moduleName": "WASmaxOutGroupsGetLinkedGroupsParticipantsRequest",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsGetLinkedGroupsParticipantsRPC",
       "exportedFunction": "makeGetLinkedGroupsParticipantsRequest",
       "allExports": [
@@ -61251,7 +61251,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "linked_groups_participants",
@@ -61888,7 +61888,7 @@
       "moduleName": "WASmaxOutGroupsGetMembershipApprovalRequestsRequest",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsGetMembershipApprovalRequestsRPC",
       "exportedFunction": "makeGetMembershipApprovalRequestsRequest",
       "allExports": [
@@ -61897,7 +61897,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "membership_approval_requests",
@@ -66651,7 +66651,7 @@
       "moduleName": "WASmaxOutGroupsGetReportedMessagesRequest",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsGetReportedMessagesRPC",
       "exportedFunction": "makeGetReportedMessagesRequest",
       "allExports": [
@@ -66660,7 +66660,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "reports",
@@ -67475,7 +67475,7 @@
       "moduleName": "WAWebQueryGroupInviteProfilePicApi",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "queryGroupProfilePicParser",
       "exportedFunction": "queryGroupInviteLinkProfilePic",
       "allExports": [
@@ -67485,7 +67485,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "picture",
@@ -67641,7 +67641,7 @@
       "moduleName": "WASmaxOutGroupsAcceptGroupAddRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsAcceptGroupAddRPC",
       "exportedFunction": "makeAcceptGroupAddRequest",
       "allExports": [
@@ -67650,7 +67650,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "accept",
@@ -68577,7 +68577,7 @@
       "moduleName": "WASmaxOutGroupsAcknowledgeGroupRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsAcknowledgeGroupRPC",
       "exportedFunction": "makeAcknowledgeGroupRequest",
       "allExports": [
@@ -68586,7 +68586,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "ack",
@@ -69079,7 +69079,7 @@
       "moduleName": "WASmaxOutGroupsAddParticipantsRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsAddParticipantsRPC",
       "exportedFunction": "makeAddParticipantsRequestAddParticipant",
       "allExports": [
@@ -69089,7 +69089,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "add",
@@ -71281,7 +71281,7 @@
       "moduleName": "WASmaxOutGroupsCancelGroupMembershipRequestsRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsCancelGroupMembershipRequestsRPC",
       "exportedFunction": "makeCancelGroupMembershipRequestsRequestCancelMembershipRequestsParticipant",
       "allExports": [
@@ -71291,7 +71291,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "cancel_membership_requests",
@@ -75684,7 +75684,7 @@
       "moduleName": "WASmaxOutGroupsCreateSubGroupSuggestionRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsCreateSubGroupSuggestionRPC",
       "exportedFunction": "makeCreateSubGroupSuggestionRequest",
       "allExports": [
@@ -75693,7 +75693,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "sub_group_suggestion",
@@ -76867,7 +76867,7 @@
       "moduleName": "WASmaxOutGroupsDeleteParentGroupRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsDeleteParentGroupRPC",
       "exportedFunction": "makeDeleteParentGroupRequest",
       "allExports": [
@@ -76876,7 +76876,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "delete_parent",
@@ -77337,7 +77337,7 @@
       "moduleName": "WASmaxOutGroupsJoinLinkedGroupRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsJoinLinkedGroupRPC",
       "exportedFunction": "makeJoinLinkedGroupRequest",
       "allExports": [
@@ -77346,7 +77346,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "join_linked_group",
@@ -78208,7 +78208,7 @@
       "moduleName": "WASmaxOutGroupsLinkSubGroupsRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsLinkSubGroupsRPC",
       "exportedFunction": "makeLinkSubGroupsRequestLinksLinkGroupHiddenGroup",
       "allExports": [
@@ -78219,7 +78219,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "links",
@@ -79598,7 +79598,7 @@
       "moduleName": "WASmaxOutGroupsMembershipRequestsActionRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsMembershipRequestsActionRPC",
       "exportedFunction": "makeMembershipRequestsActionRequestMembershipRequestsActionApproveParticipant",
       "allExports": [
@@ -79611,7 +79611,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "membership_requests_action",
@@ -81181,7 +81181,7 @@
       "moduleName": "WASmaxOutGroupsPromoteDemoteAdminRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsPromoteDemoteAdminRPC",
       "exportedFunction": "makePromoteDemoteAdminRequestAdminPromoteParticipant",
       "allExports": [
@@ -81194,7 +81194,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "admin",
@@ -82136,7 +82136,7 @@
       "moduleName": "WASmaxOutGroupsPromoteDemoteRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsPromoteDemoteRPC",
       "exportedFunction": "makePromoteDemoteRequestPromoteParticipant",
       "allExports": [
@@ -82149,7 +82149,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "promote",
@@ -83213,7 +83213,7 @@
       "moduleName": "WASmaxOutGroupsRemoveParticipantsRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsRemoveParticipantsRPC",
       "exportedFunction": "makeRemoveParticipantsRequestRemoveParticipant",
       "allExports": [
@@ -83223,7 +83223,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "remove",
@@ -84299,7 +84299,7 @@
       "moduleName": "WASmaxOutGroupsReportMessagesRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsReportMessagesRPC",
       "exportedFunction": "makeReportMessagesRequest",
       "allExports": [
@@ -84308,7 +84308,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "reports",
@@ -84866,7 +84866,7 @@
       "moduleName": "WASmaxOutGroupsRevokeRequestCodeRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsRevokeRequestCodeRPC",
       "exportedFunction": "makeRevokeRequestCodeRequestRevokeParticipant",
       "allExports": [
@@ -84876,7 +84876,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "revoke",
@@ -85648,7 +85648,7 @@
       "moduleName": "WASmaxOutGroupsSetDescriptionRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsSetDescriptionRPC",
       "exportedFunction": "makeSetDescriptionRequestDescriptionBody",
       "allExports": [
@@ -85658,7 +85658,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "description",
@@ -86380,7 +86380,7 @@
       "moduleName": "WASmaxOutGroupsSetPropertyRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsSetPropertyRPC",
       "exportedFunction": "makeSetPropertyRequestLocked",
       "allExports": [
@@ -86404,7 +86404,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "locked",
@@ -87618,7 +87618,7 @@
       "moduleName": "WASmaxOutGroupsSetSubjectRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsSetSubjectRPC",
       "exportedFunction": "makeSetSubjectRequest",
       "allExports": [
@@ -87627,7 +87627,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "subject",
@@ -88312,7 +88312,7 @@
       "moduleName": "WASmaxOutGroupsSubGroupSuggestionsActionRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsSubGroupSuggestionsActionRPC",
       "exportedFunction": "makeSubGroupSuggestionsActionRequestSubGroupSuggestionsActionApproveSubGroupSuggestion",
       "allExports": [
@@ -88327,7 +88327,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "sub_group_suggestions_action",
@@ -89800,7 +89800,7 @@
       "moduleName": "WASmaxOutGroupsUnlinkGroupsRequest",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "WASmaxGroupsUnlinkGroupsRPC",
       "exportedFunction": "makeUnlinkGroupsRequestUnlinkGroup",
       "allExports": [
@@ -89810,7 +89810,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "unlink",
@@ -90744,7 +90744,7 @@
       "moduleName": "WAWebGroupInviteJob",
       "namespace": "w:g2",
       "iqType": "set",
-      "target": "g.us",
+      "target": "group_jid",
       "parserName": "queryGroupInviteCodeParser",
       "exportedFunction": "resetGroupInviteCode",
       "allExports": [
@@ -90754,7 +90754,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "set",
-        "target": "g.us",
+        "target": "group_jid",
         "children": [
           {
             "tag": "invite",

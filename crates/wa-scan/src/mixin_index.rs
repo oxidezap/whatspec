@@ -366,9 +366,11 @@ pub(crate) fn resolve(
                 _ => {}
             }
         }
-        // First Group wins; otherwise the first fragment that resolved an addressee at
-        // all does, and an unresolved one never displaces a resolved one.
-        if target != Some(IqTarget::Group)
+        // A group addressee wins — either flavour, since the group mixins are what a
+        // `w:g2` request folds in for its address. Otherwise the first fragment that
+        // resolved an addressee at all does, and an unresolved one never displaces a
+        // resolved one.
+        if !target.is_some_and(|t: IqTarget| t.is_group())
             && let Some(tg) = frag.target
             && (tg.is_resolved() || target.is_none())
         {
@@ -558,7 +560,12 @@ mod tests {
             f
         };
         for (first, second, want) in [
-            (IqTarget::Server, IqTarget::Group, IqTarget::Group),
+            (
+                IqTarget::Server,
+                IqTarget::GroupServer,
+                IqTarget::GroupServer,
+            ),
+            (IqTarget::Server, IqTarget::GroupJid, IqTarget::GroupJid),
             (IqTarget::Unknown, IqTarget::Server, IqTarget::Server),
             (IqTarget::Server, IqTarget::Unknown, IqTarget::Server),
         ] {

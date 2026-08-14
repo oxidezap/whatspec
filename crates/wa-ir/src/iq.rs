@@ -222,30 +222,44 @@ pub enum IqType {
 
 /// Who the builder addresses an `<iq>` to — the `to` attribute it writes on the root.
 ///
-/// Only [`Server`] and [`Group`] are claims about the wire. The other two record what
-/// the builder does when no server can be named: [`Unset`] means it writes no `to` at
-/// all, [`Unknown`] that it writes one whose value the scan could not resolve to a
-/// server. Neither is a polite spelling of "server" — an `<iq>` addressed to a runtime
-/// JID is exactly the case a `s.whatsapp.net` default sends to the wrong place, which is
-/// how every `w:g2` request came to claim the server while the client addressed the
-/// group.
+/// The first three are claims about the wire and are **three different addresses**, not
+/// two. WA keeps `<group>@g.us` and the bare `g.us` apart in its own mixin names
+/// (`WASmaxOutGroupsBaseGetGroupMixin` writes `GROUP_JID(x)`,
+/// `…BaseGetServerMixin` writes `g.us`), and 26 of the 33 `w:g2` requests take the
+/// first: collapsing them told an emitter to send a group's subject change to the group
+/// server, which answers nothing.
 ///
-/// [`Server`]: IqTarget::Server
-/// [`Group`]: IqTarget::Group
+/// The last two record what the builder does when no server can be named: [`Unset`]
+/// means it writes no `to` at all, [`Unknown`] that it writes one whose value the scan
+/// could not resolve. Neither is a polite spelling of "server" — an `<iq>` addressed to a
+/// runtime JID is exactly the case a `s.whatsapp.net` default sends to the wrong place,
+/// which is how every `w:g2` request came to claim the server while the client addressed
+/// the group.
+///
 /// [`Unset`]: IqTarget::Unset
 /// [`Unknown`]: IqTarget::Unknown
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IqTarget {
     /// `to="s.whatsapp.net"` — written as the literal or as WA's `S_WHATSAPP_NET`
-    /// constant.
+    /// constant. The literal string to send.
     #[serde(rename = "s.whatsapp.net")]
     Server,
-    /// The group server — `to="g.us"` (literal or `G_US`), or a `GROUP_JID(…)` value,
-    /// which is a `<group>@g.us` JID computed at runtime. Says the request belongs to a
-    /// group, not that `g.us` is the literal string to send.
+    /// `to="g.us"` — the group *server*, written as the literal or as `G_US`. Also the
+    /// literal string to send. Used by the operations that are not about one group:
+    /// creating one, listing, exiting.
+    ///
+    /// Distinct from [`GroupJid`], which is a specific group.
+    ///
+    /// [`GroupJid`]: IqTarget::GroupJid
     #[serde(rename = "g.us")]
-    Group,
+    GroupServer,
+    /// `to=GROUP_JID(x)` — a `<group>@g.us` JID built at runtime from the call's
+    /// argument. **Not a literal to send**: the server is fixed, the JID is not, so an
+    /// emitter has to supply the group. Serialized as `group_jid` rather than a JID-like
+    /// string for exactly that reason — there is no string here to copy.
+    #[serde(rename = "group_jid")]
+    GroupJid,
     /// The builder writes **no** `to` attribute, and no mixin it folds in adds one. A
     /// fact about the request, not a failure: `deprecatedSendIq` adds nothing of its
     /// own, so the stanza really does go out without the attribute. An emitter should
@@ -263,14 +277,30 @@ pub enum IqTarget {
 }
 
 impl IqTarget {
-    /// Whether the scan named a server for this request. `false` for [`Unset`] and
+    /// Whether the scan named the server this request goes to. `false` for [`Unset`] and
     /// [`Unknown`] alike — the two differ in *why* no server is named, not in whether
     /// one is.
     ///
+    /// True for [`GroupJid`]: the server (`g.us`) is known even though the JID's user
+    /// part is a runtime value, which is the same position [`Server`] is in for a
+    /// request whose `to` is the bare server.
+    ///
     /// [`Unset`]: IqTarget::Unset
     /// [`Unknown`]: IqTarget::Unknown
+    /// [`GroupJid`]: IqTarget::GroupJid
+    /// [`Server`]: IqTarget::Server
     pub fn is_resolved(&self) -> bool {
-        matches!(self, IqTarget::Server | IqTarget::Group)
+        matches!(
+            self,
+            IqTarget::Server | IqTarget::GroupServer | IqTarget::GroupJid
+        )
+    }
+
+    /// Whether the request is addressed to a group — either the group server or one
+    /// group's own JID. The question a consumer routing by namespace used to ask of
+    /// `target == "g.us"`, kept answerable now that the two are separate variants.
+    pub fn is_group(&self) -> bool {
+        matches!(self, IqTarget::GroupServer | IqTarget::GroupJid)
     }
 }
 

@@ -821,14 +821,14 @@ mod tests {
                 module_name: "WAWebAck".into(),
                 namespace: "w:x".into(),
                 iq_type: IqType::Set,
-                target: IqTarget::Group,
+                target: IqTarget::GroupServer,
                 parser_name: "p".into(),
                 exported_function: None,
                 all_exports: vec![],
                 request: IqRequestDef {
                     namespace: "w:x".into(),
                     iq_type: IqType::Set,
-                    target: IqTarget::Group,
+                    target: IqTarget::GroupServer,
                     children: vec![],
                 },
                 response: ParsedResponse {

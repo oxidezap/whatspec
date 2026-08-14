@@ -480,11 +480,14 @@ fn mixin_type_hint(call: &CallExpression) -> Option<IqType> {
 pub(crate) fn iq_target_from_to(attrs: &[WapAttrDef]) -> Option<IqTarget> {
     let to = attrs.iter().find(|a| a.name == "to")?;
     Some(match (&to.kind, to.value.as_deref()) {
-        (WapAttrKind::Const, Some("g.us")) => IqTarget::Group,
+        (WapAttrKind::Const, Some("g.us")) => IqTarget::GroupServer,
         (WapAttrKind::Const, Some("s.whatsapp.net")) => IqTarget::Server,
-        // `GROUP_JID(x)` — a `<group>@g.us` JID computed from a call argument. The
-        // server is fixed even though the JID is not.
-        (WapAttrKind::GroupJid, _) => IqTarget::Group,
+        // `GROUP_JID(x)` — a `<group>@g.us` JID computed from a call argument. The server
+        // is fixed even though the JID is not, and it is NOT the same addressee as the
+        // bare `g.us` above: WA writes the two from separate mixins
+        // (`…BaseGetGroupMixin` vs `…BaseGetServerMixin`), and 26 of the 33 `w:g2`
+        // requests take this one.
+        (WapAttrKind::GroupJid, _) => IqTarget::GroupJid,
         // A runtime JID of some other flavour, or an expression the scan did not follow.
         _ => IqTarget::Unknown,
     })
@@ -705,7 +708,7 @@ mod tests {
         });"#;
         let s = scan_module_source(m, &mi(), &ri(), &hi());
         assert_eq!(s.len(), 1);
-        assert_eq!(s[0].target, IqTarget::Group);
+        assert_eq!(s[0].target, IqTarget::GroupServer);
         assert_eq!(s[0].iq_type, IqType::Set);
     }
 
@@ -772,9 +775,15 @@ mod tests {
         s.sort_by(|a, b| a.namespace.cmp(&b.namespace));
         assert_eq!(s.len(), 3);
         assert_eq!(s[0].target, IqTarget::Server);
-        // The group server, whether named as the bare JID or built per group.
-        assert_eq!(s[1].target, IqTarget::Group);
-        assert_eq!(s[2].target, IqTarget::Group);
+        // The bare group server and one group's own JID are different addressees: the
+        // first is a literal to send, the second needs the group supplied.
+        assert_eq!(s[1].target, IqTarget::GroupServer);
+        assert_eq!(s[2].target, IqTarget::GroupJid);
+        assert!(s[1].target.is_group() && s[2].target.is_group());
+        assert!(
+            s[2].target.is_resolved(),
+            "the server is known, the JID is not"
+        );
     }
 
     #[test]

@@ -831,15 +831,17 @@ fn emit_build_iq(
 ) -> Vec<String> {
     let mut lines = vec!["    fn build_iq(&self) -> InfoQuery<'static> {".to_string()];
     let target = match op.target {
-        IqTarget::Group => "Jid::new(\"\", Server::Group)".to_string(),
+        // The two literal addressees, the only ones the builder can write on its own.
+        IqTarget::GroupServer => "Jid::new(\"\", Server::Group)".to_string(),
         IqTarget::Server => "Jid::new(\"\", Server::Pn)".to_string(),
-        // The IR could not name a server, so neither can the builder. Substituting the PN
-        // server here would put the silent default back one layer down — which is what
-        // the four `newsletter` requests would get, and they are addressed to the
-        // newsletter's own JID. Taking it from the spec makes the caller supply what only
-        // the caller knows; for `unset` it also makes the choice visible, since
-        // `InfoQuery` has no way to send no `to` at all.
-        IqTarget::Unset | IqTarget::Unknown => {
+        // Everything else needs the caller. `GroupJid` is the case that matters: 26 of
+        // the 33 `w:g2` requests address one group's own `<group>@g.us`, and emitting the
+        // bare `g.us` for them would send a subject change to the group server. `Unknown`
+        // is the same shape with less known about it. `Unset` is here for a different
+        // reason — there is nothing to send — but `InfoQuery` has no way to omit `to`, so
+        // the caller is asked rather than a server silently substituted; the generated
+        // comment says which of the three it is.
+        IqTarget::GroupJid | IqTarget::Unset | IqTarget::Unknown => {
             let name = if reserved.contains("target") {
                 "iq_target"
             } else {
@@ -847,11 +849,14 @@ fn emit_build_iq(
             };
             variant_fields.push((name.to_string(), "Jid".to_string(), true));
             lines.push(format!(
-                "        // `target` is {}: the addressee is not in the IR, so it is yours to name.",
-                if matches!(op.target, IqTarget::Unset) {
-                    "`unset` (the client writes no `to`)"
-                } else {
-                    "`unknown` (a runtime JID)"
+                "        // `{name}` is {}",
+                match op.target {
+                    IqTarget::GroupJid =>
+                        "the group's own JID (`<group>@g.us`) — not the bare `g.us` server.",
+                    IqTarget::Unset =>
+                        "`unset`: the client writes no `to` at all, and `InfoQuery` \
+                         cannot omit it — yours to decide.",
+                    _ => "`unknown`: a runtime JID the IR could not name.",
                 }
             ));
             format!("self.{name}.clone()")

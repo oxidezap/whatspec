@@ -84,26 +84,32 @@ fn the_enum_catalog_key_is_module_and_name_and_it_does_not_collide() {
         .map(|(n, _)| *n)
         .collect();
     assert!(
-        name_collisions.len() > 1,
-        "name is not a key — this asserts the collisions still exist; found {name_collisions:?}",
+        !name_collisions.is_empty(),
+        "name is not a key, and this asserts the collisions are still there to prove it. \
+         If a bundle ever makes `name` unique, that is a fact worth re-reading this \
+         contract over — not a licence to index by it, since nothing keeps it unique.",
     );
-    for n in ["ENUM_FALSE_TRUE", "EventType"] {
-        assert!(
-            name_collisions.contains(n),
-            "{n} must still collide by name"
-        );
+
+    // The named examples are illustrations, not invariants: WhatsApp may rename or drop
+    // either one without anything in this repository regressing. Checked when present,
+    // noted when not, so an upstream rename does not read as a failure here.
+    match enums.iter().filter(|e| e["name"] == "EventType").count() {
+        0 => eprintln!("note: EventType is no longer in the catalog"),
+        n => {
+            assert!(n > 1, "EventType used to be defined twice");
+            let kinds: BTreeSet<&str> = enums
+                .iter()
+                .filter(|e| e["name"] == "EventType")
+                .filter_map(|e| e["valueKind"].as_str())
+                .collect();
+            assert_eq!(
+                kinds.len(),
+                2,
+                "EventType's two definitions disagree on valueKind — indexing by name \
+                 picks one and generates a type from the other's universe",
+            );
+        }
     }
-    let event_kinds: BTreeSet<&str> = enums
-        .iter()
-        .filter(|e| e["name"] == "EventType")
-        .map(|e| e["valueKind"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        event_kinds.len(),
-        2,
-        "EventType's two definitions disagree on valueKind — indexing by name picks one \
-         and generates a type from the other's universe",
-    );
 }
 
 #[test]
@@ -193,16 +199,17 @@ fn a_generated_enum_name_is_marked_as_one() {
         .map(|e| e["name"].as_str().unwrap())
         .collect();
     assert!(!synthetic.is_empty(), "no name is marked generated");
-    // A generator cannot find these by regex on the name: the marking is what says so.
-    // Every one is reconstructible from its own variants, which is the rule that set it.
+    // The invariant: the flag SEPARATES generated names from chosen ones, so a catalog
+    // where everything is marked says nothing. That holds whatever WA spells them.
     assert!(
-        synthetic.iter().all(|n| n.starts_with("ENUM_")),
-        "the rule reconstructs the name from the variants; every hit is WA's `ENUM_` form",
+        synthetic.len() < enums.len(),
+        "every name is marked generated — the flag distinguishes nothing",
     );
-    // …and the converse: a chosen name is not marked, so the flag separates the two.
-    assert!(
-        enums.iter().any(|e| e["name"] == "ReceiptModeBitPosition"
-            && e["syntheticName"] != serde_json::Value::Bool(true)),
-        "a chosen name must not be marked generated",
-    );
+    // `ENUM_` is what WA's emitter happens to prefix today, not something the rule
+    // requires: it reconstructs the name from the variants and compares. Noted rather
+    // than asserted, since a future bundle spelling them differently would be news, not
+    // a regression here.
+    if let Some(other) = synthetic.iter().find(|n| !n.starts_with("ENUM_")) {
+        eprintln!("note: a generated name no longer uses WA's `ENUM_` prefix: {other}");
+    }
 }

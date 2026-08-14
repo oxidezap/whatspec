@@ -2654,4 +2654,9 @@ fn same_wire_read(a: &NotifActionField, b: &NotifActionField) -> bool {
         && a.field_type == b.field_type
         && a.content == b.content
         && a.enum_ref == b.enum_ref
+        // Two branches reading the same attribute against the same enum are still not the
+        // same read when one rejects an unrecognised value and the other nulls it. Leaving
+        // it out of the identity merged them and kept whichever policy came first, so the
+        // action table would state the opposite behaviour for one of the two branches.
+        && a.unknown_value == b.unknown_value
 }

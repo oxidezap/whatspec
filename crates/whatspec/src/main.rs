@@ -849,7 +849,10 @@ struct IqDiagnostics {
 #[derive(Debug, Default, Clone, Copy)]
 struct IqTargetCounts {
     server: usize,
-    group: usize,
+    /// `to="g.us"` — the group server itself.
+    group_server: usize,
+    /// `to=GROUP_JID(x)` — one group's own JID, supplied at runtime.
+    group_jid: usize,
     /// The builder writes no `to` and no fragment it folds in adds one.
     unset: usize,
     /// A `to` is written and the scan could not resolve it to a server.
@@ -863,7 +866,7 @@ impl IqTargetCounts {
     /// improves; one direction each, and between them a request cannot quietly move from
     /// an address to no address.
     fn resolved(self) -> usize {
-        self.server + self.group
+        self.server + self.group_server + self.group_jid
     }
 
     fn of(stanzas: &[wa_ir::IqStanzaDef]) -> Self {
@@ -871,7 +874,8 @@ impl IqTargetCounts {
         for s in stanzas {
             match s.target {
                 wa_ir::IqTarget::Server => c.server += 1,
-                wa_ir::IqTarget::Group => c.group += 1,
+                wa_ir::IqTarget::GroupServer => c.group_server += 1,
+                wa_ir::IqTarget::GroupJid => c.group_jid += 1,
                 wa_ir::IqTarget::Unset => c.unset += 1,
                 wa_ir::IqTarget::Unknown => c.unknown += 1,
             }
@@ -2080,7 +2084,8 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 },
                 "targets": {
                     "server": iq_diag.targets.server,
-                    "group": iq_diag.targets.group,
+                    "groupServer": iq_diag.targets.group_server,
+                    "groupJid": iq_diag.targets.group_jid,
                     "unset": iq_diag.targets.unset,
                     "unknown": iq_diag.targets.unknown,
                     "resolved": iq_diag.targets.resolved(),
