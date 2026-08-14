@@ -4849,8 +4849,7 @@
                 "name": "jid",
                 "wireName": "jid",
                 "type": "jid_typed",
-                "parserRequired": true,
-                "unknownValue": "reject"
+                "parserRequired": true
               },
               {
                 "method": "",
@@ -5299,8 +5298,7 @@
                     "name": "jid",
                     "wireName": "jid",
                     "type": "jid_typed",
-                    "parserRequired": true,
-                    "unknownValue": "reject"
+                    "parserRequired": true
                   },
                   {
                     "method": "",
@@ -6089,8 +6087,7 @@
                 "name": "jid",
                 "wireName": "jid",
                 "type": "jid_typed",
-                "parserRequired": true,
-                "unknownValue": "reject"
+                "parserRequired": true
               },
               {
                 "method": "",
@@ -6106,8 +6103,7 @@
                         "name": "jid",
                         "wireName": "jid",
                         "type": "jid_typed",
-                        "parserRequired": true,
-                        "unknownValue": "reject"
+                        "parserRequired": true
                       },
                       {
                         "method": "child",
@@ -6514,8 +6510,7 @@
                     "name": "jid",
                     "wireName": "jid",
                     "type": "jid_typed",
-                    "parserRequired": true,
-                    "unknownValue": "reject"
+                    "parserRequired": true
                   },
                   {
                     "method": "",
@@ -6531,8 +6526,7 @@
                             "name": "jid",
                             "wireName": "jid",
                             "type": "jid_typed",
-                            "parserRequired": true,
-                            "unknownValue": "reject"
+                            "parserRequired": true
                           },
                           {
                             "method": "child",
@@ -12590,8 +12584,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -14376,7 +14369,7 @@
       "moduleName": "WASmaxOutNewslettersGetNewsletterMessageUpdatesRequest",
       "namespace": "newsletter",
       "iqType": "get",
-      "target": "unset",
+      "target": "unknown",
       "parserName": "WASmaxNewslettersGetNewsletterMessageUpdatesRPC",
       "exportedFunction": "makeGetNewsletterMessageUpdatesRequest",
       "allExports": [
@@ -14385,7 +14378,7 @@
       "request": {
         "namespace": "newsletter",
         "iqType": "get",
-        "target": "unset",
+        "target": "unknown",
         "children": [
           {
             "tag": "message_updates",
@@ -26500,7 +26493,7 @@
       "moduleName": "WASmaxOutNewslettersGetNewsletterResponsesRequest",
       "namespace": "newsletter",
       "iqType": "get",
-      "target": "unset",
+      "target": "unknown",
       "parserName": "WASmaxNewslettersGetNewsletterResponsesRPC",
       "exportedFunction": "makeGetNewsletterResponsesRequest",
       "allExports": [
@@ -26509,7 +26502,7 @@
       "request": {
         "namespace": "newsletter",
         "iqType": "get",
-        "target": "unset",
+        "target": "unknown",
         "children": [
           {
             "tag": "question_responses",
@@ -27437,7 +27430,7 @@
       "moduleName": "WASmaxOutNewslettersGetNewsletterStatusUpdatesRequest",
       "namespace": "newsletter",
       "iqType": "get",
-      "target": "unset",
+      "target": "unknown",
       "parserName": "WASmaxNewslettersGetNewsletterStatusUpdatesRPC",
       "exportedFunction": "makeGetNewsletterStatusUpdatesRequest",
       "allExports": [
@@ -27446,7 +27439,7 @@
       "request": {
         "namespace": "newsletter",
         "iqType": "get",
-        "target": "unset",
+        "target": "unknown",
         "children": [
           {
             "tag": "status_updates",
@@ -32043,7 +32036,7 @@
       "moduleName": "WASmaxOutNewslettersSubscribeToLiveUpdatesRequest",
       "namespace": "newsletter",
       "iqType": "set",
-      "target": "unset",
+      "target": "unknown",
       "parserName": "WASmaxNewslettersSubscribeToLiveUpdatesRPC",
       "exportedFunction": "makeSubscribeToLiveUpdatesRequest",
       "allExports": [
@@ -32052,7 +32045,7 @@
       "request": {
         "namespace": "newsletter",
         "iqType": "set",
-        "target": "unset",
+        "target": "unknown",
         "children": [
           {
             "tag": "live_updates",
@@ -34216,8 +34209,7 @@
             "name": "from",
             "wireName": "from",
             "type": "jid_typed",
-            "parserRequired": false,
-            "unknownValue": "reject"
+            "parserRequired": false
           },
           {
             "method": "attrString",
@@ -34341,8 +34333,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -34466,8 +34457,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -34578,8 +34568,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -36401,8 +36390,7 @@
             "name": "from",
             "wireName": "from",
             "type": "jid_typed",
-            "parserRequired": false,
-            "unknownValue": "reject"
+            "parserRequired": false
           },
           {
             "method": "attrString",
@@ -36461,8 +36449,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -36552,8 +36539,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -36866,8 +36852,7 @@
             "name": "from",
             "wireName": "from",
             "type": "jid_typed",
-            "parserRequired": false,
-            "unknownValue": "reject"
+            "parserRequired": false
           },
           {
             "method": "attrString",
@@ -36926,8 +36911,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -37017,8 +37001,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -37322,8 +37305,7 @@
             "name": "from",
             "wireName": "from",
             "type": "jid_typed",
-            "parserRequired": false,
-            "unknownValue": "reject"
+            "parserRequired": false
           },
           {
             "method": "attrString",
@@ -37382,8 +37364,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -37473,8 +37454,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -37772,8 +37752,7 @@
             "name": "from",
             "wireName": "from",
             "type": "jid_typed",
-            "parserRequired": false,
-            "unknownValue": "reject"
+            "parserRequired": false
           },
           {
             "method": "attrString",
@@ -37832,8 +37811,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -37923,8 +37901,7 @@
                 "name": "from",
                 "wireName": "from",
                 "type": "jid_typed",
-                "parserRequired": false,
-                "unknownValue": "reject"
+                "parserRequired": false
               },
               {
                 "method": "attrString",
@@ -73022,8 +72999,7 @@
                         "name": "jid",
                         "wireName": "jid",
                         "type": "jid_typed",
-                        "parserRequired": true,
-                        "unknownValue": "reject"
+                        "parserRequired": true
                       },
                       {
                         "method": "",
@@ -74264,8 +74240,7 @@
                             "name": "jid",
                             "wireName": "jid",
                             "type": "jid_typed",
-                            "parserRequired": true,
-                            "unknownValue": "reject"
+                            "parserRequired": true
                           },
                           {
                             "method": "",
@@ -79767,8 +79742,7 @@
                     "name": "jid",
                     "wireName": "jid",
                     "type": "jid_typed",
-                    "parserRequired": true,
-                    "unknownValue": "reject"
+                    "parserRequired": true
                   },
                   {
                     "method": "",
@@ -80058,8 +80032,7 @@
                     "name": "jid",
                     "wireName": "jid",
                     "type": "jid_typed",
-                    "parserRequired": true,
-                    "unknownValue": "reject"
+                    "parserRequired": true
                   },
                   {
                     "method": "",
@@ -80276,8 +80249,7 @@
                         "name": "jid",
                         "wireName": "jid",
                         "type": "jid_typed",
-                        "parserRequired": true,
-                        "unknownValue": "reject"
+                        "parserRequired": true
                       },
                       {
                         "method": "",
@@ -80567,8 +80539,7 @@
                         "name": "jid",
                         "wireName": "jid",
                         "type": "jid_typed",
-                        "parserRequired": true,
-                        "unknownValue": "reject"
+                        "parserRequired": true
                       },
                       {
                         "method": "",
@@ -83347,8 +83318,7 @@
                 "name": "jid",
                 "wireName": "jid",
                 "type": "jid_typed",
-                "parserRequired": true,
-                "unknownValue": "reject"
+                "parserRequired": true
               },
               {
                 "method": "",
@@ -83586,8 +83556,7 @@
                     "name": "jid",
                     "wireName": "jid",
                     "type": "jid_typed",
-                    "parserRequired": true,
-                    "unknownValue": "reject"
+                    "parserRequired": true
                   },
                   {
                     "method": "",
@@ -91038,8 +91007,7 @@
             "name": "from",
             "wireName": "from",
             "type": "jid_typed",
-            "parserRequired": true,
-            "unknownValue": "reject"
+            "parserRequired": true
           },
           {
             "method": "attrString",

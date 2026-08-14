@@ -2702,7 +2702,9 @@ fn merge_referenced_enums<'a>(
     ir: &mut wa_ir::EnumsIr,
     domains: impl IntoIterator<Item = &'a Vec<Artifact>>,
 ) -> Result<EnumMergeStat> {
-    let mut refs: BTreeMap<(String, String), Vec<wa_ir::EnumVariant>> = BTreeMap::new();
+    let mut refs: std::collections::BTreeMap<(String, String), Vec<wa_ir::EnumVariant>> =
+        Default::default();
+    let mut conflicts: Vec<String> = Vec::new();
     for arts in domains {
         for a in arts {
             if a.rel_path.extension().and_then(|e| e.to_str()) != Some("json") {
@@ -2711,8 +2713,23 @@ fn merge_referenced_enums<'a>(
             let doc: serde_json::Value = serde_json::from_str(&a.content).with_context(|| {
                 format!("re-reading {} for enum references", a.rel_path.display())
             })?;
-            collect_enum_refs(&doc, &mut refs);
+            collect_enum_refs(&doc, &mut refs, &mut conflicts);
         }
+    }
+    // Two live references to one `(module, name)` that disagree mean the key is not the
+    // identity it is documented to be, so the catalog cannot be built from it at all.
+    // Fatal rather than counted: every downstream guarantee — one index, one key, every
+    // reference resolving — rests on this holding, and there is no correct entry to
+    // publish when it does not.
+    if !conflicts.is_empty() {
+        conflicts.sort();
+        conflicts.dedup();
+        anyhow::bail!(
+            "{} enum reference(s) disagree on their variants under one (module, name): {}. \
+             The catalog key is not an identity for these, so no entry is correct.",
+            conflicts.len(),
+            conflicts.join(", "),
+        );
     }
     let mut stat = EnumMergeStat::default();
     let known: std::collections::HashMap<(&str, &str), &wa_ir::InternalEnumDef> = ir
@@ -2750,7 +2767,8 @@ fn merge_referenced_enums<'a>(
 /// Every `enumRef` object anywhere in `v`, keyed `(module, name)`.
 fn collect_enum_refs(
     v: &serde_json::Value,
-    out: &mut BTreeMap<(String, String), Vec<wa_ir::EnumVariant>>,
+    out: &mut std::collections::BTreeMap<(String, String), Vec<wa_ir::EnumVariant>>,
+    conflicts: &mut Vec<String>,
 ) {
     match v {
         serde_json::Value::Object(map) => {
@@ -2759,22 +2777,37 @@ fn collect_enum_refs(
                     && let Ok(r) = serde_json::from_value::<wa_ir::AttrEnumRef>(child.clone())
                     && !r.variants.is_empty()
                 {
-                    out.entry((r.module, r.name)).or_insert_with(|| {
-                        r.variants
-                            .into_iter()
-                            .map(|v| wa_ir::EnumVariant {
-                                name: v.name,
-                                value: wa_ir::Scalar::Str(v.value),
-                            })
-                            .collect()
-                    });
+                    let variants: Vec<wa_ir::EnumVariant> = r
+                        .variants
+                        .into_iter()
+                        .map(|v| wa_ir::EnumVariant {
+                            name: v.name,
+                            value: wa_ir::Scalar::Str(v.value),
+                        })
+                        .collect();
+                    match out.entry((r.module, r.name)) {
+                        std::collections::btree_map::Entry::Vacant(e) => {
+                            e.insert(variants);
+                        }
+                        // Two references under one key that do not agree. Keeping
+                        // whichever document happened to be walked first would publish a
+                        // catalog entry that contradicts a live reference while the
+                        // resolution check still passed — it only asks whether the key is
+                        // there. Recorded so `merge_referenced_enums` can count it; the
+                        // first reading is kept so the output stays deterministic.
+                        std::collections::btree_map::Entry::Occupied(e) => {
+                            if *e.get() != variants {
+                                conflicts.push(format!("{}.{}", e.key().0, e.key().1));
+                            }
+                        }
+                    }
                 }
-                collect_enum_refs(child, out);
+                collect_enum_refs(child, out, conflicts);
             }
         }
         serde_json::Value::Array(items) => {
             for i in items {
-                collect_enum_refs(i, out);
+                collect_enum_refs(i, out, conflicts);
             }
         }
         _ => {}

@@ -295,6 +295,20 @@ const FIELD_TYPE_VARIANTS: &[&str] = &[
     "Node",
 ];
 
+/// The out-of-set policy as the generated table spells it.
+///
+/// A `bool` rather than a mirrored enum: the reference table only has to answer "may I
+/// close this enum", and `Reject` vs `Null` is exactly that question. `Unclassified`
+/// answers it with `None` — the same as "no table" — because a policy nobody judged is
+/// not a licence to close anything.
+fn rejects_unknown_value(p: Option<wa_ir::UnknownValuePolicy>) -> &'static str {
+    match p {
+        Some(wa_ir::UnknownValuePolicy::Reject) => "Some(true)",
+        Some(wa_ir::UnknownValuePolicy::Null) => "Some(false)",
+        Some(wa_ir::UnknownValuePolicy::Unclassified) | None => "None",
+    }
+}
+
 /// The generated variant name for an IR field type. Exhaustive on purpose; see
 /// [`FIELD_TYPE_VARIANTS`].
 fn field_type_variant(t: wa_ir::ParsedFieldType) -> &'static str {
@@ -368,6 +382,13 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
          \x20   /// constrained; this says to WHAT.\n",
     );
     l.push_str("    pub enum_values: &'static [&'static str],\n");
+    l.push_str(
+        "    /// What the handler does with a value outside `enum_values`: `Some(true)`\n\
+         \x20   /// rejects the notification, `Some(false)` yields null and parses on,\n\
+         \x20   /// `None` when the accessor checks no table. A consumer may close a\n\
+         \x20   /// generated enum only in the first case.\n",
+    );
+    l.push_str("    pub rejects_unknown_value: Option<bool>,\n");
     l.push_str("}\n\n");
     l.push_str(
         "/// A value an arm stamps rather than reading. Typed, because `false` and the\n\
@@ -418,13 +439,14 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
                     .map(|e| e.variants.iter().map(|v| rust_lit(&v.value)).collect())
                     .unwrap_or_default();
                 format!(
-                    "NotifActionField {{ name: {}, wire_name: {}, field_type: NotifFieldType::{}, required: {}, content: {}, enum_values: &[{}] }}",
+                    "NotifActionField {{ name: {}, wire_name: {}, field_type: NotifFieldType::{}, required: {}, content: {}, enum_values: &[{}], rejects_unknown_value: {} }}",
                     rust_lit(&f.name),
                     rust_lit(&f.wire_name),
                     field_type_variant(f.field_type),
                     f.required,
                     f.content,
-                    values.join(", ")
+                    values.join(", "),
+                    rejects_unknown_value(f.unknown_value),
                 )
             })
             .collect();

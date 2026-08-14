@@ -100,9 +100,10 @@ pub enum Scalar {
 /// or renaming an existing field rather than by adding an optional one:
 ///
 /// - [`IqTarget`] gained `unset` and `unknown`. All 143 stanzas used to say
-///   `s.whatsapp.net` because the enum had nowhere else to put "not resolved"; a
-///   closed-enum 2.x consumer now rejects the document instead of silently reading the
-///   two new states as absent.
+///   `s.whatsapp.net` because the enum had nowhere else to put "not resolved" — the 33
+///   `w:g2` requests included, which the client addresses to the group. A closed-enum
+///   2.x consumer now rejects the document instead of silently reading the two new
+///   states as absent.
 /// - [`ParsedFieldType`] gained `node`, and 617 fields that declared `string` while
 ///   carrying children now declare it. A consumer switching on `type` sees a value it
 ///   has no arm for — which is the point, since the arm it *had* was wrong.

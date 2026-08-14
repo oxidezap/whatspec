@@ -36,8 +36,8 @@
         "group": 33,
         "resolved": 139,
         "server": 106,
-        "unknown": 0,
-        "unset": 4
+        "unknown": 4,
+        "unset": 0
       },
       "typedResponses": 139,
       "unparseable": 5
@@ -81,7 +81,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "ad6b2d568d93d87bd937264d27c8214850e0498a5a298c093ae5bd8ec0a4a7f6"
+      "sha256": "2d2205820b71f9d5fdd276ec5f9187d992ffc55df0964ad399c539c4e1421cc4"
     },
     "mex": {
       "file": "mex/index.json",
@@ -100,7 +100,7 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "53cbab80ddea88c4ea8f2bd3acfc9561b31198dafb08561f84ef60742a8db66d"
+      "sha256": "785f32b10c5a92a6f9e43e07efba4af63e4602cdd5857a5323df06b353ee35b1"
     },
     "stanza": {
       "file": "stanza/index.json",

@@ -180,15 +180,23 @@ pub fn scan_module_outcome(
             }
             // A `to` the local builder did not write may come from a fragment it folds
             // in, and a fragment that addresses the group overrides a local server (the
-            // rule the previous Group-only upgrade encoded). Everything else keeps the
-            // local answer, including `Unknown` — a mixin cannot resolve a `to` the
-            // request itself computes.
-            iq.target = match (iq.target, mixin_resolved.2) {
-                (_, Some(IqTarget::Group)) => Some(IqTarget::Group),
-                (Some(local), _) if local.is_resolved() => Some(local),
-                (_, Some(from_mixin)) if from_mixin.is_resolved() => Some(from_mixin),
-                (local, _) => local,
-            };
+            // rule the previous Group-only upgrade encoded).
+            //
+            // The last arm before the default is the one that matters: an addressee
+            // NEITHER side wrote is `Unset`, but one that either side wrote and neither
+            // could resolve is `Unknown`, and collapsing the two would tell an emitter to
+            // send no `to` for a request that has one. The four newsletter requests are
+            // exactly that shape — `smax("iq", null, …)` locally, with
+            // `mergeNewsletterIQGetRequestMixin` supplying `to: WAWap.JID(x)`.
+            iq.target = Some(match (iq.target, mixin_resolved.2) {
+                (_, Some(IqTarget::Group)) => IqTarget::Group,
+                (Some(local), _) if local.is_resolved() => local,
+                (_, Some(from_mixin)) if from_mixin.is_resolved() => from_mixin,
+                (Some(IqTarget::Unknown), _) | (_, Some(IqTarget::Unknown)) => IqTarget::Unknown,
+                // Nothing wrote a `to` on either side. `iq_target_from_to` yields `None`
+                // for that, never `Unset`, so this is the only arm that can produce it.
+                _ => IqTarget::Unset,
+            });
             // Guard: a stanza needs both a namespace and a type, or it's dropped.
             match (iq.namespace.clone(), iq.iq_type) {
                 (Some(namespace), Some(iq_type)) => {
@@ -199,8 +207,6 @@ pub fn scan_module_outcome(
                     Some(ResolvedIqCall {
                         namespace,
                         iq_type,
-                        // No `to` anywhere, local or folded in: the stanza really does
-                        // go out without the attribute.
                         target: iq.target.unwrap_or(IqTarget::Unset),
                         children: iq.children,
                         export: iq.export,
@@ -715,6 +721,28 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].target, IqTarget::Unknown);
         assert!(!s[0].target.is_resolved());
+    }
+
+    #[test]
+    fn an_unresolvable_to_from_a_folded_in_mixin_is_unknown_not_unset() {
+        // `smax("iq", null, …)` writes no `to` of its own, so the addressee is whatever
+        // the mixins it folds in supply — and `mergeNewsletterIQGetRequestMixin` supplies
+        // `to: WAWap.JID(x)`, a runtime JID. The request HAS an addressee; the scan
+        // cannot name it. Reporting `unset` would tell an emitter to send no `to` at all,
+        // which is a different stanza — the same rounding-off this whole change removes,
+        // one level further in.
+        let mixin = r#"__d("WASmaxOutFooIQGetRequestMixin",["WAWap","WASmaxJsx"],function(g,r,d,o,e,i){
+            e.mergeFooIQGetRequestMixin = function(s,t){ return o("WASmaxJsx").smax("iq", { to: o("WAWap").JID(t), xmlns: "newsletter", type: "get" }); };
+        });"#;
+        let m = r#"__d("WASmaxOutFooRequest",["WASmaxJsx","WASmaxOutFooIQGetRequestMixin"],function(g,r,d,o,e,i){
+            e.makeFooRequest = function(t){ var q = o("WASmaxJsx").smax("iq", null); o("WASmaxOutFooIQGetRequestMixin").mergeFooIQGetRequestMixin(q, t); return q; };
+        });"#;
+        let bundle = format!("{mixin}\n{m}");
+        let defs = wa_transform::extract_module_definitions(&bundle);
+        let mixins = crate::mixin_index::build_pass(&defs, &bundle, &hi());
+        let s = scan_module_source(m, &mixins, &ri(), &hi());
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].target, IqTarget::Unknown);
     }
 
     #[test]

@@ -5860,8 +5860,7 @@
                     "name": "from",
                     "wireName": "from",
                     "type": "jid_typed",
-                    "parserRequired": true,
-                    "unknownValue": "reject"
+                    "parserRequired": true
                   }
                 ],
                 "assertions": [
@@ -5886,8 +5885,7 @@
                     "name": "participant",
                     "wireName": "participant",
                     "type": "jid_typed",
-                    "parserRequired": true,
-                    "unknownValue": "reject"
+                    "parserRequired": true
                   },
                   {
                     "method": "attrUserJid",

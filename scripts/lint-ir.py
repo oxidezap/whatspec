@@ -37,11 +37,12 @@ BASELINE = {
     # judged. Held at zero: a new WA enum accessor must be classified, not silently
     # assumed to reject, which is what the whole `unknownValue` dimension exists to stop.
     "enum accessor with no judged unknown-value policy": 0,
-    # `<iq>` requests the scan could not address. `unset` is the honest answer for the
-    # four newsletter builders that write no `to` at all — an emitter should write none
-    # either. Counted here rather than floor-guarded because it must FALL as extraction
-    # improves; `diagnostics.iq.targets.resolved` guards the other direction in
-    # `check_floor`, so a request cannot move from an address to no address unseen.
+    # `<iq>` requests the scan could not address: the four newsletter builders, whose
+    # `to` comes from `mergeNewsletterIQ*RequestMixin` as `WAWap.JID(newsletterId)` — a
+    # runtime JID with no fixed server. Counted here rather than floor-guarded because it
+    # must FALL as extraction improves; `diagnostics.iq.targets.resolved` guards the other
+    # direction in `check_floor`, so a request cannot move from an address to no address
+    # unseen.
     "iq request with no resolved addressee": 4,
 }
 
@@ -467,35 +468,35 @@ def check_field(f, path, domain, errors, counts, proto_enums):
             f"its children and reads nothing itself"
         )
 
-    # The out-of-set dimension. It must be present exactly where the accessor checks a
-    # value set, and absent where it does not: emitting it on an accessor with no set
-    # would point a consumer at a set it cannot read, and omitting it on one that has a
-    # set leaves the `attrEnum`/`attrEnumOrNullIfUnknown` pair indistinguishable — same
-    # `type`, same `parserRequired`, opposite behaviour on an unrecognised value.
+    # The out-of-set dimension. It must be present exactly where the IR publishes a value
+    # set to fall outside of, and absent everywhere else: a policy on a field whose set the
+    # document does not carry tells a consumer that unrecognised values are rejected while
+    # naming nothing to recognise, and omitting it on a field that DOES carry one leaves
+    # the `attrEnum`/`attrEnumOrNullIfUnknown` pair indistinguishable — same `type`, same
+    # `parserRequired`, opposite behaviour on an unrecognised value.
     #
-    # The predicate mirrors `wa_ir::wap::has_closed_value_set`, which derives it from the
-    # spelling rather than from a list.
-    #
-    # Only where the accessor is recorded: a notification ACTION field carries the policy
-    # but never the accessor it came from (`wa-notif` stamps it at extraction, since the
-    # shape has nowhere to keep the spelling), so there is nothing here to cross-check it
-    # against and inventing a mismatch would be the lint contradicting the IR.
+    # Keyed on the decoded type, mirroring `wa_ir::wap::has_closed_value_set`. Keying on
+    # the accessor spelling instead put a policy on all 34 `attrJidEnum` fields, whose
+    # JID-server table the enum linker never resolves — the unusable state this dimension
+    # exists to remove rather than relocate.
+    # `appstate` is excluded because its enums are not WAP accessors at all: an action
+    # field names a protobuf enum via `protoEnum`, resolved and checked against
+    # `WAProto.proto` above. There is no accessor whose out-of-set behaviour could be
+    # classified, so requiring the dimension there would be asking a question the domain
+    # does not have.
     policy = f.get("unknownValue")
-    checks_a_set = "Enum" in method and not method.endswith("FromReference")
+    checks_a_set = t == "enum" and domain != "appstate"
     if policy is not None and policy not in UNKNOWN_VALUE_POLICIES:
         errors.append(f"{path}: unknownValue {policy!r} is not in the policy vocabulary")
-    elif "method" not in f:
-        pass
     elif checks_a_set and policy is None:
         errors.append(
-            f"{path}: accessor {method!r} checks a value set but carries no "
-            f"unknownValue — whether an unrecognised value is rejected or nulled is "
-            f"what decides if a generated enum may be closed"
+            f"{path}: an enum field with no unknownValue — whether an unrecognised value "
+            f"is rejected or nulled is what decides if a generated enum may be closed"
         )
     elif policy is not None and not checks_a_set:
         errors.append(
-            f"{path}: unknownValue {policy!r} on accessor {method!r}, which checks no "
-            f"value set — a policy for a set that is not published"
+            f"{path}: unknownValue {policy!r} on a {t!r} field, which publishes no value "
+            f"set — a policy for a set that is not there"
         )
     if policy == "unclassified":
         counts["enum accessor with no judged unknown-value policy"] += 1

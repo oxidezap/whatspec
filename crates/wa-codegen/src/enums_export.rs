@@ -46,11 +46,30 @@ pub fn generate_enums(ir: &EnumsIr) -> String {
 
 fn emit_enum(out: &mut String, d: &InternalEnumDef, const_name: &str) {
     // The value type (`i64` vs `&'static str`) already signals int-code vs
-    // wire-string, so the const needs no doc comment beyond its name.
+    // wire-string, so the const needs no doc comment beyond its name — except for the two
+    // things the type cannot say.
     let ty = match d.value_kind {
         EnumValueKind::Int => "i64",
         EnumValueKind::String => "&'static str",
     };
+    // A bit-position table looks exactly like a code table here: three `i64`s. Emitting
+    // the raw value with nothing said would put back the ambiguity the IR flag removes —
+    // `HID_FAILED_DECRYPT` is position 2 and reaches the wire as 4. The position is what
+    // is published (shifting it here would contradict `enums/index.json`), so the note
+    // carries the shift and a `_BITS` companion applies it.
+    if d.bit_position {
+        out.push_str(
+            "    /// **Bit positions, not wire values**: a variant's value is the shift\n\
+             \x20   /// distance, so what goes on the wire is `1 << value`. See the\n\
+             \x20   /// `_BITS` table below for the masks.\n",
+        );
+    }
+    if d.synthetic_name {
+        out.push_str(
+            "    /// The name is WA's build-generated one, spelled from the variants\n\
+             \x20   /// themselves — not descriptive, and not unique across modules.\n",
+        );
+    }
     out.push_str(&format!(
         "    pub const {const_name}: &[(&str, {ty})] = &[\n"
     ));
@@ -64,6 +83,19 @@ fn emit_enum(out: &mut String, d: &InternalEnumDef, const_name: &str) {
         out.push_str(&format!("        ({:?}, {value}),\n", v.name));
     }
     out.push_str("    ];\n");
+    if d.bit_position {
+        out.push_str(&format!(
+            "    /// The same variants as `{const_name}`, with the shift applied — the\n\
+             \x20   /// values that actually go on the wire.\n\
+             \x20   pub const {const_name}_BITS: &[(&str, i64)] = &[\n"
+        ));
+        for v in &d.variants {
+            if let Scalar::Int(i) = v.value {
+                out.push_str(&format!("        ({:?}, {}),\n", v.name, 1i64 << i));
+            }
+        }
+        out.push_str("    ];\n");
+    }
 }
 
 #[cfg(test)]

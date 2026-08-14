@@ -830,11 +830,34 @@ fn emit_build_iq(
     attr_fields: &AttrFieldMap,
 ) -> Vec<String> {
     let mut lines = vec!["    fn build_iq(&self) -> InfoQuery<'static> {".to_string()];
-    let target = if matches!(op.target, IqTarget::Group) {
-        "Jid::new(\"\", Server::Group)"
-    } else {
-        "Jid::new(\"\", Server::Pn)"
+    let target = match op.target {
+        IqTarget::Group => "Jid::new(\"\", Server::Group)".to_string(),
+        IqTarget::Server => "Jid::new(\"\", Server::Pn)".to_string(),
+        // The IR could not name a server, so neither can the builder. Substituting the PN
+        // server here would put the silent default back one layer down — which is what
+        // the four `newsletter` requests would get, and they are addressed to the
+        // newsletter's own JID. Taking it from the spec makes the caller supply what only
+        // the caller knows; for `unset` it also makes the choice visible, since
+        // `InfoQuery` has no way to send no `to` at all.
+        IqTarget::Unset | IqTarget::Unknown => {
+            let name = if reserved.contains("target") {
+                "iq_target"
+            } else {
+                "target"
+            };
+            variant_fields.push((name.to_string(), "Jid".to_string(), true));
+            lines.push(format!(
+                "        // `target` is {}: the addressee is not in the IR, so it is yours to name.",
+                if matches!(op.target, IqTarget::Unset) {
+                    "`unset` (the client writes no `to`)"
+                } else {
+                    "`unknown` (a runtime JID)"
+                }
+            ));
+            format!("self.{name}.clone()")
+        }
     };
+    let target = target.as_str();
     if !op.request.children.is_empty() {
         let mut ctx = VariantCtx {
             spec_base,

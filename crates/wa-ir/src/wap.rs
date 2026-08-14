@@ -170,20 +170,25 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
     }
 }
 
-/// Whether an accessor validates what it reads against an **enum table**, and so has an
-/// out-of-set behaviour at all. `attrString` accepts whatever is there and has none.
+/// Whether an accessor validates what it reads against an enum table **the IR carries**,
+/// and so has an out-of-set behaviour a consumer can act on. `attrString` accepts
+/// whatever is there and has none.
 ///
-/// Derived from the spelling, the way [`is_attr_method`] is and for the same reason:
-/// WA names every one of these `…Enum…` and a second hand-kept list of them would drift
-/// from the first. `…FromReference` is excluded on the same grounds as there — it reads
-/// off the request, not the node.
+/// Derived from [`method_field_type`] rather than from a second list of spellings — a
+/// table kept twice drifts, and the half that drifts is the one nobody is looking at.
+/// Reading it off the decoded type is also what makes the condition the right one: the
+/// enum-linking pass only resolves a field's `enumRef` when the field decodes to
+/// [`ParsedFieldType::Enum`], so "the accessor checks a table" and "the IR publishes that
+/// table" are the same question.
 ///
-/// The JID accessors are **not** in this set even though `attrJidWithType` does throw on
-/// an unrecognised server. Their set is a format rule with no table in the IR, so saying
-/// "rejects values outside the set" would point a consumer at a set it cannot read.
-/// `attrJidEnum` is in, because it takes a real enum table as its argument.
+/// The JID accessors are deliberately outside it, `attrJidEnum` included. They do reject
+/// an unrecognised server — but they decode to [`ParsedFieldType::JidTyped`], the linker
+/// never resolves their argument, and all 34 `attrJidEnum` fields carry neither `enumRef`
+/// nor `enumKeys`. A policy on them would tell a consumer that values outside a set are
+/// rejected while naming no set, which is the unusable state this dimension exists to
+/// remove, not to relocate.
 pub fn has_closed_value_set(m: &str) -> bool {
-    m.contains("Enum") && !m.ends_with("FromReference")
+    method_field_type(m) == ParsedFieldType::Enum
 }
 
 /// What a parser does with a value outside the set the accessor `m` checks against, or
@@ -216,10 +221,9 @@ pub fn method_unknown_value_policy(m: &str) -> Option<UnknownValuePolicy> {
         // `attrEnumValues` takes an OPTIONAL third argument it would return instead of
         // throwing; no call site in the bundle passes one, and the argument is not in
         // the IR, so a build where one appears must not keep reading `reject` here.
-        // `attrJidEnum` checks a set of JID servers rather than wire tokens, and fails
-        // the same way on a server outside it.
-        ATTR_ENUM | ATTR_ENUM_VALUES | "attrStringEnum" | "attrJidEnum" | "contentEnum"
-        | "contentStringEnum" => UnknownValuePolicy::Reject,
+        ATTR_ENUM | ATTR_ENUM_VALUES | "attrStringEnum" | "contentEnum" | "contentStringEnum" => {
+            UnknownValuePolicy::Reject
+        }
         // A new enum accessor: visible as unjudged rather than assumed to reject.
         _ => UnknownValuePolicy::Unclassified,
     })
@@ -410,14 +414,15 @@ mod tests {
             ("attrStringEnum", UnknownValuePolicy::Reject),
             ("contentEnum", UnknownValuePolicy::Reject),
             ("contentStringEnum", UnknownValuePolicy::Reject),
-            ("attrJidEnum", UnknownValuePolicy::Reject),
             ("attrEnumOrNullIfUnknown", UnknownValuePolicy::Null),
         ] {
             assert_eq!(method_unknown_value_policy(m), Some(want), "{m}");
         }
-        // An accessor that checks no table has no policy — absent is "there is no set",
-        // not "anything goes past a set we forgot". `attrJidWithType` validates a JID
-        // format and publishes no table, so it is deliberately in this half.
+        // An accessor whose table the IR does not carry has no policy — absent is "there
+        // is no set here", not "anything goes past a set we forgot". Both JID accessors
+        // are deliberately in this half: they do reject an unrecognised server, but the
+        // linker never resolves their argument, so a policy would name a set the document
+        // does not contain.
         for m in [
             ATTR_STRING,
             ATTR_INT,
@@ -425,15 +430,32 @@ mod tests {
             ATTR_USER_JID,
             HAS_ATTR,
             ATTR_JID_WITH_TYPE,
+            "attrJidEnum",
             "attrStringFromReference",
         ] {
             assert_eq!(method_unknown_value_policy(m), None, "{m}");
         }
-        // An unjudged closed-set accessor is visible, never rounded to the common state.
-        assert_eq!(
-            method_unknown_value_policy("attrEnumSomethingNew"),
-            Some(UnknownValuePolicy::Unclassified),
-        );
+        // Every accessor the type table calls an enum is judged. `Unclassified` is not
+        // reachable by any spelling today, by construction — this is the assertion that
+        // keeps it that way, since the state only appears when someone teaches
+        // `method_field_type` a new enum accessor and not the table below it.
+        // `scripts/lint-ir.py` holds the emitted count of it at zero for the same reason.
+        for m in [
+            ATTR_ENUM,
+            MAYBE_ATTR_ENUM,
+            ATTR_ENUM_VALUES,
+            "attrStringEnum",
+            "contentEnum",
+            "contentStringEnum",
+            "attrEnumOrNullIfUnknown",
+        ] {
+            assert!(has_closed_value_set(m), "{m}");
+            assert_ne!(
+                method_unknown_value_policy(m),
+                Some(UnknownValuePolicy::Unclassified),
+                "{m} must be judged, not defaulted",
+            );
+        }
     }
 
     #[test]
@@ -444,7 +466,7 @@ mod tests {
         // `maybeAttrEnum` is `hasAttr(x) ? attrEnum(x) : null`, so it still rejects
         // `type="wat"` — enumerating the `maybe` spellings separately is how one of them
         // would eventually get the other answer.
-        for base in [ATTR_ENUM, ATTR_ENUM_VALUES, "attrStringEnum", "attrJidEnum"] {
+        for base in [ATTR_ENUM, ATTR_ENUM_VALUES, "attrStringEnum", "contentEnum"] {
             let maybe = format!("maybe{}{}", base[..1].to_uppercase(), &base[1..]);
             assert_eq!(
                 method_unknown_value_policy(&maybe),
