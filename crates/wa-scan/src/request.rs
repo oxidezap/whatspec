@@ -274,6 +274,15 @@ impl<'a> Visit<'a> for ScopeBuilder {
     fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
         let span = (arrow.body.span.start as usize, arrow.body.span.end as usize);
         self.fn_stack.push(span);
+        // An arrow with one parameter is the same argument-object shape as the `function`
+        // form above and gets the same root, so the two spellings cannot diverge. Today's
+        // bundle is down-levelled to ES5 and contains no arrow inside any `WASmax*`
+        // module, so this recovers nothing yet; recording it here is what stops a build
+        // that stops down-levelling from dropping paths silently, with the loss visible
+        // only as a fall in the floor-guarded counts after the fact.
+        if let Some(param) = single_param_name(&arrow.params) {
+            self.scope.fn_params.push((span.0, span.1, param));
+        }
         walk::walk_arrow_function_expression(self, arrow);
         self.fn_stack.pop();
     }
@@ -317,16 +326,21 @@ impl<'a> Visit<'a> for ScopeBuilder {
 ///
 /// `None` also for a zero-arg function — a presence-marker template reads no arguments
 /// at all — and for a destructuring pattern.
-fn first_param_name(f: &Function) -> Option<String> {
-    if f.params.items.len() != 1 || f.params.rest.is_some() {
+fn single_param_name(params: &oxc_ast::ast::FormalParameters) -> Option<String> {
+    if params.items.len() != 1 || params.rest.is_some() {
         return None;
     }
-    f.params
+    params
         .items
         .first()?
         .pattern
         .get_identifier_name()
         .map(|n| n.to_string())
+}
+
+/// [`single_param_name`] for a `function` declaration/expression.
+fn first_param_name(f: &Function) -> Option<String> {
+    single_param_name(&f.params)
 }
 
 fn fn_body_span(f: &Function) -> Option<(usize, usize)> {
@@ -382,6 +396,44 @@ fn prefix_arg_paths(nodes: &mut [WapChildNode], prefix: &[WapArgSegment]) {
     }
 }
 
+/// The argument path of a call's `i`-th argument, when it names one — the prefix that
+/// turns the callee's self-relative paths absolute. `None` when the argument is absent
+/// or not addressable.
+fn call_arg_path(
+    call: &oxc_ast::ast::CallExpression,
+    i: usize,
+    scope: &VarScope,
+    module_source: &str,
+    ref_off: Option<usize>,
+) -> Option<WapArgPath> {
+    let e = call.arguments.get(i).and_then(arg_expr)?;
+    relative_arg_path(e, scope, module_source, ref_off, 0).filter(|p| !p.is_empty())
+}
+
+/// Drop every argument path in a subtree. Used where a subtree's paths are relative to a
+/// frame this call site cannot name: a relative path published as an absolute one is a
+/// wrong address, which is worse than none — an absent path is counted.
+fn clear_arg_paths(nodes: &mut [WapChildNode]) {
+    for n in nodes {
+        n.arg_path = None;
+        for a in &mut n.attrs {
+            a.arg_path = None;
+        }
+        if let Some(c) = n.content.as_mut() {
+            c.arg_path = None;
+        }
+        for g in &mut n.variant_groups {
+            for v in &mut g.variants {
+                for a in &mut v.attrs {
+                    a.arg_path = None;
+                }
+                clear_arg_paths(&mut v.children);
+            }
+        }
+        clear_arg_paths(&mut n.children);
+    }
+}
+
 fn prefix_one(path: &mut Option<WapArgPath>, prefix: &[WapArgSegment]) {
     if let Some(p) = path.as_mut() {
         let mut full = prefix.to_vec();
@@ -422,6 +474,7 @@ fn relative_arg_path(
         // `i = optionalMerge(…)` are the same entry — and the first one that happens to
         // resolve wins, pointing a child at a stranger's argument.
         let inits = scope.vars.get(name)?;
+        let mut found: Option<WapArgPath> = None;
         for init in inits {
             if init.init_start < fn_start || init.init_end > fn_end {
                 continue;
@@ -434,13 +487,27 @@ fn relative_arg_path(
             let slice = &module_source[init.init_start..init.init_end];
             let alloc = Allocator::default();
             let parsed = wa_oxc::parse_cjs(&alloc, slice);
-            if let Some(expr) = first_expression(&parsed.program)
-                && let Some(p) = relative_arg_path(expr, scope, module_source, ref_off, depth + 1)
-            {
-                return Some(p);
+            let Some(expr) = first_expression(&parsed.program) else {
+                continue;
+            };
+            let Some(p) = relative_arg_path(expr, scope, module_source, ref_off, depth + 1) else {
+                continue;
+            };
+            // A name assigned twice from DIFFERENT arguments (`var a = e.old; a =
+            // e.current;`) has no single answer here: `ref_off` is the enclosing
+            // function, not the use site, so which assignment reaches the read is not
+            // computable from what this holds. Taking the first would publish an address
+            // that is right about half the time, and a consumer following it writes into
+            // the wrong argument with nothing to warn it. Agreeing initializers (the same
+            // path recorded twice, which the flat scope produces routinely) are not
+            // ambiguous.
+            match &found {
+                Some(prev) if *prev != p => return None,
+                Some(_) => {}
+                None => found = Some(p),
             }
         }
-        return None;
+        return found;
     }
 
     // `<param>.a.b` → ["a", "b"]. Computed members (`x[i]`) are not a static key and
@@ -448,10 +515,7 @@ fn relative_arg_path(
     if e.as_member_expression().is_some() {
         let mut keys = Vec::new();
         let mut cur = e;
-        loop {
-            let Some(m) = cur.as_member_expression() else {
-                break;
-            };
+        while let Some(m) = cur.as_member_expression() {
             let prop = m.static_property_name()?;
             keys.push(prop.to_string());
             cur = m.object();
@@ -467,18 +531,27 @@ fn relative_arg_path(
     }
 
     // A value coercion — `WAWap.JID(t)`, `OPTIONAL(WAWap.JID, n)`, `CUSTOM_STRING(t)`.
-    // The value is whichever argument resolves; a coercion-function reference
-    // (`o("WAWap").JID`) is rooted at a `require` call, not at the parameter, so it
-    // never resolves and cannot be mistaken for the value.
+    // A coercion-function reference (`o("WAWap").JID`) is rooted at a `require` call, not
+    // at the parameter, so it never resolves and cannot be mistaken for the value.
+    //
+    // Exactly one argument may resolve. A call that reads two — `combine(e.left,
+    // e.right)` — has no single source, and naming the first would describe a value the
+    // builder does not produce from it alone: a consumer supplying only that path gets a
+    // different stanza. Same rule as the conditional below, for the same reason.
     if let Some(call) = as_call(e) {
+        let mut found: Option<WapArgPath> = None;
         for a in &call.arguments {
-            if let Some(ae) = arg_expr(a)
-                && let Some(p) = relative_arg_path(ae, scope, module_source, ref_off, depth + 1)
-            {
-                return Some(p);
+            let Some(ae) = arg_expr(a) else { continue };
+            let Some(p) = relative_arg_path(ae, scope, module_source, ref_off, depth + 1) else {
+                continue;
+            };
+            match &found {
+                Some(prev) if *prev != p => return None,
+                Some(_) => {}
+                None => found = Some(p),
             }
         }
-        return None;
+        return found;
     }
 
     // `cond ? a : b` — recoverable only when both branches read the SAME argument
@@ -912,13 +985,19 @@ pub(crate) fn resolve_child_node(
     }
 
     // Case 5: `helper(args)` — trace the helper's return value.
+    //
+    // The helper resolves its paths against ITS OWN parameter, so they arrive relative
+    // to whatever this call passed. That argument is the prefix, exactly as it is for a
+    // `REPEATED_CHILD` list or a mixin's argument object: without it `helper(e.userArgs)`
+    // over a helper reading `arg.jid` publishes a bare `jid`, which reads as an absolute
+    // address into the request's own arguments and is not one.
     if let Some(call) = as_call(node)
         && let Some(callee_name) = as_identifier(&call.callee)
         && let Some(inits) = scope.vars.get(callee_name)
     {
         for vi in inits {
             if let Some((bs, be)) = vi.fn_body {
-                let r = resolve_function_return(
+                let mut r = resolve_function_return(
                     bs,
                     be,
                     scope,
@@ -929,6 +1008,9 @@ pub(crate) fn resolve_child_node(
                     depth + 1,
                 );
                 if !r.is_empty() {
+                    if let Some(prefix) = call_arg_path(call, 0, scope, module_source, ref_off) {
+                        prefix_arg_paths(&mut r, &prefix);
+                    }
                     return r;
                 }
             }
@@ -938,25 +1020,41 @@ pub(crate) fn resolve_child_node(
     // Case 5b: cross-module helper `o("Module").fn(args)` — inline the wap subtree
     // the helper returns (e.g. `o("WAWebSignalUtilsApi").xmppSignedPreKey(t)` → the
     // `<skey><id/><value/><signature/></skey>` tree), read from the pre-built index.
+    //
+    // The index is built once per (module, fn) with no call site in view, so any path in
+    // it is relative to that helper's own parameter and needs the same prefixing. When
+    // this call site's argument is not itself addressable, the subtree's paths are not
+    // absolute and are dropped rather than published as though they were.
     if let Some(call) = as_call(node)
         && let Some((module, func)) = require_member_call(&call.callee)
         && let Some(tree) = helpers.get(&module, &func)
     {
-        return tree.clone();
+        let mut tree = tree.clone();
+        match call_arg_path(call, 0, scope, module_source, ref_off) {
+            Some(prefix) => prefix_arg_paths(&mut tree, &prefix),
+            None => clear_arg_paths(&mut tree),
+        }
+        return tree;
     }
 
     Vec::new()
 }
 
-/// The `min`/`max` of `REPEATED_CHILD(template, list, min, max)`, each recovered
-/// independently when it is a non-negative integer literal.
+/// The `min`/`max` of `REPEATED_CHILD(template, list, min, max)`.
 ///
-/// Independently, because the two non-literal forms are worth telling apart and the
-/// emitted document already can: WA writes an unbounded maximum as `1/0`, so
-/// `repeat_min` present with `repeat_max` absent means "at least min, no ceiling",
-/// while a child with neither bound came from a `.map()` that states no bound at all.
-/// Collapsing both to "no bounds" would have made an explicitly unbounded list
-/// indistinguishable from an unmeasured one.
+/// Three outcomes, because two of them must not look alike:
+///
+/// - both literals → a closed range;
+/// - a literal `min` with `1/0` as the `max` → "at least min, no ceiling". WA writes an
+///   unbounded maximum as the division, so this is a bound the builder STATES;
+/// - anything else → neither bound is emitted, and the site is counted.
+///
+/// The third case is why the maximum is not simply "literal or nothing". A computed but
+/// finite maximum would otherwise serialize exactly like the stated infinity above, and
+/// a consumer would read a real ceiling as its absence — the precise conflation between
+/// "no constraint" and "a constraint we could not extract" this IR exists to avoid. No
+/// call site in the current bundle takes that form (all 65 are literals or `1/0`), so
+/// suppressing it costs nothing today and keeps the claim true if one appears.
 fn repeat_bounds(call: &oxc_ast::ast::CallExpression) -> (Option<u32>, Option<u32>) {
     let lit = |i: usize| {
         call.arguments
@@ -965,7 +1063,28 @@ fn repeat_bounds(call: &oxc_ast::ast::CallExpression) -> (Option<u32>, Option<u3
             .and_then(as_int)
             .and_then(|n| u32::try_from(n).ok())
     };
-    (lit(2), lit(3))
+    let max_arg = call.arguments.get(3).and_then(arg_expr);
+    match (lit(2), lit(3)) {
+        (min, Some(max)) => (min, Some(max)),
+        // `1/0` (or a bare `Infinity`) is a stated bound, not a failure to read one.
+        (min, None) if max_arg.is_some_and(is_infinity) => (min, None),
+        _ => (None, None),
+    }
+}
+
+/// Whether an expression is JavaScript's positive infinity as a minifier writes it:
+/// `1/0`, or the global `Infinity`. Structural — a variable that merely holds infinity
+/// at runtime is not recognized, and is treated as an unresolved bound.
+fn is_infinity(e: &Expression) -> bool {
+    if let Expression::Identifier(id) = e {
+        return id.name == "Infinity";
+    }
+    let Expression::BinaryExpression(b) = e else {
+        return false;
+    };
+    b.operator == oxc_syntax::operator::BinaryOperator::Division
+        && as_int(&b.left).is_some_and(|n| n != 0)
+        && as_int(&b.right) == Some(0)
 }
 
 /// `o("Module").fn` (a member whose object is a `require` call) → `(Module, fn)`.
@@ -1044,19 +1163,25 @@ fn merge_node_into(d: &mut WapChildNode, src: &WapChildNode, optional: bool) {
 }
 
 /// Take from a merged-in fragment the builder facts the destination doesn't have:
-/// element content, cardinality, repeat bounds, argument path.
+/// element content, repeat bounds, argument path.
 ///
 /// Fill-if-empty rather than overwrite — the destination is the node built at the call
 /// site and is the more specific description; a fragment only ever ADDS, mirroring
 /// `mergeStanzas`. This is where a mixin's element value stops disappearing: the merge
 /// used to union attrs and children and drop everything else, so a `<subject>` built in
 /// a mixin arrived at the request as a bare tag.
+///
+/// **`presence` is deliberately not among them.** It has no "unset" — `Required` is
+/// both a real state and the serde default — so a fill-if-empty test cannot tell a
+/// destination that is genuinely unconditional from one that was never classified, and
+/// would happily weaken the first. It does not need to: this runs only when a
+/// destination node with that tag already exists, which means it was built at its own
+/// call site, and a child some call site emits unconditionally is unconditional
+/// regardless of what another site does with it. A fragment whose tag has no destination
+/// is appended whole by [`apply_contribution`], keeping its own presence intact.
 pub(crate) fn adopt_builder_facts(d: &mut WapChildNode, src: &WapChildNode) {
     if d.content.is_none() {
         d.content = src.content.clone();
-    }
-    if d.presence.is_required() {
-        d.presence = src.presence;
     }
     d.repeat_min = d.repeat_min.or(src.repeat_min);
     d.repeat_max = d.repeat_max.or(src.repeat_max);
@@ -1906,7 +2031,7 @@ mod tests {
     #[test]
     fn an_unbounded_max_leaves_only_the_minimum() {
         // WA writes an open upper bound as `1/0`. Recovering `min` anyway is what keeps
-        // "at least one, no ceiling" distinguishable from a `.map()` child that states
+        // "at least n, no ceiling" distinguishable from a `.map()` child that states
         // no bound at all — the latter has neither.
         let code = r#"
             function t(e){ return o("WASmaxJsx").smax("item", null); }
@@ -1917,6 +2042,23 @@ mod tests {
         let out = resolve_builder(code, "b");
         let item = out.iter().find(|c| c.tag == "item").expect("item");
         assert_eq!((item.repeat_min, item.repeat_max), (Some(0), None));
+    }
+
+    #[test]
+    fn a_computed_max_suppresses_both_bounds() {
+        // The counterpart of the test above, and the reason it can mean what it says: a
+        // maximum WA computes rather than writes is NOT infinity, and must not serialize
+        // like it. Dropping the minimum too is what stops a real ceiling from reading as
+        // its absence.
+        let code = r#"
+            function t(e){ return o("WASmaxJsx").smax("item", null); }
+            function b(e){ var a = e.itemArgs, n = e.cap;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxChildren").REPEATED_CHILD(t, a, 0, n)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let item = out.iter().find(|c| c.tag == "item").expect("item");
+        assert_eq!((item.repeat_min, item.repeat_max), (None, None));
     }
 
     /// Resolve a builder's return the way `module.rs` does when it walks an `<iq>` call:
@@ -1971,6 +2113,68 @@ mod tests {
         let out = resolve_in_module(code, "b");
         let n = out.iter().find(|c| c.tag == "other").expect("child");
         assert_eq!(path_of(&n.arg_path), vec![("rightArgs".to_string(), false)]);
+    }
+
+    #[test]
+    fn an_arrow_records_its_argument_root_like_a_function() {
+        // The two spellings of "takes one argument object" must agree, or a path that is
+        // recoverable in one is silently absent in the other. Nothing in today's bundle
+        // takes the arrow form (it is down-levelled to ES5), so this pins the symmetry
+        // rather than covering live output.
+        //
+        // Scope-level rather than end-to-end on purpose: an arrow passed as a child
+        // TEMPLATE is still not traced, because `resolve_template_arg` reaches a template
+        // through `VarInit::fn_body`, which only a `function` expression sets. That is a
+        // separate, pre-existing limit of template resolution — asserting it here would
+        // claim a coverage this change does not deliver.
+        let code = r#"var t = (e) => o("WASmaxJsx").smax("x", {jid: e.participantJid});"#;
+        let alloc = Allocator::default();
+        let ret = wa_oxc::parse_cjs(&alloc, code);
+        let scope = build_var_scope(&ret.program);
+        let inside = code.find("e.participantJid").expect("marker");
+        assert_eq!(
+            scope.arg_root_at(inside).map(|(_, _, name)| name),
+            Some("e"),
+            "an arrow's single parameter is an argument root"
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_source_yields_no_argument_path() {
+        // Two rules, one reason, so they are asserted together: a call reading two
+        // arguments (`<a>`) and a local assigned from two different ones (`<b>`) each
+        // have no single address. Publishing the first would be right about half the
+        // time, and a consumer following it writes into the wrong argument with nothing
+        // to warn it — worse than publishing nothing, which is counted.
+        let code = r#"
+            function b(e){ var x = e.old; x = e.current;
+              return o("WASmaxJsx").smax("iq", null, [
+                o("WASmaxJsx").smax("a", {v: combine(e.left, e.right)}),
+                o("WASmaxJsx").smax("b", {v: o("WAWap").CUSTOM_STRING(x)})]); }
+        "#;
+        let out = resolve_builder(code, "b");
+        for tag in ["a", "b"] {
+            let n = out.iter().find(|c| c.tag == tag).expect(tag);
+            assert!(n.attrs[0].arg_path.is_none(), "<{tag}>: {:?}", n.attrs[0]);
+        }
+    }
+
+    #[test]
+    fn a_repeated_assignment_of_the_same_argument_is_not_ambiguous() {
+        // The bound is on DISAGREEMENT, not on multiplicity: two initializers naming the
+        // same argument still name one address, and dropping those would lose paths the
+        // builder states plainly.
+        let code = r#"
+            function b(e){ var x = e.jid; x = e.jid;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxJsx").smax("u", {v: o("WAWap").JID(x)})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let u = out.iter().find(|c| c.tag == "u").expect("u");
+        assert_eq!(
+            path_of(&u.attrs[0].arg_path),
+            vec![("jid".to_string(), false)]
+        );
     }
 
     #[test]

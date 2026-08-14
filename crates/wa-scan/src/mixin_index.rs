@@ -720,7 +720,6 @@ mod tests {
             }]),
             ..Default::default()
         });
-        frag.presence = wa_ir::WapChildPresence::Optional;
         frag.arg_path = Some(vec![wa_ir::WapArgSegment {
             key: "subjectArgs".to_string(),
             list: false,
@@ -737,7 +736,6 @@ mod tests {
             Some("subjectElementValue"),
             "the element value survives the fold"
         );
-        assert_eq!(merged.presence, wa_ir::WapChildPresence::Optional);
         assert_eq!(
             merged.arg_path.as_ref().map(|p| p[0].key.as_str()),
             Some("subjectArgs")
@@ -749,14 +747,24 @@ mod tests {
         // Fill-if-empty, not overwrite: the destination is the node built at the call
         // site and is the more specific description. A fragment only ever ADDS.
         let mut into = vec![node("body", &[], vec![])];
-        into[0].presence = wa_ir::WapChildPresence::PresenceFlag;
         into[0].repeat_max = Some(10);
         let mut frag = node("body", &[], vec![]);
-        frag.presence = wa_ir::WapChildPresence::Optional;
         frag.repeat_max = Some(99);
         merge_children(&mut into, &[frag]);
-        assert_eq!(into[0].presence, wa_ir::WapChildPresence::PresenceFlag);
         assert_eq!(into[0].repeat_max, Some(10));
+    }
+
+    #[test]
+    fn merge_children_never_weakens_a_required_destination() {
+        // `Required` is a real state AND the serde default, so a fill-if-empty test on
+        // `presence` cannot tell "unconditional" from "unclassified". A child that some
+        // call site emits unconditionally is unconditional, whatever an optional
+        // fragment for the same tag says.
+        let mut into = vec![node("locked", &[], vec![])];
+        let mut frag = node("locked", &[], vec![]);
+        frag.presence = wa_ir::WapChildPresence::Optional;
+        merge_children(&mut into, &[frag]);
+        assert_eq!(into[0].presence, wa_ir::WapChildPresence::Required);
     }
 
     #[test]

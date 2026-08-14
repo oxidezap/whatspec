@@ -1166,10 +1166,28 @@ def check_request_child_cardinality(node, path, errors):
         if not isinstance(c, dict) or "tag" not in c:
             continue
         at = f"{path}/children/{i}"
-        if c.get("presence") == "presence_flag" and (c.get("attrs") or c.get("content")):
-            errors.append(
-                f"{at}: presence marker carries attributes or content — it cannot be a bool"
-            )
+        if c.get("presence") == "presence_flag":
+            # A marker's template takes no arguments, so anything it writes is a constant
+            # the IR already carries — `<x type="fixed"/>` is still modelled as a bool
+            # plus a fixed payload, and rejecting it outright would block a regeneration
+            # over a perfectly consumable node. What cannot be true is a marker whose
+            # payload needs a VALUE, since the flag supplies none and nothing else can.
+            needy = [
+                a.get("name")
+                for a in c.get("attrs") or []
+                if a.get("kind") not in ("const", "generated_id")
+            ]
+            if needy:
+                errors.append(
+                    f"{at}: presence marker reads argument(s) {needy} its boolean cannot "
+                    f"supply"
+                )
+            content = c.get("content") or {}
+            if content and content.get("kind") != "const" and "constBytes" not in content:
+                errors.append(
+                    f"{at}: presence marker carries a runtime element value its boolean "
+                    f"cannot supply"
+                )
         lo, hi = c.get("repeatMin"), c.get("repeatMax")
         if (lo is not None or hi is not None) and not c.get("repeats"):
             errors.append(f"{at}: repeat bounds on a child that does not repeat")
@@ -1177,7 +1195,7 @@ def check_request_child_cardinality(node, path, errors):
             errors.append(f"{at}: repeatMin {lo} exceeds repeatMax {hi}")
 
 
-def check_mixin_group_depth(node, path, errors):
+def check_mixin_group_depth(node, path, domain, errors):
     """A response field named `…MixinGroup` must carry the alternatives that make it one.
 
     WA composes most of a response out of mixins, and a `…MixinGroup` is the disjunction
@@ -1188,7 +1206,14 @@ def check_mixin_group_depth(node, path, errors):
 
     Named-based on purpose, and only here: this checks a NAME against the SHAPE the IR
     already gave the field, rather than deriving anything from the name.
+
+    Scoped to IQ response fields, which is the only place the construct exists. The
+    walker visits every object in every domain, so without the scope a request attribute,
+    an enum entry or a WAM field that happens to end in `MixinGroup` would be failed for
+    lacking keys its own shape never has.
     """
+    if domain != "iq" or "/response" not in path or "method" not in node:
+        return
     name = node.get("name")
     if not isinstance(name, str) or not name.endswith("MixinGroup"):
         return
@@ -1301,7 +1326,7 @@ def main() -> int:
             check_child_requiredness(node, f"{domain}{path}", errors)
             check_arg_path(node, f"{domain}{path}", errors)
             check_request_child_cardinality(node, f"{domain}{path}", errors)
-            check_mixin_group_depth(node, f"{domain}{path}", errors)
+            check_mixin_group_depth(node, f"{domain}{path}", domain, errors)
 
         walk(data, visit)
         # Needs the whole document, not one node: the reference and its definition sit in

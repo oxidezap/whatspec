@@ -7489,12 +7489,7 @@
                 "children": [],
                 "content": {
                   "kind": "bytes",
-                  "byteLength": 3,
-                  "argPath": [
-                    {
-                      "key": "keyId"
-                    }
-                  ]
+                  "byteLength": 3
                 },
                 "repeats": false
               },
@@ -7505,15 +7500,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 32,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob",
-                  "argPath": [
-                    {
-                      "key": "keyPair"
-                    },
-                    {
-                      "key": "pubKey"
-                    }
-                  ]
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               },
@@ -7524,12 +7511,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 64,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob",
-                  "argPath": [
-                    {
-                      "key": "signature"
-                    }
-                  ]
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               }
@@ -9074,12 +9056,7 @@
                     "children": [],
                     "content": {
                       "kind": "bytes",
-                      "byteLength": 3,
-                      "argPath": [
-                        {
-                          "key": "keyId"
-                        }
-                      ]
+                      "byteLength": 3
                     },
                     "repeats": false
                   },
@@ -9090,15 +9067,7 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 32,
-                      "byteLengthSource": "parse:WAWebDigestKeyJob",
-                      "argPath": [
-                        {
-                          "key": "keyPair"
-                        },
-                        {
-                          "key": "pubKey"
-                        }
-                      ]
+                      "byteLengthSource": "parse:WAWebDigestKeyJob"
                     },
                     "repeats": false
                   },
@@ -9109,12 +9078,7 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 64,
-                      "byteLengthSource": "parse:WAWebDigestKeyJob",
-                      "argPath": [
-                        {
-                          "key": "signature"
-                        }
-                      ]
+                      "byteLengthSource": "parse:WAWebDigestKeyJob"
                     },
                     "repeats": false
                   }
@@ -9244,12 +9208,7 @@
                 "children": [],
                 "content": {
                   "kind": "bytes",
-                  "byteLength": 3,
-                  "argPath": [
-                    {
-                      "key": "keyId"
-                    }
-                  ]
+                  "byteLength": 3
                 },
                 "repeats": false
               },
@@ -9260,15 +9219,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 32,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob",
-                  "argPath": [
-                    {
-                      "key": "keyPair"
-                    },
-                    {
-                      "key": "pubKey"
-                    }
-                  ]
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               },
@@ -9279,12 +9230,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 64,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob",
-                  "argPath": [
-                    {
-                      "key": "signature"
-                    }
-                  ]
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               }

@@ -14,8 +14,8 @@
         "argPathAttrsMissing": 57,
         "argPathChildren": 99,
         "argPathChildrenMissing": 21,
-        "argPathContents": 51,
-        "argPathContentsMissing": 9,
+        "argPathContents": 42,
+        "argPathContentsMissing": 18,
         "elementValues": 61,
         "optionalChildren": 33,
         "presenceFlagChildren": 31,
@@ -86,7 +86,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "7edcd8ab7eada99337b999263c128b798ecccfb5f27cd8a7da9dc18f8d1c2d1d"
+      "sha256": "f09eac8cbf60e0e0d7f0f04d7d6af51fa19399c4b0d221790c3b008578aaa316"
     },
     "mex": {
       "file": "mex/index.json",
@@ -110,7 +110,7 @@
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "2445444c1efb042bd60931140861ba50c3fe8ee5b39cb8db430c106454c46ab6"
+      "sha256": "e8109f56c446040c01444e2529f01ef53af05bb945effae61b071b833ba30606"
     },
     "tokens": {
       "file": "tokens/index.json",

@@ -2459,64 +2459,27 @@
             {
               "name": "polltype",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgProtobuf"
-                }
-              ]
+              "required": false
             },
             {
               "name": "event_type",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgProtobuf"
-                }
-              ]
+              "required": false
             },
             {
               "name": "thread_msg_id",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                },
-                {
-                  "key": "data"
-                },
-                {
-                  "key": "threadMsgId"
-                }
-              ]
+              "required": false
             },
             {
               "name": "thread_msg_sender_jid",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                },
-                {
-                  "key": "data"
-                },
-                {
-                  "key": "threadMsgSenderLid"
-                }
-              ]
+              "required": false
             },
             {
               "name": "appdata",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                }
-              ]
+              "required": false
             },
             {
               "name": "view_once",
@@ -2526,22 +2489,12 @@
             {
               "name": "conversation_thread_id",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "includeAttributes"
-                }
-              ]
+              "required": false
             },
             {
               "name": "tag_reason",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                }
-              ]
+              "required": false
             }
           ],
           "children": [],
@@ -2558,12 +2511,7 @@
             {
               "name": "st",
               "kind": "dynamic",
-              "required": true,
-              "argPath": [
-                {
-                  "key": "scheduledTimestampS"
-                }
-              ]
+              "required": true
             }
           ],
           "children": [
@@ -2573,22 +2521,12 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true,
-                  "argPath": [
-                    {
-                      "key": "revealKeyId"
-                    }
-                  ]
+                  "required": true
                 }
               ],
               "children": [],
               "content": {
-                "kind": "dynamic",
-                "argPath": [
-                  {
-                    "key": "revealKey"
-                  }
-                ]
+                "kind": "dynamic"
               },
               "repeats": false
             },
@@ -2598,12 +2536,7 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true,
-                  "argPath": [
-                    {
-                      "key": "revealKeyId"
-                    }
-                  ]
+                  "required": true
                 }
               ],
               "children": [],
@@ -2772,64 +2705,27 @@
             {
               "name": "polltype",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgProtobuf"
-                }
-              ]
+              "required": false
             },
             {
               "name": "event_type",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgProtobuf"
-                }
-              ]
+              "required": false
             },
             {
               "name": "thread_msg_id",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                },
-                {
-                  "key": "data"
-                },
-                {
-                  "key": "threadMsgId"
-                }
-              ]
+              "required": false
             },
             {
               "name": "thread_msg_sender_jid",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                },
-                {
-                  "key": "data"
-                },
-                {
-                  "key": "threadMsgSenderLid"
-                }
-              ]
+              "required": false
             },
             {
               "name": "appdata",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                }
-              ]
+              "required": false
             },
             {
               "name": "view_once",
@@ -2839,22 +2735,12 @@
             {
               "name": "conversation_thread_id",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "includeAttributes"
-                }
-              ]
+              "required": false
             },
             {
               "name": "tag_reason",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                }
-              ]
+              "required": false
             }
           ],
           "children": [],
@@ -3044,64 +2930,27 @@
             {
               "name": "polltype",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgProtobuf"
-                }
-              ]
+              "required": false
             },
             {
               "name": "event_type",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgProtobuf"
-                }
-              ]
+              "required": false
             },
             {
               "name": "thread_msg_id",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                },
-                {
-                  "key": "data"
-                },
-                {
-                  "key": "threadMsgId"
-                }
-              ]
+              "required": false
             },
             {
               "name": "thread_msg_sender_jid",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                },
-                {
-                  "key": "data"
-                },
-                {
-                  "key": "threadMsgSenderLid"
-                }
-              ]
+              "required": false
             },
             {
               "name": "appdata",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                }
-              ]
+              "required": false
             },
             {
               "name": "view_once",
@@ -3111,22 +2960,12 @@
             {
               "name": "conversation_thread_id",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "includeAttributes"
-                }
-              ]
+              "required": false
             },
             {
               "name": "tag_reason",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "msgRecord"
-                }
-              ]
+              "required": false
             }
           ],
           "children": [],
@@ -3146,6 +2985,9 @@
               "required": true,
               "argPath": [
                 {
+                  "key": "scheduledMsgMetadata"
+                },
+                {
                   "key": "scheduledTimestampS"
                 }
               ]
@@ -3161,6 +3003,9 @@
                   "required": true,
                   "argPath": [
                     {
+                      "key": "scheduledMsgMetadata"
+                    },
+                    {
                       "key": "revealKeyId"
                     }
                   ]
@@ -3170,6 +3015,9 @@
               "content": {
                 "kind": "dynamic",
                 "argPath": [
+                  {
+                    "key": "scheduledMsgMetadata"
+                  },
                   {
                     "key": "revealKey"
                   }
@@ -3185,6 +3033,9 @@
                   "kind": "string",
                   "required": true,
                   "argPath": [
+                    {
+                      "key": "scheduledMsgMetadata"
+                    },
                     {
                       "key": "revealKeyId"
                     }
