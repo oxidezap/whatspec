@@ -876,7 +876,7 @@
             "name": "type",
             "type": "enum",
             "parserRequired": false,
-            "unknownValue": "reject",
+            "unknownValue": "null",
             "enumKeys": [
               "delivery",
               "read",

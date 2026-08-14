@@ -18,7 +18,7 @@ use oxc_syntax::scope::ScopeFlags;
 use wa_ir::wap;
 use wa_ir::{
     AssertionKind, ContentType, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion,
-    UnionVariant,
+    UnionVariant, UnknownValuePolicy,
 };
 
 use wa_oxc::{
@@ -2464,6 +2464,12 @@ impl ParserAnalyzer<'_, '_> {
                     };
                     f.field_type = ParsedFieldType::Enum;
                     f.parser_required = !optional;
+                    // The method now names the merged shape, not the accessor that
+                    // decides an out-of-set value. `attrEnumOrNullIfUnknown` returns
+                    // null there and the companion plain read returns the raw string —
+                    // nothing rejects — so leaving the policy to be re-derived from
+                    // `attrEnum` would publish a rejection the client never performs.
+                    f.unknown_value = Some(UnknownValuePolicy::Null);
                 }
             } else {
                 // No companion plain read created a field for this attr (doesn't occur in
@@ -2474,6 +2480,9 @@ impl ParserAnalyzer<'_, '_> {
                 // `wap::is_attr_method`, leaving the field unclassified downstream.
                 let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
                 f.enum_keys = Some(keys);
+                // Same substitution, same correction: the accessor that ran was the
+                // null-returning one.
+                f.unknown_value = Some(UnknownValuePolicy::Null);
                 self.fields.push(f);
             }
         }
@@ -2496,11 +2505,16 @@ impl ParserAnalyzer<'_, '_> {
                     f.field_type = ParsedFieldType::Enum;
                     f.parser_required = !optional;
                     f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                    // Also an `attrEnumOrNullIfUnknown` read — only its table could not be
+                    // named. What it does with a value outside that table is known even
+                    // though the table is not.
+                    f.unknown_value = Some(UnknownValuePolicy::Null);
                 }
                 Some(_) => {}
                 None => {
                     let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
                     f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                    f.unknown_value = Some(UnknownValuePolicy::Null);
                     self.fields.push(f);
                 }
             }
@@ -22394,8 +22408,14 @@ mod tests {
                 return {};
             });
         }),1);"#;
-        let out = parse_module_wap_parsers(module);
-        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let mut out = parse_module_wap_parsers(module);
+        let p = out
+            .iter_mut()
+            .find(|r| r.parser_name == "p")
+            .expect("parser");
+        // Through the domain pass, so the assertion below is about what ships rather than
+        // about an intermediate value the pass could still overwrite.
+        p.classify_accessors();
         let f = p
             .fields
             .iter()
@@ -22419,6 +22439,49 @@ mod tests {
             f.enum_keys.as_deref(),
             Some(["delivery", "read"].map(String::from).as_slice())
         );
+        // The retype renamed the accessor, and the out-of-set answer must not be re-read
+        // off the new name: `attrEnumOrNullIfUnknown` returns null there and the companion
+        // read returns the raw string, so nothing rejects. Deriving `reject` from
+        // `maybeAttrEnum` here told consumers to reject a value the client accepts — it
+        // shipped that way on the incoming receipt's `type` and the group notification's
+        // `reason`.
+        assert_eq!(
+            f.unknown_value,
+            Some(wa_ir::UnknownValuePolicy::Null),
+            "the accessor that decides, not the one the merge left behind"
+        );
+    }
+
+    #[test]
+    fn a_real_maybe_attr_enum_still_rejects() {
+        // The other half of the same question: `maybeAttrEnum("type", u)` written by WA
+        // itself is `hasAttr ? attrEnum : null`, which throws on a value outside the
+        // table. If preserving the merged field's policy were done by blanket-exempting
+        // `maybeAttrEnum`, this would wrongly go null — both spellings occur in the
+        // receipt parser, one per nesting level.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u={delivery:1,read:2};
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.forEachChildWithTag("user", function(t){ t.maybeAttrEnum("type",u); });
+                return {};
+            });
+        }),1);"#;
+        let mut out = parse_module_wap_parsers(module);
+        let p = out
+            .iter_mut()
+            .find(|r| r.parser_name == "p")
+            .expect("parser");
+        // The domain pass that fills in the policy from the accessor, as `whatspec` runs
+        // it before serialization.
+        p.classify_accessors();
+        let user = p.fields.iter().find(|f| f.tag.as_deref() == Some("user"));
+        let f = user
+            .and_then(|u| u.children.as_ref())
+            .and_then(|kids| kids.iter().find(|f| f.name == "type"))
+            .expect("the nested type field");
+        assert_eq!(f.method, wap::MAYBE_ATTR_ENUM);
+        assert_eq!(f.unknown_value, Some(wa_ir::UnknownValuePolicy::Reject));
     }
 
     #[test]

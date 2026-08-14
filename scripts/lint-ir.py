@@ -37,13 +37,15 @@ BASELINE = {
     # judged. Held at zero: a new WA enum accessor must be classified, not silently
     # assumed to reject, which is what the whole `unknownValue` dimension exists to stop.
     "enum accessor with no judged unknown-value policy": 0,
-    # `<iq>` requests the scan could not address: the four newsletter builders, whose
-    # `to` comes from `mergeNewsletterIQ*RequestMixin` as `WAWap.JID(newsletterId)` — a
-    # runtime JID with no fixed server. Counted here rather than floor-guarded because it
-    # must FALL as extraction improves; `diagnostics.iq.targets.resolved` guards the other
-    # direction in `check_floor`, so a request cannot move from an address to no address
-    # unseen.
-    "iq request with no resolved addressee": 4,
+    # `<iq>` requests the scan could not address, pinned per state so a swap between the
+    # two is not invisible. The four are the newsletter builders, whose `to` comes from
+    # `mergeNewsletterIQ*RequestMixin` as `WAWap.JID(newsletterId)` — a runtime JID with
+    # no fixed server, so `unknown` is what they are and `unset` would be a lie about
+    # them. Counted here rather than floor-guarded because these must FALL as extraction
+    # improves; `diagnostics.iq.targets.resolved` guards the other direction in
+    # `check_floor`, so a request cannot move from an address to no address unseen.
+    "iq request with a unknown addressee": 4,
+    "iq request with a unset addressee": 0,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -792,18 +794,25 @@ def check_catalog_resolution(data, domain, catalog_keys, errors):
 
 
 def count_unresolved_targets(data, domain, counts):
-    """`<iq>` requests whose addressee the scan could not name.
+    """`<iq>` requests whose addressee the scan could not name, per state.
 
     A counted state, not an error: `unset` is a true statement about a builder that
     writes no `to`. It is here so it can only fall — the number rising means requests
     stopped resolving, which is how all 143 came to claim `s.whatsapp.net`.
+
+    One counter per state, not a total for both. `unset` and `unknown` are different
+    claims — "writes no addressee" against "writes one this scan cannot name" — and a
+    single number is blind to a swap between them: the four newsletter requests turning
+    from `unknown` into `unset` would hold the sum at 4 and pass, having replaced a true
+    statement with a false one. That is the same substitution-under-an-aggregate the
+    unresolved-enum and flattened-key baselines are keyed by identity to avoid.
     """
     if domain != "iq":
         return
     for st in data.get("stanzas") or []:
         if isinstance(st, dict) and isinstance(st.get("target"), str) \
                 and st["target"] in UNRESOLVED_TARGETS:
-            counts["iq request with no resolved addressee"] += 1
+            counts[f"iq request with a {st['target']} addressee"] += 1
 
 
 def check_event_codes(data, domain, errors):

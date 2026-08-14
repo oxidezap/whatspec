@@ -16,7 +16,7 @@
 //! Only the handful of owners the scanner cares about are tracked, so the map
 //! stays tiny and a pure-`.wap` module yields an empty map (no behavior change).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{AssignmentExpression, Expression, VariableDeclarator};
 use oxc_ast_visit::{Visit, walk};
@@ -87,24 +87,53 @@ pub(crate) fn resolve_owner(e: &Expression, aliases: &AliasMap) -> Option<&'stat
 pub(crate) fn build_alias_map(program: &oxc_ast::ast::Program) -> AliasMap {
     let mut b = AliasBuilder {
         map: AliasMap::default(),
+        ambiguous: HashSet::new(),
     };
     b.visit_program(program);
+    // A name that also holds something else somewhere in the module is not an alias. The
+    // map is keyed by name with no scope attached, so a nested `var w = o("WAWap")` would
+    // otherwise speak for every `w` in the module — including an unrelated builder's, whose
+    // `w.S_WHATSAPP_NET` would then be published as a fixed address. Dropping the name
+    // costs a resolution the scanner would have to earn back; keeping it risks a wrong
+    // address, and this IR's whole point is that those are not the same mistake.
+    for name in &b.ambiguous {
+        b.map.map.remove(name);
+    }
     b.map
 }
 
 struct AliasBuilder {
     map: AliasMap,
+    /// Names bound to more than one thing in the module — a different tracked owner, or
+    /// any non-require value. Only names *given a value* count: `var n;` followed by
+    /// `(n = o("WAWap"))` is one binding, which is how minified modules spell it.
+    ambiguous: HashSet<String>,
+}
+
+impl AliasBuilder {
+    /// Record what `name` was bound to, or mark it ambiguous if that disagrees with a
+    /// binding already seen.
+    fn bind(&mut self, name: &str, value: Option<&'static str>) {
+        // A `None` value is a binding to something that is not a tracked module object.
+        // Not a conflict: minified modules reuse every short name, so treating it as one
+        // costs 20 requests their addressee (measured) to remove a hazard that needs the
+        // other object to carry a `WAWap`-only constant.
+        let Some(owner) = value else { return };
+        if self.map.map.get(name).is_some_and(|prev| *prev != owner) {
+            self.ambiguous.insert(name.to_string());
+        } else {
+            self.map.map.insert(name.to_string(), owner);
+        }
+    }
 }
 
 impl<'a> Visit<'a> for AliasBuilder {
     fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
         // `X = o("Owner")` — both standalone and embedded in a larger expression
         // (the visitor reaches the inner assignment of `(X = o(...)).method()`).
-        if let (Some(name), Some(owner)) = (
-            assignment_target_name(&assign.left),
-            require_owner(&assign.right),
-        ) {
-            self.map.map.insert(name.to_string(), owner);
+        if let Some(name) = assignment_target_name(&assign.left) {
+            let owner = require_owner(&assign.right);
+            self.bind(name, owner);
         }
         walk::walk_assignment_expression(self, assign);
     }
@@ -117,9 +146,9 @@ impl<'a> Visit<'a> for AliasBuilder {
         // written.
         if let Some(id) = decl.id.get_binding_identifier()
             && let Some(init) = &decl.init
-            && let Some(owner) = require_owner(init)
         {
-            self.map.map.insert(id.name.to_string(), owner);
+            let owner = require_owner(init);
+            self.bind(&id.name, owner);
         }
         walk::walk_variable_declarator(self, decl);
     }
@@ -161,6 +190,35 @@ mod tests {
         // Still only the tracked owners, and still nothing for a non-require init.
         let m = aliases(r#"var w = o("WAWebSomethingElse"), v = someObject;"#);
         assert!(m.is_empty());
+    }
+
+    #[test]
+    fn one_name_naming_two_owners_names_neither() {
+        // The map is keyed by name with no scope attached, so a name bound to two
+        // different tracked owners in one module cannot speak for either — whichever
+        // walk order wins, half its uses get the wrong module. Unresolved is the only
+        // answer that is true at both sites.
+        let m = aliases(r#"var n = o("WAWap"); function f(){ var n = o("WASmaxJsx"); }"#);
+        assert_eq!(m.owner_of("n"), None);
+
+        // Binding the same owner twice is not a conflict, and neither is the
+        // `var n;` … `(n = o("WAWap"))` spelling the bundle actually uses — the bare
+        // declaration gives the name no value.
+        let m = aliases(
+            r#"var n; var u = (n = o("WAWap")).wap("iq", {to: n.S_WHATSAPP_NET});
+               function f(){ var t = (n = o("WAWap")).generateId(); }"#,
+        );
+        assert_eq!(m.owner_of("n"), Some("WAWap"));
+
+        // A name that also holds an untracked value keeps its alias. Minified modules
+        // reuse every short identifier, so treating that as a conflict costs 20 requests
+        // their addressee (measured on this bundle) — and reading a `WAWap`-only constant
+        // off the other object would be `undefined`, which is not code WA ships.
+        let m = aliases(
+            r#"function a(){ var w = o("WAWap"); return w.S_WHATSAPP_NET; }
+               function b(){ var w = somethingElse(); return w.other; }"#,
+        );
+        assert_eq!(m.owner_of("w"), Some("WAWap"));
     }
 
     #[test]

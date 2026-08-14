@@ -1800,7 +1800,7 @@
                 "name": "reason",
                 "type": "enum",
                 "parserRequired": false,
-                "unknownValue": "reject",
+                "unknownValue": "null",
                 "enumKeys": [
                   "invite",
                   "linked_group_join",

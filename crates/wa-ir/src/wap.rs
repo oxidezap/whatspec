@@ -237,9 +237,17 @@ pub fn method_unknown_value_policy(m: &str) -> Option<UnknownValuePolicy> {
 /// added would forget. `scripts/lint-ir.py` re-checks the invariant against the emitted
 /// documents so a domain that skips this pass fails the build rather than shipping enum
 /// fields with no policy.
+///
+/// A policy already on the field wins. `method` is not always the accessor the client
+/// called: where an extractor merges two reads of one attribute it records the merged
+/// shape, and re-deriving from that name would answer for an accessor that never ran.
+/// Whoever performed the merge knows which accessor decides the out-of-set case and says
+/// so; this pass only fills the silence.
 pub fn classify_unknown_values(fields: &mut [ParsedField]) {
     for f in fields {
-        f.unknown_value = method_unknown_value_policy(&f.method);
+        if f.unknown_value.is_none() {
+            f.unknown_value = method_unknown_value_policy(&f.method);
+        }
         if let Some(children) = f.children.as_mut() {
             classify_unknown_values(children);
         }
@@ -518,6 +526,45 @@ mod tests {
         assert_eq!(
             fields[1].union_variants.as_ref().unwrap()[0].fields[0].unknown_value,
             Some(UnknownValuePolicy::Null),
+        );
+    }
+
+    #[test]
+    fn a_policy_the_extractor_already_judged_survives_the_pass() {
+        // Where two reads of one attribute are merged into one field, `method` names the
+        // merged shape and not the accessor that decides an out-of-set value. Re-deriving
+        // from `attrEnum` there would publish a rejection the client does not perform, so
+        // a policy already on the field is left alone — including a deliberate
+        // `Unclassified`, which must stay visible rather than be overwritten with a guess.
+        let mut fields = vec![
+            ParsedField {
+                method: ATTR_ENUM.into(),
+                field_type: ParsedFieldType::Enum,
+                unknown_value: Some(UnknownValuePolicy::Null),
+                ..Default::default()
+            },
+            ParsedField {
+                method: MAYBE_ATTR_ENUM.into(),
+                field_type: ParsedFieldType::Enum,
+                unknown_value: Some(UnknownValuePolicy::Unclassified),
+                ..Default::default()
+            },
+            ParsedField {
+                method: ATTR_ENUM.into(),
+                field_type: ParsedFieldType::Enum,
+                ..Default::default()
+            },
+        ];
+        classify_unknown_values(&mut fields);
+        assert_eq!(fields[0].unknown_value, Some(UnknownValuePolicy::Null));
+        assert_eq!(
+            fields[1].unknown_value,
+            Some(UnknownValuePolicy::Unclassified)
+        );
+        assert_eq!(
+            fields[2].unknown_value,
+            Some(UnknownValuePolicy::Reject),
+            "silence is still filled in"
         );
     }
 
