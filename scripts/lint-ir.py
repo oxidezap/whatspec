@@ -454,14 +454,18 @@ def check_field(f, path, domain, errors, counts, proto_enums):
     # not a value. It used to declare `string` — `method_field_type("")` fell through to
     # the default — so a generator switching on `type` emitted a scalar for a node with a
     # subtree, 617 times across the emitted documents.
-    if not method and f.get("children") and t != "node":
+    children = f.get("children")
+    if children is not None and not isinstance(children, list):
+        errors.append(f"{path}: children is {type(children).__name__}, not a list")
+        children = None
+    if not method and children and t != "node":
         errors.append(
-            f"{path}: no accessor and {len(f['children'])} child(ren), but declares "
+            f"{path}: no accessor and {len(children)} child(ren), but declares "
             f"scalar type {t!r} — a container is not a value"
         )
     # And the converse, so the type cannot be handed out to anything else: `node` is only
     # ever a container. A `node` with an accessor would be claiming both at once.
-    if t == "node" and (method or not f.get("children")):
+    if t == "node" and (method or not children):
         errors.append(
             f"{path}: type 'node' with "
             f"{'an accessor' if method else 'no children'} — `node` means the field IS "
@@ -485,6 +489,9 @@ def check_field(f, path, domain, errors, counts, proto_enums):
     # classified, so requiring the dimension there would be asking a question the domain
     # does not have.
     policy = f.get("unknownValue")
+    if policy is not None and not isinstance(policy, str):
+        errors.append(f"{path}: unknownValue is {policy!r}, not a string")
+        policy = None
     checks_a_set = t == "enum" and domain != "appstate"
     if policy is not None and policy not in UNKNOWN_VALUE_POLICIES:
         errors.append(f"{path}: unknownValue {policy!r} is not in the policy vocabulary")
@@ -721,8 +728,17 @@ def collect_catalog_keys(path, errors):
             f"every domain resolves against it, so the reference check cannot run"
         )
         return None, []
+    # Readable is not the same as well-formed. A catalog that parses but is not an object
+    # with an `enums` list resolves nothing, and reporting that beats a TypeError from the
+    # first `.get()` — the linter exists to name malformed input, not to fall over on it.
+    if not isinstance(data, dict) or not isinstance(data.get("enums"), list):
+        errors.append(
+            f"enums: the catalog at {path} is not an object with an `enums` list — "
+            f"no enumRef in any domain can resolve against it"
+        )
+        return None, []
     keys, dupes = set(), []
-    for e in data.get("enums") or []:
+    for e in data["enums"]:
         if not isinstance(e, dict):
             continue
         # A non-string identity is not a key. Guarded before it reaches a tuple, both
@@ -1326,6 +1342,16 @@ def main() -> int:
             # this exists to report, and a traceback tells a CI reader far less than a
             # line naming the file.
             errors.append(f"{doc}: cannot be read as JSON ({e})")
+            continue
+        # Parsing is not the same as being a document. Every per-document check below
+        # reaches for keys on the root, so a top-level array or scalar aborts the linter
+        # with a `AttributeError` instead of reporting the file — the one input this whole
+        # script exists to name. Guarded once here rather than at each `.get()`.
+        if not isinstance(data, dict):
+            errors.append(
+                f"{doc}: the root is a {type(data).__name__}, not an object — "
+                f"an IR document is a {{ waVersion, … }} envelope"
+            )
             continue
         domain = doc.parent.name
 

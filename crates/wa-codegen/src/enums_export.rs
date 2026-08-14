@@ -90,8 +90,18 @@ fn emit_enum(out: &mut String, d: &InternalEnumDef, const_name: &str) {
              \x20   pub const {const_name}_BITS: &[(&str, i64)] = &[\n"
         ));
         for v in &d.variants {
-            if let Scalar::Int(i) = v.value {
-                out.push_str(&format!("        ({:?}, {}),\n", v.name, 1i64 << i));
+            // The position comes from the bundle as a bare `i64`, and nothing upstream
+            // bounds it: `1i64 << 64` panics in debug and silently wraps in release, so
+            // one malformed enum would take the whole generator down. A position with no
+            // representable mask gets the note instead of a wrong number — the positions
+            // table above still carries it, so nothing is hidden.
+            let Scalar::Int(i) = v.value else { continue };
+            match u32::try_from(i).ok().and_then(|n| 1i64.checked_shl(n)) {
+                Some(mask) => out.push_str(&format!("        ({:?}, {}),\n", v.name, mask)),
+                None => out.push_str(&format!(
+                    "        // {:?}: position {i} has no representable mask in i64.\n",
+                    v.name
+                )),
             }
         }
         out.push_str("    ];\n");

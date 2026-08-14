@@ -384,9 +384,10 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
     l.push_str("    pub enum_values: &'static [&'static str],\n");
     l.push_str(
         "    /// What the handler does with a value outside `enum_values`: `Some(true)`\n\
-         \x20   /// rejects the notification, `Some(false)` yields null and parses on,\n\
-         \x20   /// `None` when the accessor checks no table. A consumer may close a\n\
-         \x20   /// generated enum only in the first case.\n",
+         \x20   /// rejects the notification, `Some(false)` yields null and parses on.\n\
+         \x20   /// `None` means no usable policy — either the accessor checks no table,\n\
+         \x20   /// or one was checked and this build has not judged which it does.\n\
+         \x20   /// A consumer may close a generated enum only on `Some(true)`.\n",
     );
     l.push_str("    pub rejects_unknown_value: Option<bool>,\n");
     l.push_str("}\n\n");
