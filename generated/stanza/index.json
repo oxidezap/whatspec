@@ -6566,12 +6566,8 @@
             {
               "name": "waiting_room_enabled",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "hasLinkCreateWaitingRoomEnabled1"
-                }
-              ]
+              "value": "1",
+              "required": false
             }
           ],
           "children": [
@@ -6824,12 +6820,8 @@
             {
               "name": "media",
               "kind": "optional",
-              "required": false,
-              "argPath": [
-                {
-                  "key": "hasComposingMediaAudio"
-                }
-              ]
+              "value": "audio",
+              "required": false
             }
           ],
           "children": [],

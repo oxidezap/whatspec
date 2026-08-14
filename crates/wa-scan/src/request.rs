@@ -770,9 +770,17 @@ fn mentions(e: &Expression, root: &str) -> bool {
 /// A `Const` attribute is skipped: the builder writes the literal itself, so there is
 /// no argument to point at, and an absent path there means "nothing to supply" rather
 /// than "we failed".
+pub(crate) fn is_optional_literal(value: &Expression, aliases: &AliasMap) -> bool {
+    as_call(value).is_some_and(|call| {
+        callee_method(call) == Some("OPTIONAL_LITERAL")
+            && callee_object(call).and_then(|o| resolve_owner(o, aliases)) == Some("WASmaxAttrs")
+    })
+}
+
 pub(crate) fn annotate_attr_arg_paths(
     attrs: &mut [WapAttrDef],
     attrs_node: &Expression,
+    aliases: &AliasMap,
     scope: &VarScope,
     module_source: &str,
     ref_off: Option<usize>,
@@ -791,6 +799,16 @@ pub(crate) fn annotate_attr_arg_paths(
             continue;
         };
         if attr.kind == WapAttrKind::Const {
+            continue;
+        }
+        // `WASmaxAttrs.OPTIONAL_LITERAL("true", e.hasDelete)` writes a FIXED wire value
+        // and takes a boolean deciding whether to write it at all. The generic call walk
+        // finds the boolean and would report it as the attribute's value address — so a
+        // consumer reads "put this attribute's value at `hasDescriptionDeleteTrue`" and
+        // supplies the wire string, when what the builder wants there is a flag. That is
+        // the attribute analogue of a presence marker, and `arg_path` has no way to say
+        // so; naming nothing is the honest answer until it does.
+        if is_optional_literal(&p.value, aliases) {
             continue;
         }
         // An empty path (a bare reference to the argument object) is not an
@@ -864,6 +882,13 @@ pub(crate) fn resolve_child_node(
                 ref_off,
             )
         };
+        // Presence is deliberately NOT weakened here. A `cond ? wap("x", …) : null` child
+        // can indeed be omitted, but by a control-flow guard rather than by one of the
+        // `WASmaxChildren` combinators `presence` is defined over — there is no argument
+        // object behind it, so calling it `Optional` would answer "which combinator built
+        // this" with something that is not one. The seam shows in the counters: 17 such
+        // children would be reported as combinator children missing an argument address
+        // they can never have. Extracting the guard is a different question from shape.
         let mut out = resolve(&cond.consequent);
         for child in resolve(&cond.alternate) {
             if !out.contains(&child) {
@@ -882,7 +907,7 @@ pub(crate) fn resolve_child_node(
             .map(|n| extract_attrs_from_obj(n, node_source, aliases))
             .unwrap_or_default();
         if let Some(n) = wap.attrs_node {
-            annotate_attr_arg_paths(&mut attrs, n, scope, module_source, ref_off);
+            annotate_attr_arg_paths(&mut attrs, n, aliases, scope, module_source, ref_off);
         }
         let mut children = Vec::new();
         for child_arg in wap.child_args {
@@ -1260,9 +1285,13 @@ fn repeat_bounds(call: &oxc_ast::ast::CallExpression) -> (Option<u32>, Option<u3
     };
     let max_arg = call.arguments.get(3).and_then(arg_expr);
     match (lit(2), lit(3)) {
-        (min, Some(max)) => (min, Some(max)),
-        // `1/0` (or a bare `Infinity`) is a stated bound, not a failure to read one.
-        (min, None) if max_arg.is_some_and(is_infinity) => (min, None),
+        (Some(min), Some(max)) => (Some(min), Some(max)),
+        // `1/0` (or a bare `Infinity`) is a stated bound, not a failure to read one — but
+        // the minimum still has to be readable, or there is no range to state.
+        (Some(min), None) if max_arg.is_some_and(is_infinity) => (Some(min), None),
+        // Bounds move together. A ceiling with no floor is half a range, and it would be
+        // counted as a recovered bound while the floor the builder also enforces is
+        // silently absent.
         _ => (None, None),
     }
 }
@@ -1319,6 +1348,7 @@ fn apply_contribution(dst: &mut Vec<WapChildNode>, contrib: &[WapChildNode], opt
                 // by the time a request resolves.
                 let mut r = root.clone();
                 mark_groups_optional(&mut r.variant_groups, optional);
+                mark_optional(&mut r, optional);
                 dst.push(r);
             } else {
                 for d in dst.iter_mut() {
@@ -1329,8 +1359,12 @@ fn apply_contribution(dst: &mut Vec<WapChildNode>, contrib: &[WapChildNode], opt
             merge_node_into(d, root, optional);
         } else {
             // No matching destination tag: append the node (mergeStanzas semantics).
+            // `optionalMerge` can skip the whole contribution, so a tag it INTRODUCES is
+            // one the request may not carry — unlike one that merges onto a destination
+            // built at its own call site, which keeps that site's cardinality.
             let mut r = root.clone();
             mark_groups_optional(&mut r.variant_groups, optional);
+            mark_optional(&mut r, optional);
             dst.push(r);
         }
     }
@@ -1388,6 +1422,15 @@ pub(crate) fn adopt_builder_facts(d: &mut WapChildNode, src: &WapChildNode) {
     }
     if d.arg_path.is_none() {
         d.arg_path = src.arg_path.clone();
+    }
+}
+
+/// Weaken a node the caller knows may be skipped. Only ever `Required` → `Optional`: a
+/// presence marker or an already-optional child was classified at its own call site and
+/// says something this does not.
+fn mark_optional(node: &mut WapChildNode, optional: bool) {
+    if optional && node.presence.is_required() {
+        node.presence = WapChildPresence::Optional;
     }
 }
 
@@ -1956,7 +1999,14 @@ impl<'a> Visit<'a> for WapCollector<'_> {
             // Offset 0 is inside the synthetic body span, so it names the callback frame.
             let ref_off = self.rooted.then_some(0);
             if let Some(n) = wap.attrs_node {
-                annotate_attr_arg_paths(&mut attrs, n, self.scope, self.source, ref_off);
+                annotate_attr_arg_paths(
+                    &mut attrs,
+                    n,
+                    self.local,
+                    self.scope,
+                    self.source,
+                    ref_off,
+                );
             }
             self.out.push(WapChildNode {
                 tag: wap.tag.to_string(),
@@ -2640,6 +2690,72 @@ mod tests {
         assert_eq!(
             path_of(&x.attrs[0].arg_path),
             vec![("outer".to_string(), false), ("inner".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn a_computed_minimum_suppresses_both_bounds() {
+        // Bounds move together. A ceiling with no floor is half a range, and it would be
+        // counted as a recovered bound while the floor the builder also enforces is
+        // silently absent — the same conflation the computed-maximum rule avoids.
+        let code = r#"
+            function t(e){ return o("WASmaxJsx").smax("item", null); }
+            function b(e){ var a = e.itemArgs, n = e.floor;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxChildren").REPEATED_CHILD(t, a, n, 10)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let item = out.iter().find(|c| c.tag == "item").expect("item");
+        assert_eq!((item.repeat_min, item.repeat_max), (None, None));
+    }
+
+    #[test]
+    fn an_optional_literal_attribute_names_no_value_path() {
+        // `OPTIONAL_LITERAL("true", flag)` writes a FIXED wire value and takes a boolean
+        // deciding whether to write it. Reporting the boolean as the value's address
+        // tells a consumer to put the wire string there.
+        let code = r#"
+            function b(e){ return o("WASmaxJsx").smax("iq", null,
+              o("WASmaxJsx").smax("description", {
+                id: o("WAWap").CUSTOM_STRING(e.descriptionId),
+                delete: o("WASmaxAttrs").OPTIONAL_LITERAL("true", e.hasDelete)})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let d = out
+            .iter()
+            .find(|c| c.tag == "description")
+            .expect("description");
+        let by = |n: &str| d.attrs.iter().find(|a| a.name == n).expect(n);
+        assert_eq!(
+            path_of(&by("id").arg_path),
+            vec![("descriptionId".to_string(), false)],
+            "an ordinary optional attribute still names its value"
+        );
+        assert!(by("delete").arg_path.is_none(), "{:?}", by("delete"));
+    }
+
+    #[test]
+    fn an_optional_merge_introducing_a_tag_marks_it_optional() {
+        // `optionalMerge` can skip the whole contribution, so a tag it INTRODUCES may be
+        // absent from the request. A tag that merges onto a destination built at its own
+        // call site keeps that site's cardinality instead.
+        let mut dst = vec![cnode("create", &[])];
+        apply_contribution(&mut dst, &[cnode("create", &[]), cnode("extra", &[])], true);
+        let by = |t: &str| {
+            dst.iter()
+                .find(|c| c.tag == t)
+                .unwrap_or_else(|| panic!("{t}: {dst:?}"))
+                .presence
+        };
+        assert_eq!(
+            by("extra"),
+            WapChildPresence::Optional,
+            "a tag the optional mixin introduces"
+        );
+        assert_eq!(
+            by("create"),
+            WapChildPresence::Required,
+            "a tag that already existed keeps its own call site's cardinality"
         );
     }
 

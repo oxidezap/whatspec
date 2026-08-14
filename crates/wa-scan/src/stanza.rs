@@ -235,6 +235,7 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                 annotate_attr_arg_paths(
                     &mut attrs,
                     n,
+                    self.aliases,
                     self.scope,
                     self.source,
                     Some(n.span().start as usize),

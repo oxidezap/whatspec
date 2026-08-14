@@ -4892,12 +4892,8 @@
               {
                 "name": "pqsupport",
                 "kind": "optional",
-                "required": false,
-                "argPath": [
-                  {
-                    "key": "hasKeyPqsupportTrue"
-                  }
-                ]
+                "value": "true",
+                "required": false
               },
               {
                 "name": "context_jid",
@@ -4931,16 +4927,8 @@
                   {
                     "name": "reason",
                     "kind": "optional",
-                    "required": false,
-                    "argPath": [
-                      {
-                        "key": "userArgs",
-                        "list": true
-                      },
-                      {
-                        "key": "hasUserReasonIdentity"
-                      }
-                    ]
+                    "value": "identity",
+                    "required": false
                   }
                 ],
                 "children": [],
@@ -6153,12 +6141,8 @@
               {
                 "name": "pqsupport",
                 "kind": "optional",
-                "required": false,
-                "argPath": [
-                  {
-                    "key": "hasKeyFetchPqsupportTrue"
-                  }
-                ]
+                "value": "true",
+                "required": false
               },
               {
                 "name": "context_jid",
@@ -6192,16 +6176,8 @@
                   {
                     "name": "reason",
                     "kind": "optional",
-                    "required": false,
-                    "argPath": [
-                      {
-                        "key": "userArgs",
-                        "list": true
-                      },
-                      {
-                        "key": "hasUserReasonIdentity"
-                      }
-                    ]
+                    "value": "identity",
+                    "required": false
                   }
                 ],
                 "children": [
@@ -41755,15 +41731,8 @@
                       {
                         "name": "version",
                         "kind": "optional",
-                        "required": false,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "hasConfigVersion2"
-                          }
-                        ]
+                        "value": "2",
+                        "required": false
                       },
                       {
                         "name": "id",
@@ -85240,12 +85209,8 @@
               {
                 "name": "linked_groups",
                 "kind": "optional",
-                "required": false,
-                "argPath": [
-                  {
-                    "key": "hasRemoveLinkedGroupsTrue"
-                  }
-                ]
+                "value": "true",
+                "required": false
               }
             ],
             "children": [
@@ -87735,12 +87700,8 @@
               {
                 "name": "delete",
                 "kind": "optional",
-                "required": false,
-                "argPath": [
-                  {
-                    "key": "hasDescriptionDeleteTrue"
-                  }
-                ]
+                "value": "true",
+                "required": false
               }
             ],
             "children": [
@@ -92093,16 +92054,8 @@
                   {
                     "name": "remove_orphaned_members",
                     "kind": "optional",
-                    "required": false,
-                    "argPath": [
-                      {
-                        "key": "groupArgs",
-                        "list": true
-                      },
-                      {
-                        "key": "hasGroupRemoveOrphanedMembersTrue"
-                      }
-                    ]
+                    "value": "true",
+                    "required": false
                   }
                 ],
                 "children": [],

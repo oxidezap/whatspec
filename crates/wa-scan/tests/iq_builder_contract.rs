@@ -222,10 +222,14 @@ fn every_combinator_child_of_a_smax_builder_is_addressable() {
                 missing.push(format!("{}: <{}> node", s.module_name, n.tag));
             }
             for a in &n.attrs {
+                // An attribute reads an argument unless the builder supplies the value
+                // itself: a `Const`, a locally generated id, or an `OPTIONAL_LITERAL`
+                // whose recorded `value` is the literal and whose argument is a boolean
+                // gate rather than the value.
                 let reads_argument = !matches!(
                     a.kind,
                     wa_ir::WapAttrKind::Const | wa_ir::WapAttrKind::GeneratedId
-                );
+                ) && a.value.is_none();
                 if reads_argument && a.arg_path.is_none() {
                     missing.push(format!("{}: <{}> @{}", s.module_name, n.tag, a.name));
                 }

@@ -125,7 +125,19 @@ pub enum WapChildPresence {
 pub struct WapAttrDef {
     pub name: String,
     pub kind: WapAttrKind,
-    /// Present only for [`WapAttrKind::Const`].
+    /// The fixed wire value the builder writes itself.
+    ///
+    /// Present for a [`WapAttrKind::Const`] attribute, and for an
+    /// [`Optional`](WapAttrKind::Optional) one built by
+    /// `WASmaxAttrs.OPTIONAL_LITERAL(lit, flag)` — there the value is this literal and
+    /// the argument is a boolean deciding whether the attribute is written at all, the
+    /// attribute analogue of [`WapChildPresence::PresenceFlag`]. Such an attribute
+    /// carries no [`arg_path`]: there is no address for a value the builder supplies, and
+    /// pointing at the boolean would tell a consumer to put the wire string there.
+    ///
+    /// It does not say the attribute is always sent — only what it says when it is.
+    ///
+    /// [`arg_path`]: WapAttrDef::arg_path
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     pub required: bool,

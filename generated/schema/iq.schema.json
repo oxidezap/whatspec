@@ -751,7 +751,7 @@
           "type": "boolean"
         },
         "value": {
-          "description": "Present only for [`WapAttrKind::Const`].",
+          "description": "The fixed wire value the builder writes itself.\n\nPresent for a [`WapAttrKind::Const`] attribute, and for an\n[`Optional`](WapAttrKind::Optional) one built by\n`WASmaxAttrs.OPTIONAL_LITERAL(lit, flag)` — there the value is this literal and\nthe argument is a boolean deciding whether the attribute is written at all, the\nattribute analogue of [`WapChildPresence::PresenceFlag`]. Such an attribute\ncarries no [`arg_path`]: there is no address for a value the builder supplies, and\npointing at the boolean would tell a consumer to put the wire string there.\n\nIt does not say the attribute is always sent — only what it says when it is.\n\n[`arg_path`]: WapAttrDef::arg_path",
           "type": [
             "string",
             "null"

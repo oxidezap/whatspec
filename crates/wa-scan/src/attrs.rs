@@ -223,7 +223,23 @@ fn classify_attr_node<'a>(
         if matches!(method, "OPTIONAL" | "OPTIONAL_LITERAL")
             && callee_object(call).and_then(|o| resolve_owner(o, aliases)) == Some("WASmaxAttrs")
         {
-            return owned(WapAttrKind::Optional, None, false);
+            // `OPTIONAL_LITERAL(lit, flag)` differs from `OPTIONAL(kind, val)` in what its
+            // argument IS: the value is the fixed literal, and the argument is a boolean
+            // deciding whether the attribute is written at all — the attribute analogue of
+            // `HAS_OPTIONAL_CHILD`. Recording the literal is what lets the two be told
+            // apart in the document: without it, an optional attribute with no `argPath`
+            // reads the same whether its value is a builder constant or something the
+            // extractor failed to address.
+            let literal = (method == "OPTIONAL_LITERAL")
+                .then(|| {
+                    call.arguments
+                        .first()
+                        .and_then(arg_expr)
+                        .and_then(as_string_lit)
+                })
+                .flatten()
+                .map(str::to_string);
+            return owned(WapAttrKind::Optional, literal, false);
         }
         // FORM A: `CUSTOM_STRING(o("Mod").EnumName.VARIANT)` — the wire value is drawn
         // from that enum. Gated on `CUSTOM_STRING` (a wire builder) so an unrelated
