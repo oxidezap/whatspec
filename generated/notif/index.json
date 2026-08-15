@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.1.0",
+  "schemaVersion": "3.1.0",
   "waVersion": "2.3000.1044659339",
   "dispatcherModules": [
     "WAWebCommsHandleLoggedInStanza",
@@ -73,32 +73,32 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrDeviceJid",
             "name": "from",
             "type": "device_jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "child",
             "name": "status",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "status",
             "children": [
               {
                 "method": "attrString",
                 "name": "action",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               }
             ]
           },
@@ -106,32 +106,32 @@
             "method": "child",
             "name": "text_status",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "text_status",
             "children": [
               {
                 "method": "attrString",
                 "name": "action",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "text",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrInt",
                 "name": "ephemeral_duration_sec",
                 "type": "integer",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "last_update_time",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               }
             ]
           },
@@ -139,7 +139,7 @@
             "method": "child",
             "name": "devices",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "devices",
             "children": []
           },
@@ -147,27 +147,27 @@
             "method": "child",
             "name": "blocklist",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "blocklist",
             "children": [
               {
                 "method": "forEachChildWithTag",
                 "name": "item",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "item",
                 "children": [
                   {
                     "method": "maybeAttrString",
                     "name": "username",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "jid",
                     "type": "user_jid",
-                    "required": true
+                    "parserRequired": true
                   }
                 ],
                 "repeats": true
@@ -178,27 +178,27 @@
             "method": "child",
             "name": "tos",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "tos",
             "children": [
               {
                 "method": "forEachChildWithTag",
                 "name": "notice",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "notice",
                 "children": [
                   {
                     "method": "maybeAttrString",
                     "name": "state",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrString",
                     "name": "id",
                     "type": "string",
-                    "required": true
+                    "parserRequired": true
                   }
                 ],
                 "repeats": true
@@ -209,26 +209,26 @@
             "method": "child",
             "name": "disappearing_mode",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "disappearing_mode",
             "children": [
               {
                 "method": "attrString",
                 "name": "action",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrInt",
                 "name": "duration",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrInt",
                 "name": "t",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               }
             ]
           },
@@ -236,32 +236,32 @@
             "method": "child",
             "name": "notice",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "notice",
             "children": [
               {
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "maybeAttrString",
                 "name": "stage",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "maybeAttrString",
                 "name": "version",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrInt",
                 "name": "t",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               }
             ]
           },
@@ -269,14 +269,14 @@
             "method": "child",
             "name": "user",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "user",
             "children": [
               {
                 "method": "maybeAttrString",
                 "name": "state",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               }
             ]
           },
@@ -284,26 +284,26 @@
             "method": "child",
             "name": "biz_opt_out_list",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "biz_opt_out_list",
             "children": [
               {
                 "method": "mapChildren",
                 "name": "children",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "children": [
                   {
                     "method": "attrString",
                     "name": "action",
                     "type": "string",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "attrUserJid",
                     "name": "biz_jid",
                     "type": "user_jid",
-                    "required": true
+                    "parserRequired": true
                   }
                 ],
                 "repeats": true
@@ -312,13 +312,13 @@
                 "method": "maybeAttrString",
                 "name": "dhash",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "maybeAttrString",
                 "name": "prev_dhash",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               }
             ]
           }
@@ -342,25 +342,25 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "child",
             "name": "remove",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "remove",
             "children": []
           },
@@ -368,7 +368,7 @@
             "method": "child",
             "name": "verified_name",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "verified_name",
             "children": []
           },
@@ -376,14 +376,14 @@
             "method": "child",
             "name": "profile",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "profile",
             "children": [
               {
                 "method": "maybeAttrString",
                 "name": "hash",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               }
             ]
           },
@@ -391,7 +391,7 @@
             "method": "child",
             "name": "product_catalog",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "product_catalog",
             "children": []
           }
@@ -420,13 +420,13 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "from",
             "type": "string",
-            "required": true
+            "parserRequired": true
           }
         ]
       }
@@ -447,44 +447,44 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "t",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "child",
             "name": "update",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "update",
             "children": [
               {
                 "method": "attrUserJid",
                 "name": "jid",
                 "type": "user_jid",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "hash",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               }
             ]
           },
@@ -492,14 +492,14 @@
             "method": "child",
             "name": "add",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "add",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "parserRequired": true
               }
             ],
             "contentType": "bytes"
@@ -508,14 +508,14 @@
             "method": "child",
             "name": "remove",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "remove",
             "children": [
               {
                 "method": "attrUserJid",
                 "name": "jid",
                 "type": "user_jid",
-                "required": true
+                "parserRequired": true
               }
             ]
           },
@@ -523,44 +523,44 @@
             "method": "child",
             "name": "modify",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "modify",
             "children": [
               {
                 "method": "attrUserJid",
                 "name": "new",
                 "type": "user_jid",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrUserJid",
                 "name": "old",
                 "type": "user_jid",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "maybeAttrUserJid",
                 "name": "new_lid",
                 "type": "user_jid",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrLidUserJid",
                 "name": "new_lid",
                 "type": "lid_user_jid",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "maybeAttrUserJid",
                 "name": "old_lid",
                 "type": "user_jid",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrLidUserJid",
                 "name": "old_lid",
                 "type": "lid_user_jid",
-                "required": true
+                "parserRequired": true
               }
             ]
           },
@@ -568,14 +568,14 @@
             "method": "child",
             "name": "sync",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "sync",
             "children": [
               {
                 "method": "attrTime",
                 "name": "after",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               }
             ]
           }
@@ -605,7 +605,7 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "literalValue": "crsc_continuation"
           },
           {
@@ -613,13 +613,13 @@
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "contentBytes",
             "name": "primaryEphemeralIdentityElementValue",
             "type": "bytes",
-            "required": true,
+            "parserRequired": true,
             "sourcePath": [
               "primary_ephemeral_identity"
             ]
@@ -629,21 +629,21 @@
             "name": "t",
             "wireName": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "id",
             "wireName": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "maybeAttrInt",
             "name": "offline",
             "wireName": "offline",
             "type": "integer",
-            "required": false,
+            "parserRequired": false,
             "intMin": 0,
             "intMax": 1024
           }
@@ -672,7 +672,7 @@
             "method": "child",
             "name": "remove",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "remove",
             "children": []
           },
@@ -680,7 +680,7 @@
             "method": "child",
             "name": "add",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "add",
             "children": []
           },
@@ -688,7 +688,7 @@
             "method": "child",
             "name": "update",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "update",
             "children": []
           },
@@ -696,19 +696,19 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrDeviceJid",
             "name": "from",
             "type": "device_jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrLidDeviceJid",
             "name": "lid",
             "type": "lid_device_jid",
-            "required": false
+            "parserRequired": false
           }
         ]
       }
@@ -730,13 +730,13 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           }
         ]
       }
@@ -758,20 +758,20 @@
             "method": "child",
             "name": "disappearing_mode",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "tag": "disappearing_mode",
             "children": [
               {
                 "method": "attrInt",
                 "name": "duration",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrTime",
                 "name": "t",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               }
             ]
           },
@@ -779,13 +779,13 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrDeviceJid",
             "name": "from",
             "type": "device_jid",
-            "required": true
+            "parserRequired": true
           }
         ]
       }
@@ -847,14 +847,14 @@
             "method": "maybeChild",
             "name": "error",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "error",
             "children": [
               {
                 "method": "attrInt",
                 "name": "code",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               }
             ]
           },
@@ -862,39 +862,39 @@
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "participant",
             "type": "jid",
-            "required": false
+            "parserRequired": false
           },
           {
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "child",
             "name": "encrypt",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "tag": "encrypt",
             "children": [
               {
                 "method": "child",
                 "name": "enc_p",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "enc_p",
                 "children": [
                   {
                     "method": "contentBytes",
                     "name": "content",
                     "type": "bytes",
-                    "required": true
+                    "parserRequired": true
                   }
                 ]
               },
@@ -902,14 +902,14 @@
                 "method": "child",
                 "name": "enc_iv",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "enc_iv",
                 "children": [
                   {
                     "method": "contentBytes",
                     "name": "content",
                     "type": "bytes",
-                    "required": true
+                    "parserRequired": true
                   }
                 ]
               }
@@ -940,20 +940,20 @@
             "method": "child",
             "name": "update",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "tag": "update",
             "children": [
               {
                 "method": "attrString",
                 "name": "op_name",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "contentString",
                 "name": "content",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               }
             ],
             "contentType": "string"
@@ -962,19 +962,19 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "maybeAttrString",
             "name": "offline",
             "type": "string",
-            "required": false
+            "parserRequired": false
           }
         ]
       }
@@ -1011,7 +1011,7 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "literalValue": "passkey_prologue_request"
           },
           {
@@ -1019,28 +1019,28 @@
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrInt",
             "name": "t",
             "wireName": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "id",
             "wireName": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "maybeAttrInt",
             "name": "offline",
             "wireName": "offline",
             "type": "integer",
-            "required": false,
+            "parserRequired": false,
             "intMin": 0,
             "intMax": 1024
           },
@@ -1048,14 +1048,14 @@
             "method": "child",
             "name": "passkeyRequestOptions",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "passkey_request_options",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "elementValue",
                 "type": "bytes",
-                "required": true,
+                "parserRequired": true,
                 "byteMin": 1,
                 "byteMax": 4096
               }
@@ -1087,7 +1087,7 @@
             "method": "child",
             "name": "delete",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "delete",
             "children": []
           },
@@ -1095,7 +1095,7 @@
             "method": "child",
             "name": "set",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "set",
             "children": []
           },
@@ -1103,7 +1103,7 @@
             "method": "child",
             "name": "request",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "request",
             "children": []
           },
@@ -1111,7 +1111,7 @@
             "method": "child",
             "name": "set_avatar",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "set_avatar",
             "children": []
           },
@@ -1119,31 +1119,31 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrChatJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "t",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": true
+            "parserRequired": true
           }
         ]
       }
@@ -1164,51 +1164,51 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "maybeAttrLidUserJid",
             "name": "sender_lid",
             "type": "lid_user_jid",
-            "required": false
+            "parserRequired": false
           },
           {
             "method": "child",
             "name": "tokens",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "tag": "tokens",
             "children": [
               {
                 "method": "forEachChildWithTag",
                 "name": "token",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "token",
                 "children": [
                   {
                     "method": "attrString",
                     "name": "type",
                     "type": "string",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "contentBytes",
                     "name": "content",
                     "type": "bytes",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrTime",
                     "name": "t",
                     "type": "integer",
-                    "required": false
+                    "parserRequired": false
                   }
                 ],
                 "repeats": true
@@ -1238,58 +1238,59 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrUserJid",
             "name": "participant",
             "type": "user_jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "child",
             "name": "campaign",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "tag": "campaign",
             "children": [
               {
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "maybeAttrInt",
                 "name": "duration",
                 "type": "integer",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "mapChildrenWithTag",
                 "name": "message",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "message",
                 "children": [
                   {
                     "method": "child",
                     "name": "media",
                     "type": "string",
-                    "required": true,
+                    "parserRequired": true,
                     "tag": "media",
                     "children": [
                       {
                         "method": "attrEnumValues",
                         "name": "mediatype",
                         "type": "enum",
-                        "required": true,
+                        "parserRequired": true,
+                        "unknownValue": "reject",
                         "enumKeys": [
                           "image",
                           "video",
@@ -1300,7 +1301,7 @@
                         "method": "contentBytes",
                         "name": "content",
                         "type": "bytes",
-                        "required": true
+                        "parserRequired": true
                       }
                     ],
                     "contentType": "bytes"
@@ -1309,7 +1310,7 @@
                     "method": "attrString",
                     "name": "id",
                     "type": "string",
-                    "required": true
+                    "parserRequired": true
                   }
                 ],
                 "repeats": true
@@ -1335,44 +1336,44 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "child",
             "name": "wa_old_registration",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "tag": "wa_old_registration",
             "children": [
               {
                 "method": "attrString",
                 "name": "code",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrTime",
                 "name": "expiry_t",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrTime",
                 "name": "ts",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrString",
                 "name": "device_id",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               }
             ]
           }
@@ -1396,13 +1397,13 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           }
         ]
       }
@@ -1424,26 +1425,26 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "mapChildrenWithTag",
             "name": "collection",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "tag": "collection",
             "children": [
               {
                 "method": "attrString",
                 "name": "name",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrInt",
                 "name": "version",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               }
             ],
             "repeats": true
@@ -1452,7 +1453,7 @@
             "method": "attrString",
             "name": "from",
             "type": "string",
-            "required": true
+            "parserRequired": true
           }
         ]
       }
@@ -1474,13 +1475,13 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "child",
             "name": "set",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "set",
             "children": []
           },
@@ -1488,25 +1489,25 @@
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "notify",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "from",
             "type": "string",
-            "required": true
+            "parserRequired": true
           }
         ]
       }
@@ -1528,75 +1529,76 @@
             "method": "attrString",
             "name": "to",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrGroupJid",
             "name": "from",
             "type": "group_jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrUserJid",
             "name": "participant",
             "type": "user_jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "maybeAttrPhoneUserJid",
             "name": "participant_pn",
             "type": "user_jid",
-            "required": false
+            "parserRequired": false
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "addressing_mode",
             "type": "string",
-            "required": false
+            "parserRequired": false
           },
           {
             "method": "attrString",
             "name": "participant_username",
             "type": "string",
-            "required": false
+            "parserRequired": false
           },
           {
             "method": "attrString",
             "name": "participant_country_code",
             "type": "string",
-            "required": false
+            "parserRequired": false
           },
           {
             "method": "mapChildren",
             "name": "children",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "children": [
               {
                 "method": "child",
                 "name": "group",
                 "type": "string",
-                "required": false,
+                "parserRequired": false,
                 "tag": "group",
                 "children": [
                   {
                     "method": "mapChildrenWithTag",
                     "name": "participant",
                     "type": "string",
-                    "required": false,
+                    "parserRequired": false,
                     "tag": "participant",
                     "children": [
                       {
                         "method": "maybeAttrEnum",
                         "name": "type",
                         "type": "enum",
-                        "required": false,
+                        "parserRequired": false,
+                        "unknownValue": "reject",
                         "enumRef": {
                           "name": "GROUP_PARTICIPANT_TYPES",
                           "module": "WAWebGroupApiConst",
@@ -1620,43 +1622,43 @@
                         "method": "maybeAttrLidUserJid",
                         "name": "lid",
                         "type": "lid_user_jid",
-                        "required": false
+                        "parserRequired": false
                       },
                       {
                         "method": "maybeAttrPhoneUserJid",
                         "name": "phone_number",
                         "type": "user_jid",
-                        "required": false
+                        "parserRequired": false
                       },
                       {
                         "method": "maybeAttrString",
                         "name": "display_name",
                         "type": "string",
-                        "required": false
+                        "parserRequired": false
                       },
                       {
                         "method": "attrUserJid",
                         "name": "jid",
                         "type": "user_jid",
-                        "required": false
+                        "parserRequired": false
                       },
                       {
                         "method": "maybeAttrString",
                         "name": "username",
                         "type": "string",
-                        "required": false
+                        "parserRequired": false
                       },
                       {
                         "method": "maybeAttrTime",
                         "name": "join_time",
                         "type": "integer",
-                        "required": false
+                        "parserRequired": false
                       },
                       {
                         "method": "maybeAttrString",
                         "name": "group_history_sent_state",
                         "type": "string",
-                        "required": false
+                        "parserRequired": false
                       }
                     ],
                     "repeats": true
@@ -1665,21 +1667,21 @@
                     "method": "child",
                     "name": "description",
                     "type": "string",
-                    "required": false,
+                    "parserRequired": false,
                     "tag": "description",
                     "children": [
                       {
                         "method": "child",
                         "name": "body",
                         "type": "string",
-                        "required": false,
+                        "parserRequired": false,
                         "tag": "body",
                         "children": [
                           {
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": false
+                            "parserRequired": false
                           }
                         ],
                         "contentType": "string"
@@ -1688,7 +1690,7 @@
                         "method": "attrString",
                         "name": "id",
                         "type": "string",
-                        "required": false
+                        "parserRequired": false
                       }
                     ]
                   },
@@ -1696,26 +1698,26 @@
                     "method": "attrUserJid",
                     "name": "creator",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "child",
                     "name": "ephemeral",
                     "type": "string",
-                    "required": false,
+                    "parserRequired": false,
                     "tag": "ephemeral",
                     "children": [
                       {
                         "method": "attrInt",
                         "name": "expiration",
                         "type": "integer",
-                        "required": false
+                        "parserRequired": false
                       },
                       {
                         "method": "maybeAttrString",
                         "name": "trigger",
                         "type": "string",
-                        "required": false
+                        "parserRequired": false
                       }
                     ]
                   },
@@ -1723,61 +1725,61 @@
                     "method": "attrString",
                     "name": "subject",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "creator_pn",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrString",
                     "name": "creator_country_code",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrString",
                     "name": "creator_username",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrTime",
                     "name": "creation",
                     "type": "integer",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "s_o",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "s_o_pn",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "maybeAttrString",
                     "name": "s_o_username",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "maybeAttrTime",
                     "name": "s_t",
                     "type": "integer",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "maybeAttrInt",
                     "name": "size",
                     "type": "integer",
-                    "required": false
+                    "parserRequired": false
                   }
                 ]
               },
@@ -1785,19 +1787,20 @@
                 "method": "attrString",
                 "name": "type",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrGroupJid",
                 "name": "context_group_jid",
                 "type": "group_jid",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "maybeAttrEnum",
                 "name": "reason",
                 "type": "enum",
-                "required": false,
+                "parserRequired": false,
+                "unknownValue": "null",
                 "enumKeys": [
                   "invite",
                   "linked_group_join",
@@ -1812,14 +1815,15 @@
                 "method": "mapChildrenWithTag",
                 "name": "participant",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "participant",
                 "children": [
                   {
                     "method": "maybeAttrEnum",
                     "name": "type",
                     "type": "enum",
-                    "required": false,
+                    "parserRequired": false,
+                    "unknownValue": "reject",
                     "enumRef": {
                       "name": "GROUP_PARTICIPANT_TYPES",
                       "module": "WAWebGroupApiConst",
@@ -1843,49 +1847,49 @@
                     "method": "maybeAttrLidUserJid",
                     "name": "lid",
                     "type": "lid_user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "maybeAttrPhoneUserJid",
                     "name": "phone_number",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "maybeAttrString",
                     "name": "display_name",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "jid",
                     "type": "user_jid",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "maybeAttrString",
                     "name": "username",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "maybeAttrTime",
                     "name": "join_time",
                     "type": "integer",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "maybeAttrString",
                     "name": "group_history_sent_state",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrInt",
                     "name": "expiration",
                     "type": "integer",
-                    "required": true
+                    "parserRequired": true
                   }
                 ],
                 "repeats": true
@@ -1894,56 +1898,56 @@
                 "method": "attrString",
                 "name": "reason",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "subject",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrUserJid",
                 "name": "s_o",
                 "type": "user_jid",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrUserJid",
                 "name": "s_o_pn",
                 "type": "user_jid",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "maybeAttrString",
                 "name": "s_o_username",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "maybeAttrTime",
                 "name": "s_t",
                 "type": "integer",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "maybeChild",
                 "name": "body",
                 "type": "string",
-                "required": false,
+                "parserRequired": false,
                 "tag": "body",
                 "children": [
                   {
                     "method": "contentString",
                     "name": "content",
                     "type": "string",
-                    "required": true
+                    "parserRequired": true
                   }
                 ]
               },
@@ -1951,7 +1955,7 @@
                 "method": "child",
                 "name": "body",
                 "type": "string",
-                "required": false,
+                "parserRequired": false,
                 "tag": "body",
                 "children": []
               },
@@ -1959,56 +1963,56 @@
                 "method": "maybeAttrString",
                 "name": "threshold",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "code",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrInt",
                 "name": "expiration",
                 "type": "integer",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrInt",
                 "name": "trigger",
                 "type": "integer",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "link_type",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "mapChildrenWithTag",
                 "name": "group",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "group",
                 "children": [
                   {
                     "method": "attrGroupJid",
                     "name": "jid",
                     "type": "group_jid",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "attrString",
                     "name": "subject",
                     "type": "string",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "attrInt",
                     "name": "s_t",
                     "type": "integer",
-                    "required": true
+                    "parserRequired": true
                   }
                 ],
                 "repeats": true
@@ -2017,19 +2021,19 @@
                 "method": "attrString",
                 "name": "unlink_type",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "unlink_reason",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "child",
                 "name": "group_join",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "group_join",
                 "children": []
               },
@@ -2037,44 +2041,44 @@
                 "method": "attrString",
                 "name": "triggered",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "attrString",
                 "name": "request_method",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "attrGroupJid",
                 "name": "parent_group_jid",
                 "type": "group_jid",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "mapChildrenWithTag",
                 "name": "requested_user",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "requested_user",
                 "children": [
                   {
                     "method": "attrUserJid",
                     "name": "jid",
                     "type": "user_jid",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "attrString",
                     "name": "username",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "phone_number",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   }
                 ],
                 "repeats": true
@@ -2083,45 +2087,45 @@
                 "method": "maybeAttrString",
                 "name": "suppress_sys_msg",
                 "type": "string",
-                "required": false
+                "parserRequired": false
               },
               {
                 "method": "child",
                 "name": "sub_group_suggestion",
                 "type": "string",
-                "required": false,
+                "parserRequired": false,
                 "tag": "sub_group_suggestion",
                 "children": [
                   {
                     "method": "attrGroupJid",
                     "name": "jid",
                     "type": "group_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "creator",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrTime",
                     "name": "creation",
                     "type": "integer",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "child",
                     "name": "subject",
                     "type": "string",
-                    "required": false,
+                    "parserRequired": false,
                     "tag": "subject",
                     "children": [
                       {
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": false
+                        "parserRequired": false
                       }
                     ],
                     "contentType": "string"
@@ -2130,21 +2134,21 @@
                     "method": "child",
                     "name": "description",
                     "type": "string",
-                    "required": false,
+                    "parserRequired": false,
                     "tag": "description",
                     "children": [
                       {
                         "method": "child",
                         "name": "body",
                         "type": "string",
-                        "required": false,
+                        "parserRequired": false,
                         "tag": "body",
                         "children": [
                           {
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": false
+                            "parserRequired": false
                           }
                         ],
                         "contentType": "string"
@@ -2155,14 +2159,14 @@
                     "method": "child",
                     "name": "is_existing_group",
                     "type": "string",
-                    "required": false,
+                    "parserRequired": false,
                     "tag": "is_existing_group",
                     "children": [
                       {
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": false
+                        "parserRequired": false
                       }
                     ],
                     "contentType": "string"
@@ -2171,14 +2175,14 @@
                     "method": "child",
                     "name": "participant_count",
                     "type": "string",
-                    "required": false,
+                    "parserRequired": false,
                     "tag": "participant_count",
                     "children": [
                       {
                         "method": "contentInt",
                         "name": "content",
                         "type": "integer",
-                        "required": false
+                        "parserRequired": false
                       }
                     ],
                     "contentType": "integer"
@@ -2189,26 +2193,26 @@
                 "method": "mapChildrenWithTag",
                 "name": "sub_group_suggestion",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "sub_group_suggestion",
                 "children": [
                   {
                     "method": "attrGroupJid",
                     "name": "jid",
                     "type": "group_jid",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "attrUserJid",
                     "name": "creator",
                     "type": "user_jid",
-                    "required": true
+                    "parserRequired": true
                   },
                   {
                     "method": "attrString",
                     "name": "reason",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   }
                 ],
                 "repeats": true
@@ -2217,13 +2221,13 @@
                 "method": "attrUserJid",
                 "name": "jid",
                 "type": "user_jid",
-                "required": true
+                "parserRequired": true
               },
               {
                 "method": "contentString",
                 "name": "content",
                 "type": "string",
-                "required": true
+                "parserRequired": true
               }
             ],
             "repeats": true
@@ -2232,19 +2236,19 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "maybeAttrString",
             "name": "notify",
             "type": "string",
-            "required": false
+            "parserRequired": false
           },
           {
             "method": "maybeAttrString",
             "name": "offline",
             "type": "string",
-            "required": false
+            "parserRequired": false
           }
         ]
       },
@@ -2257,7 +2261,8 @@
               "name": "reason",
               "wireName": "reason",
               "type": "enum",
-              "required": false
+              "required": false,
+              "unknownValue": "null"
             },
             {
               "name": "contextGroupId",
@@ -3384,19 +3389,20 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrWapJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrEnum",
             "name": "type",
             "type": "enum",
-            "required": true,
+            "parserRequired": true,
+            "unknownValue": "reject",
             "enumKeys": [
               "contacts",
               "w:growth"
@@ -3406,27 +3412,27 @@
             "method": "child",
             "name": "invite",
             "type": "string",
-            "required": false,
+            "parserRequired": false,
             "tag": "invite",
             "children": [
               {
                 "method": "child",
                 "name": "receiver",
                 "type": "string",
-                "required": true,
+                "parserRequired": true,
                 "tag": "receiver",
                 "children": [
                   {
                     "method": "attrUserJid",
                     "name": "user",
                     "type": "user_jid",
-                    "required": false
+                    "parserRequired": false
                   },
                   {
                     "method": "attrString",
                     "name": "reason",
                     "type": "string",
-                    "required": false
+                    "parserRequired": false
                   }
                 ]
               }
@@ -3458,14 +3464,14 @@
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true,
+            "parserRequired": true,
             "literalValue": "waffle"
           },
           {
@@ -3473,7 +3479,7 @@
             "name": "notificationMetadataEvent",
             "wireName": "event",
             "type": "integer",
-            "required": true,
+            "parserRequired": true,
             "intMin": 1,
             "intMax": 7,
             "sourcePath": [
@@ -3485,7 +3491,8 @@
             "name": "notificationMetadataShowUserNotif",
             "wireName": "show_user_notif",
             "type": "enum",
-            "required": false,
+            "parserRequired": false,
+            "unknownValue": "reject",
             "enumRef": {
               "name": "ENUM_FALSE_TRUE",
               "module": "WASmaxInWaffleEnums",
@@ -3509,7 +3516,7 @@
             "name": "notificationMetadataType",
             "wireName": "type",
             "type": "integer",
-            "required": false,
+            "parserRequired": false,
             "intMin": 0,
             "intMax": 0,
             "sourcePath": [
@@ -3521,7 +3528,8 @@
             "name": "notificationMetadataClientResync",
             "wireName": "client_resync",
             "type": "enum",
-            "required": false,
+            "parserRequired": false,
+            "unknownValue": "reject",
             "enumRef": {
               "name": "ENUM_FALSE_TRUE",
               "module": "WASmaxInWaffleEnums",
@@ -3545,7 +3553,7 @@
             "name": "notificationMetadataSyncDelay",
             "wireName": "sync_delay",
             "type": "integer",
-            "required": false,
+            "parserRequired": false,
             "sourcePath": [
               "notification_metadata"
             ]
@@ -3555,7 +3563,8 @@
             "name": "notificationMetadataNpr",
             "wireName": "npr",
             "type": "enum",
-            "required": false,
+            "parserRequired": false,
+            "unknownValue": "reject",
             "enumRef": {
               "name": "ENUM_FALSE_TRUE",
               "module": "WASmaxInWaffleEnums",
@@ -3579,21 +3588,21 @@
             "name": "t",
             "wireName": "t",
             "type": "integer",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "attrString",
             "name": "id",
             "wireName": "id",
             "type": "string",
-            "required": true
+            "parserRequired": true
           },
           {
             "method": "maybeAttrInt",
             "name": "offline",
             "wireName": "offline",
             "type": "integer",
-            "required": false,
+            "parserRequired": false,
             "intMin": 0,
             "intMax": 1024
           }

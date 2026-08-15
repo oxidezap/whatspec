@@ -49,16 +49,24 @@
       ]
     },
     "InternalEnumDef": {
-      "description": "A single `$InternalEnum` definition with its resolved name.",
+      "description": "A single enum definition with its resolved name.\n\n**The key is `(module, name)`, never `name`.** Four names in the catalog are defined\ntwice (`ACK`, `HostedState`, `ENUM_CBP_NBP_PMP`, `EventType`) and `EventType`'s two\ndefinitions do not even agree on [`value_kind`] — an `int` one in\n`WASmaxMockRunnerUtils` and a `string` one in `WAWebCommonMsgUtils`. A consumer\nindexing by name picks one and generates a type whose values come from the other.\n\n[`value_kind`]: InternalEnumDef::value_kind",
       "type": "object",
       "properties": {
+        "bitPosition": {
+          "description": "The integer values are **bit positions**, so the value that reaches the wire for\na variant is `1 << value`, not `value`. Recovered from the bundle shifting by a\nmember of this enum (`t |= 1 << Mod.ReceiptModeBitPosition.ORPHAN`), never from\nthe name: it is evidence, and `ReceiptModeBitPosition` is the only enum in the\ncatalog that carries any.\n\n`false` means no shift use was found, which is not proof the enum is a plain code\ntable — an enum whose only consumer computes the shift somewhere the scan cannot\nfollow looks the same. It is never set on a string enum.",
+          "type": "boolean"
+        },
         "module": {
           "description": "The module that defines it.",
           "type": "string"
         },
         "name": {
-          "description": "Resolved enum name (its export, or the module name for a default export).",
+          "description": "Resolved enum name (its export, or the module name for a default export).\nUnique only together with [`module`] — see the type's note.\n\n[`module`]: InternalEnumDef::module",
           "type": "string"
+        },
+        "syntheticName": {
+          "description": "The name is **WA's build-generated one, spelled out of the variants themselves**\n(`ENUM_FALSE_TRUE`, `ENUM_0_1_7`, `ENUM_HIDDEN_HSCROLL_…`) rather than chosen to\nmean anything. Set when the name is exactly `ENUM_` followed by the variants'\n(or values') alphanumerics, uppercased, de-duplicated and sorted — the rule WA's\nown emitter uses, applied in reverse, not a guess from the prefix.\n\nIt is a warning to a code generator, not a defect: eleven different modules each\ndefine a *different* two-value enum called `ENUM_FALSE_TRUE`, so the name is\nneither unique nor descriptive and must not become a type name. What the enum\nmeans lives at the reference site, in the field that reads it.\n\nIt does not say the enum is uninteresting, and its absence does not promise the\nname is unique — [`name`] is not a key either way.\n\n[`name`]: InternalEnumDef::name",
+          "type": "boolean"
         },
         "valueKind": {
           "$ref": "#/$defs/EnumValueKind"

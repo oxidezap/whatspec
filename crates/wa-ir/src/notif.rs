@@ -214,6 +214,14 @@ pub struct NotifActionField {
     /// rather than faked; recovering those value sets is a separate modelling question.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_ref: Option<crate::AttrEnumRef>,
+    /// What the arm does with a wire value outside [`enum_ref`]'s set — the same
+    /// question [`crate::ParsedField::unknown_value`] answers on the response side, and
+    /// the one that decides whether a generated enum may be closed. Stamped from the
+    /// accessor at extraction time because this shape does not carry the accessor.
+    ///
+    /// [`enum_ref`]: NotifActionField::enum_ref
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown_value: Option<crate::UnknownValuePolicy>,
 }
 
 /// A `key → constant` pair an action arm stamps onto its result unconditionally.
@@ -284,6 +292,22 @@ pub struct NotifIr {
     pub stanza_tags: Vec<StanzaTagDef>,
     /// `<notification>` types, sorted by `type`.
     pub notifications: Vec<NotificationDef>,
+}
+
+impl NotifIr {
+    /// Run the derived accessor classification over every typed content shape — see
+    /// [`crate::ParsedResponse::classify_accessors`].
+    ///
+    /// The payload-action fields are not covered here: [`NotifActionField`] records the
+    /// decoded type but never the accessor it came from, so the policy cannot be derived
+    /// after the fact. `wa-notif` stamps those at the point it still has the accessor.
+    pub fn classify_accessors(&mut self) {
+        for n in &mut self.notifications {
+            if let Some(c) = n.content.as_mut() {
+                c.classify_accessors();
+            }
+        }
+    }
 }
 
 #[cfg(test)]

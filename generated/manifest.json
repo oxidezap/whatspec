@@ -11,7 +11,7 @@
     "iq": {
       "builder": {
         "argPathAttrs": 218,
-        "argPathAttrsMissing": 56,
+        "argPathAttrsMissing": 55,
         "argPathChildren": 108,
         "argPathChildrenMissing": 12,
         "argPathContents": 45,
@@ -44,6 +44,14 @@
       },
       "excludedFragments": 66,
       "stanzas": 143,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 138,
+        "server": 106,
+        "unknown": 5,
+        "unset": 0
+      },
       "typedResponses": 139,
       "unparseable": 5
     },
@@ -66,37 +74,37 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "aaa7299dc771af28bac19f966844bfb4d73ebbeca83493c0e50087e986c7c02c"
+      "sha256": "c2968d3713440d644a6824799efa8fd7174e5ffe816afc6780c04173725d87ff"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "556fb4de60cdf767ddfc281749ca779407b9e0fe1d94f972658a2a7713af52bb"
+      "sha256": "3bea513815aa0c27e9a33e8f3d93f03dd9a7e35914026f71e61caf6d1a5ab655"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "39be901096646950aaf1117710fa2bbc96a7da1568dd309961197470560af332"
+      "sha256": "f725ff5279f164ad283b02f860c92eef9d7a59808b3b55817ec5d272b3defb7b"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "fa5c6e42bc22a8ed7f28d0a5e56df57891121672a55c92b29d8251d9df24e3bc"
+      "sha256": "38de158add4a8e55a2b8e29ad32118acf6faac49d04b7d138fd7db3aefc69783"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "65eeaef5e16617824a660f3401537a6e8dfb9b321b0a900ce8fe8a53ceb00d37"
+      "sha256": "140352fa0d81ea3c503b01205fca5781224437c1ea2505069027cf225ee998b0"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "7513715db6a2320017373a3008360d6776e413abc3f878a4d2c1d9e185842718"
+      "sha256": "312f2f661d539061526c468d5eab38f13e85c9e216ace12c92cf717bd44bf5e9"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "7a8494583ed4d7273a2a6de9a394927e1954c7eb7219efc7621123928c7ea86a"
+      "sha256": "a4d9c22d8b874581d3d85a84d2f46e3c72176215a4a227b29a21038e382f86a6"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -105,37 +113,37 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "0c1fc1cab4b8696976160783484d272fa805ce86502bc0f0af100bfe53f49c7f"
+      "sha256": "9329167ad4a0632265f6da63f04debcbe3276774aaee4a467a73c8ae840cd1a1"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "1ce00d42b25b43591caae62be64f42c47827c43f448e96aa257988bdde05ce59"
+      "sha256": "6a6bd88670a8e27d91f539be3e139d4ee9b64d54db0114a46e90fa2ad789806c"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "5444a57d2b09b5f24bc7e70f5afcea555831424ec72ba5340d6659f3ba08dcfa"
+      "sha256": "86be67601991cf318540e189337c755e95a8682c840acf6058ea5866c44535de"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "66a10dc02b407f6412c3df06377b39274cdafa9087e7740164f9cdc93d2adc21"
+      "sha256": "491a4b3d086c281123653693e718b80573b0199c61a881062b11116509f8c74d"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "6ab4e4bb90597619732f15beb87960117b3958d34334b8c5d454743cd33766e5"
+      "sha256": "e6b248ee2794b2fc1aa71498a0b1ea6aea9b49aefbc864a7f1b814975335eb5f"
     }
   },
-  "enumDefs": 328,
+  "enumDefs": 403,
   "generatorVersion": "0.1.0",
   "incomingDefs": 16,
   "iqModules": 33,
   "mexOperations": 137,
   "notifTypes": 27,
   "protoEntities": 268,
-  "schemaVersion": "2.1.0",
+  "schemaVersion": "3.1.0",
   "serverRequestDefs": 22,
   "stanzaDefs": 179,
   "tokenDoubleByte": 1024,

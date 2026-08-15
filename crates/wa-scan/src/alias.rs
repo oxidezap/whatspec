@@ -18,7 +18,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use oxc_ast::ast::{AssignmentExpression, Expression};
+use oxc_ast::ast::{AssignmentExpression, Expression, VariableDeclarator};
 use oxc_ast_visit::{Visit, walk};
 
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, assignment_target_name};
@@ -129,26 +129,70 @@ pub(crate) fn bound_names(program: &oxc_ast::ast::Program) -> HashSet<String> {
 pub(crate) fn build_alias_map(program: &oxc_ast::ast::Program) -> AliasMap {
     let mut b = AliasBuilder {
         map: AliasMap::default(),
+        ambiguous: HashSet::new(),
     };
     b.visit_program(program);
+    // A name that also holds something else somewhere in the module is not an alias. The
+    // map is keyed by name with no scope attached, so a nested `var w = o("WAWap")` would
+    // otherwise speak for every `w` in the module — including an unrelated builder's, whose
+    // `w.S_WHATSAPP_NET` would then be published as a fixed address. Dropping the name
+    // costs a resolution the scanner would have to earn back; keeping it risks a wrong
+    // address, and this IR's whole point is that those are not the same mistake.
+    for name in &b.ambiguous {
+        b.map.map.remove(name);
+    }
     b.map
 }
 
 struct AliasBuilder {
     map: AliasMap,
+    /// Names bound to more than one thing in the module — a different tracked owner, or
+    /// any non-require value. Only names *given a value* count: `var n;` followed by
+    /// `(n = o("WAWap"))` is one binding, which is how minified modules spell it.
+    ambiguous: HashSet<String>,
+}
+
+impl AliasBuilder {
+    /// Record what `name` was bound to, or mark it ambiguous if that disagrees with a
+    /// binding already seen.
+    fn bind(&mut self, name: &str, value: Option<&'static str>) {
+        // A `None` value is a binding to something that is not a tracked module object.
+        // Not a conflict: minified modules reuse every short name, so treating it as one
+        // costs 20 requests their addressee (measured) to remove a hazard that needs the
+        // other object to carry a `WAWap`-only constant.
+        let Some(owner) = value else { return };
+        if self.map.map.get(name).is_some_and(|prev| *prev != owner) {
+            self.ambiguous.insert(name.to_string());
+        } else {
+            self.map.map.insert(name.to_string(), owner);
+        }
+    }
 }
 
 impl<'a> Visit<'a> for AliasBuilder {
     fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
         // `X = o("Owner")` — both standalone and embedded in a larger expression
         // (the visitor reaches the inner assignment of `(X = o(...)).method()`).
-        if let (Some(name), Some(owner)) = (
-            assignment_target_name(&assign.left),
-            require_owner(&assign.right),
-        ) {
-            self.map.map.insert(name.to_string(), owner);
+        if let Some(name) = assignment_target_name(&assign.left) {
+            let owner = require_owner(&assign.right);
+            self.bind(name, owner);
         }
         walk::walk_assignment_expression(self, assign);
+    }
+
+    fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
+        // `var w = o("Owner")` — the same binding written as a declarator instead of an
+        // assignment. Minified modules use both spellings for the same thing, and the
+        // bundle really does contain the declarator form, so recognizing only
+        // `X = o(...)` leaves the identical code unresolved depending on how it was
+        // written.
+        if let Some(id) = decl.id.get_binding_identifier()
+            && let Some(init) = &decl.init
+        {
+            let owner = require_owner(init);
+            self.bind(&id.name, owner);
+        }
+        walk::walk_variable_declarator(self, decl);
     }
 }
 
@@ -172,9 +216,51 @@ mod tests {
         );
         assert_eq!(m.owner_of("n"), Some("WASmaxJsx"));
         assert_eq!(m.owner_of("t"), Some("WASmaxAttrs"));
-        // `var w = o("WAWap")` is a declarator init, not an AssignmentExpression,
-        // so it is NOT captured here — resolve_owner handles `o("WAWap")` directly.
-        assert_eq!(m.owner_of("w"), None);
+        assert_eq!(m.owner_of("w"), Some("WAWap"));
+    }
+
+    #[test]
+    fn a_declarator_binding_is_the_same_alias_as_an_assignment() {
+        // The two spellings are the same code to a reader, so they must be the same
+        // code to the scanner: whether the server constant is reached through
+        // `(n = o("WAWap")).S_WHATSAPP_NET` or through a `var` bound earlier decides
+        // nothing about what the attribute means.
+        let m = aliases(r#"var w = o("WAWap"), q = o("WASmaxJsx");"#);
+        assert_eq!(m.owner_of("w"), Some("WAWap"));
+        assert_eq!(m.owner_of("q"), Some("WASmaxJsx"));
+
+        // Still only the tracked owners, and still nothing for a non-require init.
+        let m = aliases(r#"var w = o("WAWebSomethingElse"), v = someObject;"#);
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn one_name_naming_two_owners_names_neither() {
+        // The map is keyed by name with no scope attached, so a name bound to two
+        // different tracked owners in one module cannot speak for either — whichever
+        // walk order wins, half its uses get the wrong module. Unresolved is the only
+        // answer that is true at both sites.
+        let m = aliases(r#"var n = o("WAWap"); function f(){ var n = o("WASmaxJsx"); }"#);
+        assert_eq!(m.owner_of("n"), None);
+
+        // Binding the same owner twice is not a conflict, and neither is the
+        // `var n;` … `(n = o("WAWap"))` spelling the bundle actually uses — the bare
+        // declaration gives the name no value.
+        let m = aliases(
+            r#"var n; var u = (n = o("WAWap")).wap("iq", {to: n.S_WHATSAPP_NET});
+               function f(){ var t = (n = o("WAWap")).generateId(); }"#,
+        );
+        assert_eq!(m.owner_of("n"), Some("WAWap"));
+
+        // A name that also holds an untracked value keeps its alias. Minified modules
+        // reuse every short identifier, so treating that as a conflict costs 20 requests
+        // their addressee (measured on this bundle) — and reading a `WAWap`-only constant
+        // off the other object would be `undefined`, which is not code WA ships.
+        let m = aliases(
+            r#"function a(){ var w = o("WAWap"); return w.S_WHATSAPP_NET; }
+               function b(){ var w = somethingElse(); return w.other; }"#,
+        );
+        assert_eq!(m.owner_of("w"), Some("WAWap"));
     }
 
     #[test]

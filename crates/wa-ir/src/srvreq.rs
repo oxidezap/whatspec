@@ -75,3 +75,12 @@ pub struct ServerRequestIr {
     /// Server-initiated request read-shapes, sorted by `(tag, module, parser name)`.
     pub requests: Vec<ServerRequestDef>,
 }
+
+impl ServerRequestIr {
+    /// Run [`ParsedResponse::classify_accessors`] over every read-shape.
+    pub fn classify_accessors(&mut self) {
+        for r in &mut self.requests {
+            r.shape.classify_accessors();
+        }
+    }
+}

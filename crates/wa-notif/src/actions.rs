@@ -2016,6 +2016,7 @@ fn read_field<'b, 'a>(
         required: !optional_by_guard && !wap::is_optional_method(&acc.method),
         content: acc.content,
         enum_ref,
+        unknown_value: wap::method_unknown_value_policy(&acc.method),
     })
 }
 
@@ -2069,6 +2070,7 @@ fn value_selection<'b, 'a>(
                     wire_name: x.wire_name,
                     content: x.content,
                     enum_ref: x.enum_arg.and_then(|a| consts.enum_ref(a)),
+                    unknown_value: wap::method_unknown_value_policy(&x.method),
                 }))
             } else {
                 Some(None) // two sources for one key: refuse
@@ -2209,6 +2211,7 @@ fn guarded_field(key: &str, acc: Accessor, consts: &ConstResolver) -> NotifActio
         required: false,
         content: acc.content,
         enum_ref,
+        unknown_value: wap::method_unknown_value_policy(&acc.method),
     }
 }
 
@@ -2510,6 +2513,7 @@ fn collect_accessor_fields<'b, 'a>(
                         required: !wap::is_optional_method(&acc.method),
                         content: acc.content,
                         enum_ref,
+                        unknown_value: wap::method_unknown_value_policy(&acc.method),
                     }
                 })
                 .into_iter()
@@ -2650,4 +2654,9 @@ fn same_wire_read(a: &NotifActionField, b: &NotifActionField) -> bool {
         && a.field_type == b.field_type
         && a.content == b.content
         && a.enum_ref == b.enum_ref
+        // Two branches reading the same attribute against the same enum are still not the
+        // same read when one rejects an unrecognised value and the other nulls it. Leaving
+        // it out of the identity merged them and kept whichever policy came first, so the
+        // action table would state the opposite behaviour for one of the two branches.
+        && a.unknown_value == b.unknown_value
 }

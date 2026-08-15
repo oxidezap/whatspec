@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.1.0",
+  "schemaVersion": "3.1.0",
   "waVersion": "2.3000.1044659339",
   "stanzas": [
     {
@@ -4979,7 +4979,8 @@
         },
         {
           "name": "to",
-          "kind": "dynamic",
+          "kind": "const",
+          "value": "s.whatsapp.net",
           "required": true
         }
       ],
@@ -5108,7 +5109,8 @@
       "attrs": [
         {
           "name": "to",
-          "kind": "dynamic",
+          "kind": "const",
+          "value": "s.whatsapp.net",
           "required": true
         },
         {
@@ -5653,7 +5655,8 @@
       "attrs": [
         {
           "name": "to",
-          "kind": "dynamic",
+          "kind": "const",
+          "value": "s.whatsapp.net",
           "required": true
         },
         {
@@ -5874,7 +5877,8 @@
         },
         {
           "name": "to",
-          "kind": "dynamic",
+          "kind": "const",
+          "value": "s.whatsapp.net",
           "required": true
         }
       ],

@@ -93,7 +93,35 @@ pub enum Scalar {
 /// The migration is one variant wide: handle (or ignore) `kind: "reference"` on response
 /// assertions. Everything else in 2.0.0 is opt-in.
 ///
-/// # 2.1.0 — the builder side of a request
+/// # 3.0.0 — why the major bump
+///
+/// The same rule applied to ourselves. This release stops three fields from asserting
+/// something the extractor did not establish, and each of the three does it by widening
+/// or renaming an existing field rather than by adding an optional one:
+///
+/// - [`IqTarget`] gained `unset` and `unknown`. All 143 stanzas used to say
+///   `s.whatsapp.net` because the enum had nowhere else to put "not resolved" — the 33
+///   `w:g2` requests included, which the client addresses to the group. A closed-enum
+///   2.x consumer now rejects the document instead of silently reading the two new
+///   states as absent.
+/// - [`ParsedFieldType`] gained `node`, and 617 fields that declared `string` while
+///   carrying children now declare it. A consumer switching on `type` sees a value it
+///   has no arm for — which is the point, since the arm it *had* was wrong.
+/// - `ParsedField`'s `required` is now [`parserRequired`]. A rename rather than a doc
+///   fix because the old name stated a wire fact the field never carried; a consumer
+///   reading the old key gets `undefined`, which fails loudly instead of defaulting to
+///   "optional".
+///
+/// The rest is additive: [`ParsedField::unknown_value`], the two enum-catalog flags, and
+/// the enums catalog growing to cover every `enumRef` in the IR.
+///
+/// [`AssertionKind`]: crate::AssertionKind
+/// [`IqTarget`]: crate::IqTarget
+/// [`ParsedFieldType`]: crate::ParsedFieldType
+/// [`parserRequired`]: crate::ParsedField::parser_required
+/// [`ParsedField::unknown_value`]: crate::ParsedField::unknown_value
+///
+/// # 3.1.0 — the builder side of a request
 ///
 /// The IR gained a dimension it did not have: where a value goes in the argument object
 /// of WA's own request builder ([`WapArgSegment`], on nodes, attributes and element
@@ -103,14 +131,16 @@ pub enum Scalar {
 ///
 /// A minor bump, and the claim is checked rather than assumed: every new property is
 /// optional and skipped at its default, no existing field's value space widened, and
-/// every committed `*/index.json` validates clean against its own 2.0.0 schema (0 errors
-/// across all 11 domains). A 2.0 consumer reads the new documents unchanged. What
-/// changed *value* is `content` on 38 request nodes that previously had none — a field
+/// every committed `*/index.json` validates clean against its own 3.0.0 schema (0 errors
+/// across all 12 domains). A 3.0 consumer reads the new documents unchanged. What
+/// changed *value* is `content` on 45 request nodes that previously had none — a field
 /// that was already optional, now populated where the builder does supply a payload.
 ///
-/// [`AssertionKind`]: crate::AssertionKind
+/// [`WapArgSegment`]: crate::WapArgSegment
+/// [`WapChildPresence`]: crate::WapChildPresence
+/// [`WapChildNode::repeat_min`]: crate::WapChildNode::repeat_min
 /// [`repeat_max`]: crate::WapChildNode::repeat_max
-pub const SCHEMA_VERSION: &str = "2.1.0";
+pub const SCHEMA_VERSION: &str = "3.1.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

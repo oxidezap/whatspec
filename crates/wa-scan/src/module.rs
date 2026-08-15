@@ -141,15 +141,28 @@ pub fn scan_module_outcome(
     //
     // The mixin union is module-level (one set of referenced mixins per module),
     // so compute it once and only when some iq call actually needs it.
-    let needs_resolution = scanner
-        .iq_calls
-        .iter()
-        .any(|iq| iq.namespace.is_none() || iq.iq_type.is_none());
+    // A call also needs the union when it has no addressee of its own: a `to` the local
+    // builder never writes is exactly the one a folded-in fragment supplies, and leaving
+    // the union uncomputed would report `unset` for a request that has a target.
+    let needs_resolution = scanner.iq_calls.iter().any(|iq| {
+        iq.namespace.is_none()
+            || iq.iq_type.is_none()
+            || !iq.target.is_some_and(|t| t.is_resolved())
+    });
     let mixin_resolved = if needs_resolution {
         crate::mixin_index::resolve(mixins, &scanner.mixin_callees)
     } else {
         (None, None, None)
     };
+    // The union names the fragments the MODULE folds in, not the ones this call does.
+    // With one `<iq>` builder in the module those are the same statement; with more than
+    // one they are not, and handing a sibling's addressee to a request that writes no `to`
+    // publishes an address it may never send to. Withheld rather than guessed — and the
+    // withholding is remembered, because "some fragment in this module names an addressee
+    // and we cannot say whose" is `Unknown`, not `Unset`.
+    let one_builder = scanner.iq_calls.len() == 1;
+    let mixin_target = if one_builder { mixin_resolved.2 } else { None };
+    let target_unattributable = !one_builder && mixin_resolved.2.is_some();
     // Cross-module `mergeStanzas` fragments: the children/attrs the referenced
     // mixins add to the `<iq>` (e.g. `spam_list{spam_flow}`). Merged by tag into the
     // locally-built children so those cross-module fields aren't lost.
@@ -174,10 +187,30 @@ pub fn scan_module_outcome(
             if iq.iq_type.is_none() {
                 iq.iq_type = mixin_resolved.1;
             }
-            // Adopt a Group target only if a mixin said so and we hadn't already.
-            if iq.target != IqTarget::Group && mixin_resolved.2 == Some(IqTarget::Group) {
-                iq.target = IqTarget::Group;
-            }
+            // The local builder's own `to` is the request's; a fragment only answers for
+            // one the request did not write. That ordering is what keeps
+            // `IqTarget::Unknown` meaning what its doc says — the addressee is a parameter
+            // of the call — instead of being quietly upgraded to whatever server some
+            // mixin happened to name.
+            //
+            // The `Unknown` arm is the other half: an addressee NEITHER side wrote is
+            // `Unset`, but one that either side wrote and neither could resolve is
+            // `Unknown`. Collapsing them would tell an emitter to send no `to` for a
+            // request that has one — which is the shape of all four newsletter requests,
+            // `smax("iq", null, …)` locally with `mergeNewsletterIQGetRequestMixin`
+            // supplying `to: WAWap.JID(x)`.
+            iq.target = Some(match (iq.target, mixin_target) {
+                (Some(local), _) if local.is_resolved() => local,
+                (None, Some(from_mixin)) if from_mixin.is_resolved() => from_mixin,
+                (Some(IqTarget::Unknown), _) | (_, Some(IqTarget::Unknown)) => IqTarget::Unknown,
+                // A module-scoped addressee this call cannot be shown to fold in. The
+                // request may well have one, so `Unset` — "the client writes no `to`" —
+                // would be a false statement about it.
+                (None, None) if target_unattributable => IqTarget::Unknown,
+                // Nothing wrote a `to` on either side. `iq_target_from_to` yields `None`
+                // for that, never `Unset`, so this is the only arm that can produce it.
+                _ => IqTarget::Unset,
+            });
             // Guard: a stanza needs both a namespace and a type, or it's dropped.
             match (iq.namespace.clone(), iq.iq_type) {
                 (Some(namespace), Some(iq_type)) => {
@@ -192,7 +225,7 @@ pub fn scan_module_outcome(
                     Some(ResolvedIqCall {
                         namespace,
                         iq_type,
-                        target: iq.target,
+                        target: iq.target.unwrap_or(IqTarget::Unset),
                         children: iq.children,
                         export: iq.export,
                     })
@@ -346,7 +379,9 @@ fn ends_ci(s: &str, suffix: &str) -> bool {
 struct IqCall {
     namespace: Option<String>,
     iq_type: Option<IqType>,
-    target: IqTarget,
+    /// `None` when the builder writes no `to` — distinct from a `to` that resolved to
+    /// nothing, which is [`IqTarget::Unknown`] and must not be overwritten by a mixin.
+    target: Option<IqTarget>,
     children: Vec<WapChildNode>,
     /// The module export whose function lexically encloses this call (e.g.
     /// `e.sendFooBar = function(){ … wap("iq") … }` → `sendFooBar`), captured
@@ -463,6 +498,31 @@ fn mixin_type_hint(call: &CallExpression) -> Option<IqType> {
     iq_type_from_merge_name(callee_method(call)?)
 }
 
+/// Who an `<iq>` built with these root attributes is addressed to, or `None` when the
+/// builder writes no `to` at all — a state the caller resolves against the mixins it
+/// folds in before settling on [`IqTarget::Unset`].
+///
+/// Shared with [`crate::mixin_index`] so a fragment's `to` is read by the same rule as a
+/// request's. The rule it replaced had one arm — the literal `"g.us"` — and an `_ =>
+/// Server` default, so a `to` the scan could not read was reported as the server: every
+/// one of the 143 stanzas said `s.whatsapp.net`, including the `w:g2` requests the
+/// client addresses to the group's own JID.
+pub(crate) fn iq_target_from_to(attrs: &[WapAttrDef]) -> Option<IqTarget> {
+    let to = attrs.iter().find(|a| a.name == "to")?;
+    Some(match (&to.kind, to.value.as_deref()) {
+        (WapAttrKind::Const, Some("g.us")) => IqTarget::GroupServer,
+        (WapAttrKind::Const, Some("s.whatsapp.net")) => IqTarget::Server,
+        // `GROUP_JID(x)` — a `<group>@g.us` JID computed from a call argument. The server
+        // is fixed even though the JID is not, and it is NOT the same addressee as the
+        // bare `g.us` above: WA writes the two from separate mixins
+        // (`…BaseGetGroupMixin` vs `…BaseGetServerMixin`), and 26 of the 33 `w:g2`
+        // requests take this one.
+        (WapAttrKind::GroupJid, _) => IqTarget::GroupJid,
+        // A runtime JID of some other flavour, or an expression the scan did not follow.
+        _ => IqTarget::Unknown,
+    })
+}
+
 /// `o("ModuleName")` → `"ModuleName"` (custom-require call, one string-literal
 /// arg). Shared with [`crate::mixin_index`].
 pub(crate) fn require_module_name(e: &Expression) -> Option<String> {
@@ -516,12 +576,7 @@ impl ModuleScanner<'_> {
             Some(_) => return None,
             None => mixin_type,
         };
-        let target = match attrs.iter().find(|a| a.name == "to") {
-            Some(a) if a.kind == WapAttrKind::Const && a.value.as_deref() == Some("g.us") => {
-                IqTarget::Group
-            }
-            _ => IqTarget::Server,
-        };
+        let target = iq_target_from_to(&attrs);
 
         let mut children = Vec::new();
         for child_arg in wap.child_args {
@@ -599,7 +654,7 @@ mod tests {
         __d("WAWebFooBarRPC", ["WADeprecatedSendIq","WAWap"], function(g,r,d,o,e,i,n){
             "use strict";
             e.sendFooBar = function(t){
-                var q = i.wap("iq", { to: i.S_WHATSAPP_NET, xmlns: "w:foo", type: "get", id: i.generateId() },
+                var q = i.wap("iq", { to: r("WAWap").S_WHATSAPP_NET, xmlns: "w:foo", type: "get", id: i.generateId() },
                     i.wap("query", { jid: i.USER_JID() }));
                 return r("WADeprecatedSendIq").sendIq(q, new (r("WADeprecatedWapParser"))("FooBarResult", function(s){
                     s.assertTag("iq");
@@ -687,8 +742,151 @@ mod tests {
         });"#;
         let s = scan_module_source(m, &mi(), &ri(), &hi());
         assert_eq!(s.len(), 1);
-        assert_eq!(s[0].target, IqTarget::Group);
+        assert_eq!(s[0].target, IqTarget::GroupServer);
         assert_eq!(s[0].iq_type, IqType::Set);
+    }
+
+    #[test]
+    fn a_to_that_does_not_resolve_to_a_server_is_unknown_not_the_server() {
+        // The case that made every stanza claim `s.whatsapp.net`: the builder DOES write
+        // a `to`, and it is a JID computed from the call's argument. The old rule had one
+        // arm for the literal `"g.us"` and sent everything else to Server, so a request
+        // addressed to a runtime JID reported the server it was never sent to.
+        let m = r#"__d("WAWebDyn",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            e.go = function(t){ return i.wap("iq", { to: r("WAWap").JID(t), xmlns: "w:dyn", type: "get" }); };
+        });"#;
+        let s = scan_module_source(m, &mi(), &ri(), &hi());
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].target, IqTarget::Unknown);
+        assert!(!s[0].target.is_resolved());
+    }
+
+    #[test]
+    fn an_unresolvable_to_from_a_folded_in_mixin_is_unknown_not_unset() {
+        // `smax("iq", null, …)` writes no `to` of its own, so the addressee is whatever
+        // the mixins it folds in supply — and `mergeNewsletterIQGetRequestMixin` supplies
+        // `to: WAWap.JID(x)`, a runtime JID. The request HAS an addressee; the scan
+        // cannot name it. Reporting `unset` would tell an emitter to send no `to` at all,
+        // which is a different stanza — the same rounding-off this whole change removes,
+        // one level further in.
+        let mixin = r#"__d("WASmaxOutFooIQGetRequestMixin",["WAWap","WASmaxJsx"],function(g,r,d,o,e,i){
+            e.mergeFooIQGetRequestMixin = function(s,t){ return o("WASmaxJsx").smax("iq", { to: o("WAWap").JID(t), xmlns: "newsletter", type: "get" }); };
+        });"#;
+        let m = r#"__d("WASmaxOutFooRequest",["WASmaxJsx","WASmaxOutFooIQGetRequestMixin"],function(g,r,d,o,e,i){
+            e.makeFooRequest = function(t){ var q = o("WASmaxJsx").smax("iq", null); o("WASmaxOutFooIQGetRequestMixin").mergeFooIQGetRequestMixin(q, t); return q; };
+        });"#;
+        let bundle = format!("{mixin}\n{m}");
+        let defs = wa_transform::extract_module_definitions(&bundle);
+        let mixins = crate::mixin_index::build_pass(&defs, &bundle, &hi());
+        let s = scan_module_source(m, &mixins, &ri(), &hi());
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].target, IqTarget::Unknown);
+    }
+
+    #[test]
+    fn a_sibling_builders_mixin_does_not_address_this_one() {
+        // The mixin union is per MODULE. With two `<iq>` builders in one module and a
+        // target-bearing fragment folded in, handing that addressee to the builder that
+        // writes no `to` would publish an address it may never send to — and `g.us` on a
+        // request meant for the server is exactly the failure this PR exists to remove.
+        // `unknown` is the honest answer: something in the module names an addressee and
+        // the scan cannot say whose.
+        let mixin = r#"__d("WASmaxOutBarIQGetRequestMixin",["WAWap","WASmaxJsx"],function(g,r,d,o,e,i){
+            e.mergeBarIQGetRequestMixin = function(s){ return o("WASmaxJsx").smax("iq", { to: o("WAWap").G_US, xmlns: "w:g2", type: "get" }); };
+        });"#;
+        // Two builders, one module, one folded-in mixin. Only `a` calls it.
+        let m = r#"__d("WASmaxOutBarRequest",["WASmaxJsx","WASmaxOutBarIQGetRequestMixin"],function(g,r,d,o,e,i){
+            e.makeA = function(){ var q = o("WASmaxJsx").smax("iq", { xmlns: "w:g2", type: "get" }); o("WASmaxOutBarIQGetRequestMixin").mergeBarIQGetRequestMixin(q); return q; };
+            e.makeB = function(){ return o("WASmaxJsx").smax("iq", { xmlns: "w:other", type: "set" }); };
+        });"#;
+        let bundle = format!("{mixin}\n{m}");
+        let defs = wa_transform::extract_module_definitions(&bundle);
+        let mixins = crate::mixin_index::build_pass(&defs, &bundle, &hi());
+        let s = scan_module_source(m, &mixins, &ri(), &hi());
+        assert_eq!(s.len(), 2);
+        for st in &s {
+            assert_eq!(
+                st.target,
+                IqTarget::Unknown,
+                "{}: a module-scoped addressee is not this call's",
+                st.namespace
+            );
+        }
+    }
+
+    #[test]
+    fn a_builder_that_writes_no_to_reports_unset() {
+        // Distinct from `Unknown`: nothing addresses this stanza, so an emitter should
+        // send no `to` rather than substitute a server. `deprecatedSendIq` adds none.
+        let m = r#"__d("WAWebNoTo",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            e.go = function(){ return i.wap("iq", { xmlns: "w:noto", type: "get" }); };
+        });"#;
+        let s = scan_module_source(m, &mi(), &ri(), &hi());
+        assert_eq!(s[0].target, IqTarget::Unset);
+    }
+
+    #[test]
+    fn the_wap_server_constants_resolve_to_their_servers() {
+        // `WAWap.S_WHATSAPP_NET` / `G_US` are `WapJid.create(null, "s.whatsapp.net")` and
+        // `(null, "g.us")` — compile-time constants, and the spelling the builders
+        // actually use. The literal `"g.us"` the old rule keyed on appears nowhere in the
+        // bundle any more, which is why the group requests went missing.
+        let m = r#"__d("WAWebConst",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            e.a = function(){ return i.wap("iq", { to: r("WAWap").S_WHATSAPP_NET, xmlns: "w:a", type: "get" }); };
+            e.b = function(){ return i.wap("iq", { to: r("WAWap").G_US, xmlns: "w:b", type: "set" }); };
+            e.c = function(t){ return i.wap("iq", { to: r("WAWap").GROUP_JID(t), xmlns: "w:c", type: "set" }); };
+        });"#;
+        let mut s = scan_module_source(m, &mi(), &ri(), &hi());
+        s.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        assert_eq!(s.len(), 3);
+        assert_eq!(s[0].target, IqTarget::Server);
+        // The bare group server and one group's own JID are different addressees: the
+        // first is a literal to send, the second needs the group supplied.
+        assert_eq!(s[1].target, IqTarget::GroupServer);
+        assert_eq!(s[2].target, IqTarget::GroupJid);
+        assert!(s[1].target.is_group() && s[2].target.is_group());
+        assert!(
+            s[2].target.is_resolved(),
+            "the server is known, the JID is not"
+        );
+    }
+
+    #[test]
+    fn the_alias_spelling_does_not_decide_whether_the_server_is_recognised() {
+        // The same constant reached three ways: through the require call, through an
+        // inline `(n = o("WAWap"))`, and through a `var` bound earlier. All three are one
+        // address in the source, so all three must be `Server` here — otherwise the IR's
+        // answer depends on how the minifier happened to spell the binding, and the
+        // `to`-is-honest rule turns into a coin flip.
+        let m = r#"__d("WAWebAliased",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            var w = o("WAWap"), n;
+            e.a = function(){ return i.wap("iq", { to: r("WAWap").S_WHATSAPP_NET, xmlns: "w:a", type: "get" }); };
+            e.b = function(){ return (n = o("WAWap")).wap("iq", { to: n.S_WHATSAPP_NET, xmlns: "w:b", type: "get" }); };
+            e.c = function(){ return i.wap("iq", { to: w.S_WHATSAPP_NET, xmlns: "w:c", type: "get" }); };
+        });"#;
+        let mut s = scan_module_source(m, &mi(), &ri(), &hi());
+        s.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        assert_eq!(s.len(), 3);
+        for st in &s {
+            assert_eq!(
+                st.target,
+                IqTarget::Server,
+                "{} reads the same constant as the others",
+                st.namespace
+            );
+        }
+    }
+
+    #[test]
+    fn a_server_constant_from_an_unrelated_module_is_not_an_address() {
+        // The gate on the owner: `X.S_WHATSAPP_NET` only names the server when `X` is
+        // `WAWap`. A same-named property of anything else stays unresolved rather than
+        // being read as an address.
+        let m = r#"__d("WAWebOther",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            e.go = function(){ return i.wap("iq", { to: r("WAWebSomethingElse").S_WHATSAPP_NET, xmlns: "w:o", type: "get" }); };
+        });"#;
+        let s = scan_module_source(m, &mi(), &ri(), &hi());
+        assert_eq!(s[0].target, IqTarget::Unknown);
     }
 
     #[test]

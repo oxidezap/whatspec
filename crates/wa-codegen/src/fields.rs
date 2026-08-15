@@ -233,7 +233,7 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
     // artifact are `attrUserJid` with `required: false`, and deriving from the name alone
     // declared them `Jid` and emitted `ok_or_else("missing …")` — rejecting responses the
     // IR explicitly says may omit them.
-    if wap::is_optional_method(&field.method) || !field.required {
+    if wap::is_optional_method(&field.method) || !field.parser_required {
         match base {
             "u64" => "Option<u64>",
             "i64" => "Option<i64>",
@@ -345,7 +345,7 @@ fn flatten_same_node_inner(fields: &[ParsedField], force_optional: bool) -> Vec<
     let mut out = Vec::new();
     for f in fields {
         if f.same_node {
-            let child_optional = force_optional || !f.required;
+            let child_optional = force_optional || !f.parser_required;
             out.extend(flatten_same_node_inner(
                 f.children.as_deref().unwrap_or(&[]),
                 child_optional,
@@ -380,7 +380,7 @@ fn flatten_same_node_inner(fields: &[ParsedField], force_optional: bool) -> Vec<
 /// serve. The comment here called that "a rare over-strictness in the reference codegen"; it was
 /// this function's own.
 fn weaken_attr_to_optional(f: &mut ParsedField) {
-    f.required = false;
+    f.parser_required = false;
     let weakened = match f.method.as_str() {
         wap::ATTR_STRING => Some(wap::MAYBE_ATTR_STRING),
         wap::ATTR_INT => Some(wap::MAYBE_ATTR_INT),
@@ -452,7 +452,7 @@ pub(crate) fn collect_response_fields(
                 // accessor, so a `child` the scanner had relaxed still emitted a mandatory
                 // field — and the requiredness work in this branch relaxed 27 of them, none of
                 // which reached the generated decoder for a content-only child.
-                let wrapped = if f.method == "maybeChild" || !f.required {
+                let wrapped = if f.method == "maybeChild" || !f.parser_required {
                     format!("Option<{base}>")
                 } else {
                     base.to_string()

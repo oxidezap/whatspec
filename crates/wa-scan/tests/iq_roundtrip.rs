@@ -131,7 +131,7 @@ fn walk_pinned(
         if f.literal_value.is_some() || f.reference_path.is_some() {
             visit(f, path.clone());
         }
-        if !f.required {
+        if !f.parser_required {
             continue; // a branch the response need not take — see above
         }
         if let Some(children) = &f.children {
@@ -270,7 +270,7 @@ fn violations(s: &Stanza, assertions: &[ResponseAssertion], fields: &[ParsedFiel
 /// as the attribute would have this emitter demand an optional `c_dhash` and then compare
 /// a request string against a boolean.
 fn pin_is_required(f: &ParsedField) -> bool {
-    f.required && f.field_type != wa_ir::ParsedFieldType::Bool
+    f.parser_required && f.field_type != wa_ir::ParsedFieldType::Bool
 }
 
 /// Whether a shape carries any of the constraint layer this guard exists to protect.
@@ -402,7 +402,7 @@ fn a_pin_on_a_nested_node_is_checked_where_it_lives() {
         method: "attrString".into(),
         name: "type".into(),
         wire_name: Some("type".into()),
-        required: true,
+        parser_required: true,
         literal_value: Some("admin".into()),
         ..Default::default()
     };
@@ -412,7 +412,7 @@ fn a_pin_on_a_nested_node_is_checked_where_it_lives() {
             method: "attrString".into(),
             name: "listMatched".into(),
             wire_name: Some("matched".into()),
-            required: true,
+            parser_required: true,
             literal_value: Some("true".into()),
             source_path: Some(vec!["list".into()]),
             ..Default::default()
@@ -422,7 +422,7 @@ fn a_pin_on_a_nested_node_is_checked_where_it_lives() {
             method: "child".into(),
             name: "promoteParticipant".into(),
             tag: Some("participant".into()),
-            required: true,
+            parser_required: true,
             children: Some(vec![participant_type]),
             ..Default::default()
         },
@@ -471,7 +471,7 @@ fn a_pin_on_a_presence_flag_is_never_required() {
         name: "hasListCDhash".into(),
         wire_name: Some("c_dhash".into()),
         field_type: wa_ir::ParsedFieldType::Bool,
-        required: true,
+        parser_required: true,
         reference_path: Some(vec!["item".into(), "dhash".into()]),
         ..Default::default()
     };

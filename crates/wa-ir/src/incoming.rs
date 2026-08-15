@@ -54,3 +54,12 @@ pub struct IncomingIr {
     /// Received stanza read-shapes, sorted by `(tag, parser name)`.
     pub incoming: Vec<IncomingDef>,
 }
+
+impl IncomingIr {
+    /// Run [`ParsedResponse::classify_accessors`] over every read-shape.
+    pub fn classify_accessors(&mut self) {
+        for d in &mut self.incoming {
+            d.shape.classify_accessors();
+        }
+    }
+}

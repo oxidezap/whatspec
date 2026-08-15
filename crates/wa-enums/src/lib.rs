@@ -61,10 +61,22 @@ pub fn extract_enums_from_modules(
     // Deterministic order independent of bundle layout.
     enums.sort_by(|a, b| a.module.cmp(&b.module).then_with(|| a.name.cmp(&b.name)));
     enums.dedup_by(|a, b| a.module == b.module && a.name == b.name);
-    EnumsIr {
+    let mut ir = EnumsIr {
         wa_version: wa_version.to_string(),
         enums,
-    }
+    };
+    // Here, not only in the caller. `bitPosition` is part of what this IR says, and the
+    // evidence for it — a `1 << Enum.VARIANT` somewhere in the bundle — is in the `source`
+    // this function already holds. A consumer calling the documented extractor otherwise
+    // gets every definition flagged `false`, which is not "we did not check" but a plain
+    // statement that no enum here is bit positions.
+    //
+    // The pipeline calls it again after promoting inline `enumRef`s into the catalog,
+    // which is the one thing this cannot cover: an enum reachable only through a
+    // reference does not exist yet at this point. Marking is idempotent, so the second
+    // pass costs a scan and changes nothing already decided here.
+    mark_bit_position_enums(&mut ir, source);
+    ir
 }
 
 fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
@@ -90,12 +102,12 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
         if out.iter().any(|d| d.name == name) {
             continue; // first binding wins (aliases collapse)
         }
-        out.push(InternalEnumDef {
+        out.push(InternalEnumDef::new(
             name,
-            module: module.to_string(),
+            module.to_string(),
             value_kind,
             variants,
-        });
+        ));
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
@@ -337,12 +349,12 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
         return None;
     }
     let (value_kind, variants) = r.exports.get(name)?.clone();
-    Some(InternalEnumDef {
-        name: name.to_string(),
-        module: module.to_string(),
+    Some(InternalEnumDef::new(
+        name.to_string(),
+        module.to_string(),
         value_kind,
         variants,
-    })
+    ))
 }
 
 /// The parameter names of the `__d("Name", deps, factory, id)` factory, if it is there.
@@ -418,12 +430,12 @@ fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef>
     let mut out: Vec<InternalEnumDef> = Vec::new();
     for (name, (value_kind, variants)) in r.exports {
         if variants.len() >= 2 && variants.iter().all(|v| is_constant_case(&v.name)) {
-            out.push(InternalEnumDef {
+            out.push(InternalEnumDef::new(
                 name,
-                module: module.to_string(),
+                module.to_string(),
                 value_kind,
                 variants,
-            });
+            ));
         }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1206,6 +1218,67 @@ fn parse_enum(obj: &ObjectExpression) -> Option<EnumData> {
     }
 }
 
+/// Mark every catalog entry the bundle **shifts by** — `t |= 1 << Mod.Enum.VARIANT` —
+/// as a bit-position enum ([`InternalEnumDef::bit_position`]).
+///
+/// This is the only evidence there is. An enum of bit positions and an enum of codes are
+/// the same `{NAME: 0, NAME: 1, NAME: 2}` object at the definition site; what tells them
+/// apart is that one of them is only ever used as a shift distance, and that happens in
+/// the *consumer* module. `ReceiptModeBitPosition` is the single enum in the catalog with
+/// any: two `1 <<` sites, in a module that does not define it.
+///
+/// A text scan rather than a parse, deliberately: shift sites live anywhere in ~71 MB of
+/// bundle, and re-walking every module's AST to find two of them costs more than the
+/// whole enum extraction. It cannot invent a match — the module, the enum and the variant
+/// must all name a real catalog entry, so a false positive needs a string literal
+/// spelling out `<<o("<real module>").<real enum>.<real variant>`.
+///
+/// A shift by an enum this build did not capture marks nothing, and is not reported: the
+/// enum is absent from the catalog either way.
+pub fn mark_bit_position_enums(ir: &mut EnumsIr, source: &str) {
+    let mut shifted: HashSet<(&str, &str, &str)> = HashSet::new();
+    let mut rest = source;
+    while let Some(at) = rest.find("<<") {
+        let after = &rest[at + 2..];
+        if let Some(parts) = qualified_member(after.trim_start()) {
+            shifted.insert(parts);
+        }
+        rest = after;
+    }
+    for def in &mut ir.enums {
+        // Never on a string enum: a wire token has no bit to shift into. The variant has
+        // to belong to this enum too — that is what makes a stray text match impossible
+        // rather than merely unlikely.
+        def.bit_position = def.value_kind == EnumValueKind::Int
+            && def.variants.iter().any(|v| {
+                shifted.contains(&(def.module.as_str(), def.name.as_str(), v.name.as_str()))
+            });
+    }
+}
+
+/// `o("Module").Name.VARIANT` at the very start of `s` → its three parts.
+///
+/// The qualified spelling only. A bare `x.Name.VARIANT` names no module, and guessing
+/// one from the enum name alone would resolve `ENUM_FALSE_TRUE` to whichever of its
+/// eleven definitions came first.
+fn qualified_member(s: &str) -> Option<(&str, &str, &str)> {
+    let rest = s.strip_prefix(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')?;
+    let rest = rest.strip_prefix("(\"")?;
+    let (module, rest) = rest.split_once("\")")?;
+    let rest = rest.strip_prefix('.')?;
+    let (name, rest) = split_ident(rest)?;
+    let (variant, _) = split_ident(rest.strip_prefix('.')?)?;
+    Some((module, name, variant))
+}
+
+/// Split a leading JS identifier off `s`, returning it and the remainder.
+fn split_ident(s: &str) -> Option<(&str, &str)> {
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .unwrap_or(s.len());
+    (end > 0).then(|| s.split_at(end))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1742,6 +1815,111 @@ mod tests {
     fn run(src: &str) -> Vec<InternalEnumDef> {
         let defs = wa_transform::extract_module_definitions(src);
         extract_enums_from_modules(src, &defs, "1.0").enums
+    }
+
+    /// Extract, then mark the bit-position enums from the same source.
+    fn run_with_shifts(src: &str) -> Vec<InternalEnumDef> {
+        let defs = wa_transform::extract_module_definitions(src);
+        let mut ir = extract_enums_from_modules(src, &defs, "1.0");
+        mark_bit_position_enums(&mut ir, src);
+        ir.enums
+    }
+
+    #[test]
+    fn an_enum_the_bundle_shifts_by_is_marked_as_bit_positions() {
+        // Two enums of the same shape — `{A:0,B:1,C:2}` — and only one of them is used as
+        // a shift distance. Nothing at the definition site tells them apart, which is why
+        // the mark comes from the consumer module: `MODE.C` reaches the wire as
+        // `1 << 2 == 4`, `CODE.C` as `2`.
+        let src = r#"
+            __d("WAWebModes",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:0,B:1,C:2});i.MODE=e}),1);
+            __d("WAWebCodes",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:0,B:1,C:2});i.CODE=e}),1);
+            __d("WAWebUser",["WAWebModes"],(function(t,n,r,o,a,i){function f(){var x=0;x|=1<<o("WAWebModes").MODE.C;return x}i.f=f}),1);
+        "#;
+        let enums = run_with_shifts(src);
+        let by = |n: &str| {
+            enums
+                .iter()
+                .find(|e| e.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .bit_position
+        };
+        assert!(by("MODE"), "shifted by, so its values are bit positions");
+        assert!(!by("CODE"), "never shifted by — a plain code table");
+    }
+
+    #[test]
+    fn the_public_extractor_marks_bit_positions_by_itself() {
+        // `run_with_shifts` calls the marking pass explicitly, which is how the pipeline
+        // uses it — but a library consumer calls the extractor and serializes what comes
+        // back. `bitPosition: false` on every definition is not "we did not look", it is
+        // a statement that no enum here is bit positions, so the extractor has to have
+        // looked before it returns.
+        let src = r#"
+            __d("WAWebModes",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:0,B:1,C:2});i.MODE=e}),1);
+            __d("WAWebCodes",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:0,B:1,C:2});i.CODE=e}),1);
+            __d("WAWebUser",["WAWebModes"],(function(t,n,r,o,a,i){function f(){var x=0;x|=1<<o("WAWebModes").MODE.C;return x}i.f=f}),1);
+        "#;
+        let enums = run(src);
+        let by = |n: &str| {
+            enums
+                .iter()
+                .find(|e| e.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .bit_position
+        };
+        assert!(by("MODE"), "no separate pass needed to learn this");
+        assert!(!by("CODE"));
+    }
+
+    #[test]
+    fn a_shift_by_something_else_marks_nothing() {
+        // The three parts all have to name a real catalog entry. A shift by a variant the
+        // enum does not have, or by an unrelated module's member, is not evidence — which
+        // is what keeps a text scan from inventing a match.
+        let src = r#"
+            __d("WAWebModes",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:0,B:1});i.MODE=e}),1);
+            __d("WAWebUser",["WAWebModes"],(function(t,n,r,o,a,i){function f(){return (1<<o("WAWebModes").MODE.NOPE)|(1<<o("WAWebOther").MODE.A)}i.f=f}),1);
+        "#;
+        assert!(run_with_shifts(src).iter().all(|e| !e.bit_position));
+    }
+
+    #[test]
+    fn a_string_enum_is_never_bit_positions() {
+        // A wire token has no bit to shift into, so even a shift site cannot make one.
+        let src = r#"
+            __d("WAWebTok",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:"a",B:"b"});i.TOK=e}),1);
+            __d("WAWebUser",["WAWebTok"],(function(t,n,r,o,a,i){function f(){return 1<<o("WAWebTok").TOK.A}i.f=f}),1);
+        "#;
+        assert!(run_with_shifts(src).iter().all(|e| !e.bit_position));
+    }
+
+    #[test]
+    fn a_generated_name_is_recognised_from_its_own_variants() {
+        // WA's emitter spells these out of the members, so the check runs the rule
+        // backwards instead of matching the `ENUM_` prefix — a prefix match would take
+        // any name that happens to start that way, and miss none of the eight whose
+        // members carry underscores the generated name drops.
+        let src = r#"
+            __d("WASmaxInFooEnums",["$InternalEnum"],(function(t,n,r,o,a,i){
+                var e=n("$InternalEnum")({FALSE:"false",TRUE:"true"});i.ENUM_FALSE_TRUE=e;
+                var s=n("$InternalEnum")({CUSTOM_LOCATION:"custom_location",ZIP:"zip"});i.ENUM_CUSTOMLOCATION_ZIP=s;
+                var u=n("$InternalEnum")({OFF:"off",ON:"on"});i.PrivacySetting=u;
+            }),1);
+        "#;
+        let enums = run(src);
+        let by = |n: &str| {
+            enums
+                .iter()
+                .find(|e| e.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .synthetic_name
+        };
+        assert!(by("ENUM_FALSE_TRUE"));
+        // Members whose underscores the generated name drops still reconstruct.
+        assert!(by("ENUM_CUSTOMLOCATION_ZIP"));
+        // A chosen name is not a generated one, whatever it is spelled like.
+        assert!(!by("PrivacySetting"));
     }
 
     #[test]

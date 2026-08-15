@@ -12,6 +12,17 @@ use crate::alias::{AliasMap, resolve_owner};
 use crate::module::require_module_name;
 use wa_oxc::{arg_expr, as_call, as_member, as_string_lit, callee_method, callee_object};
 
+/// The wire value of a `WAWap` bare-server JID constant, or `None` for any other
+/// property. Only the two servers an `<iq>` is ever addressed to; the JID *flavour*
+/// constructors (`GROUP_JID(x)`, `JID(x)`) are calls and are classified as such.
+fn wap_server_constant(prop: &str) -> Option<&'static str> {
+    match prop {
+        "S_WHATSAPP_NET" => Some("s.whatsapp.net"),
+        "G_US" => Some("g.us"),
+        _ => None,
+    }
+}
+
 /// `o("Mod").EnumName.VARIANT` → `(module, enumName)`, when the base is a `require`
 /// call (`o("Mod")`) and `EnumName` is enum-shaped. The specific variant is dropped —
 /// the attribute links to the whole enum.
@@ -280,14 +291,25 @@ fn classify_attr_node<'a>(
         }
     }
 
-    // Property access X.DROP_ATTR → optional. (No need to special-case
-    // `X.S_WHATSAPP_NET`: target detection already defaults `to:` to Server when
-    // it isn't the literal "g.us", and leaving it Dynamic keeps the legacy wap
-    // path byte-exact.)
+    // Property access X.DROP_ATTR → optional.
     if let Some((_, prop)) = as_member(value)
         && prop == "DROP_ATTR"
     {
         return owned(WapAttrKind::Optional, None, false);
+    }
+
+    // `WAWap.S_WHATSAPP_NET` / `WAWap.G_US` — the two bare-server JIDs, built once as
+    // `WapJid.create(null, "s.whatsapp.net")` / `(null, "g.us")`. They are compile-time
+    // constants, so classifying them `Dynamic` was a loss, and it was the loss that made
+    // every `<iq>` claim the server: the target rule keyed on the literal `"g.us"`, which
+    // the builders had already stopped writing, and everything else fell through to
+    // Server. Gated on the owner resolving to `WAWap` so an unrelated property of that
+    // name cannot be read as an address.
+    if let Some((obj, prop)) = as_member(value)
+        && let Some(server) = wap_server_constant(prop)
+        && resolve_owner(obj, aliases) == Some("WAWap")
+    {
+        return owned(WapAttrKind::Const, Some(server.to_string()), true);
     }
 
     // Ternary mentioning DROP_ATTR → optional (matches JSON.stringify().includes()).

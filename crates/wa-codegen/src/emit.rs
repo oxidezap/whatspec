@@ -58,7 +58,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         //
         // The attribute path below has read the same flag since the round it was written; this
         // one asked only the accessor spelling, and no content accessor spells optionality.
-        let optional_leaf = !f.required;
+        let optional_leaf = !f.parser_required;
         let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var);
         out.push(if optional_leaf {
             // …and it must DECODE what is there. `content_decoder_opt` ends its integer spelling
@@ -150,7 +150,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     // See `rust_field_type`: the accessor spelling and the IR's `required` are both
     // sources of optionality, and the two must agree or the initializer will not match the
     // declared field type.
-    let optional = wap::is_optional_method(method) || !f.required;
+    let optional = wap::is_optional_method(method) || !f.parser_required;
     // A declared band is part of what the accessor accepts, and this path decoded the number and
     // enforced nothing — so `attrIntRange("weight", -10000, 10000)` took a `-20000` the source
     // turns away. Harmless while every integer was `u64`, because the parse itself refused every
@@ -501,7 +501,7 @@ fn raw_length_check(
     // present node away for having no payload — the child's absence and the payload's absence
     // read as one thing. Round twenty-five settled that a wrong length is not an absence; this
     // is the same sentence about whose absence is being asked.
-    let present = if leaf.required {
+    let present = if leaf.parser_required {
         "is_some_and"
     } else {
         "is_none_or"
@@ -726,7 +726,7 @@ fn emit_relaxed_path_field(cf: &ParsedField, base: &str, indent: &str) -> Vec<St
 
 /// Whether this field's source path must be descended without failing on an absent wrapper.
 fn path_is_optional(cf: &ParsedField) -> bool {
-    !cf.required && cf.source_path.as_deref().is_some_and(|p| !p.is_empty())
+    !cf.parser_required && cf.source_path.as_deref().is_some_and(|p| !p.is_empty())
 }
 
 fn descend_from(
@@ -938,7 +938,7 @@ fn emit_struct_reads(
                 out
             });
             // Same two sources as the declared type, or the initializer will not match it.
-            if f.method == "maybeChild" || !f.required {
+            if f.method == "maybeChild" || !f.parser_required {
                 // The child lookup and the leaf decode are two questions, and chaining them
                 // into `get_optional_child(…).and_then(|n| n.read())` folds a PRESENT element
                 // with no payload into the same `None` as an absent element. Round sixty drew
@@ -979,7 +979,7 @@ fn emit_struct_reads(
                     Some(c) => content_read_relaxed(c, &format!("{id}_node"), &fmsg),
                     None => format!("{id}_node.{opt_read}"),
                 };
-                if leaf.is_some_and(|c| c.required) {
+                if leaf.is_some_and(|c| c.parser_required) {
                     // A required leaf makes an absent payload a REJECTION, not an absence: the
                     // accessor throws, and folding it to `None` would leave the field simply
                     // missing from a response the parser turns away.
@@ -1027,7 +1027,7 @@ fn emit_struct_reads(
                 // first accepted everything the second wanted, which is exactly the shadowing
                 // the gate exists to refuse. I added the signature entry last round without
                 // checking every emitter path honoured it; this is the path that did not.
-                let demands = leaf.is_some_and(|c| c.required);
+                let demands = leaf.is_some_and(|c| c.parser_required);
                 lines.push(match leaf.filter(|_| demands) {
                     Some(c) => format!(
                         "{indent}let {id} = {};",
@@ -1213,7 +1213,7 @@ fn emit_struct_reads(
                 lines,
                 indent,
             );
-            if f.required {
+            if f.parser_required {
                 // Required child: a missing `<tag>` is a parse error.
                 lines.push(format!(
                     "{indent}let {cvar} = {base}.get_optional_child({})",
@@ -2113,7 +2113,7 @@ mod tests {
             name: name.into(),
             wire_name: Some(name.into()),
             field_type: ParsedFieldType::Integer,
-            required,
+            parser_required: required,
             int_min: lo,
             int_max: hi,
             ..Default::default()
@@ -2147,7 +2147,7 @@ mod tests {
             ),
         ] {
             let f: ParsedField = serde_json::from_value(serde_json::json!({
-                "method": m, "name": "elementValue", "type": ty, "required": false
+                "method": m, "name": "elementValue", "type": ty, "parserRequired": false
             }))
             .expect("field");
             let src = emit_field_parse(&f, "n", "").join("\n");
@@ -2157,7 +2157,7 @@ mod tests {
         // value the field holds, not one the accessor rejects.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "contentBytes", "name": "elementValue", "type": "bytes",
-            "required": false, "byteLength": 32
+            "parserRequired": false, "byteLength": 32
         }))
         .expect("field");
         let src = emit_field_parse(&f, "n", "").join("\n");
@@ -2172,7 +2172,7 @@ mod tests {
         // emitted module would not compile.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "contentInt", "name": "weight", "type": "integer",
-            "required": false, "intMin": -10
+            "parserRequired": false, "intMin": -10
         }))
         .expect("field");
         let src = emit_field_parse(&f, "n", "").join("\n");
@@ -2182,7 +2182,7 @@ mod tests {
         );
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "contentInt", "name": "weight", "type": "integer",
-            "required": false, "intMin": -10, "intMax": 10
+            "parserRequired": false, "intMin": -10, "intMax": 10
         }))
         .expect("field");
         let src = emit_field_parse(&f, "n", "").join("\n");
@@ -2194,7 +2194,7 @@ mod tests {
         // required all along — the shape moved deliberately and this is the new spelling.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "contentBytes", "name": "elementValue", "type": "bytes",
-            "required": true, "byteLength": 32
+            "parserRequired": true, "byteLength": 32
         }))
         .expect("field");
         let src = emit_field_parse(&f, "n", "").join("\n");
@@ -2215,7 +2215,7 @@ mod tests {
     fn a_required_content_leaf_demands_something_it_can_decode() {
         let src = |m: &str, ty: &str| {
             let f: ParsedField = serde_json::from_value(serde_json::json!({
-                "method": m, "name": "elementValue", "type": ty, "required": true
+                "method": m, "name": "elementValue", "type": ty, "parserRequired": true
             }))
             .expect("field");
             emit_field_parse(&f, "n", "").join("\n")
@@ -2251,7 +2251,7 @@ mod tests {
         // The bound: an OPTIONAL leaf still hands back an `Option` and demands nothing.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "contentInt", "name": "elementValue", "type": "integer",
-            "required": false
+            "parserRequired": false
         }))
         .expect("field");
         let opt = emit_field_parse(&f, "n", "").join("\n");
@@ -2350,7 +2350,7 @@ mod tests {
         let src = |method: &str, required: bool| {
             let f: ParsedField = serde_json::from_value(serde_json::json!({
                 "method": method, "name": "from", "wireName": "from", "type": "user_jid",
-                "required": required, "literalValue": "s.whatsapp.net"
+                "parserRequired": required, "literalValue": "s.whatsapp.net"
             }))
             .expect("field");
             emit_field_parse(&f, "n", "").join("\n")
@@ -2377,7 +2377,7 @@ mod tests {
         // attribute were not there — the collapse the relaxed integer had, one branch over.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "attrUserJid", "name": "from", "wireName": "from", "type": "user_jid",
-            "required": false
+            "parserRequired": false
         }))
         .expect("field");
         let relaxed = emit_field_parse(&f, "n", "").join("\n");
@@ -2389,7 +2389,7 @@ mod tests {
         // The bound: a `maybe…` accessor tolerates absence by design and is untouched.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "maybeAttrUserJid", "name": "from", "wireName": "from",
-            "type": "user_jid", "required": false
+            "type": "user_jid", "parserRequired": false
         }))
         .expect("field");
         let lenient = emit_field_parse(&f, "n", "").join("\n");
@@ -2400,7 +2400,7 @@ mod tests {
         // The bound: an unpinned JID is read exactly as before.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "attrUserJid", "name": "from", "wireName": "from", "type": "user_jid",
-            "required": true
+            "parserRequired": true
         }))
         .expect("field");
         let unpinned = emit_field_parse(&f, "n", "").join("\n");
@@ -2505,16 +2505,16 @@ mod tests {
     fn an_optional_same_node_wrapper_weakens_every_descendant() {
         let wrapper: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "result", "type": "string",
-            "required": false, "sameNode": true,
+            "parserRequired": false, "sameNode": true,
             "children": [
-                {"method": "attrString", "name": "label", "type": "string", "required": true},
-                {"method": "attrUserJid", "name": "jid", "type": "user_jid", "required": true},
+                {"method": "attrString", "name": "label", "type": "string", "parserRequired": true},
+                {"method": "attrUserJid", "name": "jid", "type": "user_jid", "parserRequired": true},
                 {"method": "contentString", "name": "elementValue", "type": "string",
-                 "required": true},
-                {"method": "child", "name": "detail", "type": "string", "required": true,
+                 "parserRequired": true},
+                {"method": "child", "name": "detail", "type": "string", "parserRequired": true,
                  "children": [
                      {"method": "attrInt", "name": "count", "type": "integer",
-                      "required": true}
+                      "parserRequired": true}
                  ]}
             ]
         }))
@@ -2522,7 +2522,7 @@ mod tests {
         let flat = crate::fields::flatten_same_node(std::slice::from_ref(&wrapper));
         for f in &flat {
             assert!(
-                !f.required,
+                !f.parser_required,
                 "every lifted leaf is optional, not just the ones with a `maybe…` spelling: {f:?}"
             );
         }
@@ -2537,15 +2537,15 @@ mod tests {
         let detail = by("detail");
         let kids = detail.children.as_deref().unwrap_or(&[]);
         assert!(
-            kids.iter().all(|c| !c.required),
+            kids.iter().all(|c| !c.parser_required),
             "a grandchild of the wrapper is no more required than a child: {kids:?}"
         );
         // The bound: a REQUIRED same-node wrapper lifts its descendants unchanged.
         let mut required_wrapper = wrapper.clone();
-        required_wrapper.required = true;
+        required_wrapper.parser_required = true;
         let flat = crate::fields::flatten_same_node(std::slice::from_ref(&required_wrapper));
         assert!(
-            flat.iter().all(|f| f.required),
+            flat.iter().all(|f| f.parser_required),
             "nothing is weakened under a wrapper that is always there: {flat:?}"
         );
     }
@@ -2638,10 +2638,10 @@ mod tests {
         let child = |method: &str, required: bool| -> ParsedField {
             serde_json::from_value(serde_json::json!({
                 "method": "maybeChild", "name": "participant_count", "tag": "participant_count",
-                "type": "string", "required": false,
+                "type": "string", "parserRequired": false,
                 "children": [{
                     "method": method, "name": "content", "type": "integer",
-                    "required": required
+                    "parserRequired": required
                 }]
             }))
             .expect("child")
@@ -2672,12 +2672,12 @@ mod tests {
     fn a_repeated_items_field_is_read_through_its_source_path() {
         let leaf: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "attrString", "name": "label", "wireName": "label", "type": "string",
-            "required": true, "sourcePath": ["background"]
+            "parserRequired": true, "sourcePath": ["background"]
         }))
         .expect("leaf");
         let item: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "item", "tag": "item", "type": "string",
-            "required": true, "repeats": true, "children": [leaf]
+            "parserRequired": true, "repeats": true, "children": [leaf]
         }))
         .expect("item");
         let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
@@ -2693,17 +2693,17 @@ mod tests {
         // …and the nested repeated loop reads its fields the same way.
         let inner_leaf: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "attrString", "name": "label", "wireName": "label", "type": "string",
-            "required": true, "sourcePath": ["background"]
+            "parserRequired": true, "sourcePath": ["background"]
         }))
         .expect("leaf");
         let inner_item: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "part", "tag": "part", "type": "string",
-            "required": true, "repeats": true, "children": [inner_leaf]
+            "parserRequired": true, "repeats": true, "children": [inner_leaf]
         }))
         .expect("inner");
         let outer: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "item", "tag": "item", "type": "string",
-            "required": true, "repeats": true, "children": [inner_item]
+            "parserRequired": true, "repeats": true, "children": [inner_item]
         }))
         .expect("outer");
         let src = emit_struct_parser(&[outer], "n", "R", "", "P").join("\n");
@@ -2717,12 +2717,12 @@ mod tests {
         // rejection is one the descent introduced, since these reads had no descent before.
         let leaf: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "maybeAttrString", "name": "label", "wireName": "label",
-            "type": "string", "required": false, "sourcePath": ["meta"]
+            "type": "string", "parserRequired": false, "sourcePath": ["meta"]
         }))
         .expect("leaf");
         let item: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "item", "tag": "item", "type": "string",
-            "required": true, "repeats": true, "children": [leaf]
+            "parserRequired": true, "repeats": true, "children": [leaf]
         }))
         .expect("item");
         let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
@@ -2738,17 +2738,17 @@ mod tests {
         // …and the nested repeated loop reads a relaxed path the same way.
         let leaf: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "maybeAttrString", "name": "label", "wireName": "label",
-            "type": "string", "required": false, "sourcePath": ["meta"]
+            "type": "string", "parserRequired": false, "sourcePath": ["meta"]
         }))
         .expect("leaf");
         let inner_item: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "part", "tag": "part", "type": "string",
-            "required": true, "repeats": true, "children": [leaf]
+            "parserRequired": true, "repeats": true, "children": [leaf]
         }))
         .expect("inner");
         let outer: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "item", "tag": "item", "type": "string",
-            "required": true, "repeats": true, "children": [inner_item]
+            "parserRequired": true, "repeats": true, "children": [inner_item]
         }))
         .expect("outer");
         let src = emit_struct_parser(&[outer], "n", "R", "", "P").join("\n");
@@ -2760,12 +2760,12 @@ mod tests {
         // The bound: a field with no source path is still read straight off the item.
         let leaf: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "attrString", "name": "label", "wireName": "label", "type": "string",
-            "required": true
+            "parserRequired": true
         }))
         .expect("leaf");
         let item: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "child", "name": "item", "tag": "item", "type": "string",
-            "required": true, "repeats": true, "children": [leaf]
+            "parserRequired": true, "repeats": true, "children": [leaf]
         }))
         .expect("item");
         let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
@@ -2784,10 +2784,10 @@ mod tests {
         let optional_child = |field: &str| -> ParsedField {
             serde_json::from_value(serde_json::json!({
                 "method": "maybeChild", "name": "item", "tag": "item", "type": "string",
-                "required": false,
+                "parserRequired": false,
                 "children": [{
                     "method": "attrString", "name": field, "wireName": field, "type": "string",
-                    "required": true, "sourcePath": ["meta"]
+                    "parserRequired": true, "sourcePath": ["meta"]
                 }]
             }))
             .expect("child")
@@ -3625,9 +3625,9 @@ mod tests {
         // sharing the wrapper must read off it too, while a plain root attr stays
         // on `response`.
         let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
-            {"method":"attrString","name":"propsProtocol","wireName":"protocol","type":"string","required":true,"sourcePath":["props"]},
-            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","required":false,"sourcePath":["props"]},
-            {"method":"attrString","name":"type","wireName":"type","type":"string","required":true}
+            {"method":"attrString","name":"propsProtocol","wireName":"protocol","type":"string","parserRequired":true,"sourcePath":["props"]},
+            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","parserRequired":false,"sourcePath":["props"]},
+            {"method":"attrString","name":"type","wireName":"type","type":"string","parserRequired":true}
         ]))
         .unwrap();
         let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
@@ -3655,8 +3655,8 @@ mod tests {
         // <request> child lives under <detail>, not the <iq> root, and its attrs
         // are read off that descended child.
         let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
-            {"method":"child","name":"detailRequest","tag":"request","type":"string","required":false,"sourcePath":["detail"],
-             "children":[{"method":"attrString","name":"foo","wireName":"foo","type":"string","required":true}]}
+            {"method":"child","name":"detailRequest","tag":"request","type":"string","parserRequired":false,"sourcePath":["detail"],
+             "children":[{"method":"attrString","name":"foo","wireName":"foo","type":"string","parserRequired":true}]}
         ]))
         .unwrap();
         let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
@@ -3681,8 +3681,8 @@ mod tests {
         // A `required:false` child (smax `optionalChildWithTag`) must not bail the whole
         // parse when absent: its fields read inside `if let Some` and default otherwise.
         let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
-            {"method":"child","name":"suspended","tag":"suspended","type":"string","required":false,
-             "children":[{"method":"attrInt","name":"value","wireName":"value","type":"integer","required":true}]}
+            {"method":"child","name":"suspended","tag":"suspended","type":"string","parserRequired":false,
+             "children":[{"method":"attrInt","name":"value","wireName":"value","type":"integer","parserRequired":true}]}
         ]))
         .unwrap();
         let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
@@ -3704,8 +3704,8 @@ mod tests {
     fn required_child_still_bails_when_absent() {
         // A `required:true` child keeps the fail-fast descent.
         let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
-            {"method":"child","name":"group","tag":"group","type":"string","required":true,
-             "children":[{"method":"attrString","name":"id","wireName":"id","type":"string","required":true}]}
+            {"method":"child","name":"group","tag":"group","type":"string","parserRequired":true,
+             "children":[{"method":"attrString","name":"id","wireName":"id","type":"string","parserRequired":true}]}
         ]))
         .unwrap();
         let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
@@ -3719,7 +3719,7 @@ mod tests {
     #[test]
     fn nested_source_path_descends_each_segment() {
         let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
-            {"method":"attrString","name":"nonceValue","wireName":"value","type":"string","required":true,"sourcePath":["detail","nonce"]}
+            {"method":"attrString","name":"nonceValue","wireName":"value","type":"string","parserRequired":true,"sourcePath":["detail","nonce"]}
         ]))
         .unwrap();
         let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
@@ -3743,8 +3743,8 @@ mod tests {
         // (smax `flattenedChildWithTag`), so it must be descended, not read off the
         // <iq> root (else the attrs would always parse as None).
         let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
-            {"method":"maybeAttrString","name":"propsAbKey","wireName":"ab_key","type":"string","required":false,"sourcePath":["props"]},
-            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","required":false,"sourcePath":["props"]}
+            {"method":"maybeAttrString","name":"propsAbKey","wireName":"ab_key","type":"string","parserRequired":false,"sourcePath":["props"]},
+            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","parserRequired":false,"sourcePath":["props"]}
         ]))
         .unwrap();
         let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
@@ -3768,8 +3768,8 @@ mod tests {
         // wrapper. When flattened the wrapper disappears, so its required attr child
         // must be weakened to an optional read (the wrapper may be absent).
         let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
-            {"method":"","name":"displayNameMixin","type":"string","required":false,"sameNode":true,
-             "children":[{"method":"attrString","name":"displayName","wireName":"display_name","type":"string","required":true}]}
+            {"method":"","name":"displayNameMixin","type":"string","parserRequired":false,"sameNode":true,
+             "children":[{"method":"attrString","name":"displayName","wireName":"display_name","type":"string","parserRequired":true}]}
         ]))
         .unwrap();
         // Struct field is Option<…>.
@@ -4033,7 +4033,7 @@ mod tests {
             method: if required { "child" } else { "maybeChild" }.into(),
             name: "weight".into(),
             wire_name: Some("weight".into()),
-            required,
+            parser_required: required,
             children: Some(vec![leaf]),
             ..Default::default()
         }
@@ -4105,7 +4105,7 @@ mod tests {
         // The bound on that third case: when the LEAF itself is optional, an empty element is a
         // value the field can hold and only a payload that IS there has to satisfy the band.
         let mut leaf = bounded_leaf(Some(-10), Some(10));
-        leaf.required = false;
+        leaf.parser_required = false;
         let src = emit_struct_parser(&[child_over(leaf, false)], "n", "R", "", "P").join("\n");
         assert!(
             !src.contains("has no content"),
@@ -4194,7 +4194,7 @@ mod tests {
                 name: "elementValue".into(),
                 wire_name: Some("elementValue".into()),
                 field_type: ParsedFieldType::Bytes,
-                required: true,
+                parser_required: true,
                 byte_length: len,
                 byte_min: lo,
                 byte_max: hi,
@@ -4218,7 +4218,7 @@ mod tests {
                 method: method.into(),
                 name: "elementValue".into(),
                 wire_name: Some("elementValue".into()),
-                required: true,
+                parser_required: true,
                 byte_length: len,
                 ..Default::default()
             };
@@ -4243,7 +4243,7 @@ mod tests {
             method: "contentUint".into(),
             name: "elementValue".into(),
             wire_name: Some("elementValue".into()),
-            required: true,
+            parser_required: true,
             byte_length: Some(8),
             ..Default::default()
         };
@@ -4436,7 +4436,7 @@ mod tests {
         );
 
         f.method = "attrEnum".into();
-        f.required = true;
+        f.parser_required = true;
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
             src.contains(r#"matches!(reason.as_str(), "a" | "b")"#),
@@ -4484,7 +4484,7 @@ mod tests {
         );
 
         f.method = "maybeAttrString".into();
-        f.required = false;
+        f.parser_required = false;
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
             src.contains(r#"matches!(r#type.as_deref(), None | Some("result"))"#),

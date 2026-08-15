@@ -292,7 +292,32 @@ const FIELD_TYPE_VARIANTS: &[&str] = &[
     "JidTyped",
     "Bool",
     "Union",
+    "Node",
 ];
+
+/// The out-of-set policy as the generated table spells it.
+///
+/// A `bool` rather than a mirrored enum: the reference table only has to answer "may I
+/// close this enum", and `Reject` vs `Null` is exactly that question. `Unclassified`
+/// answers it with `None` — the same as "no table" — because a policy nobody judged is
+/// not a licence to close anything.
+///
+/// `has_values` is the other half, and it is not a detail: this field's whole meaning is
+/// "what happens to a value outside `enum_values`", so with that table empty there is no
+/// set for the answer to be about. The one action it applies to is `create.reason`, whose
+/// handler recognizes several reasons the action extractor could not name — publishing
+/// `Some(false)` there described every possible reason as outside an empty set. Same rule
+/// as `attrJidEnum` in `wa_ir::wap`: no policy without the set it judges.
+fn rejects_unknown_value(p: Option<wa_ir::UnknownValuePolicy>, has_values: bool) -> &'static str {
+    if !has_values {
+        return "None";
+    }
+    match p {
+        Some(wa_ir::UnknownValuePolicy::Reject) => "Some(true)",
+        Some(wa_ir::UnknownValuePolicy::Null) => "Some(false)",
+        Some(wa_ir::UnknownValuePolicy::Unclassified) | None => "None",
+    }
+}
 
 /// The generated variant name for an IR field type. Exhaustive on purpose; see
 /// [`FIELD_TYPE_VARIANTS`].
@@ -318,6 +343,7 @@ fn field_type_variant(t: wa_ir::ParsedFieldType) -> &'static str {
         T::JidTyped => "JidTyped",
         T::Bool => "Bool",
         T::Union => "Union",
+        T::Node => "Node",
     }
 }
 
@@ -366,6 +392,15 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
          \x20   /// constrained; this says to WHAT.\n",
     );
     l.push_str("    pub enum_values: &'static [&'static str],\n");
+    l.push_str(
+        "    /// What the handler does with a value outside `enum_values`: `Some(true)`\n\
+         \x20   /// rejects the notification, `Some(false)` yields null and parses on.\n\
+         \x20   /// `None` means no usable policy — the accessor checks no table, one was\n\
+         \x20   /// checked and this build has not judged which it does, or `enum_values`\n\
+         \x20   /// is empty, leaving no set for the answer to be about.\n\
+         \x20   /// A consumer may close a generated enum only on `Some(true)`.\n",
+    );
+    l.push_str("    pub rejects_unknown_value: Option<bool>,\n");
     l.push_str("}\n\n");
     l.push_str(
         "/// A value an arm stamps rather than reading. Typed, because `false` and the\n\
@@ -416,13 +451,14 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
                     .map(|e| e.variants.iter().map(|v| rust_lit(&v.value)).collect())
                     .unwrap_or_default();
                 format!(
-                    "NotifActionField {{ name: {}, wire_name: {}, field_type: NotifFieldType::{}, required: {}, content: {}, enum_values: &[{}] }}",
+                    "NotifActionField {{ name: {}, wire_name: {}, field_type: NotifFieldType::{}, required: {}, content: {}, enum_values: &[{}], rejects_unknown_value: {} }}",
                     rust_lit(&f.name),
                     rust_lit(&f.wire_name),
                     field_type_variant(f.field_type),
                     f.required,
                     f.content,
-                    values.join(", ")
+                    values.join(", "),
+                    rejects_unknown_value(f.unknown_value, !values.is_empty()),
                 )
             })
             .collect();
@@ -494,6 +530,54 @@ mod tests {
     };
 
     #[test]
+    fn a_policy_needs_the_set_it_judges() {
+        // `rejects_unknown_value` answers "what happens to a value outside
+        // `enum_values`". With that table empty there is no set for it to be about, and
+        // `Some(false)` there described every possible value as outside an empty one —
+        // the live case being `create.reason`, whose handler recognizes several reasons
+        // the action extractor could not name.
+        let field = |name: &str, enum_ref: Option<wa_ir::AttrEnumRef>| wa_ir::NotifActionField {
+            name: name.into(),
+            wire_name: name.into(),
+            field_type: ParsedFieldType::Enum,
+            required: false,
+            content: false,
+            enum_ref,
+            unknown_value: Some(wa_ir::UnknownValuePolicy::Null),
+        };
+        let mut ir = ir();
+        ir.notifications[0].actions = vec![wa_ir::NotifActionDef {
+            wire_tag: "add".into(),
+            action_type: None,
+            fields: vec![
+                field("reason", None),
+                field(
+                    "kind",
+                    Some(wa_ir::AttrEnumRef {
+                        name: "K".into(),
+                        module: "M".into(),
+                        variants: vec![wa_ir::AttrEnumVariant {
+                            name: "INVITE".into(),
+                            value: "invite".into(),
+                        }],
+                    }),
+                ),
+            ],
+            constant_fields: vec![],
+            children: vec![],
+        }];
+        let src = generate_notif(&ir);
+        assert!(
+            src.contains(r#"name: "reason", wire_name: "reason", field_type: NotifFieldType::Enum, required: false, content: false, enum_values: &[], rejects_unknown_value: None"#),
+            "no set, so no policy:\n{src}"
+        );
+        assert!(
+            src.contains(r#"enum_values: &["invite"], rejects_unknown_value: Some(false)"#),
+            "the set is published, so the policy is usable:\n{src}"
+        );
+    }
+
+    #[test]
     fn the_payload_action_union_reaches_generated_rust() {
         // The envelope structs describe what WRAPS the payload; the arms inside it are a
         // whole protocol layer, and a consumer reading this file instead of the JSON saw
@@ -553,7 +637,7 @@ mod tests {
                             method: "attrString".into(),
                             name: "id".into(),
                             field_type: ParsedFieldType::String,
-                            required: true,
+                            parser_required: true,
                             ..Default::default()
                         }],
                         ..Default::default()

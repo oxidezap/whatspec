@@ -18,7 +18,7 @@ use oxc_syntax::scope::ScopeFlags;
 use wa_ir::wap;
 use wa_ir::{
     AssertionKind, ContentType, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion,
-    UnionVariant,
+    UnionVariant, UnknownValuePolicy,
 };
 
 use wa_oxc::{
@@ -210,7 +210,7 @@ fn mk_field(method: &str, name: &str, ftype: ParsedFieldType, required: bool) ->
         method: method.to_string(),
         name: name.to_string(),
         field_type: ftype,
-        required,
+        parser_required: required,
         ..Default::default()
     }
 }
@@ -1792,7 +1792,7 @@ impl ParserAnalyzer<'_, '_> {
             .and_then(receiver_path)
             .unwrap_or_else(|| self.param.to_string());
         if self.presence_guarded(&node, &wire) {
-            f.required = false;
+            f.parser_required = false;
         }
         Some(f)
     }
@@ -2032,7 +2032,7 @@ impl ParserAnalyzer<'_, '_> {
             // be, and dropping that with the field would weaken an unrelated claim.
             let read = self.read_field(method, call);
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
-                node.required |= unguarded;
+                node.parser_required |= unguarded;
                 if let Some(read) = read {
                     let kids = node.children.get_or_insert_with(Vec::new);
                     merge_or_push(kids, read, &mut self.unresolved);
@@ -2463,7 +2463,13 @@ impl ParserAnalyzer<'_, '_> {
                         wap::ATTR_ENUM.to_string()
                     };
                     f.field_type = ParsedFieldType::Enum;
-                    f.required = !optional;
+                    f.parser_required = !optional;
+                    // The method now names the merged shape, not the accessor that
+                    // decides an out-of-set value. `attrEnumOrNullIfUnknown` returns
+                    // null there and the companion plain read returns the raw string —
+                    // nothing rejects — so leaving the policy to be re-derived from
+                    // `attrEnum` would publish a rejection the client never performs.
+                    f.unknown_value = Some(UnknownValuePolicy::Null);
                 }
             } else {
                 // No companion plain read created a field for this attr (doesn't occur in
@@ -2474,6 +2480,9 @@ impl ParserAnalyzer<'_, '_> {
                 // `wap::is_attr_method`, leaving the field unclassified downstream.
                 let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
                 f.enum_keys = Some(keys);
+                // Same substitution, same correction: the accessor that ran was the
+                // null-returning one.
+                f.unknown_value = Some(UnknownValuePolicy::Null);
                 self.fields.push(f);
             }
         }
@@ -2494,13 +2503,18 @@ impl ParserAnalyzer<'_, '_> {
                         wap::ATTR_ENUM.to_string()
                     };
                     f.field_type = ParsedFieldType::Enum;
-                    f.required = !optional;
+                    f.parser_required = !optional;
                     f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                    // Also an `attrEnumOrNullIfUnknown` read — only its table could not be
+                    // named. What it does with a value outside that table is known even
+                    // though the table is not.
+                    f.unknown_value = Some(UnknownValuePolicy::Null);
                 }
                 Some(_) => {}
                 None => {
                     let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
                     f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                    f.unknown_value = Some(UnknownValuePolicy::Null);
                     self.fields.push(f);
                 }
             }
@@ -2993,7 +3007,7 @@ fn branch_intersection(then_weak: &[RelaxedId], else_weak: &[RelaxedId]) -> Vec<
 }
 
 fn note_relaxed(f: &ParsedField, at: &str, out: &mut Vec<RelaxedId>) {
-    if f.required {
+    if f.parser_required {
         out.push((
             at.to_string(),
             f.method.clone(),
@@ -3030,7 +3044,7 @@ fn promote_required(fields: &mut [ParsedField], id: &RelaxedId, at: &str) {
             f.tag.clone(),
         );
         if here == *id {
-            f.required = true;
+            f.parser_required = true;
         }
         let below = below(at, f);
         if let Some(kids) = f.children.as_mut() {
@@ -3043,7 +3057,7 @@ fn promote_required(fields: &mut [ParsedField], id: &RelaxedId, at: &str) {
 /// of what it reads — weakening its top level and leaving the descendants required made a
 /// present child missing its attributes a rejection the source parser never makes.
 fn relax_deeply(f: &mut ParsedField) {
-    f.required = false;
+    f.parser_required = false;
     for k in f.children.iter_mut().flatten() {
         relax_deeply(k);
     }
@@ -3060,7 +3074,7 @@ fn relax_absent_from_some_arm(
     arms: usize,
 ) {
     if seen.get(path).copied().unwrap_or(0) < arms {
-        f.required = false;
+        f.parser_required = false;
     }
     for k in f.children.iter_mut().flatten() {
         let child_path = format!("{path}/{}", k.name);
@@ -3086,7 +3100,7 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField, lost: &mut Vec<Str
     // Two reads of one field: if either happens unconditionally the field IS required,
     // and keeping whichever landed first let a helper's guarded copy mask a later plain
     // read of the same attribute.
-    into[i].required |= f.required;
+    into[i].parser_required |= f.parser_required;
     take_constraints(&mut into[i], &f, lost);
     let Some(incoming) = f.children else { return };
     let existing = into[i].children.get_or_insert_with(Vec::new);
@@ -11247,7 +11261,7 @@ mod tests {
         let by = |n: &str| r.fields.iter().find(|f| f.name == n).unwrap();
         assert_eq!(by("name").field_type, ParsedFieldType::String);
         assert_eq!(by("count").field_type, ParsedFieldType::Integer);
-        assert!(!by("opt").required);
+        assert!(!by("opt").parser_required);
         assert_eq!(by("from").field_type, ParsedFieldType::DeviceJid);
     }
 
@@ -12008,7 +12022,7 @@ mod tests {
         );
         let disc = &r.fields[0].children.as_ref().unwrap()[0];
         assert_eq!(disc.name, "kind");
-        assert!(!disc.required, "the accessor's optionality is kept");
+        assert!(!disc.parser_required, "the accessor's optionality is kept");
     }
 
     #[test]
@@ -12030,7 +12044,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "detail")
             .expect("lifted beside the union");
-        assert!(!detail.required, "only one arm reads it");
+        assert!(!detail.parser_required, "only one arm reads it");
     }
 
     #[test]
@@ -12048,7 +12062,7 @@ mod tests {
             .and_then(|c| c.iter().find(|f| f.name == "inner"))
             .expect("`inner` under `outer`");
         assert_eq!(inner.method, "maybeChild");
-        assert!(!inner.required, "the accessor said it may be absent");
+        assert!(!inner.parser_required, "the accessor said it may be absent");
     }
 
     #[test]
@@ -12150,7 +12164,7 @@ mod tests {
             .expect("row children");
         for name in ["a_only", "b_only"] {
             let f = kids.iter().find(|f| f.name == name).expect(name);
-            assert!(!f.required, "{name} is only read down one branch");
+            assert!(!f.parser_required, "{name} is only read down one branch");
         }
     }
 
@@ -12317,14 +12331,17 @@ mod tests {
                 .unwrap_or_else(|| panic!("{n}/{meth} in {:?}", r.fields))
         };
         assert!(
-            !by("verified_name", "child").required,
+            !by("verified_name", "child").parser_required,
             "guarded by hasChild"
         );
         assert!(
-            !by("verified_name", "attrInt").required,
+            !by("verified_name", "attrInt").parser_required,
             "guarded by hasAttr"
         );
-        assert!(by("id", "attrString").required, "this one is not guarded");
+        assert!(
+            by("id", "attrString").parser_required,
+            "this one is not guarded"
+        );
     }
 
     #[test]
@@ -12406,7 +12423,7 @@ mod tests {
             .find(|f| f.name == "meta")
             .unwrap_or_else(|| panic!("the child is recorded: {:?}", r.fields));
         assert!(
-            meta.required,
+            meta.parser_required,
             "reached through `child` with no guard, so required"
         );
         assert!(
@@ -12429,7 +12446,10 @@ mod tests {
             .find(|f| f.method == "contentBytes")
             .expect("the content read is kept");
         assert_eq!(f.name, "content");
-        assert!(f.required, "a content accessor is not a `maybe` spelling");
+        assert!(
+            f.parser_required,
+            "a content accessor is not a `maybe` spelling"
+        );
     }
 
     #[test]
@@ -12442,8 +12462,8 @@ mod tests {
                 .find(|f| f.name == n)
                 .unwrap_or_else(|| panic!("{n} in {:?}", r.fields))
         };
-        assert!(by("id").required);
-        assert!(!by("t").required);
+        assert!(by("id").parser_required);
+        assert!(!by("t").parser_required);
     }
 
     #[test]
@@ -12498,10 +12518,10 @@ mod tests {
         );
         let by = |n: &str| r.fields.iter().find(|f| f.name == n).unwrap();
         assert!(
-            by("id").required,
+            by("id").parser_required,
             "read on both branches, never asked about"
         );
-        assert!(!by("meta").required, "guarded by hasChild");
+        assert!(!by("meta").parser_required, "guarded by hasChild");
     }
 
     #[test]
@@ -12634,7 +12654,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "maybe_here")
             .expect("recovered");
-        assert!(!f.required, "reached only when the left side holds");
+        assert!(!f.parser_required, "reached only when the left side holds");
     }
 
     #[test]
@@ -12647,8 +12667,8 @@ mod tests {
             "e",
         );
         let by = |n: &str| r.fields.iter().find(|f| f.name == n).unwrap();
-        assert!(!by("meta").required, "guarded by hasChild");
-        assert!(by("id").required, "not guarded");
+        assert!(!by("meta").parser_required, "guarded by hasChild");
+        assert!(by("id").parser_required, "not guarded");
     }
 
     #[test]
@@ -12660,7 +12680,11 @@ mod tests {
             "e",
         );
         assert!(
-            r.fields.iter().find(|f| f.name == "id").unwrap().required,
+            r.fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap()
+                .parser_required,
             "the test was about `req`, not about this element"
         );
     }
@@ -12759,10 +12783,10 @@ mod tests {
         let kids = detail.children.as_ref().unwrap();
         assert_eq!(kids.len(), 2, "both arms' reads are kept");
         assert!(
-            kids.iter().all(|k| !k.required),
+            kids.iter().all(|k| !k.parser_required),
             "neither is required of the other's arm: {:?}",
             kids.iter()
-                .map(|k| (k.name.as_str(), k.required))
+                .map(|k| (k.name.as_str(), k.parser_required))
                 .collect::<Vec<_>>()
         );
     }
@@ -12785,7 +12809,7 @@ mod tests {
             .fields
             .iter()
             .filter(|f| f.name == "id")
-            .map(|f| f.required)
+            .map(|f| f.parser_required)
             .collect();
         assert_eq!(ids, [true], "one `id`, and the parser always reads it");
     }
@@ -12795,7 +12819,13 @@ mod tests {
         // `if (!e.hasAttr("id")) e.attrString("id")` establishes ABSENCE on the branch
         // taken; the read there is not made optional by the test.
         let r = analyze_parser_ast(r#"{ if (!e.hasAttr("id")) { e.attrString("id"); } }"#, "e");
-        assert!(r.fields.iter().find(|f| f.name == "id").unwrap().required);
+        assert!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap()
+                .parser_required
+        );
     }
 
     #[test]
@@ -12808,10 +12838,13 @@ mod tests {
         );
         let by = |n: &str| r.fields.iter().find(|f| f.name == n).unwrap();
         assert!(
-            by("id").required,
+            by("id").parser_required,
             "read where the attribute is known missing — the test does not excuse it"
         );
-        assert!(by("other").required, "the test said nothing about this one");
+        assert!(
+            by("other").parser_required,
+            "the test said nothing about this one"
+        );
     }
 
     #[test]
@@ -12827,7 +12860,7 @@ mod tests {
                 .iter()
                 .find(|f| f.name == "id")
                 .unwrap()
-                .required,
+                .parser_required,
             "read exactly when absent"
         );
 
@@ -12841,7 +12874,7 @@ mod tests {
                 .iter()
                 .find(|f| f.name == "id")
                 .unwrap()
-                .required,
+                .parser_required,
             "`flag` may be what satisfied the test"
         );
     }
@@ -12874,8 +12907,8 @@ mod tests {
                 .find(|f| f.name == n)
                 .unwrap_or_else(|| panic!("{n} in {:?}", detail.children))
         };
-        assert!(by("id").required, "both arms read it");
-        assert!(!by("only_a").required, "only one arm does");
+        assert!(by("id").parser_required, "both arms read it");
+        assert!(!by("only_a").parser_required, "only one arm does");
     }
 
     #[test]
@@ -13041,7 +13074,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "detail")
             .expect("hoisted");
-        assert!(!detail.required, "only the `a` arm reads it");
+        assert!(!detail.parser_required, "only the `a` arm reads it");
     }
 
     #[test]
@@ -13058,13 +13091,23 @@ mod tests {
             let src = format!(r#"{{ if ({guard}) {{ e.attrString("id"); }} }}"#);
             let r = analyze_parser_ast(&src, "e");
             assert!(
-                r.fields.iter().find(|f| f.name == "id").unwrap().required,
+                r.fields
+                    .iter()
+                    .find(|f| f.name == "id")
+                    .unwrap()
+                    .parser_required,
                 "`{guard}` does not establish that `id` may be absent here"
             );
         }
         // The form that does.
         let r = analyze_parser_ast(r#"{ if (e.hasAttr("id")) { e.attrString("id"); } }"#, "e");
-        assert!(!r.fields.iter().find(|f| f.name == "id").unwrap().required);
+        assert!(
+            !r.fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap()
+                .parser_required
+        );
     }
 
     #[test]
@@ -13183,7 +13226,7 @@ mod tests {
             .and_then(|f| f.children.as_ref())
             .and_then(|c| c.iter().find(|f| f.name == "id"))
             .expect("under detail");
-        assert!(!id.required, "the guard was about this node");
+        assert!(!id.parser_required, "the guard was about this node");
     }
 
     #[test]
@@ -13337,7 +13380,7 @@ mod tests {
         let kids = r.fields[0].children.as_ref().unwrap();
         let id = kids.iter().find(|f| f.name == "id");
         assert!(
-            id.is_some_and(|f| f.required),
+            id.is_some_and(|f| f.parser_required),
             "read on every path, so beside the union: {:?}",
             kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
         );
@@ -13428,7 +13471,7 @@ mod tests {
             .as_ref()
             .and_then(|c| c.iter().find(|f| f.name == "b"))
             .expect("`b` under `a`");
-        assert!(!b.required, "the guard was about this very step");
+        assert!(!b.parser_required, "the guard was about this very step");
 
         // And a test on a different node does not stand in for it.
         let elsewhere = analyze_parser_ast(
@@ -13442,7 +13485,7 @@ mod tests {
             .and_then(|c| c.iter().find(|f| f.name == "b"))
             .expect("`b` under `a`");
         assert!(
-            b.required,
+            b.parser_required,
             "that test was about the root's `<b>`, not this one"
         );
     }
@@ -13457,7 +13500,7 @@ mod tests {
             "e",
         );
         let detail = r.fields.iter().find(|f| f.name == "detail").unwrap();
-        assert!(detail.required, "the unguarded read settles it");
+        assert!(detail.parser_required, "the unguarded read settles it");
     }
 
     #[test]
@@ -13480,7 +13523,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "detail")
             .expect("hoisted");
-        assert!(detail.required, "both values require it");
+        assert!(detail.parser_required, "both values require it");
     }
 
     #[test]
@@ -13569,7 +13612,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "detail")
             .expect("hoisted");
-        assert!(detail.required, "all three values require it");
+        assert!(detail.parser_required, "all three values require it");
     }
 
     #[test]
@@ -13592,7 +13635,7 @@ mod tests {
             .and_then(|f| f.children.as_ref())
             .and_then(|c| c.iter().find(|f| f.name == "id"))
             .expect("under detail");
-        assert!(!id.required, "reached only when the branch runs");
+        assert!(!id.parser_required, "reached only when the branch runs");
     }
 
     #[test]
@@ -14109,7 +14152,7 @@ mod tests {
         let out = parse_module_wap_parsers(module);
         let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
         let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "every path reads it");
+        assert!(id.parser_required, "every path reads it");
     }
 
     /// A module whose parser reaches `parse` only through `body`.
@@ -17025,7 +17068,7 @@ mod tests {
             ))
             .iter()
             .find(|f| f.name == "id")
-            .map(|f| f.required)
+            .map(|f| f.parser_required)
         };
         assert_eq!(
             required("[...[1]]"),
@@ -17141,7 +17184,7 @@ mod tests {
             helper_reached_via(body)
                 .iter()
                 .find(|f| f.name == "id")
-                .map(|f| f.required)
+                .map(|f| f.parser_required)
         };
         assert_eq!(
             required("if (flag) { new (() => { parse(e); })(); } else { parse(e); }"),
@@ -17425,7 +17468,7 @@ mod tests {
             helper_reached_via("flag ? thing?.m((function(){ throw 0; })()) : parse(e);")
                 .iter()
                 .find(|f| f.name == "id")
-                .map(|f| f.required),
+                .map(|f| f.parser_required),
             Some(true),
             "an unreadable base leaves the raise standing, so the other arm is the only one",
         );
@@ -17435,7 +17478,7 @@ mod tests {
             helper_reached_via("flag ? null?.((function(){ throw 0; })()) : parse(e);")
                 .iter()
                 .find(|f| f.name == "id")
-                .map(|f| f.required),
+                .map(|f| f.parser_required),
             Some(false),
             "an argument it never builds cannot make the arm raise",
         );
@@ -17509,7 +17552,7 @@ mod tests {
             helper_reached_via(body)
                 .iter()
                 .find(|f| f.name == "id")
-                .map(|f| f.required)
+                .map(|f| f.parser_required)
         };
         // The short circuit answers for the whole CHAIN, so an argument it never builds cannot
         // make the arm raise.
@@ -17600,7 +17643,7 @@ mod tests {
             helper_reached_via(body)
                 .iter()
                 .find(|f| f.name == "id")
-                .map(|f| f.required)
+                .map(|f| f.parser_required)
         };
         assert_eq!(
             required(
@@ -17652,7 +17695,7 @@ mod tests {
             helper_reached_via(body)
                 .iter()
                 .find(|f| f.name == "id")
-                .map(|f| f.required)
+                .map(|f| f.parser_required)
         };
         assert_eq!(required("1n && parse(e);"), Some(true), "`1n` is truthy");
         assert_eq!(required("0n || parse(e);"), Some(true), "`0n` is not");
@@ -17853,7 +17896,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "id")
             .expect("recovered")
-            .required;
+            .parser_required;
         let guarded = p
             .assertions
             .iter()
@@ -18081,7 +18124,7 @@ mod tests {
                 .iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` still recovers the field"));
-            assert!(!id.required, "`{body}` assigns it only on one path");
+            assert!(!id.parser_required, "`{body}` assigns it only on one path");
         }
     }
 
@@ -18101,7 +18144,7 @@ mod tests {
                 .iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` recovers the field"));
-            assert!(id.required, "`{body}` assigns it on every path");
+            assert!(id.parser_required, "`{body}` assigns it on every path");
         }
     }
 
@@ -18112,7 +18155,7 @@ mod tests {
         // it, and asking the question of the whole alias set would have relaxed this.
         let fields = helper_reached_via("var current; if (flag) current = e; parse(e);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the parameter is not conditional");
+        assert!(id.parser_required, "the parameter is not conditional");
     }
 
     #[test]
@@ -18163,7 +18206,7 @@ mod tests {
                 .into_iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` passes the untouched node"));
-            assert!(id.required, "`{body}` reads it on every execution");
+            assert!(id.parser_required, "`{body}` reads it on every execution");
         }
     }
 
@@ -18226,7 +18269,7 @@ mod tests {
         .into_iter()
         .find(|f| f.name == "id")
         .expect("the read precedes the write");
-        assert!(id.required, "and it reads the original node");
+        assert!(id.parser_required, "and it reads the original node");
         for body in [
             "var current = e; (function(){ current = other; })(); parse(current);",
             "var current = e; (function(){ parse(current); })(current = other);",
@@ -18256,7 +18299,7 @@ mod tests {
                 .into_iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` never repeats"));
-            assert!(id.required, "`{body}` reads the original node");
+            assert!(id.parser_required, "`{body}` reads the original node");
         }
     }
 
@@ -18301,7 +18344,7 @@ mod tests {
         let fields =
             helper_reached_via("var current = e; (function(){})(parse(current), current = other);");
         assert!(
-            fields.iter().any(|f| f.name == "id" && f.required),
+            fields.iter().any(|f| f.name == "id" && f.parser_required),
             "the write is in a later argument: {:?}",
             fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
@@ -18376,7 +18419,7 @@ mod tests {
                 .into_iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` moved the node instead"));
-            assert!(id.required, "`{body}` assigns on every execution");
+            assert!(id.parser_required, "`{body}` assigns on every execution");
         }
     }
 
@@ -18398,7 +18441,10 @@ mod tests {
                 .into_iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` moved the node instead"));
-            assert!(!id.required, "`{body}` has a path that assigns nothing");
+            assert!(
+                !id.parser_required,
+                "`{body}` has a path that assigns nothing"
+            );
         }
     }
 
@@ -18603,14 +18649,14 @@ mod tests {
                 .into_iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` reaches parse"));
-            assert!(id.required, "`{body}` selects the reachable side");
+            assert!(id.parser_required, "`{body}` selects the reachable side");
         }
         // The bound: an ordinary test is still a branch, and both sides stay conditional.
         let id = helper_reached_via("if (flag) { other(); } else { parse(e); }")
             .into_iter()
             .find(|f| f.name == "id")
             .expect("recovered");
-        assert!(!id.required, "an undecided test is still a branch");
+        assert!(!id.parser_required, "an undecided test is still a branch");
     }
 
     #[test]
@@ -18752,7 +18798,7 @@ mod tests {
                 .into_iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` runs the assignment after the label"));
-            assert!(id.required, "`{body}` assigns on every execution");
+            assert!(id.parser_required, "`{body}` assigns on every execution");
         }
     }
 
@@ -19195,7 +19241,7 @@ mod tests {
         let fields =
             helper_reached_via(r#"switch (mode) { case "a": parse(e); break; default: break; }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "one case is not every path: {id:?}");
+        assert!(!id.parser_required, "one case is not every path: {id:?}");
     }
 
     #[test]
@@ -19203,7 +19249,7 @@ mod tests {
         // A loop that runs zero times calls nothing.
         let fields = helper_reached_via("while (more) { parse(e); }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "zero iterations read nothing: {id:?}");
+        assert!(!id.parser_required, "zero iterations read nothing: {id:?}");
     }
 
     #[test]
@@ -19212,7 +19258,10 @@ mod tests {
         // would have generated decoding reject the node the parser accepted.
         let fields = helper_reached_via("try { parse(e); } catch (x) {}");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the handler swallows the failure: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the handler swallows the failure: {id:?}"
+        );
     }
 
     #[test]
@@ -19229,7 +19278,7 @@ mod tests {
         ] {
             let fields = helper_reached_via(body);
             let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-            assert!(id.required, "always evaluated in `{body}`: {id:?}");
+            assert!(id.parser_required, "always evaluated in `{body}`: {id:?}");
         }
     }
 
@@ -19240,7 +19289,7 @@ mod tests {
         // produced. Weakening every `try` alike accepted what the source rejects.
         let fields = helper_reached_via("try { parse(e); } finally { cleanup(); }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "nothing swallows the failure: {id:?}");
+        assert!(id.parser_required, "nothing swallows the failure: {id:?}");
     }
 
     #[test]
@@ -19249,7 +19298,7 @@ mod tests {
         // alike would call a read the parser always performs optional.
         let fields = helper_reached_via("try { g(); } finally { parse(e); }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the finalizer always runs: {id:?}");
+        assert!(id.parser_required, "the finalizer always runs: {id:?}");
     }
 
     #[test]
@@ -19261,7 +19310,7 @@ mod tests {
             r#"switch (mode) { case "a": parse(e); break; default: parse(e); }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "every path calls it: {id:?}");
+        assert!(id.parser_required, "every path calls it: {id:?}");
     }
 
     #[test]
@@ -19273,7 +19322,7 @@ mod tests {
             r#"switch (mode) { case "a": parse(e); break; case "b": parse(e); }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the cases are not exhaustive: {id:?}");
+        assert!(!id.parser_required, "the cases are not exhaustive: {id:?}");
     }
 
     #[test]
@@ -19283,7 +19332,7 @@ mod tests {
         let fields =
             helper_reached_via(r#"switch (mode) { case "a": parse(e); break; default: other(); }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "only one arm calls it: {id:?}");
+        assert!(!id.parser_required, "only one arm calls it: {id:?}");
     }
 
     #[test]
@@ -19308,7 +19357,7 @@ mod tests {
         // successful pass took without it. Two questions, two answers, one keyword.
         let fields = helper_reached_via("do { if (f) continue; parse(e); } while (m);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the continue skips it: {id:?}");
+        assert!(!id.parser_required, "the continue skips it: {id:?}");
     }
 
     #[test]
@@ -19328,7 +19377,7 @@ mod tests {
         let fields =
             helper_reached_via(r#"do { if (bad) throw Error("x"); parse(e); } while (m);"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "only a throw precedes it: {id:?}");
+        assert!(id.parser_required, "only a throw precedes it: {id:?}");
     }
 
     #[test]
@@ -19337,7 +19386,10 @@ mod tests {
         // so it really is optional.
         let fields = helper_reached_via("do { if (done) return t; parse(e); } while (m);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the return skips it with a value: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the return skips it with a value: {id:?}"
+        );
     }
 
     #[test]
@@ -19348,7 +19400,10 @@ mod tests {
         // checks. That is the harmful direction, unlike the body case it was fixing.
         let fields = helper_reached_via("do { break; } while (parse(e));");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the break leaves before the test: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the break leaves before the test: {id:?}"
+        );
     }
 
     #[test]
@@ -19396,7 +19451,10 @@ mod tests {
         ] {
             let fields = helper_reached_via(body);
             let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-            assert!(id.required, "`{body}` necessarily starts its body: {id:?}");
+            assert!(
+                id.parser_required,
+                "`{body}` necessarily starts its body: {id:?}"
+            );
         }
     }
 
@@ -19407,7 +19465,7 @@ mod tests {
         // parser accepts.
         let fields = helper_reached_via("while (more) { parse(e); break; }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the loop may run zero times: {id:?}");
+        assert!(!id.parser_required, "the loop may run zero times: {id:?}");
     }
 
     #[test]
@@ -19416,7 +19474,7 @@ mod tests {
         // `for` body in a skipped path relaxed a read the parser always performs.
         let fields = helper_reached_via("for (;;) { parse(e); break; }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "no test means the body starts: {id:?}");
+        assert!(id.parser_required, "no test means the body starts: {id:?}");
     }
 
     #[test]
@@ -19424,7 +19482,7 @@ mod tests {
         // And the ordinary form keeps its zero-iteration path.
         let fields = helper_reached_via("for (var i = 0; i < n; i++) { parse(e); }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the test can fail first: {id:?}");
+        assert!(!id.parser_required, "the test can fail first: {id:?}");
     }
 
     #[test]
@@ -19459,7 +19517,7 @@ mod tests {
         // every path — the two-sided intersection `if` does and this had no equivalent of.
         let fields = helper_reached_via("try { parse(e); } catch (x) { parse(e); }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "both paths call it: {id:?}");
+        assert!(id.parser_required, "both paths call it: {id:?}");
     }
 
     #[test]
@@ -19467,7 +19525,10 @@ mod tests {
         // The block succeeding is a path that never reaches the handler.
         let fields = helper_reached_via("try { other(); } catch (x) { parse(e); }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "only the failure path calls it: {id:?}");
+        assert!(
+            !id.parser_required,
+            "only the failure path calls it: {id:?}"
+        );
     }
 
     #[test]
@@ -19618,7 +19679,7 @@ mod tests {
         // case decisive and left the payload optional.
         let fields = helper_reached_via(r#"switch (mode) { case "a": default: parse(e); }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the fallthrough reaches it: {id:?}");
+        assert!(id.parser_required, "the fallthrough reaches it: {id:?}");
     }
 
     #[test]
@@ -19650,7 +19711,7 @@ mod tests {
         // A `break` is what stops an entry path from continuing, so `"a"` reaches nothing.
         let fields = helper_reached_via(r#"switch (mode) { case "a": break; default: parse(e); }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the break ends that path: {id:?}");
+        assert!(!id.parser_required, "the break ends that path: {id:?}");
     }
 
     #[test]
@@ -19659,7 +19720,7 @@ mod tests {
         let fields =
             helper_reached_via(r#"switch (mode) { case parse(e): break; default: break; }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the first test always runs: {id:?}");
+        assert!(id.parser_required, "the first test always runs: {id:?}");
     }
 
     #[test]
@@ -19671,7 +19732,7 @@ mod tests {
         let fields =
             helper_reached_via(r#"switch (mode) { default: break; case parse(e): break; }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the first test still runs: {id:?}");
+        assert!(id.parser_required, "the first test still runs: {id:?}");
     }
 
     #[test]
@@ -19708,7 +19769,7 @@ mod tests {
             r#"switch (mode) { case "a": throw Error("bad"); case parse(e): break; default: break; }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the skipping path throws: {id:?}");
+        assert!(id.parser_required, "the skipping path throws: {id:?}");
     }
 
     #[test]
@@ -19720,7 +19781,7 @@ mod tests {
                               case parse(e): break; default: break; }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the fallthrough chain throws: {id:?}");
+        assert!(id.parser_required, "the fallthrough chain throws: {id:?}");
     }
 
     #[test]
@@ -19731,7 +19792,7 @@ mod tests {
             r#"switch (mode) { case "a": break; case parse(e): break; default: break; }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the break returns a value: {id:?}");
+        assert!(!id.parser_required, "the break returns a value: {id:?}");
     }
 
     #[test]
@@ -19745,7 +19806,10 @@ mod tests {
                               case parse(e): break; default: break; }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the break is a path out with a value: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the break is a path out with a value: {id:?}"
+        );
     }
 
     #[test]
@@ -19756,7 +19820,10 @@ mod tests {
         let fields =
             helper_reached_via(r#"switch (mode) { case "a": { break; } default: parse(e); }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the wrapped break still leaves: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the wrapped break still leaves: {id:?}"
+        );
     }
 
     #[test]
@@ -19767,7 +19834,10 @@ mod tests {
             r#"switch (mode) { case "a": if (flag) break; default: parse(e); }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the break may skip the default: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the break may skip the default: {id:?}"
+        );
     }
 
     #[test]
@@ -19778,7 +19848,10 @@ mod tests {
         let fields =
             helper_reached_via(r#"switch (mode) { case "a": break; case parse(e): break; }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "an earlier test can match first: {id:?}");
+        assert!(
+            !id.parser_required,
+            "an earlier test can match first: {id:?}"
+        );
     }
 
     #[test]
@@ -19790,7 +19863,10 @@ mod tests {
             r#"switch (mode) { case "a": parse(e); break; default: throw Error("bad"); }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the throwing arm yields nothing: {id:?}");
+        assert!(
+            id.parser_required,
+            "the throwing arm yields nothing: {id:?}"
+        );
     }
 
     #[test]
@@ -19802,7 +19878,10 @@ mod tests {
                               default: throw Error("bad"); }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the \"b\" arm returns without it: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the \"b\" arm returns without it: {id:?}"
+        );
     }
 
     #[test]
@@ -19812,7 +19891,10 @@ mod tests {
         // inner break as an exit relaxed a read that always happens.
         let fields = helper_reached_via("do { while (f) { break; } parse(e); } while (m);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the inner break leaves the inner loop: {id:?}");
+        assert!(
+            id.parser_required,
+            "the inner break leaves the inner loop: {id:?}"
+        );
     }
 
     #[test]
@@ -19821,7 +19903,7 @@ mod tests {
         let fields =
             helper_reached_via(r#"do { switch (k) { case "a": break; } parse(e); } while (m);"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the switch consumes the break: {id:?}");
+        assert!(id.parser_required, "the switch consumes the break: {id:?}");
     }
 
     #[test]
@@ -19831,7 +19913,7 @@ mod tests {
         let fields =
             helper_reached_via("outer: do { while (f) { break outer; } parse(e); } while (m);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the label jumps clear of both: {id:?}");
+        assert!(!id.parser_required, "the label jumps clear of both: {id:?}");
     }
 
     #[test]
@@ -19840,7 +19922,10 @@ mod tests {
         // so the counters have to be kept apart.
         let fields = helper_reached_via("do { while (f) { continue; } parse(e); } while (m);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the inner continue stays inside: {id:?}");
+        assert!(
+            id.parser_required,
+            "the inner continue stays inside: {id:?}"
+        );
     }
 
     #[test]
@@ -19850,7 +19935,7 @@ mod tests {
         // one syntactic form over.
         let fields = helper_reached_via("for (;;) parse(e);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the body is reached: {id:?}");
+        assert!(id.parser_required, "the body is reached: {id:?}");
     }
 
     #[test]
@@ -20314,7 +20399,7 @@ mod tests {
                 .iter()
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` recovers the field"));
-            assert!(id.required, "`{body}` assigns on every execution");
+            assert!(id.parser_required, "`{body}` assigns on every execution");
         }
     }
 
@@ -20406,7 +20491,7 @@ mod tests {
         // the same rule the switch arms get, one construct over.
         let fields = helper_reached_via(r#"try { parse(e); } catch (x) { throw Error("bad"); }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the handler yields nothing: {id:?}");
+        assert!(id.parser_required, "the handler yields nothing: {id:?}");
     }
 
     #[test]
@@ -20415,7 +20500,7 @@ mod tests {
         // partway, so what the block read past a throwing call is not read every time.
         let fields = helper_reached_via("try { parse(e); } catch (x) { other(e); }");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the handler is a path too: {id:?}");
+        assert!(!id.parser_required, "the handler is a path too: {id:?}");
     }
 
     #[test]
@@ -20988,7 +21073,7 @@ mod tests {
         .into_iter()
         .find(|f| f.name == "id")
         .expect("names one node");
-        assert!(id.required, "every path assigns it: {id:?}");
+        assert!(id.parser_required, "every path assigns it: {id:?}");
         // The SWITCH spelling still comes back optional, and that is a stated gap rather than
         // an answer: promoting it needs the arms to be exhaustive as well as agreeing, which is
         // the `default`-and-fallthrough question the requiredness walk answers and this
@@ -20999,7 +21084,10 @@ mod tests {
         .into_iter()
         .find(|f| f.name == "id")
         .expect("names one node");
-        assert!(!id.required, "the switch half is not promoted yet: {id:?}");
+        assert!(
+            !id.parser_required,
+            "the switch half is not promoted yet: {id:?}"
+        );
         // …and the agreement is an effect of the WHOLE `if`, not of the arms. A read INSIDE an
         // arm runs before that arm has finished, so it is handed whatever held before —
         // clearing the flag on the arms' own records made the then-arm's write effective at a
@@ -21197,7 +21285,7 @@ mod tests {
             r#"switch (mode) { case "a": case parse(e): break; default: parse(e); }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the \"a\" path never calls it: {id:?}");
+        assert!(!id.parser_required, "the \"a\" path never calls it: {id:?}");
     }
 
     #[test]
@@ -21223,7 +21311,7 @@ mod tests {
         // body as conditional because it contains one relaxed a call that always runs.
         let fields = helper_reached_via("do { parse(e); break; } while (more);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the read precedes the break: {id:?}");
+        assert!(id.parser_required, "the read precedes the break: {id:?}");
     }
 
     #[test]
@@ -21232,7 +21320,7 @@ mod tests {
         // certain as a branch, which is what the original carve-out was for.
         let fields = helper_reached_via("do { if (flag) break; parse(e); } while (more);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(!id.required, "the break can skip it: {id:?}");
+        assert!(!id.parser_required, "the break can skip it: {id:?}");
     }
 
     #[test]
@@ -21330,7 +21418,7 @@ mod tests {
         // with `while`/`for` that makes this a separate answer rather than "a loop".
         let fields = helper_reached_via("do { parse(e); } while (more);");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the first pass always runs: {id:?}");
+        assert!(id.parser_required, "the first pass always runs: {id:?}");
     }
 
     #[test]
@@ -21369,7 +21457,7 @@ mod tests {
         let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
         let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
         assert!(
-            !id.required,
+            !id.parser_required,
             "`enabled` can be false, so nothing here is read on every path"
         );
     }
@@ -21524,7 +21612,7 @@ mod tests {
                 .find(|f| f.name == "t")
                 .expect("t under user");
             assert!(
-                t.required,
+                t.parser_required,
                 "both branches read it with no guard, so every path enforces it"
             );
         }
@@ -21549,7 +21637,7 @@ mod tests {
             .find(|f| f.name == "detail")
             .expect("hoisted beside the union");
         assert!(
-            !detail.required,
+            !detail.parser_required,
             "only the `a` variant carries it, so `b` must still decode"
         );
     }
@@ -21577,7 +21665,7 @@ mod tests {
                 .and_then(|c| c.iter().find(|f| f.name == "id"))
                 .expect("id under it");
             assert!(
-                !id.required,
+                !id.parser_required,
                 "<{tag}> is read only down one branch, so its id is not enforced everywhere"
             );
         }
@@ -21624,7 +21712,7 @@ mod tests {
             .and_then(|c| c.iter().find(|f| f.name == "x"))
             .expect("under d");
         assert!(
-            x.required,
+            x.parser_required,
             "the plain read after the guarded one settles it"
         );
     }
@@ -21643,7 +21731,7 @@ mod tests {
         let out = parse_module_wap_parsers(module);
         let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
         let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "it runs whichever way the ternary goes");
+        assert!(id.parser_required, "it runs whichever way the ternary goes");
     }
 
     #[test]
@@ -22320,8 +22408,14 @@ mod tests {
                 return {};
             });
         }),1);"#;
-        let out = parse_module_wap_parsers(module);
-        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let mut out = parse_module_wap_parsers(module);
+        let p = out
+            .iter_mut()
+            .find(|r| r.parser_name == "p")
+            .expect("parser");
+        // Through the domain pass, so the assertion below is about what ships rather than
+        // about an intermediate value the pass could still overwrite.
+        p.classify_accessors();
         let f = p
             .fields
             .iter()
@@ -22337,11 +22431,57 @@ mod tests {
             wap::MAYBE_ATTR_ENUM,
             "and under the enum accessor"
         );
-        assert!(!f.required, "the companion read was optional and stays so");
+        assert!(
+            !f.parser_required,
+            "the companion read was optional and stays so"
+        );
         assert_eq!(
             f.enum_keys.as_deref(),
             Some(["delivery", "read"].map(String::from).as_slice())
         );
+        // The retype renamed the accessor, and the out-of-set answer must not be re-read
+        // off the new name: `attrEnumOrNullIfUnknown` returns null there and the companion
+        // read returns the raw string, so nothing rejects. Deriving `reject` from
+        // `maybeAttrEnum` here told consumers to reject a value the client accepts — it
+        // shipped that way on the incoming receipt's `type` and the group notification's
+        // `reason`.
+        assert_eq!(
+            f.unknown_value,
+            Some(wa_ir::UnknownValuePolicy::Null),
+            "the accessor that decides, not the one the merge left behind"
+        );
+    }
+
+    #[test]
+    fn a_real_maybe_attr_enum_still_rejects() {
+        // The other half of the same question: `maybeAttrEnum("type", u)` written by WA
+        // itself is `hasAttr ? attrEnum : null`, which throws on a value outside the
+        // table. If preserving the merged field's policy were done by blanket-exempting
+        // `maybeAttrEnum`, this would wrongly go null — both spellings occur in the
+        // receipt parser, one per nesting level.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u={delivery:1,read:2};
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.forEachChildWithTag("user", function(t){ t.maybeAttrEnum("type",u); });
+                return {};
+            });
+        }),1);"#;
+        let mut out = parse_module_wap_parsers(module);
+        let p = out
+            .iter_mut()
+            .find(|r| r.parser_name == "p")
+            .expect("parser");
+        // The domain pass that fills in the policy from the accessor, as `whatspec` runs
+        // it before serialization.
+        p.classify_accessors();
+        let user = p.fields.iter().find(|f| f.tag.as_deref() == Some("user"));
+        let f = user
+            .and_then(|u| u.children.as_ref())
+            .and_then(|kids| kids.iter().find(|f| f.name == "type"))
+            .expect("the nested type field");
+        assert_eq!(f.method, wap::MAYBE_ATTR_ENUM);
+        assert_eq!(f.unknown_value, Some(wa_ir::UnknownValuePolicy::Reject));
     }
 
     #[test]
@@ -23600,7 +23740,10 @@ mod tests {
                               default: parse(e); break; }"#,
         );
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "nothing can enter the duplicate: {id:?}");
+        assert!(
+            id.parser_required,
+            "nothing can enter the duplicate: {id:?}"
+        );
     }
 
     #[test]
@@ -23618,7 +23761,10 @@ mod tests {
         ] {
             let fields = helper_reached_via(body);
             let id = fields.iter().find(|f| f.name == "id").expect("recovered");
-            assert!(!id.required, "an entry path returns without it: {body}");
+            assert!(
+                !id.parser_required,
+                "an entry path returns without it: {body}"
+            );
         }
     }
 
@@ -24885,7 +25031,7 @@ mod tests {
             .iter()
             .find(|f| f.name == "id")
             .expect("recovered")
-            .required
+            .parser_required
     }
     #[test]
     fn a_ternary_arm_that_does_not_suspend_keeps_its_own_region() {
