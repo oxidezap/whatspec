@@ -67,7 +67,14 @@ fn leaf_content(
         return None;
     }
     let e = arg_expr(child_args.first()?)?;
-    let path = relative_arg_path(e, scope, module_source, ref_off, 0).filter(|p| !p.is_empty());
+    // The EMPTY path is kept here, unlike everywhere else it is a no-op: a template whose
+    // whole parameter is the payload (`function t(v){ return wap("id", null, v) }`, over a
+    // list of scalars) says its content is the element itself, and the combinator that
+    // knows the list rebases that empty suffix onto `productIds[]`. Filtering it out made
+    // the node contentless before anything could. What survives unprefixed to a request
+    // root is dropped by [`drop_empty_arg_paths`] — the argument object itself is not an
+    // address a consumer supplies.
+    let path = relative_arg_path(e, scope, module_source, ref_off, 0);
     let mut content = content_of_expr(e).or_else(|| {
         path.is_some().then_some(WapContent {
             kind: WapContentKind::Dynamic,
@@ -136,6 +143,105 @@ const WILDCARD_TAG: &str = "smax$any";
 /// resolution purely structural — identical to the pre-Phase-3 behavior.
 pub(crate) type MixinContributions = BTreeMap<String, Vec<WapChildNode>>;
 
+/// How a `merge…Mixin(dst, args)` call handed its argument object to the mixin it folds
+/// in — the prefix that mixin's own paths need to become absolute in the calling frame.
+///
+/// A mixin resolves its paths against whatever it was handed, and only the merge site
+/// knows what that was. This is the same three-outcome rule the combinator call sites
+/// use ([`rebase_template`]), recorded rather than applied, because the merge that names
+/// the argument and the fold that needs the prefix happen in different passes: the
+/// [`crate::mixin_index`] walks a mixin chain by MODULE NAME, with no call site in hand.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MergeArg {
+    /// `merge…(dst, e.someArgs)` — the callee's paths hang off this path.
+    Prefix(WapArgPath),
+    /// `merge…(dst, e)` — the callee was handed this frame's whole argument object, so
+    /// its paths are already absolute and need no prefix. An empty prefix is a result,
+    /// not a failure.
+    Whole,
+    /// The frame cannot name what it passed: a key off a parameter it has no argument
+    /// root for (a mixin's own `merge(dst, args)` frame), an object literal, or no
+    /// argument at all. The callee's paths address something no one in this chain can
+    /// spell, so they are dropped rather than published as request addresses.
+    Unnameable,
+}
+
+impl MergeArg {
+    /// The merge argument of a `merge…Mixin(dst, args)` call made by a REQUEST builder,
+    /// whose frame is a single options object.
+    pub(crate) fn of(
+        call: &oxc_ast::ast::CallExpression,
+        scope: &VarScope,
+        module_source: &str,
+        ref_off: Option<usize>,
+    ) -> MergeArg {
+        Self::read(call, scope, module_source, ref_off, RootRule::SoleParameter)
+    }
+
+    /// The same, for a merge call made INSIDE a mixin, whose own frame is WA's
+    /// `merge(dst, args)` pair rather than a lone options object.
+    ///
+    /// Without this, a mixin that dispatches on a key of its own argument —
+    /// `mergeSetConfigMixin(dst, args.setConfig)`, the shape of every `…MixinGroup` —
+    /// names a path in a frame the builder rule says has no argument object, so the
+    /// whole subtree below it is dropped as unnameable. The rule is applied here and
+    /// nowhere else: a request builder with two parameters is the legacy `WAWeb*Job`
+    /// shape, which addresses nothing.
+    pub(crate) fn of_in_mixin(
+        call: &oxc_ast::ast::CallExpression,
+        scope: &VarScope,
+        module_source: &str,
+        ref_off: Option<usize>,
+    ) -> MergeArg {
+        Self::read(call, scope, module_source, ref_off, RootRule::MergeFrame)
+    }
+
+    fn read(
+        call: &oxc_ast::ast::CallExpression,
+        scope: &VarScope,
+        module_source: &str,
+        ref_off: Option<usize>,
+        rule: RootRule,
+    ) -> MergeArg {
+        let Some(arg) = call.arguments.get(1).and_then(arg_expr) else {
+            // `merge…(dst)` with no argument object: the callee reads nothing this frame
+            // supplied, so any path it carries came from somewhere this frame cannot name.
+            return MergeArg::Unnameable;
+        };
+        match relative_arg_path_with(arg, scope, module_source, ref_off, 0, rule) {
+            Some(p) if p.is_empty() => MergeArg::Whole,
+            Some(p) => MergeArg::Prefix(p),
+            None => MergeArg::Unnameable,
+        }
+    }
+
+    /// This hop applied after `outer` — the composition of a chain of merges.
+    ///
+    /// `Unnameable` absorbs: once one hop cannot be spelled, nothing further down the
+    /// chain can be either. `Whole` is the identity, which is what makes the ordinary
+    /// case (a mixin handed the request's whole argument object) cost nothing.
+    pub(crate) fn then(&self, inner: &MergeArg) -> MergeArg {
+        match (self, inner) {
+            (MergeArg::Unnameable, _) | (_, MergeArg::Unnameable) => MergeArg::Unnameable,
+            (MergeArg::Whole, x) | (x, MergeArg::Whole) => x.clone(),
+            (MergeArg::Prefix(a), MergeArg::Prefix(b)) => {
+                let mut p = a.clone();
+                p.extend(b.iter().cloned());
+                MergeArg::Prefix(p)
+            }
+        }
+    }
+
+    /// Rebase a mixin's contribution into the frame this argument was read in.
+    pub(crate) fn apply(&self, nodes: &mut [WapChildNode]) {
+        match self {
+            MergeArg::Prefix(p) => prefix_arg_paths(nodes, p),
+            MergeArg::Whole => {}
+            MergeArg::Unnameable => clear_arg_paths(nodes),
+        }
+    }
+}
+
 /// One initializer of a tracked variable, as byte spans into the module source.
 #[derive(Clone)]
 struct VarInit {
@@ -151,6 +257,23 @@ struct VarInit {
     /// function, so [`resolve_child_node`] won't let a `<foo>` built for `x` in one
     /// function leak into an unrelated function's same-named `x`.
     owner_fn: Option<(usize, usize)>,
+}
+
+/// Which formal of a frame counts as its argument object.
+///
+/// The default is the builder rule, and it is deliberately narrow: a smax builder or
+/// template takes exactly one options object, so a second parameter means the function
+/// has no single argument to address and publishes no paths.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RootRule {
+    /// Exactly one parameter, and that parameter is the object.
+    SoleParameter,
+    /// WA's mixin signature `merge(dst, args)`: the destination stanza first, the
+    /// argument object second. Applied ONLY where the frame is known to be a mixin merge
+    /// — the mixin index reading what a merge call handed its callee — and never to the
+    /// generic resolution, where the same two-parameter shape is the legacy `WAWeb*Job`
+    /// builder that names nothing.
+    MergeFrame,
 }
 
 /// Variable/function name → all initializers seen (offset-based, lifetime-free).
@@ -198,9 +321,15 @@ impl VarScope {
     /// (`function u(){ return smax("locked", null) }`) reads no arguments at all, and a
     /// multi-parameter function has no single argument object to address.
     fn arg_root_at(&self, off: usize) -> Option<(usize, usize, &str)> {
+        self.root_at(off, RootRule::SoleParameter)
+    }
+
+    /// [`Self::arg_root_at`] under an explicit rule; see [`RootRule`].
+    fn root_at(&self, off: usize, rule: RootRule) -> Option<(usize, usize, &str)> {
         let (s, e, params) = self.innermost_fn(off)?;
-        match params.as_slice() {
-            [only] => Some((s, e, only.as_str())),
+        match (rule, params.as_slice()) {
+            (_, [only]) => Some((s, e, only.as_str())),
+            (RootRule::MergeFrame, [_dst, args]) => Some((s, e, args.as_str())),
             _ => None,
         }
     }
@@ -462,6 +591,40 @@ pub(crate) fn enforce_argument_boundary(
     if scope.arg_root_at(builder_off).is_none() {
         clear_arg_paths(children);
     }
+    drop_empty_arg_paths(children);
+}
+
+/// Turn an empty path into no path.
+///
+/// An empty path is a real intermediate result — "this is the argument object itself",
+/// which is how a template says its parameter is the payload — and it composes: the
+/// caller prefixes it into a real address. What it cannot be is a published one, because
+/// there is nothing for a consumer to write at the root of its own arguments. Anything
+/// still empty at a request root was never prefixed by anyone.
+pub(crate) fn drop_empty_arg_paths(nodes: &mut [WapChildNode]) {
+    let empty = |p: &mut Option<WapArgPath>| {
+        if p.as_ref().is_some_and(|p| p.is_empty()) {
+            *p = None;
+        }
+    };
+    for n in nodes {
+        empty(&mut n.arg_path);
+        for a in &mut n.attrs {
+            empty(&mut a.arg_path);
+        }
+        if let Some(c) = n.content.as_mut() {
+            empty(&mut c.arg_path);
+        }
+        for g in &mut n.variant_groups {
+            for v in &mut g.variants {
+                for a in &mut v.attrs {
+                    empty(&mut a.arg_path);
+                }
+                drop_empty_arg_paths(&mut v.children);
+            }
+        }
+        drop_empty_arg_paths(&mut n.children);
+    }
 }
 
 /// Drop every argument path in a subtree. Used where a subtree's paths are relative to a
@@ -507,13 +670,33 @@ fn relative_arg_path(
     ref_off: Option<usize>,
     depth: u32,
 ) -> Option<WapArgPath> {
+    relative_arg_path_with(
+        e,
+        scope,
+        module_source,
+        ref_off,
+        depth,
+        RootRule::SoleParameter,
+    )
+}
+
+/// [`relative_arg_path`] under an explicit root rule, threaded unchanged through the
+/// recursion so an alias chain resolves against the same frame the reference does.
+fn relative_arg_path_with(
+    e: &Expression,
+    scope: &VarScope,
+    module_source: &str,
+    ref_off: Option<usize>,
+    depth: u32,
+    rule: RootRule,
+) -> Option<WapArgPath> {
     if depth > MAX_ALIAS_DEPTH {
         return None;
     }
-    let (fn_start, _, root) = scope.arg_root_at(ref_off?)?;
+    let (fn_start, _, root) = scope.root_at(ref_off?, rule)?;
 
     if let Expression::ParenthesizedExpression(p) = e {
-        return relative_arg_path(&p.expression, scope, module_source, ref_off, depth);
+        return relative_arg_path_with(&p.expression, scope, module_source, ref_off, depth, rule);
     }
 
     // `<param>` itself → the whole argument object.
@@ -544,7 +727,9 @@ fn relative_arg_path(
             let Some(expr) = first_expression(&parsed.program) else {
                 continue;
             };
-            let Some(p) = relative_arg_path(expr, scope, module_source, ref_off, depth + 1) else {
+            let Some(p) =
+                relative_arg_path_with(expr, scope, module_source, ref_off, depth + 1, rule)
+            else {
                 continue;
             };
             // A name assigned twice from DIFFERENT arguments (`var a = e.old; a =
@@ -583,7 +768,7 @@ fn relative_arg_path(
         // which then absorbs `.value` and publishes `value` as an address. A call's
         // result is a computed value; only the parameter itself, or a chain rooted at it,
         // can be the object a key is read off.
-        let base = base_arg_path(cur, scope, module_source, ref_off, depth + 1)?;
+        let base = base_arg_path(cur, scope, module_source, ref_off, depth + 1, rule)?;
         let mut out = base;
         out.extend(
             keys.into_iter()
@@ -604,7 +789,9 @@ fn relative_arg_path(
         let mut found: Option<WapArgPath> = None;
         for a in &call.arguments {
             let Some(ae) = arg_expr(a) else { continue };
-            let Some(p) = relative_arg_path(ae, scope, module_source, ref_off, depth + 1) else {
+            let Some(p) =
+                relative_arg_path_with(ae, scope, module_source, ref_off, depth + 1, rule)
+            else {
                 continue;
             };
             match &found {
@@ -626,7 +813,7 @@ fn relative_arg_path(
     // real alternative the resolver merely could not read, and publishing the arm that
     // did read points a consumer at a source the builder may not use.
     if let Expression::ConditionalExpression(c) = e {
-        let arm = |x| relative_arg_path(x, scope, module_source, ref_off, depth + 1);
+        let arm = |x| relative_arg_path_with(x, scope, module_source, ref_off, depth + 1, rule);
         let (a, b) = (arm(&c.consequent), arm(&c.alternate));
         return match (a, b) {
             (Some(x), Some(y)) if x == y => Some(x),
@@ -652,14 +839,15 @@ fn base_arg_path(
     module_source: &str,
     ref_off: Option<usize>,
     depth: u32,
+    rule: RootRule,
 ) -> Option<WapArgPath> {
     if depth > MAX_ALIAS_DEPTH {
         return None;
     }
     if let Expression::ParenthesizedExpression(p) = e {
-        return base_arg_path(&p.expression, scope, module_source, ref_off, depth);
+        return base_arg_path(&p.expression, scope, module_source, ref_off, depth, rule);
     }
-    let (fn_start, _, root) = scope.arg_root_at(ref_off?)?;
+    let (fn_start, _, root) = scope.root_at(ref_off?, rule)?;
     if let Some(name) = as_identifier(e) {
         if name == root {
             return Some(Vec::new());
@@ -680,7 +868,8 @@ fn base_arg_path(
             let Some(expr) = first_expression(&parsed.program) else {
                 continue;
             };
-            let Some(p) = base_arg_path(expr, scope, module_source, ref_off, depth + 1) else {
+            let Some(p) = base_arg_path(expr, scope, module_source, ref_off, depth + 1, rule)
+            else {
                 continue;
             };
             // Same disagreement rule as the general walk: two different sources for one
@@ -694,7 +883,7 @@ fn base_arg_path(
         return found;
     }
     if e.as_member_expression().is_some() {
-        return relative_arg_path(e, scope, module_source, ref_off, depth);
+        return relative_arg_path_with(e, scope, module_source, ref_off, depth, rule);
     }
     None
 }
@@ -711,14 +900,24 @@ fn base_arg_path(
 /// was:
 ///
 /// - the argument names a path → prefix, and that path is the node's own;
-/// - it does not, and the caller HAS an argument object → the subtree's paths are
-///   relative to something this frame cannot name, so they are cleared. Left alone they
-///   read as top-level addresses into the request's arguments, which is what published
-///   `collection`/`version` on a mapped `<collection>` as though a consumer should write
-///   them at the root;
+/// - the argument IS the caller's whole object (`merge…Mixin(dst, e)`, `OPTIONAL_CHILD(t,
+///   e)`) → the empty path, which is a no-op prefix rather than a failure: the callee's
+///   frame is the caller's, so its paths are already absolute and are left as they are.
+///   The node itself gets no path — its object is the request's arguments, which is not
+///   an address a consumer supplies;
+/// - it does not name one, and the caller HAS an argument object → the subtree's paths
+///   are relative to something this frame cannot name, so they are cleared. Left alone
+///   they read as top-level addresses into the request's arguments, which is what
+///   published `collection`/`version` on a mapped `<collection>` as though a consumer
+///   should write them at the root;
 /// - it does not, and the caller has no argument object → a mixin's `merge(dst, args)`
 ///   frame, where nothing can be said. [`apply_contribution`] prefixes the whole
 ///   contribution at the merge site that knows.
+///
+/// A LIST is the exception to the empty case: `REPEATED_CHILD(t, e)` iterates the
+/// argument object itself, so the template's keys address an element rather than the
+/// request — and with no segment to carry the `[]` there is nothing that can say so.
+/// That is the "cannot name it" outcome, and the paths are cleared.
 fn rebase_template(
     nodes: &mut [WapChildNode],
     arg: Option<&Expression>,
@@ -727,29 +926,34 @@ fn rebase_template(
     module_source: &str,
     ref_off: Option<usize>,
 ) -> Option<WapArgPath> {
-    let path = arg
+    let resolved = arg
         .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0))
-        .filter(|p| !p.is_empty())
         .map(|mut p| {
             if list && let Some(last) = p.last_mut() {
                 last.list = true;
             }
             p
         });
-    match path.as_deref() {
+    match resolved.as_deref() {
+        Some([]) if !list => return None,
+        Some([]) | None if ref_off.and_then(|o| scope.arg_root_at(o)).is_some() => {
+            clear_arg_paths(nodes);
+            return None;
+        }
+        Some([]) | None => return None,
         Some(prefix) => prefix_arg_paths(nodes, prefix),
-        None if ref_off.and_then(|o| scope.arg_root_at(o)).is_some() => clear_arg_paths(nodes),
-        None => {}
     }
-    path
+    resolved
 }
 
 /// Whether an expression references `root` anywhere — the identifier that names the
 /// enclosing frame's argument object.
 ///
 /// Used to tell "this arm reads no argument" from "this arm reads one the resolver could
-/// not spell out". Textual over the expression's own source rather than an AST walk,
-/// because the callers hold a re-parsed slice whose spans do not index the module.
+/// not spell out". Compares identifier names over the expression's own AST rather than
+/// resolving them, because the callers hold a re-parsed slice whose spans do not index
+/// the module — so a name that merely happens to match the root's spelling counts, which
+/// is the conservative side of the question being asked.
 fn mentions(e: &Expression, root: &str) -> bool {
     struct Finder<'a> {
         root: &'a str,
@@ -1964,7 +2168,12 @@ fn find_wap_calls_in_body(
     // through a name declared outside the body it is re-parsed from, so a body-only map
     // reads `A.OPTIONAL_LITERAL(…)` as an ordinary dynamic value and publishes its
     // presence flag as the attribute's address.
-    let local = build_alias_map(&ret.program).over(outer);
+    // The body is re-parsed WITHOUT its header, so the callback's own parameter is not
+    // among the names it binds — and that parameter is the likeliest collision of all,
+    // since the minifier spells it with the same letters it spells the module's aliases.
+    let mut shadowed = crate::alias::bound_names(&ret.program);
+    shadowed.extend(arg_root.map(str::to_string));
+    let local = build_alias_map(&ret.program).over(outer, &shadowed);
     // A scope over this body ALONE, with the callback's parameter as its argument root.
     // That is all a mapper needs: it reads one element and nothing else, so every path it
     // states is relative to that parameter — and the caller rebases the lot onto the
@@ -2694,6 +2903,42 @@ mod tests {
     }
 
     #[test]
+    fn a_callback_parameter_shadows_a_module_alias() {
+        // The other half of layering the module's aliases into a callback body: the
+        // minifier spells everything `n`/`t`/`a`, so a callback whose parameter collides
+        // with the module's `WASmaxAttrs` alias would have its own element read as that
+        // builder — `A.OPTIONAL_LITERAL(…)` on an element `A` is a property of the
+        // element, not a fixed wire literal. Fifteen such collisions exist in the current
+        // bundle.
+        let code = r#"
+            var A; A = o("WASmaxAttrs");
+            function b(e){ var l = e.itemArgs;
+              return o("WAWap").wap("iq", null, l.map(function(A){
+                return o("WAWap").wap("item", {del: A.OPTIONAL_LITERAL("true", A.hasDel)}); })); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let item = out
+            .iter()
+            .flat_map(|c| std::iter::once(c).chain(c.children.iter()))
+            .find(|c| c.tag == "item")
+            .expect("item");
+        let del = item.attrs.iter().find(|a| a.name == "del").expect("del");
+        assert!(
+            del.value.is_none(),
+            "a method on the ELEMENT is not `WASmaxAttrs.OPTIONAL_LITERAL`, so there is no
+             fixed wire value to record: {del:?}"
+        );
+        assert_eq!(
+            path_of(&del.arg_path),
+            vec![
+                ("itemArgs".to_string(), true),
+                ("hasDel".to_string(), false)
+            ],
+            "and what it reads is a key off that element"
+        );
+    }
+
+    #[test]
     fn a_map_callback_reads_the_enclosing_module_aliases() {
         // The callback body is re-parsed on its own, so the module-level
         // `A = o("WASmaxAttrs")` it calls through is not declared in what the sweep sees.
@@ -2720,6 +2965,125 @@ mod tests {
             "a fixed literal's gate is not its value address: {:?}",
             del.arg_path
         );
+    }
+
+    #[test]
+    fn a_mixin_handed_the_whole_argument_object_keeps_its_paths() {
+        // `OPTIONAL_CHILD(t, e)` / `merge…Mixin(dst, e)` hand over the caller's own
+        // argument object, so the callee's frame IS the caller's and the right prefix is
+        // nothing. Collapsing that into the same "cannot name it" answer clears paths
+        // that were already absolute — the resolved address is thrown away at the one
+        // call site that needed no work.
+        let code = r#"
+            function t(a){ return o("WASmaxJsx").smax("u", {jid: o("WAWap").JID(a.userJid)}); }
+            function b(e){ return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxChildren").OPTIONAL_CHILD(t, e)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let u = out.iter().find(|c| c.tag == "u").expect("u");
+        assert_eq!(
+            path_of(&u.attrs[0].arg_path),
+            vec![("userJid".to_string(), false)],
+            "already absolute, so nothing to prefix and nothing to clear"
+        );
+    }
+
+    #[test]
+    fn a_scalar_list_template_keeps_the_element_as_its_content() {
+        // A template whose whole parameter is the payload — a list of scalars, not of
+        // argument objects. Its relative path is empty, which is a real answer ("the
+        // element itself"): the combinator rebases it onto the list, giving a content
+        // addressed at `productIds[]`. Discarding the empty path left the node with no
+        // content at all, before anything could rebase it.
+        let code = r#"
+            function t(v){ return o("WAWap").wap("id", null, v); }
+            function b(e){ return o("WAWap").wap("iq", null,
+                o("WASmaxChildren").REPEATED_CHILD(t, e.productIds, 0, 1/0)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let id = out.iter().find(|c| c.tag == "id").expect("id");
+        let content = id.content.as_ref().expect("the element carries its value");
+        assert_eq!(
+            path_of(&content.arg_path),
+            vec![("productIds".to_string(), true)],
+            "the value IS the element of the list"
+        );
+    }
+
+    #[test]
+    fn an_empty_path_is_never_published() {
+        // The empty path composes; it does not publish. Anything still empty where a
+        // request is assembled was prefixed by nobody, and "the argument object itself"
+        // is not an address a consumer writes a value at.
+        let mut nodes = vec![WapChildNode {
+            tag: "id".to_string(),
+            content: Some(WapContent {
+                kind: WapContentKind::Dynamic,
+                arg_path: Some(Vec::new()),
+                ..Default::default()
+            }),
+            arg_path: Some(Vec::new()),
+            ..Default::default()
+        }];
+        drop_empty_arg_paths(&mut nodes);
+        assert!(nodes[0].arg_path.is_none());
+        assert!(nodes[0].content.as_ref().unwrap().arg_path.is_none());
+    }
+
+    #[test]
+    fn a_mixin_frame_names_the_argument_it_dispatches_on() {
+        // WA's mixins take `(dst, args)`, and a MixinGroup dispatches on a key of its own
+        // `args` — `if (t.setConfig) return mergeSetConfigMixin(e, t.setConfig)`. Under
+        // the builder rule that frame has no argument object, so the hop is unnameable
+        // and everything the branch contributes loses its address. The merge rule reads
+        // the second formal, which is what WA's signature means.
+        let code = r#"
+            function m(e,t){ if (t.setConfig) return o("WASmaxOutX").mergeXMixin(e, t.setConfig);
+              return e; }
+        "#;
+        let alloc = Allocator::default();
+        let ret = wa_oxc::parse_cjs(&alloc, code);
+        let scope = build_var_scope(&ret.program);
+        let at = code.find("mergeXMixin(").expect("the merge call");
+        let alloc2 = Allocator::default();
+        let owned = format!("{};", &code[at..code[at..].find(')').unwrap() + at + 1]);
+        let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
+        let call = first_expression(&ret2.program)
+            .and_then(as_call)
+            .expect("a call");
+        assert_eq!(
+            MergeArg::of_in_mixin(call, &scope, code, Some(at)),
+            MergeArg::Prefix(vec![WapArgSegment {
+                key: "setConfig".to_string(),
+                list: false
+            }])
+        );
+        assert_eq!(
+            MergeArg::of(call, &scope, code, Some(at)),
+            MergeArg::Unnameable,
+            "the builder rule still refuses a two-parameter frame"
+        );
+    }
+
+    #[test]
+    fn merge_arguments_compose_along_a_chain() {
+        let key = |k: &str| WapArgSegment {
+            key: k.to_string(),
+            list: false,
+        };
+        let a = MergeArg::Prefix(vec![key("groupArgs")]);
+        let b = MergeArg::Prefix(vec![key("subject")]);
+        assert_eq!(
+            a.then(&b),
+            MergeArg::Prefix(vec![key("groupArgs"), key("subject")])
+        );
+        // Whole is the identity — the ordinary case, where a mixin is handed the whole
+        // argument object and its paths are already the request's.
+        assert_eq!(a.then(&MergeArg::Whole), a);
+        assert_eq!(MergeArg::Whole.then(&b), b);
+        // One hop nobody can name makes the rest of the chain unnameable too.
+        assert_eq!(a.then(&MergeArg::Unnameable), MergeArg::Unnameable);
+        assert_eq!(MergeArg::Unnameable.then(&b), MergeArg::Unnameable);
     }
 
     #[test]

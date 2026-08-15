@@ -185,6 +185,10 @@ pub fn scan_module_outcome(
                         crate::mixin_index::count_recovered_fields(&iq.children, &frag_children);
                     fields_recovered = fields_recovered.max(recovered);
                     crate::mixin_index::merge_children(&mut iq.children, &frag_children);
+                    // A contribution can arrive holding the empty path — a mixin whose
+                    // own parameter is a payload, handed the request's whole argument
+                    // object. It composed to nothing, and nothing is not an address.
+                    crate::request::drop_empty_arg_paths(&mut iq.children);
                     Some(ResolvedIqCall {
                         namespace,
                         iq_type,
@@ -371,9 +375,10 @@ struct ModuleScanner<'src> {
     /// Populated when the wrapper is visited (parent-before-child), read when the
     /// inner iq call is visited.
     type_hints: std::collections::HashMap<u32, IqType>,
-    /// `WASmaxOut…` mixin modules this module folds in (by name, source order,
-    /// deduped) — the candidates for cross-module xmlns/type resolution.
-    mixin_callees: Vec<String>,
+    /// `WASmaxOut…` mixin modules this module folds in (source order, deduped), each
+    /// with the argument it was handed — the candidates for cross-module xmlns/type
+    /// resolution, and the prefixes their contributions need.
+    mixin_callees: Vec<crate::mixin_index::MergeCallee>,
     /// The export name currently being walked (`e.<name> = …`), so an iq call is
     /// tagged with the function that lexically encloses it. Saved/restored around
     /// each member-assignment to handle nesting.
@@ -420,9 +425,19 @@ impl<'a> Visit<'a> for ModuleScanner<'_> {
             && method.contains("Mixin")
             && let Some(name) = callee_object(call).and_then(require_module_name)
             && name.starts_with("WASmaxOut")
-            && !self.mixin_callees.contains(&name)
+            && !self.mixin_callees.iter().any(|c| c.module == name)
         {
-            self.mixin_callees.push(name);
+            // The argument this request hands the mixin is the prefix its contribution
+            // needs; recorded here because the fold happens in a later pass that walks
+            // mixins by module name and never sees this call.
+            let arg = crate::request::MergeArg::of(
+                call,
+                self.scope,
+                self.source,
+                Some(call.span().start as usize),
+            );
+            self.mixin_callees
+                .push(crate::mixin_index::MergeCallee { module: name, arg });
         }
 
         let hint = self.type_hints.get(&call.span().start).copied();
@@ -525,11 +540,12 @@ impl ModuleScanner<'_> {
                     // position anchors the function context for scoped-initializer checks.
                     Some(ce.span().start as usize),
                 ));
-                // A builder with no single options object publishes no paths at all —
-                // including any that arrived inlined from a helper or a mapper.
-                enforce_argument_boundary(&mut children, self.scope, ce.span().start as usize);
             }
         }
+        // A builder with no single options object publishes no paths at all — including
+        // any that arrived inlined from a helper or a mapper. Once for the whole call:
+        // every child of one `smax("iq", …)` shares the frame that built it.
+        enforce_argument_boundary(&mut children, self.scope, call.span().start as usize);
 
         Some(IqCall {
             namespace,

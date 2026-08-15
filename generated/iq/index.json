@@ -12185,6 +12185,9 @@
                 "tag": "query",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic"
+                },
                 "repeats": false
               }
             ],
@@ -41530,6 +41533,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41543,6 +41552,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41555,6 +41570,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41570,37 +41591,135 @@
                       {
                         "name": "platform",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configPlatform"
+                          }
+                        ]
                       },
                       {
                         "name": "id",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configId"
+                          }
+                        ]
                       },
                       {
                         "name": "appid",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppid"
+                          }
+                        ]
                       },
                       {
                         "name": "app_mute",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppMute"
+                          }
+                        ]
                       },
                       {
                         "name": "pkey",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configPkey"
+                          }
+                        ]
                       },
                       {
                         "name": "voip_payload_type",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configVoipPayloadType"
+                          }
+                        ]
                       },
                       {
                         "name": "num_acc",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configNumAcc"
+                          }
+                        ]
                       }
                     ],
                     "children": [
@@ -41612,6 +41731,12 @@
                             "kind": "group_jid",
                             "required": true,
                             "argPath": [
+                              {
+                                "key": "setSetConfigOrSetClearMixinGroupArgs"
+                              },
+                              {
+                                "key": "setSetConfig"
+                              },
                               {
                                 "key": "configMixinsArgs"
                               },
@@ -41630,6 +41755,12 @@
                             "required": true,
                             "argPath": [
                               {
+                                "key": "setSetConfigOrSetClearMixinGroupArgs"
+                              },
+                              {
+                                "key": "setSetConfig"
+                              },
+                              {
                                 "key": "configMixinsArgs"
                               },
                               {
@@ -41646,6 +41777,12 @@
                         "repeats": true,
                         "repeatMin": 0,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41664,6 +41801,12 @@
                         "kind": "string",
                         "required": true,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41684,6 +41827,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41696,6 +41845,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41710,6 +41865,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41722,6 +41883,12 @@
                         "kind": "string",
                         "required": true,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41736,6 +41903,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41748,6 +41921,12 @@
                         "kind": "string",
                         "required": true,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41762,6 +41941,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41774,6 +41959,12 @@
                         "kind": "string",
                         "required": true,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41788,6 +41979,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41800,6 +41997,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41814,6 +42017,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41826,6 +42035,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41840,6 +42055,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41852,6 +42073,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41866,6 +42093,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41878,6 +42111,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41892,6 +42131,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41904,6 +42149,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41918,6 +42169,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41931,6 +42188,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -41943,6 +42206,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -41962,6 +42231,12 @@
                             "required": true,
                             "argPath": [
                               {
+                                "key": "setSetConfigOrSetClearMixinGroupArgs"
+                              },
+                              {
+                                "key": "setSetConfig"
+                              },
+                              {
                                 "key": "configMixinsArgs"
                               },
                               {
@@ -41978,6 +42253,12 @@
                             "kind": "optional",
                             "required": false,
                             "argPath": [
+                              {
+                                "key": "setSetConfigOrSetClearMixinGroupArgs"
+                              },
+                              {
+                                "key": "setSetConfig"
+                              },
                               {
                                 "key": "configMixinsArgs"
                               },
@@ -41996,6 +42277,12 @@
                             "required": false,
                             "argPath": [
                               {
+                                "key": "setSetConfigOrSetClearMixinGroupArgs"
+                              },
+                              {
+                                "key": "setSetConfig"
+                              },
+                              {
                                 "key": "configMixinsArgs"
                               },
                               {
@@ -42013,6 +42300,12 @@
                             "required": false,
                             "argPath": [
                               {
+                                "key": "setSetConfigOrSetClearMixinGroupArgs"
+                              },
+                              {
+                                "key": "setSetConfig"
+                              },
+                              {
                                 "key": "configMixinsArgs"
                               },
                               {
@@ -42029,6 +42322,12 @@
                         "repeats": true,
                         "repeatMin": 0,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -42054,6 +42353,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -42066,6 +42371,12 @@
                         "kind": "string",
                         "required": true,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -42090,6 +42401,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -42113,6 +42430,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -42125,6 +42448,12 @@
                         "kind": "string",
                         "required": true,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -42139,6 +42468,12 @@
                         "required": true,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -42152,6 +42487,12 @@
                         "required": false,
                         "argPath": [
                           {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
                             "key": "configMixinsArgs"
                           },
                           {
@@ -42164,6 +42505,12 @@
                         "kind": "optional",
                         "required": false,
                         "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
                           {
                             "key": "configMixinsArgs"
                           },
@@ -42186,6 +42533,12 @@
                 "kind": "optional",
                 "required": false,
                 "argPath": [
+                  {
+                    "key": "setSetConfigOrSetClearMixinGroupArgs"
+                  },
+                  {
+                    "key": "setClear"
+                  },
                   {
                     "key": "clearPlatform"
                   }
@@ -46310,6 +46663,15 @@
                 "tag": "product",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "productIds",
+                      "list": true
+                    }
+                  ]
+                },
                 "repeats": true,
                 "argPath": [
                   {
@@ -46322,6 +46684,15 @@
                 "tag": "id",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "productIds",
+                      "list": true
+                    }
+                  ]
+                },
                 "repeats": true,
                 "argPath": [
                   {
@@ -101287,6 +101658,9 @@
                     "tag": "patch",
                     "attrs": [],
                     "children": [],
+                    "content": {
+                      "kind": "dynamic"
+                    },
                     "repeats": false
                   }
                 ],

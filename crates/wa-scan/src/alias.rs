@@ -16,7 +16,7 @@
 //! Only the handful of owners the scanner cares about are tracked, so the map
 //! stays tiny and a pure-`.wap` module yields an empty map (no behavior change).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{AssignmentExpression, Expression};
 use oxc_ast_visit::{Visit, walk};
@@ -45,18 +45,25 @@ impl AliasMap {
         self.map.get(name).copied()
     }
 
-    /// This map layered over `outer`: every alias `outer` knows, plus this map's, which
-    /// win on a collision.
+    /// This map layered over `outer`: every alias `outer` knows that this body does not
+    /// bind itself, plus this map's own.
     ///
     /// A function body re-parsed on its own sees only the aliases it declares itself,
     /// while the module-level `(X = o("WASmaxAttrs"))` it actually calls through lives in
-    /// the enclosing program. Layering restores the lexical view: the outer alias is
-    /// visible inside the body, and a name the body redeclares shadows it, which is what
-    /// JavaScript does. Nothing here proves the outer name is still in scope at that
-    /// point — a body that shadows a tracked alias with an untracked value is read as
-    /// still holding the outer owner.
-    pub(crate) fn over(&self, outer: &AliasMap) -> AliasMap {
-        let mut map = outer.map.clone();
+    /// the enclosing program. Layering restores the lexical view.
+    ///
+    /// `shadowed` is every name the body BINDS — parameters and declarations — whether or
+    /// not it binds them to something tracked. Those names are dropped from the outer map
+    /// rather than inherited: the minifier reuses `n`, `t` and `a` everywhere, so a
+    /// callback whose parameter is spelled like the module's `WASmaxAttrs` alias would
+    /// otherwise have its own element read as that builder.
+    pub(crate) fn over(&self, outer: &AliasMap, shadowed: &HashSet<String>) -> AliasMap {
+        let mut map: HashMap<String, &'static str> = outer
+            .map
+            .iter()
+            .filter(|(k, _)| !shadowed.contains(*k))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
         map.extend(self.map.iter().map(|(k, v)| (k.clone(), *v)));
         AliasMap { map }
     }
@@ -97,6 +104,25 @@ pub(crate) fn resolve_owner(e: &Expression, aliases: &AliasMap) -> Option<&'stat
         return resolve_owner(&assign.right, aliases);
     }
     None
+}
+
+/// Every name a program binds: parameters, `var`/`let`/`const` declarators, function and
+/// class names. Not an alias map — a binding is recorded whatever it is bound to, which
+/// is the point: an untracked local still shadows an outer alias of the same name.
+pub(crate) fn bound_names(program: &oxc_ast::ast::Program) -> HashSet<String> {
+    struct Binder {
+        names: HashSet<String>,
+    }
+    impl<'a> Visit<'a> for Binder {
+        fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+            self.names.insert(id.name.to_string());
+        }
+    }
+    let mut b = Binder {
+        names: HashSet::new(),
+    };
+    b.visit_program(program);
+    b.names
 }
 
 /// Build the [`AliasMap`] for a parsed module program.

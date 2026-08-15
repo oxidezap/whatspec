@@ -217,8 +217,7 @@ fn every_combinator_child_of_a_smax_builder_is_addressable() {
         .filter(|s| s.module_name.starts_with("WASmaxOut") && s.module_name.ends_with("Request"))
     {
         for n in request_nodes(s) {
-            let addressed = n.repeats || !n.presence.is_required();
-            if addressed && n.arg_path.is_none() {
+            if n.is_combinator_fed() && n.arg_path.is_none() {
                 missing.push(format!("{}: <{}> node", s.module_name, n.tag));
             }
             // Variant-group attributes included. Walking only `n.attrs` made this pass
@@ -230,46 +229,27 @@ fn every_combinator_child_of_a_smax_builder_is_addressable() {
                 .flat_map(|g| &g.variants)
                 .flat_map(|v| &v.attrs);
             for a in n.attrs.iter().chain(variant_attrs) {
-                // An attribute reads an argument unless the builder supplies the value
-                // itself: a `Const`, a locally generated id, or an `OPTIONAL_LITERAL`
-                // whose recorded `value` is the literal and whose argument is a boolean
-                // gate rather than the value.
-                let reads_argument = !matches!(
-                    a.kind,
-                    wa_ir::WapAttrKind::Const | wa_ir::WapAttrKind::GeneratedId
-                ) && a.value.is_none();
-                if reads_argument && a.arg_path.is_none() {
+                // `reads_argument`/`is_combinator_fed` are the IR's own predicates, so
+                // this test and the `diagnostics.iq.builder` counters cannot drift into
+                // measuring different things — one rule written twice is the defect this
+                // batch keeps finding.
+                if a.reads_argument() && a.arg_path.is_none() {
                     missing.push(format!("{}: <{}> @{}", s.module_name, n.tag, a.name));
                 }
             }
             if let Some(c) = &n.content
-                && c.kind != wa_ir::WapContentKind::Const
-                && c.const_bytes.is_none()
+                && c.reads_argument()
                 && c.arg_path.is_none()
             {
                 missing.push(format!("{}: <{}> content", s.module_name, n.tag));
             }
         }
     }
-    // One request is knowingly short, pinned by identity so it cannot grow or spread
-    // silently. `PushConfigSet` hands its mixin a sub-object rather than the whole
-    // argument object, and those seven attributes arrive through the Phase-2
-    // by-module-name closure, which walks `merged_callees` with no call site in hand and
-    // so cannot rebase them onto the request's arguments. Clearing that route wholesale
-    // removes 68 paths of which most are correct — most mixins are handed the whole
-    // object, making their relative paths already absolute — so the fix is to record each
-    // merge call's argument beside its callee in the mixin index, which is its own
-    // change. Until then the residue is stated rather than asserted away.
-    let known: Vec<&String> = missing
-        .iter()
-        .filter(|m| !m.starts_with("WASmaxOutPushConfigSetRequest: <config> @"))
-        .collect();
-    assert!(known.is_empty(), "unaddressable: {known:?}");
-    assert_eq!(
-        missing.len(),
-        7,
-        "the PushConfigSet residue changed size: {missing:?}"
-    );
+    // No exemption. `PushConfigSet` used to be one — it hands its mixin a sub-object
+    // rather than the whole argument object, and the by-module-name mixin closure had no
+    // call site to rebase what that returned. The closure now carries each merge call's
+    // argument, so those attributes are addressed like every other.
+    assert!(missing.is_empty(), "unaddressable: {missing:?}");
 }
 
 #[test]

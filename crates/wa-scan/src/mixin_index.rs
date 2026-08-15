@@ -32,10 +32,33 @@ use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::helper_index::HelperIndex;
 use crate::module::{iq_type_from_merge_name, require_module_name};
 use crate::request::{
-    MixinContributions, VarScope, build_var_scope, resolve_child_node, resolve_contribution,
+    MergeArg, MixinContributions, VarScope, build_var_scope, resolve_child_node,
+    resolve_contribution,
 };
 use wa_oxc::{arg_expr, callee_method, callee_object};
 use wa_transform::ModuleDefinition;
+
+/// A mixin folded in by another, with the argument the folding frame handed it.
+///
+/// The pair is what lets a fold rebase: the module says WHAT is contributed, the
+/// [`MergeArg`] says where in the calling frame's argument object it was read from.
+#[derive(Clone, Debug)]
+pub(crate) struct MergeCallee {
+    pub module: String,
+    pub arg: MergeArg,
+}
+
+/// A callee handed the caller's whole argument object — the ordinary shape, and the one
+/// tests use when the chain's prefixes are not what they exercise.
+#[cfg(test)]
+impl From<&str> for MergeCallee {
+    fn from(module: &str) -> Self {
+        MergeCallee {
+            module: module.to_string(),
+            arg: MergeArg::Whole,
+        }
+    }
+}
 
 /// What one mixin contributes to the `<iq>` it helps build.
 #[derive(Clone, Default, Debug)]
@@ -47,10 +70,11 @@ pub(crate) struct MixinIqFragment {
     pub iq_type: Option<IqType>,
     /// `to:"g.us"` → Group; otherwise (S_WHATSAPP_NET / absent) → Server.
     pub target: Option<IqTarget>,
-    /// Other `WASmaxOut…` mixins this mixin folds in (by module name), in source
-    /// order with duplicates removed — for transitive resolution (e.g. a Hack
-    /// mixin whose `type` comes from a Base mixin it calls).
-    pub merged_callees: Vec<String>,
+    /// Other `WASmaxOut…` mixins this mixin folds in, in source order with duplicates
+    /// removed — for transitive resolution (e.g. a Hack mixin whose `type` comes from a
+    /// Base mixin it calls), each with the argument this mixin handed it so the fold can
+    /// rebase what it contributes.
+    pub merged_callees: Vec<MergeCallee>,
     /// The children the mixin's inner `smax("iq", …, children)` fragment adds to
     /// the `<iq>` (e.g. `BaseReportMixin` → `spam_list{spam_flow}`). Merged by tag
     /// into a Request's children so cross-module attrs/children aren't lost.
@@ -322,9 +346,17 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
             && method.contains("Mixin")
             && let Some(name) = callee_object(call).and_then(require_module_name)
             && name.starts_with("WASmaxOut")
-            && !self.frag.merged_callees.contains(&name)
+            && !self.frag.merged_callees.iter().any(|c| c.module == name)
         {
-            self.frag.merged_callees.push(name);
+            let arg = crate::request::MergeArg::of_in_mixin(
+                call,
+                self.scope,
+                self.source,
+                Some(call.span().start as usize),
+            );
+            self.frag
+                .merged_callees
+                .push(MergeCallee { module: name, arg });
         }
 
         walk::walk_call_expression(self, call);
@@ -338,11 +370,14 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
 /// for that field so the caller's guard discards the stanza rather than guess.
 pub(crate) fn resolve(
     index: &MixinIndex,
-    mixin_modules: &[String],
+    mixin_modules: &[MergeCallee],
 ) -> (Option<String>, Option<IqType>, Option<IqTarget>) {
-    // Transitive closure over merged_callees (BFS; visited set bounds cycles).
+    // Transitive closure over merged_callees (BFS; visited set bounds cycles). Only the
+    // module names matter here: an xmlns is a property of the mixin, not of what it was
+    // handed.
     let mut visited = std::collections::HashSet::new();
-    let mut queue: std::collections::VecDeque<String> = mixin_modules.iter().cloned().collect();
+    let mut queue: std::collections::VecDeque<String> =
+        mixin_modules.iter().map(|c| c.module.clone()).collect();
     let mut xmlns: Option<String> = None;
     let mut xmlns_conflict = false;
     let mut iq_type: Option<IqType> = None;
@@ -377,8 +412,8 @@ pub(crate) fn resolve(
             target = Some(tg);
         }
         for c in &frag.merged_callees {
-            if !visited.contains(c) {
-                queue.push_back(c.clone());
+            if !visited.contains(&c.module) {
+                queue.push_back(c.module.clone());
             }
         }
     }
@@ -393,24 +428,40 @@ pub(crate) fn resolve(
 /// The transitive union of the `<iq>` children every referenced mixin contributes
 /// (following `merged_callees`), pre-merged by tag. The scanner merges this into a
 /// Request's children to recover cross-module attrs/children (e.g. `spam_flow`).
+///
+/// Each hop carries the argument the previous frame handed it, composed along the way,
+/// so a contribution reached through `mergeGroup(dst, e.groupArgs)` arrives with its
+/// paths rooted where the REQUEST would read them rather than where the mixin does. A
+/// hop no frame can name ([`MergeArg::Unnameable`] — typically a mixin dispatching on a
+/// key of its own second parameter) drops the paths of everything below it: a
+/// mixin-relative path published as a request address is a wrong address, and an absent
+/// one is counted.
+///
+/// A module reached twice keeps the first chain's prefix, as it keeps the first chain's
+/// contribution — the merge is by tag and only ever adds.
 pub(crate) fn resolve_fragment_children(
     index: &MixinIndex,
-    mixin_modules: &[String],
+    mixin_modules: &[MergeCallee],
 ) -> Vec<WapChildNode> {
     let mut visited = std::collections::HashSet::new();
-    let mut queue: std::collections::VecDeque<String> = mixin_modules.iter().cloned().collect();
+    let mut queue: std::collections::VecDeque<(String, MergeArg)> = mixin_modules
+        .iter()
+        .map(|c| (c.module.clone(), c.arg.clone()))
+        .collect();
     let mut out: Vec<WapChildNode> = Vec::new();
-    while let Some(name) = queue.pop_front() {
+    while let Some((name, acc)) = queue.pop_front() {
         if !visited.insert(name.clone()) {
             continue;
         }
         let Some(frag) = index.get(&name) else {
             continue;
         };
-        merge_children(&mut out, &frag.children);
+        let mut contributed = frag.children.clone();
+        acc.apply(&mut contributed);
+        merge_children(&mut out, &contributed);
         for c in &frag.merged_callees {
-            if !visited.contains(c) {
-                queue.push_back(c.clone());
+            if !visited.contains(&c.module) {
+                queue.push_back((c.module.clone(), acc.then(&c.arg)));
             }
         }
     }
@@ -537,7 +588,7 @@ mod tests {
             xmlns: xmlns.map(String::from),
             iq_type: ty,
             target: None,
-            merged_callees: callees.iter().map(|s| s.to_string()).collect(),
+            merged_callees: callees.iter().map(|s| MergeCallee::from(*s)).collect(),
             children: Vec::new(),
         }
     }
@@ -842,6 +893,80 @@ mod tests {
         assert!(
             names.contains(&"subject"),
             "transitive child attr via callee"
+        );
+    }
+
+    /// A `MergeCallee` reached through a named key of the caller's argument object.
+    fn keyed(module: &str, key: &str) -> MergeCallee {
+        MergeCallee {
+            module: module.to_string(),
+            arg: MergeArg::Prefix(vec![wa_ir::WapArgSegment {
+                key: key.to_string(),
+                list: false,
+            }]),
+        }
+    }
+
+    fn attr_path(n: &WapChildNode, name: &str) -> Vec<String> {
+        n.attrs
+            .iter()
+            .find(|a| a.name == name)
+            .and_then(|a| a.arg_path.as_ref())
+            .map(|p| p.iter().map(|s| s.key.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_fragment_chain_composes_the_arguments_it_was_handed() {
+        // The mixin closure walks by MODULE NAME and holds no call site, which is why a
+        // contribution used to arrive with paths relative to whichever mixin resolved
+        // them: `configMixinsArgs → configPlatform` published at a request root whose
+        // real address starts two hops earlier. Each hop now carries the argument it was
+        // handed, and the prefixes compose down the chain.
+        let mut inner = frag(Some("push"), Some(IqType::Set), &[]);
+        let mut cfg = node("config", &["platform"], vec![]);
+        cfg.attrs[0].arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "configPlatform".to_string(),
+            list: false,
+        }]);
+        inner.children = vec![cfg];
+        let mut group = frag(None, None, &[]);
+        group.merged_callees = vec![keyed("Inner", "setConfig")];
+        let idx = index(&[("Inner", inner), ("Group", group)]);
+
+        let kids = resolve_fragment_children(&idx, &[keyed("Group", "groupArgs")]);
+        assert_eq!(
+            attr_path(&kids[0], "platform"),
+            vec!["groupArgs", "setConfig", "configPlatform"],
+            "the request's address, not the innermost mixin's"
+        );
+    }
+
+    #[test]
+    fn a_hop_no_frame_can_name_drops_the_paths_below_it() {
+        // The other outcome: a merge whose argument this chain cannot spell. A relative
+        // path published as an absolute one is a wrong address, which is worse than an
+        // absent one — the absent one is counted.
+        let mut inner = frag(Some("push"), Some(IqType::Set), &[]);
+        let mut cfg = node("config", &["platform"], vec![]);
+        cfg.attrs[0].arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "configPlatform".to_string(),
+            list: false,
+        }]);
+        inner.children = vec![cfg];
+        let idx = index(&[("Inner", inner)]);
+
+        let kids = resolve_fragment_children(
+            &idx,
+            &[MergeCallee {
+                module: "Inner".to_string(),
+                arg: MergeArg::Unnameable,
+            }],
+        );
+        assert!(
+            attr_path(&kids[0], "platform").is_empty(),
+            "{:?}",
+            kids[0].attrs
         );
     }
 }

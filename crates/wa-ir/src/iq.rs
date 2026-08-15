@@ -190,6 +190,43 @@ impl WapChildPresence {
     }
 }
 
+impl WapAttrDef {
+    /// Whether this attribute's wire value comes from a caller argument rather than from
+    /// the builder itself — so an absent [`arg_path`] is an extraction gap rather than
+    /// nothing to address. A constant, a generated id, and an attribute with a recorded
+    /// fixed [`value`] (WA's `OPTIONAL_LITERAL`, whose argument is a presence flag) all
+    /// read none.
+    ///
+    /// Says nothing about whether the value is required, only about where it comes from.
+    ///
+    /// [`arg_path`]: WapAttrDef::arg_path
+    /// [`value`]: WapAttrDef::value
+    pub fn reads_argument(&self) -> bool {
+        !matches!(self.kind, WapAttrKind::Const | WapAttrKind::GeneratedId) && self.value.is_none()
+    }
+}
+
+impl WapContent {
+    /// Whether this payload comes from a caller argument rather than from the builder —
+    /// the same question [`WapAttrDef::reads_argument`] asks, for element content. A
+    /// `const` string or a fixed byte payload reads none.
+    pub fn reads_argument(&self) -> bool {
+        self.kind != WapContentKind::Const && self.const_bytes.is_none()
+    }
+}
+
+impl WapChildNode {
+    /// Whether a `WASmaxChildren` combinator fed this child — `REPEATED_CHILD`,
+    /// `OPTIONAL_CHILD` or `HAS_OPTIONAL_CHILD` — so it has an argument of its own for
+    /// [`arg_path`] to address. A child built unconditionally in the builder body has no
+    /// argument object behind it and is not missing an address by lacking one.
+    ///
+    /// [`arg_path`]: WapChildNode::arg_path
+    pub fn is_combinator_fed(&self) -> bool {
+        self.repeats || !self.presence.is_required()
+    }
+}
+
 /// The kind of leaf payload a request node carries in its element content
 /// (`wap("id", null, BIG_ENDIAN_CONTENT(x, 3))` → the `<id>` node's content).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

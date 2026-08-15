@@ -1026,7 +1026,7 @@ fn iq_builder_counts(ir: &wa_ir::IqIr) -> IqBuilderCounts {
             c.element_values += 1;
             // A `const`/`const_bytes` payload is written by the builder itself, so there
             // is no argument to address and its absence is not a gap.
-            if content.kind != wa_ir::WapContentKind::Const && content.const_bytes.is_none() {
+            if content.reads_argument() {
                 if content.arg_path.is_some() {
                     c.arg_path_contents += 1;
                 } else {
@@ -1042,7 +1042,7 @@ fn iq_builder_counts(ir: &wa_ir::IqIr) -> IqBuilderCounts {
         if node.repeats && (node.repeat_min.is_some() || node.repeat_max.is_some()) {
             c.repeat_bounds += 1;
         }
-        if node.repeats || !node.presence.is_required() {
+        if node.is_combinator_fed() {
             if node.arg_path.is_some() {
                 c.arg_path_children += 1;
             } else {
@@ -1070,11 +1070,7 @@ fn iq_builder_counts(ir: &wa_ir::IqIr) -> IqBuilderCounts {
         // a presence flag rather than the value. Counting the last as unresolved reported
         // eight extraction gaps that do not exist — and contradicted the contract test,
         // which already asks whether an attribute reads an argument at all.
-        if matches!(
-            a.kind,
-            wa_ir::WapAttrKind::Const | wa_ir::WapAttrKind::GeneratedId
-        ) || a.value.is_some()
-        {
+        if !a.reads_argument() {
             return;
         }
         if a.arg_path.is_some() {

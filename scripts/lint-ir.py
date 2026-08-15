@@ -1110,12 +1110,16 @@ def check_arg_path(node, path, errors):
       `REPEATED_CHILD` and a single object for `OPTIONAL_CHILD` /
       `HAS_OPTIONAL_CHILD`; getting it backwards is precisely the confusion that writes
       a value where the vendor builder never reads;
-    * an ATTRIBUTE's or CONTENT's path never ends in `[]`. It inherits its node's prefix,
-      so an earlier segment may well be a list — `participantArgs[] → participantJid` —
-      but the final segment is a key read off one element, not the array.
+    * an ATTRIBUTE's or CONTENT's path ends in `[]` only when it is the node's OWN path —
+      the value is then the list element itself, which is what a list of scalars looks
+      like (`REPEATED_CHILD(t, productIds)` with `t(v){ wap("id", null, v) }`). Any other
+      trailing `[]` on a value says the value is the whole array, which is the confusion
+      that writes `participantArgs.participantJid` where the builder reads
+      `participantArgs[0].participantJid`.
 
     Driven from the `argPath` ARRAY wherever it appears, so a node, an attribute and an
-    element content are all covered; a node is told apart by carrying a `tag`.
+    element content are all covered; a node is told apart by carrying a `tag`. The value
+    rule is checked from the NODE, because only there is the node's own path in hand.
     """
     p = node.get("argPath")
     if p is None:
@@ -1137,11 +1141,22 @@ def check_arg_path(node, path, errors):
             errors.append(
                 f"{path}/argPath: repeated child whose path does not address a list"
             )
-    elif tail_is_list:
-        errors.append(
-            f"{path}/argPath: a value path ends in a list marker — its last segment is "
-            f"read off an element, not off the array"
-        )
+        values = [
+            (f"{path}/attrs/{i}/argPath", a.get("argPath"))
+            for i, a in enumerate(node.get("attrs") or [])
+        ]
+        content = node.get("content") or {}
+        if content.get("argPath"):
+            values.append((f"{path}/content/argPath", content["argPath"]))
+        for at, vp in values:
+            if not isinstance(vp, list) or not vp or not vp[-1].get("list"):
+                continue
+            if vp != p:
+                errors.append(
+                    f"{at}: a value path ends in a list marker without being the node's "
+                    f"own list — its last segment is read off an element, not off the array"
+                )
+
 
 
 def check_request_child_cardinality(node, path, errors):
@@ -1172,9 +1187,18 @@ def check_request_child_cardinality(node, path, errors):
             # plus a fixed payload, and rejecting it outright would block a regeneration
             # over a perfectly consumable node. What cannot be true is a marker whose
             # payload needs a VALUE, since the flag supplies none and nothing else can.
+            # Variant-group attributes count too: a marker whose disjunction carries a
+            # runtime attribute is exactly as unmodellable as one carrying it directly,
+            # and reading only `attrs` is how a guard passes by not looking.
+            variant_attrs = [
+                a
+                for g in c.get("variantGroups") or []
+                for v in g.get("variants") or []
+                for a in v.get("attrs") or []
+            ]
             needy = [
                 a.get("name")
-                for a in c.get("attrs") or []
+                for a in (c.get("attrs") or []) + variant_attrs
                 if a.get("kind") not in ("const", "generated_id")
             ]
             if needy:

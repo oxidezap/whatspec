@@ -262,11 +262,12 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                         // for scoped-initializer (`owner_fn`) checks.
                         Some(ce.span().start as usize),
                     ));
-                    // See `try_iq_call`: a builder with no single options object
-                    // publishes no paths, inlined subtrees included.
-                    enforce_argument_boundary(&mut children, self.scope, ce.span().start as usize);
                 }
             }
+            // See `try_iq_call`: a builder with no single options object publishes no
+            // paths, inlined subtrees included. Once for the whole call — every child
+            // shares the frame that built it.
+            enforce_argument_boundary(&mut children, self.scope, call.span().start as usize);
             self.out.push(StanzaDef {
                 stanza_type,
                 direction: Direction::Outgoing,
