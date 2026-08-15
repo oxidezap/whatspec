@@ -208,10 +208,19 @@ impl WapAttrDef {
 
 impl WapContent {
     /// Whether this payload comes from a caller argument rather than from the builder —
-    /// the same question [`WapAttrDef::reads_argument`] asks, for element content. A
-    /// `const` string or a fixed byte payload reads none.
+    /// the same question [`WapAttrDef::reads_argument`] asks, for element content. Only a
+    /// [`WapContentKind::Const`] reads none: the builder writes that literal itself.
+    ///
+    /// A [`const_bytes`] payload still does. It is *pinned* rather than written — every
+    /// call site in the bundle passes the same compile-time constant — so the argument
+    /// exists and a consumer calling the builder must supply it. The two facts answer
+    /// different questions: [`arg_path`] says where the value goes, `const_bytes` says
+    /// what to put there.
+    ///
+    /// [`const_bytes`]: WapContent::const_bytes
+    /// [`arg_path`]: WapContent::arg_path
     pub fn reads_argument(&self) -> bool {
-        self.kind != WapContentKind::Const && self.const_bytes.is_none()
+        self.kind != WapContentKind::Const
     }
 }
 

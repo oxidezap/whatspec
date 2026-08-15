@@ -253,6 +253,38 @@ fn every_combinator_child_of_a_smax_builder_is_addressable() {
 }
 
 #[test]
+fn a_pinned_constant_payload_keeps_its_address() {
+    // `<link_code_pairing_nonce>` is one byte of zero at every call site, which is how
+    // `constBytes` got there. That does not make it builder-written: the payload is still
+    // read from an argument, so it keeps the address a consumer has to write that byte
+    // at. Dropping either fact leaves a caller unable to make the request — one without
+    // knowing where, the other without knowing what.
+    let Some(ir) = committed_ir() else { return };
+    let s = ir
+        .stanzas
+        .iter()
+        .find(|s| s.module_name == "WASmaxOutMdCompanionHelloRequest")
+        .expect("the companion hello request");
+    let nonce = request_nodes(s)
+        .into_iter()
+        .find(|n| n.tag == "link_code_pairing_nonce")
+        .expect("the nonce element");
+    let c = nonce.content.as_ref().expect("content");
+    assert_eq!(c.const_bytes.as_deref(), Some("00"));
+    assert_eq!(
+        c.arg_path
+            .as_ref()
+            .map(|p| p.iter().map(|s| s.key.as_str()).collect::<Vec<_>>()),
+        Some(vec![
+            "linkCodePairingNonceArgs",
+            "linkCodePairingNonceElementValue"
+        ]),
+        "pinned, not written: the argument is still there"
+    );
+    assert!(c.reads_argument(), "and the IR's own predicate says so");
+}
+
+#[test]
 fn a_key_bundle_fetch_descends_into_its_union() {
     // `PreKeysFetchKeyBundles` is how every client gets the keys to send a first
     // message, and its whole payload sits inside a `…MixinGroup` disjunction. A field

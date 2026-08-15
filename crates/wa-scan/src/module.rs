@@ -419,13 +419,15 @@ impl<'a> Visit<'a> for ModuleScanner<'_> {
         }
 
         // Collect `o("WASmaxOut…").merge…Mixin(…)` references so the post-walk
-        // pass can resolve xmlns/type from those mixins' fragments.
+        // pass can resolve xmlns/type from those mixins' fragments. EVERY call is kept,
+        // including a second one to the same module: the two may hand it different
+        // argument objects, and which prefix a contribution needs is decided where the
+        // chain is walked, not here.
         if let Some(method) = callee_method(call)
             && method.starts_with("merge")
             && method.contains("Mixin")
             && let Some(name) = callee_object(call).and_then(require_module_name)
             && name.starts_with("WASmaxOut")
-            && !self.mixin_callees.iter().any(|c| c.module == name)
         {
             // The argument this request hands the mixin is the prefix its contribution
             // needs; recorded here because the fold happens in a later pass that walks

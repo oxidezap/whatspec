@@ -70,10 +70,11 @@ pub(crate) struct MixinIqFragment {
     pub iq_type: Option<IqType>,
     /// `to:"g.us"` → Group; otherwise (S_WHATSAPP_NET / absent) → Server.
     pub target: Option<IqTarget>,
-    /// Other `WASmaxOut…` mixins this mixin folds in, in source order with duplicates
-    /// removed — for transitive resolution (e.g. a Hack mixin whose `type` comes from a
-    /// Base mixin it calls), each with the argument this mixin handed it so the fold can
-    /// rebase what it contributes.
+    /// Other `WASmaxOut…` mixins this mixin folds in, in source order — for transitive
+    /// resolution (e.g. a Hack mixin whose `type` comes from a Base mixin it calls), each
+    /// with the argument this mixin handed it so the fold can rebase what it contributes.
+    /// A module merged twice appears twice: the two calls may hand it different objects,
+    /// and collapsing them here would silently keep the first one's address.
     pub merged_callees: Vec<MergeCallee>,
     /// The children the mixin's inner `smax("iq", …, children)` fragment adds to
     /// the `<iq>` (e.g. `BaseReportMixin` → `spam_list{spam_flow}`). Merged by tag
@@ -346,7 +347,6 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
             && method.contains("Mixin")
             && let Some(name) = callee_object(call).and_then(require_module_name)
             && name.starts_with("WASmaxOut")
-            && !self.frag.merged_callees.iter().any(|c| c.module == name)
         {
             let arg = crate::request::MergeArg::of_in_mixin(
                 call,
@@ -443,27 +443,46 @@ pub(crate) fn resolve_fragment_children(
     index: &MixinIndex,
     mixin_modules: &[MergeCallee],
 ) -> Vec<WapChildNode> {
-    let mut visited = std::collections::HashSet::new();
+    // Two passes, because a module can be reached more than once — merged twice by one
+    // frame, or by two frames in a diamond — and the prefixes may disagree. The
+    // contribution is merged ONCE, so it can carry only one address; when the reaches
+    // disagree there is no single answer and the fold takes none.
+    let mut order: Vec<String> = Vec::new();
+    let mut reach: std::collections::HashMap<String, MergeArg> = std::collections::HashMap::new();
     let mut queue: std::collections::VecDeque<(String, MergeArg)> = mixin_modules
         .iter()
         .map(|c| (c.module.clone(), c.arg.clone()))
         .collect();
-    let mut out: Vec<WapChildNode> = Vec::new();
     while let Some((name, acc)) = queue.pop_front() {
-        if !visited.insert(name.clone()) {
-            continue;
-        }
+        let next = match reach.get(&name) {
+            // The same route again — nothing to revise, and nothing below it either.
+            Some(prev) if *prev == acc => continue,
+            // Reached before, by a route naming something else. Same disagreement rule
+            // as everywhere else here: two addresses for one thing is no address at all.
+            // Re-expanded so what hangs below it becomes unnameable too; `Unnameable`
+            // absorbs, so that settles in one more round rather than looping.
+            Some(_) => MergeArg::Unnameable,
+            None => {
+                order.push(name.clone());
+                acc
+            }
+        };
+        reach.insert(name.clone(), next.clone());
         let Some(frag) = index.get(&name) else {
             continue;
         };
-        let mut contributed = frag.children.clone();
-        acc.apply(&mut contributed);
-        merge_children(&mut out, &contributed);
         for c in &frag.merged_callees {
-            if !visited.contains(&c.module) {
-                queue.push_back((c.module.clone(), acc.then(&c.arg)));
-            }
+            queue.push_back((c.module.clone(), next.then(&c.arg)));
         }
+    }
+    let mut out: Vec<WapChildNode> = Vec::new();
+    for name in &order {
+        let Some(frag) = index.get(name) else {
+            continue;
+        };
+        let mut contributed = frag.children.clone();
+        reach[name].apply(&mut contributed);
+        merge_children(&mut out, &contributed);
     }
     out
 }
@@ -939,6 +958,37 @@ mod tests {
             attr_path(&kids[0], "platform"),
             vec!["groupArgs", "setConfig", "configPlatform"],
             "the request's address, not the innermost mixin's"
+        );
+    }
+
+    #[test]
+    fn two_call_sites_that_disagree_leave_no_address() {
+        // One contribution, merged once, cannot carry two addresses. A mixin merged twice
+        // with different argument objects — or reached by two routes of a diamond — has
+        // no single prefix, and keeping the first would publish it for the second's
+        // callers as well.
+        let mut inner = frag(Some("push"), Some(IqType::Set), &[]);
+        let mut cfg = node("config", &["platform"], vec![]);
+        cfg.attrs[0].arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "configPlatform".to_string(),
+            list: false,
+        }]);
+        inner.children = vec![cfg];
+        let idx = index(&[("Inner", inner)]);
+
+        let kids =
+            resolve_fragment_children(&idx, &[keyed("Inner", "left"), keyed("Inner", "right")]);
+        assert!(
+            attr_path(&kids[0], "platform").is_empty(),
+            "{:?}",
+            kids[0].attrs
+        );
+        // And agreeing routes are not a disagreement.
+        let kids =
+            resolve_fragment_children(&idx, &[keyed("Inner", "left"), keyed("Inner", "left")]);
+        assert_eq!(
+            attr_path(&kids[0], "platform"),
+            vec!["left", "configPlatform"]
         );
     }
 

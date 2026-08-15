@@ -1148,6 +1148,15 @@ def check_arg_path(node, path, errors):
         content = node.get("content") or {}
         if content.get("argPath"):
             values.append((f"{path}/content/argPath", content["argPath"]))
+            # A `const` payload is a literal the builder writes itself, so there is no
+            # argument to address. A `constBytes` one is *pinned* rather than written —
+            # every call site passes the same constant — so it keeps its address, and the
+            # two facts answer different questions.
+            if content.get("kind") == "const":
+                errors.append(
+                    f"{path}/content/argPath: a literal the builder writes itself has no "
+                    f"argument to address"
+                )
         for at, vp in values:
             if not isinstance(vp, list) or not vp or not vp[-1].get("list"):
                 continue
