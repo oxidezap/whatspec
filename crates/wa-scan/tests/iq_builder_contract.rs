@@ -221,7 +221,15 @@ fn every_combinator_child_of_a_smax_builder_is_addressable() {
             if addressed && n.arg_path.is_none() {
                 missing.push(format!("{}: <{}> node", s.module_name, n.tag));
             }
-            for a in &n.attrs {
+            // Variant-group attributes included. Walking only `n.attrs` made this pass
+            // by not looking: the seven unaddressed attributes below all live inside a
+            // disjunction, and the claim read as though it covered them.
+            let variant_attrs = n
+                .variant_groups
+                .iter()
+                .flat_map(|g| &g.variants)
+                .flat_map(|v| &v.attrs);
+            for a in n.attrs.iter().chain(variant_attrs) {
                 // An attribute reads an argument unless the builder supplies the value
                 // itself: a `Const`, a locally generated id, or an `OPTIONAL_LITERAL`
                 // whose recorded `value` is the literal and whose argument is a boolean
@@ -243,7 +251,25 @@ fn every_combinator_child_of_a_smax_builder_is_addressable() {
             }
         }
     }
-    assert!(missing.is_empty(), "unaddressable: {missing:?}");
+    // One request is knowingly short, pinned by identity so it cannot grow or spread
+    // silently. `PushConfigSet` hands its mixin a sub-object rather than the whole
+    // argument object, and those seven attributes arrive through the Phase-2
+    // by-module-name closure, which walks `merged_callees` with no call site in hand and
+    // so cannot rebase them onto the request's arguments. Clearing that route wholesale
+    // removes 68 paths of which most are correct — most mixins are handed the whole
+    // object, making their relative paths already absolute — so the fix is to record each
+    // merge call's argument beside its callee in the mixin index, which is its own
+    // change. Until then the residue is stated rather than asserted away.
+    let known: Vec<&String> = missing
+        .iter()
+        .filter(|m| !m.starts_with("WASmaxOutPushConfigSetRequest: <config> @"))
+        .collect();
+    assert!(known.is_empty(), "unaddressable: {known:?}");
+    assert_eq!(
+        missing.len(),
+        7,
+        "the PushConfigSet residue changed size: {missing:?}"
+    );
 }
 
 #[test]
