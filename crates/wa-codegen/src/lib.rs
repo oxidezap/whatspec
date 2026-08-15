@@ -260,7 +260,7 @@ mod tests {
             method: method.into(),
             name: name.into(),
             field_type: ty,
-            required: true,
+            parser_required: true,
             ..Default::default()
         }
     }
@@ -331,7 +331,7 @@ mod tests {
             let mut c = parsed("child", "detail", ParsedFieldType::String);
             c.tag = Some("detail".into());
             let mut leaf = parsed("contentString", "content", ParsedFieldType::String);
-            leaf.required = leaf_required;
+            leaf.parser_required = leaf_required;
             c.children = Some(vec![leaf]);
             c
         };
@@ -632,7 +632,7 @@ mod tests {
                         // conditional makes a field optional without renaming its
                         // accessor, and 108 such JID fields are live in the artifact.
                         ParsedField {
-                            required: false,
+                            parser_required: false,
                             ..parsed("attrUserJid", "to", ParsedFieldType::UserJid)
                         },
                     ],
@@ -821,14 +821,14 @@ mod tests {
                 module_name: "WAWebAck".into(),
                 namespace: "w:x".into(),
                 iq_type: IqType::Set,
-                target: IqTarget::Group,
+                target: IqTarget::GroupServer,
                 parser_name: "p".into(),
                 exported_function: None,
                 all_exports: vec![],
                 request: IqRequestDef {
                     namespace: "w:x".into(),
                     iq_type: IqType::Set,
-                    target: IqTarget::Group,
+                    target: IqTarget::GroupServer,
                     children: vec![],
                 },
                 response: ParsedResponse {

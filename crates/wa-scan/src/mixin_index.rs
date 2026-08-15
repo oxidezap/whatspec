@@ -45,7 +45,10 @@ pub(crate) struct MixinIqFragment {
     /// `type`: inline `type:"get"/"set"`, else inferred from the Get/Set token in
     /// the merge-fn name. `None` if neither.
     pub iq_type: Option<IqType>,
-    /// `to:"g.us"` → Group; otherwise (S_WHATSAPP_NET / absent) → Server.
+    /// Who the fragment's `to` addresses, read by the same rule as a request's own root
+    /// ([`crate::module::iq_target_from_to`]). `None` when the fragment writes no `to` at
+    /// all — distinct from [`IqTarget::Unknown`], which is a `to` that resolved to no
+    /// server.
     pub target: Option<IqTarget>,
     /// Other `WASmaxOut…` mixins this mixin folds in (by module name), in source
     /// order with duplicates removed — for transitive resolution (e.g. a Hack
@@ -283,16 +286,9 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                     Some("set") => self.frag.iq_type = Some(IqType::Set),
                     _ => {}
                 }
-                let to_group = attrs.iter().any(|a| {
-                    a.name == "to"
-                        && a.kind == WapAttrKind::Const
-                        && a.value.as_deref() == Some("g.us")
-                });
-                if to_group {
-                    self.frag.target = Some(IqTarget::Group);
-                } else if attrs.iter().any(|a| a.name == "to") {
-                    self.frag.target = Some(IqTarget::Server);
-                }
+                // Same rule as a request's own root, so a fragment's `to` and a
+                // request's cannot be read differently.
+                self.frag.target = crate::module::iq_target_from_to(&attrs);
             }
             // The fragment's own children (e.g. `spam_list{spam_flow}`) — merged by
             // tag into a Request's children so cross-module attrs/children survive.
@@ -348,6 +344,7 @@ pub(crate) fn resolve(
     let mut iq_type: Option<IqType> = None;
     let mut type_conflict = false;
     let mut target: Option<IqTarget> = None;
+    let mut target_conflict = false;
 
     while let Some(name) = queue.pop_front() {
         if !visited.insert(name.clone()) {
@@ -370,11 +367,19 @@ pub(crate) fn resolve(
                 _ => {}
             }
         }
-        // First Group wins for target; Server is the default elsewhere.
-        if target != Some(IqTarget::Group)
-            && let Some(tg) = frag.target
-        {
-            target = Some(tg);
+        // Two fragments naming DIFFERENT addressees is not a precedence question. WA
+        // writes runtime routers as mixin groups — `mergeBaseGetGroupOrServerMixinGroup`
+        // is `if (args.baseGetGroup) …GroupMixin else if (args.isBaseGetServer)
+        // …ServerMixin`, and the closure reaches both arms — so a request folding one in
+        // has two possible addressees and the argument decides. Picking either publishes
+        // an address the client may not send to, which is this whole change's subject
+        // one level in. Recorded as a conflict, exactly like `xmlns` and `type` above.
+        if let Some(tg) = frag.target {
+            match target {
+                None => target = Some(tg),
+                Some(prev) if prev != tg => target_conflict = true,
+                _ => {}
+            }
         }
         for c in &frag.merged_callees {
             if !visited.contains(c) {
@@ -386,7 +391,14 @@ pub(crate) fn resolve(
     (
         if xmlns_conflict { None } else { xmlns },
         if type_conflict { None } else { iq_type },
-        target,
+        // `Unknown`, not `None`: a fragment DID name an addressee, so the request has one
+        // — reporting nothing would let the caller read it as `unset` and send no `to`.
+        // What is unknown is which of them, which is what `Unknown` says.
+        if target_conflict {
+            Some(IqTarget::Unknown)
+        } else {
+            target
+        },
     )
 }
 
@@ -545,6 +557,56 @@ mod tests {
             by_module.insert(k.to_string(), v.clone());
         }
         MixinIndex { by_module }
+    }
+
+    #[test]
+    fn two_fragments_naming_different_addressees_name_neither() {
+        // WA writes runtime routers as mixin groups —
+        // `mergeBaseGetGroupOrServerMixinGroup` is `if (args.baseGetGroup) …GroupMixin
+        // else if (args.isBaseGetServer) …ServerMixin` — and the transitive walk reaches
+        // both arms. Whichever the walk picked, the published addressee would be one the
+        // client may not use: `GetGroupProfilePictures` addresses a group's own JID or
+        // the group server, and the caller's argument decides. `xmlns` and `type` have
+        // recorded conflicts in this function all along; the addressee had not.
+        let with_target = |t: IqTarget| {
+            let mut f = frag(Some("x"), Some(IqType::Get), &[]);
+            f.target = Some(t);
+            f
+        };
+        for (first, second) in [
+            (IqTarget::Server, IqTarget::GroupServer),
+            (IqTarget::Server, IqTarget::GroupJid),
+            (IqTarget::GroupServer, IqTarget::GroupJid),
+            (IqTarget::Unknown, IqTarget::Server),
+            (IqTarget::Server, IqTarget::Unknown),
+        ] {
+            let idx = index(&[("A", with_target(first)), ("B", with_target(second))]);
+            let (_, _, got) = resolve(&idx, &["A".into(), "B".into()]);
+            assert_eq!(
+                got,
+                Some(IqTarget::Unknown),
+                "{first:?} vs {second:?}: two addressees, so neither is the answer"
+            );
+        }
+
+        // Agreement is not a conflict, and one fragment naming an addressee still
+        // resolves it — the union must not become useless in the name of caution.
+        let idx = index(&[
+            ("A", with_target(IqTarget::GroupJid)),
+            ("B", with_target(IqTarget::GroupJid)),
+        ]);
+        assert_eq!(
+            resolve(&idx, &["A".into(), "B".into()]).2,
+            Some(IqTarget::GroupJid)
+        );
+        let idx = index(&[
+            ("A", frag(Some("x"), Some(IqType::Get), &[])),
+            ("B", with_target(IqTarget::Server)),
+        ]);
+        assert_eq!(
+            resolve(&idx, &["A".into(), "B".into()]).2,
+            Some(IqTarget::Server)
+        );
     }
 
     #[test]

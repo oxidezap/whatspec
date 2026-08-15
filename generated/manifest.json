@@ -32,6 +32,14 @@
       },
       "excludedFragments": 66,
       "stanzas": 143,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 138,
+        "server": 106,
+        "unknown": 5,
+        "unset": 0
+      },
       "typedResponses": 139,
       "unparseable": 5
     },
@@ -54,37 +62,37 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "8e935cd88d28fa8e2c87dee73405a4611266f7bdd4c0f6f62c2764656fc29c0a"
+      "sha256": "8f55c73c67c6ee632d81f3240861883ec0026abc524bdb32a73dcd500b031336"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "3ab0c56c54d0ba6c0e2e5b319737b799258f881a158deada1dcf8c6233d84eb8"
+      "sha256": "86fd39f3e7c709fe6f44c6c968aa0ef73203f321bba5b95815ba0c0738fb139f"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "031e7e83d08ab71be97fe23e056e99ad590bd23dd49aec34061670d49819ed03"
+      "sha256": "bd8bc2a97ab35967978aeca3aa0b0b48e95da1a0f0aa4f062e01d2e4cb457799"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "18c955020acfc3ea86bedb4186aac951ccafdf26ede0b05554926a3157d7749e"
+      "sha256": "dc5700e2f8400d76f2b49876cbd860504d63b05f59db0ec3c9f67b858f9a1c83"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "e59a905faf82c17a0ea21bb20b8b16f87d91fbc04cbaba3d74be7f231b0b2beb"
+      "sha256": "abe219f06bea1138af6b6e6970f47ace0120dfb8d87e34eed274aa4121338a9b"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "e381c86874d16ec39d817fd85592b6b5e4423a68831219d5b790341993fd0b1f"
+      "sha256": "7d5fd5ff2dde0acebbc1b780eb728f93beb5b1490c8c56896bd5ad10292e4826"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "cc09f68856975f293e7eae1bf9e5960a2b210e0b220874d5a49ef45cb9b7e0c6"
+      "sha256": "a9bf2d409d11eb52fc03d39c8a6d8c170f4e5920134c6cd425191d688279f6a6"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -93,37 +101,37 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "baec73c91ac79abc8a94f7da62ea5ae7241c1af3b44d68d5392ea46fa0d05ccd"
+      "sha256": "785f32b10c5a92a6f9e43e07efba4af63e4602cdd5857a5323df06b353ee35b1"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "57be7bb39e0e5514e1c2c0ee9aa9a22b11f7d2b53893d0b908fdbc9c7bdfffa8"
+      "sha256": "95aee43b67cf84ce7556298bc110f2af09cb7bdc85ed3351152285e6e38309ee"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "6d45399515cdc6ec55528aa56e36ecf566f06290039e3ed37a5561a272cb89f9"
+      "sha256": "a7ffc66bedf994e007268ace0ce64a17c0bb04e8d28fcd4770c1d1aa25d70ca6"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "58c0e27e87a88b36a66a39f0202a9ca39679d2345ee5e31c92e74baca316784a"
+      "sha256": "4bc2f0147ffd95e1d46d0c3c1c032ffcc41e210a7e1eaf7c34c7826a62778ae1"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "eb728ed0e4d2a6c8952a6369b4adc79c2c9ddd1ba0fe2719a2f1209a6a42e461"
+      "sha256": "dd590de1b1f785057d7c5a722f95b356865d50c9c8b687c83b8ed65e6a445df7"
     }
   },
-  "enumDefs": 328,
+  "enumDefs": 403,
   "generatorVersion": "0.1.0",
   "incomingDefs": 16,
   "iqModules": 33,
   "mexOperations": 137,
   "notifTypes": 27,
   "protoEntities": 268,
-  "schemaVersion": "2.0.0",
+  "schemaVersion": "3.0.0",
   "serverRequestDefs": 22,
   "stanzaDefs": 179,
   "tokenDoubleByte": 1024,

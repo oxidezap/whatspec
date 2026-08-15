@@ -214,15 +214,19 @@ pub fn extract_notif_with_diagnostics(
             .entry("action enum table not structurally resolvable".to_string())
             .or_default() += action_enum_drops;
     }
-    (
-        NotifIr {
-            wa_version: wa_version.to_string(),
-            dispatcher_modules,
-            stanza_tags: dispatch.stanza_tags,
-            notifications: dispatch.notifications,
-        },
-        drops,
-    )
+    let mut ir = NotifIr {
+        wa_version: wa_version.to_string(),
+        dispatcher_modules,
+        stanza_tags: dispatch.stanza_tags,
+        notifications: dispatch.notifications,
+    };
+    // Here, not in the caller. This is where the versioned IR is minted, and
+    // `unknownValue` is part of what it says — a library consumer serializing what a
+    // documented extractor returns must not get a document `lint-ir.py` would reject for
+    // a normalization step it was never told about. The pass fills silence only, so the
+    // pipeline's own call after this one is a no-op rather than a conflict.
+    ir.classify_accessors();
+    (ir, drops)
 }
 
 /// Fold one dispatcher's arms into the accumulated catalog. New tags/types are

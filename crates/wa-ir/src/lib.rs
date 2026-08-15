@@ -93,8 +93,34 @@ pub enum Scalar {
 /// The migration is one variant wide: handle (or ignore) `kind: "reference"` on response
 /// assertions. Everything else in 2.0.0 is opt-in.
 ///
+/// # 3.0.0 — why the major bump
+///
+/// The same rule applied to ourselves. This release stops three fields from asserting
+/// something the extractor did not establish, and each of the three does it by widening
+/// or renaming an existing field rather than by adding an optional one:
+///
+/// - [`IqTarget`] gained `unset` and `unknown`. All 143 stanzas used to say
+///   `s.whatsapp.net` because the enum had nowhere else to put "not resolved" — the 33
+///   `w:g2` requests included, which the client addresses to the group. A closed-enum
+///   2.x consumer now rejects the document instead of silently reading the two new
+///   states as absent.
+/// - [`ParsedFieldType`] gained `node`, and 617 fields that declared `string` while
+///   carrying children now declare it. A consumer switching on `type` sees a value it
+///   has no arm for — which is the point, since the arm it *had* was wrong.
+/// - `ParsedField`'s `required` is now [`parserRequired`]. A rename rather than a doc
+///   fix because the old name stated a wire fact the field never carried; a consumer
+///   reading the old key gets `undefined`, which fails loudly instead of defaulting to
+///   "optional".
+///
+/// The rest is additive: [`ParsedField::unknown_value`], the two enum-catalog flags, and
+/// the enums catalog growing to cover every `enumRef` in the IR.
+///
 /// [`AssertionKind`]: crate::AssertionKind
-pub const SCHEMA_VERSION: &str = "2.0.0";
+/// [`IqTarget`]: crate::IqTarget
+/// [`ParsedFieldType`]: crate::ParsedFieldType
+/// [`parserRequired`]: crate::ParsedField::parser_required
+/// [`ParsedField::unknown_value`]: crate::ParsedField::unknown_value
+pub const SCHEMA_VERSION: &str = "3.0.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

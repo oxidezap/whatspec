@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.0.0",
+  "schemaVersion": "3.0.0",
   "waVersion": "2.3000.1044659339",
   "enums": [
     {
@@ -656,6 +656,46 @@
       ]
     },
     {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInAbPropsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_BRP2PCONSENT_BRPAYPRIVACYPOLICY_BRPAYTOS_BRPAYWATOS",
+      "module": "WASmaxInAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "br_p2p_consent",
+          "value": "br_p2p_consent"
+        },
+        {
+          "name": "br_pay_privacy_policy",
+          "value": "br_pay_privacy_policy"
+        },
+        {
+          "name": "br_pay_tos",
+          "value": "br_pay_tos"
+        },
+        {
+          "name": "br_pay_wa_tos",
+          "value": "br_pay_wa_tos"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
       "name": "ENUM_FBPAY_NOVI_UPI",
       "module": "WASmaxInAccountEnums",
       "valueKind": "string",
@@ -672,7 +712,88 @@
           "name": "UPI",
           "value": "UPI"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_PAYTOSV3_UPIPAYPRIVACYPOLICY",
+      "module": "WASmaxInAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "pay_tos_v3",
+          "value": "pay_tos_v3"
+        },
+        {
+          "name": "upi_pay_privacy_policy",
+          "value": "upi_pay_privacy_policy"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInBizCtwaActionEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_INFO_WARNING",
+      "module": "WASmaxInBizCtwaActionEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "info",
+          "value": "info"
+        },
+        {
+          "name": "warning",
+          "value": "warning"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FAIL_SUCCESS",
+      "module": "WASmaxInBizCtwaAdAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Fail",
+          "value": "Fail"
+        },
+        {
+          "name": "Success",
+          "value": "Success"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_STRONG_WEAK",
+      "module": "WASmaxInBizCtwaAdAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Strong",
+          "value": "Strong"
+        },
+        {
+          "name": "Weak",
+          "value": "Weak"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_CITY_COUNTRY_CUSTOMLOCATION_NEIGHBORHOOD_REGION_ZIP",
@@ -703,7 +824,8 @@
           "name": "ZIP",
           "value": "ZIP"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FACEBOOK_INSTAGRAM",
@@ -718,7 +840,72 @@
           "name": "INSTAGRAM",
           "value": "INSTAGRAM"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_IMAGE_VIDEO",
+      "module": "WASmaxInBizCtwaNativeAdEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "video",
+          "value": "video"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_DISABLE_IMPORT",
+      "module": "WASmaxInBizLinkingEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "disable",
+          "value": "disable"
+        },
+        {
+          "name": "import",
+          "value": "import"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInBizLinkingEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_OFF_ON",
+      "module": "WASmaxInBizLinkingEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "off",
+          "value": "off"
+        },
+        {
+          "name": "on",
+          "value": "on"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ELIGIBLETOONBOARD_NOTELIGIBLE_ONBOARDED",
@@ -737,7 +924,8 @@
           "name": "ONBOARDED",
           "value": "ONBOARDED"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FAIL_PAUSED_SUCCESS_WARNING",
@@ -760,7 +948,8 @@
           "name": "WARNING",
           "value": "WARNING"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FAIL_SUCCESS",
@@ -775,7 +964,24 @@
           "name": "SUCCESS",
           "value": "SUCCESS"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInBizMarketingMessageEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_DISCOVERABLE_HIDDEN_UNDEFINED",
@@ -794,7 +1000,164 @@
           "name": "UNDEFINED",
           "value": "UNDEFINED"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_NOTSET_TRUE",
+      "module": "WASmaxInBizSettingsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "notset",
+          "value": "notset"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_LID_PN",
+      "module": "WASmaxInBlocklistsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "lid",
+          "value": "lid"
+        },
+        {
+          "name": "pn",
+          "value": "pn"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ALL_CATEGORY_FEATURED",
+      "module": "WASmaxInBotEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "category",
+          "value": "category"
+        },
+        {
+          "name": "featured",
+          "value": "featured"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_DARK_LIGHT",
+      "module": "WASmaxInBotEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "dark",
+          "value": "dark"
+        },
+        {
+          "name": "light",
+          "value": "light"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_HIDDEN_HSCROLL_HSCROLLICEBREAKERS_HSCROLLLARGE_HSCROLLSMALL_LISTVIEW",
+      "module": "WASmaxInBotEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "hidden",
+          "value": "hidden"
+        },
+        {
+          "name": "hscroll",
+          "value": "hscroll"
+        },
+        {
+          "name": "hscroll_icebreakers",
+          "value": "hscroll_icebreakers"
+        },
+        {
+          "name": "hscroll_large",
+          "value": "hscroll_large"
+        },
+        {
+          "name": "hscroll_small",
+          "value": "hscroll_small"
+        },
+        {
+          "name": "listview",
+          "value": "listview"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_0_1",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "0",
+          "value": "0"
+        },
+        {
+          "name": "1",
+          "value": "1"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_0_1_2",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "0",
+          "value": "0"
+        },
+        {
+          "name": "1",
+          "value": "1"
+        },
+        {
+          "name": "2",
+          "value": "2"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_1_2",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "1",
+          "value": "1"
+        },
+        {
+          "name": "2",
+          "value": "2"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ACCOUNTPENDINGLINKING_ACTIVE_EXTERNALLYDISABLED_HARDBLOCKED_INACTIVE_INITED_INTEGRITYBLOCKED_PENDING_SOFTBLOCKED",
@@ -837,7 +1200,68 @@
           "name": "SOFT_BLOCKED",
           "value": "SOFT_BLOCKED"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ACTIVE_ACTIVEPENDING_ACTIVESTATUSPENDING_AVAILABLE_AVAILABLEPENDING_AVAILABLESTATUSPENDING_BLOCKED_DEREGISTERED_DEREGISTEREDPENDING_INACTIVE_INACTIVEPENDING_INACTIVESTATUSPENDING_UNKNOWN",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "active",
+          "value": "active"
+        },
+        {
+          "name": "active_pending",
+          "value": "active_pending"
+        },
+        {
+          "name": "active_status_pending",
+          "value": "active_status_pending"
+        },
+        {
+          "name": "available",
+          "value": "available"
+        },
+        {
+          "name": "available_pending",
+          "value": "available_pending"
+        },
+        {
+          "name": "available_status_pending",
+          "value": "available_status_pending"
+        },
+        {
+          "name": "blocked",
+          "value": "blocked"
+        },
+        {
+          "name": "deregistered",
+          "value": "deregistered"
+        },
+        {
+          "name": "deregistered_pending",
+          "value": "deregistered_pending"
+        },
+        {
+          "name": "inactive",
+          "value": "inactive"
+        },
+        {
+          "name": "inactive_pending",
+          "value": "inactive_pending"
+        },
+        {
+          "name": "inactive_status_pending",
+          "value": "inactive_status_pending"
+        },
+        {
+          "name": "unknown",
+          "value": "unknown"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ACTIVE_DELETED_INACTIVE_NEEDSRETOKENIZATION_NEEDSRETOKENIZATIONDELETED_SUSPENDED",
@@ -868,7 +1292,8 @@
           "name": "SUSPENDED",
           "value": "SUSPENDED"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ACTIVE_EXPIRED_SUSPENDED_VOIDED",
@@ -891,7 +1316,8 @@
           "name": "VOIDED",
           "value": "VOIDED"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ACTIVE_INACTIVE",
@@ -906,7 +1332,8 @@
           "name": "INACTIVE",
           "value": "INACTIVE"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_BANK_PREPAID_SUPPORT",
@@ -925,7 +1352,8 @@
           "name": "SUPPORT",
           "value": "SUPPORT"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_DISABLED_ENABLED_REQUIRESVERIFICATION",
@@ -944,7 +1372,8 @@
           "name": "REQUIRES_VERIFICATION",
           "value": "REQUIRES_VERIFICATION"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ELO_MASTERCARD_VISA",
@@ -963,7 +1392,8 @@
           "name": "VISA",
           "value": "VISA"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_EMAIL_PUSH_SMS_VACAT",
@@ -986,7 +1416,8 @@
           "name": "VACAT",
           "value": "VACAT"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FAILED_PENDING_VERIFIED",
@@ -1005,7 +1436,8 @@
           "name": "VERIFIED",
           "value": "VERIFIED"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_MASTERCARD_VISA",
@@ -1020,7 +1452,428 @@
           "name": "VISA",
           "value": "VISA"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_MOBILENUMBER_NUMERICID",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "mobile_number",
+          "value": "mobile_number"
+        },
+        {
+          "name": "numeric_id",
+          "value": "numeric_id"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_P2M_P2P",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "p2m",
+          "value": "p2m"
+        },
+        {
+          "name": "p2p",
+          "value": "p2p"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_PAYONDELIVERY_PIXKEY",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "pay_on_delivery",
+          "value": "pay_on_delivery"
+        },
+        {
+          "name": "pix_key",
+          "value": "pix_key"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_AIFROMMETA_AUTOMATION_BUSINESSPLATFORM",
+      "module": "WASmaxInCoexistenceEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ai_from_meta",
+          "value": "ai_from_meta"
+        },
+        {
+          "name": "automation",
+          "value": "automation"
+        },
+        {
+          "name": "business_platform",
+          "value": "business_platform"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_COMPLETED_FAILED",
+      "module": "WASmaxInCoexistenceEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "completed",
+          "value": "completed"
+        },
+        {
+          "name": "failed",
+          "value": "failed"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_304_419",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "304",
+          "value": "304"
+        },
+        {
+          "name": "419",
+          "value": "419"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_403_404_406_419",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "403",
+          "value": "403"
+        },
+        {
+          "name": "404",
+          "value": "404"
+        },
+        {
+          "name": "406",
+          "value": "406"
+        },
+        {
+          "name": "419",
+          "value": "419"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_404_406",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "404",
+          "value": "404"
+        },
+        {
+          "name": "406",
+          "value": "406"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_404_419",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "404",
+          "value": "404"
+        },
+        {
+          "name": "419",
+          "value": "419"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_406_500",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "406",
+          "value": "406"
+        },
+        {
+          "name": "500",
+          "value": "500"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ADMIN_SUPERADMIN",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "admin",
+          "value": "admin"
+        },
+        {
+          "name": "superadmin",
+          "value": "superadmin"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_APPROVED_INREVIEW_NONE_REJECTED",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "approved",
+          "value": "approved"
+        },
+        {
+          "name": "in_review",
+          "value": "in_review"
+        },
+        {
+          "name": "none",
+          "value": "none"
+        },
+        {
+          "name": "rejected",
+          "value": "rejected"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_E2EEMIGRATION_REGULAR_RTC",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "e2ee_migration",
+          "value": "e2ee_migration"
+        },
+        {
+          "name": "regular",
+          "value": "regular"
+        },
+        {
+          "name": "rtc",
+          "value": "rtc"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_GROUP_USER",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "group",
+          "value": "group"
+        },
+        {
+          "name": "user",
+          "value": "user"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_IMAGE_PREVIEW",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "preview",
+          "value": "preview"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_INVITELINK_LINKEDGROUPJOIN_NONADMINADD",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "invite_link",
+          "value": "invite_link"
+        },
+        {
+          "name": "linked_group_join",
+          "value": "linked_group_join"
+        },
+        {
+          "name": "non_admin_add",
+          "value": "non_admin_add"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_LID_PN",
+      "module": "WASmaxInGroupsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "lid",
+          "value": "lid"
+        },
+        {
+          "name": "pn",
+          "value": "pn"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInMdEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "1p_sticker",
+          "value": "1p_sticker"
+        },
+        {
+          "name": "audio",
+          "value": "audio"
+        },
+        {
+          "name": "avatar_sticker",
+          "value": "avatar_sticker"
+        },
+        {
+          "name": "cataloglink",
+          "value": "cataloglink"
+        },
+        {
+          "name": "collection",
+          "value": "collection"
+        },
+        {
+          "name": "document",
+          "value": "document"
+        },
+        {
+          "name": "genai_sticker",
+          "value": "genai_sticker"
+        },
+        {
+          "name": "gif",
+          "value": "gif"
+        },
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "motion_photo",
+          "value": "motion_photo"
+        },
+        {
+          "name": "motion_video",
+          "value": "motion_video"
+        },
+        {
+          "name": "productlink",
+          "value": "productlink"
+        },
+        {
+          "name": "ptt",
+          "value": "ptt"
+        },
+        {
+          "name": "ptv",
+          "value": "ptv"
+        },
+        {
+          "name": "sticker",
+          "value": "sticker"
+        },
+        {
+          "name": "sticker_pack",
+          "value": "sticker_pack"
+        },
+        {
+          "name": "url",
+          "value": "url"
+        },
+        {
+          "name": "user_created_sticker",
+          "value": "user_created_sticker"
+        },
+        {
+          "name": "vcard",
+          "value": "vcard"
+        },
+        {
+          "name": "video",
+          "value": "video"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ACCEPT_REJECT_UNKNOWN",
@@ -1039,7 +1892,8 @@
           "name": "UNKNOWN",
           "value": "UNKNOWN"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_ASPRESENTED_BIMONTHLY_DAILY_FORTNIGHTLY_HALFYEARLY_MONTHLY_ONETIME_QUARTERLY_UNKNOWN_WEEKLY_YEARLY",
@@ -1090,7 +1944,8 @@
           "name": "YEARLY",
           "value": "YEARLY"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_DEREGISTER_INITTOPUP_PAY_TOPUP",
@@ -1113,7 +1968,8 @@
           "name": "TOP_UP",
           "value": "TOP_UP"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_EXACT_MAX",
@@ -1128,7 +1984,8 @@
           "name": "MAX",
           "value": "MAX"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FAILED_PENDING_SUCCESS",
@@ -1147,7 +2004,8 @@
           "name": "SUCCESS",
           "value": "SUCCESS"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FAILURE_INIT_SUCCESS",
@@ -1166,7 +2024,8 @@
           "name": "SUCCESS",
           "value": "SUCCESS"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FBPAY_UPI",
@@ -1181,7 +2040,8 @@
           "name": "UPI",
           "value": "UPI"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_FULL_MISSINGFIELDNOTPARTIAL_PARTIAL",
@@ -1200,7 +2060,44 @@
           "name": "PARTIAL",
           "value": "PARTIAL"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "hd_image_dual_upload",
+          "value": "hd_image_dual_upload"
+        },
+        {
+          "name": "hd_video_dual_upload",
+          "value": "hd_video_dual_upload"
+        },
+        {
+          "name": "hevc_video_dual_upload",
+          "value": "hevc_video_dual_upload"
+        },
+        {
+          "name": "media_poll",
+          "value": "media_poll"
+        },
+        {
+          "name": "motion_photo",
+          "value": "motion_photo"
+        },
+        {
+          "name": "poll_add_option",
+          "value": "poll_add_option"
+        },
+        {
+          "name": "sticker_annotation",
+          "value": "sticker_annotation"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_CBP_NBP_PMP",
@@ -1219,7 +2116,328 @@
           "name": "PMP",
           "value": "PMP"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_DELIVERY_NOOPTIMIZATION",
+      "module": "WASmaxInMessagePublishEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "delivery",
+          "value": "delivery"
+        },
+        {
+          "name": "no_optimization",
+          "value": "no_optimization"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInMessagePublishEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FREECUSTOMERSERVICE_FREEENTRYPOINT_REGULAR",
+      "module": "WASmaxInMessagePublishEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "free_customer_service",
+          "value": "free_customer_service"
+        },
+        {
+          "name": "free_entry_point",
+          "value": "free_entry_point"
+        },
+        {
+          "name": "regular",
+          "value": "regular"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+      "module": "WASmaxInNewslettersEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "1p_sticker",
+          "value": "1p_sticker"
+        },
+        {
+          "name": "audio",
+          "value": "audio"
+        },
+        {
+          "name": "avatar_sticker",
+          "value": "avatar_sticker"
+        },
+        {
+          "name": "cataloglink",
+          "value": "cataloglink"
+        },
+        {
+          "name": "collection",
+          "value": "collection"
+        },
+        {
+          "name": "document",
+          "value": "document"
+        },
+        {
+          "name": "genai_sticker",
+          "value": "genai_sticker"
+        },
+        {
+          "name": "gif",
+          "value": "gif"
+        },
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "motion_photo",
+          "value": "motion_photo"
+        },
+        {
+          "name": "motion_video",
+          "value": "motion_video"
+        },
+        {
+          "name": "productlink",
+          "value": "productlink"
+        },
+        {
+          "name": "ptt",
+          "value": "ptt"
+        },
+        {
+          "name": "ptv",
+          "value": "ptv"
+        },
+        {
+          "name": "sticker",
+          "value": "sticker"
+        },
+        {
+          "name": "sticker_pack",
+          "value": "sticker_pack"
+        },
+        {
+          "name": "url",
+          "value": "url"
+        },
+        {
+          "name": "user_created_sticker",
+          "value": "user_created_sticker"
+        },
+        {
+          "name": "vcard",
+          "value": "vcard"
+        },
+        {
+          "name": "video",
+          "value": "video"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_AUDIO_GIF_IMAGE_VIDEO",
+      "module": "WASmaxInNewslettersEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "audio",
+          "value": "audio"
+        },
+        {
+          "name": "gif",
+          "value": "gif"
+        },
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "video",
+          "value": "video"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+      "module": "WASmaxInNewslettersEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "hd_image_dual_upload",
+          "value": "hd_image_dual_upload"
+        },
+        {
+          "name": "hd_video_dual_upload",
+          "value": "hd_video_dual_upload"
+        },
+        {
+          "name": "hevc_video_dual_upload",
+          "value": "hevc_video_dual_upload"
+        },
+        {
+          "name": "media_poll",
+          "value": "media_poll"
+        },
+        {
+          "name": "motion_photo",
+          "value": "motion_photo"
+        },
+        {
+          "name": "poll_add_option",
+          "value": "poll_add_option"
+        },
+        {
+          "name": "sticker_annotation",
+          "value": "sticker_annotation"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_DENY_ERROR_NONE",
+      "module": "WASmaxInPresenceEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "deny",
+          "value": "deny"
+        },
+        {
+          "name": "error",
+          "value": "error"
+        },
+        {
+          "name": "none",
+          "value": "none"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInProfilePictureEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_IMAGE_PREVIEW",
+      "module": "WASmaxInProfilePictureEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "preview",
+          "value": "preview"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_BLOCKED_UNBLOCKED",
+      "module": "WASmaxInPsaEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "blocked",
+          "value": "blocked"
+        },
+        {
+          "name": "unblocked",
+          "value": "unblocked"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInQpSurfacesEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_0_1_7",
+      "module": "WASmaxInReceiptEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "0",
+          "value": "0"
+        },
+        {
+          "name": "1",
+          "value": "1"
+        },
+        {
+          "name": "7",
+          "value": "7"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ALL_NONE",
+      "module": "WASmaxInReceiptEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "none",
+          "value": "none"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_CBP_NBP_PMP",
@@ -1238,7 +2456,8 @@
           "name": "PMP",
           "value": "PMP"
         }
-      ]
+      ],
+      "syntheticName": true
     },
     {
       "name": "ENUM_INTEGRITYNOTCLEARED_OK",
@@ -1253,7 +2472,112 @@
           "name": "OK",
           "value": "OK"
         }
-      ]
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ALREADYCLAIMED_EXPIRED_INVALID_NOTFOUND_NOTOWNED_VALID",
+      "module": "WASmaxInSmbMeteredMessagingAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "already_claimed",
+          "value": "already_claimed"
+        },
+        {
+          "name": "expired",
+          "value": "expired"
+        },
+        {
+          "name": "invalid",
+          "value": "invalid"
+        },
+        {
+          "name": "not_found",
+          "value": "not_found"
+        },
+        {
+          "name": "not_owned",
+          "value": "not_owned"
+        },
+        {
+          "name": "valid",
+          "value": "valid"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInSmbMeteredMessagingAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FREEMSG_PERCENTAGE",
+      "module": "WASmaxInSmbMeteredMessagingAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "free_msg",
+          "value": "free_msg"
+        },
+        {
+          "name": "percentage",
+          "value": "percentage"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_AUDIO_GIF_IMAGE_VIDEO",
+      "module": "WASmaxInStatusDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "audio",
+          "value": "audio"
+        },
+        {
+          "name": "gif",
+          "value": "gif"
+        },
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "video",
+          "value": "video"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInWaffleEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
     },
     {
       "name": "SmaxRunnerFunctionName",
@@ -4146,6 +5470,25 @@
       ]
     },
     {
+      "name": "GROUP_PARTICIPANT_TYPES",
+      "module": "WAWebGroupApiConst",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "superadmin",
+          "value": "superadmin"
+        },
+        {
+          "name": "admin",
+          "value": "admin"
+        },
+        {
+          "name": "participant",
+          "value": "participant"
+        }
+      ]
+    },
+    {
       "name": "MessageHistoryBundleProcessState",
       "module": "WAWebGroupHistoryMsgData.flow",
       "valueKind": "int",
@@ -4242,6 +5585,136 @@
         {
           "name": "GUIDE_NONE",
           "value": "guide-none"
+        }
+      ]
+    },
+    {
+      "name": "APPDATA",
+      "module": "WAWebHandleMsgCommon",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "default",
+          "value": "default"
+        },
+        {
+          "name": "member_tag",
+          "value": "member_tag"
+        },
+        {
+          "name": "group_history",
+          "value": "group_history"
+        }
+      ]
+    },
+    {
+      "name": "EVENT_TYPES",
+      "module": "WAWebHandleMsgCommon",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "creation",
+          "value": "creation"
+        },
+        {
+          "name": "response",
+          "value": "response"
+        },
+        {
+          "name": "edit",
+          "value": "edit"
+        }
+      ]
+    },
+    {
+      "name": "MSG_VERIFIED_LEVEL",
+      "module": "WAWebHandleMsgCommon",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "high",
+          "value": "high"
+        },
+        {
+          "name": "low",
+          "value": "low"
+        },
+        {
+          "name": "unknown",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "POLL_TYPES",
+      "module": "WAWebHandleMsgCommon",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "creation",
+          "value": "creation"
+        },
+        {
+          "name": "quiz_creation",
+          "value": "quiz_creation"
+        },
+        {
+          "name": "vote",
+          "value": "vote"
+        },
+        {
+          "name": "result_snapshot",
+          "value": "result_snapshot"
+        },
+        {
+          "name": "edit",
+          "value": "edit"
+        }
+      ]
+    },
+    {
+      "name": "STANZA_MSG_ORIGIN",
+      "module": "WAWebHandleMsgCommon",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ctwa",
+          "value": "ctwa"
+        }
+      ]
+    },
+    {
+      "name": "STANZA_MSG_TYPES",
+      "module": "WAWebHandleMsgCommon",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "text",
+          "value": "text"
+        },
+        {
+          "name": "media",
+          "value": "media"
+        },
+        {
+          "name": "medianotify",
+          "value": "medianotify"
+        },
+        {
+          "name": "pay",
+          "value": "pay"
+        },
+        {
+          "name": "poll",
+          "value": "poll"
+        },
+        {
+          "name": "reaction",
+          "value": "reaction"
+        },
+        {
+          "name": "event",
+          "value": "event"
         }
       ]
     },
@@ -6334,6 +7807,139 @@
         {
           "name": "CriticalUnblockLow",
           "value": "critical_unblock_low"
+        }
+      ]
+    },
+    {
+      "name": "ALL_CONTACTS",
+      "module": "WAWebPrivacySettings",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "contacts",
+          "value": "contacts"
+        }
+      ]
+    },
+    {
+      "name": "ALL_NONE",
+      "module": "WAWebPrivacySettings",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "none",
+          "value": "none"
+        }
+      ]
+    },
+    {
+      "name": "ALL_NONE_WITH_ERROR",
+      "module": "WAWebPrivacySettings",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "none",
+          "value": "none"
+        },
+        {
+          "name": "error",
+          "value": "error"
+        }
+      ]
+    },
+    {
+      "name": "CALL_ADD_WITH_ERROR",
+      "module": "WAWebPrivacySettings",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "known",
+          "value": "known"
+        },
+        {
+          "name": "contacts",
+          "value": "contacts"
+        },
+        {
+          "name": "error",
+          "value": "error"
+        }
+      ]
+    },
+    {
+      "name": "DEFENSE_MODE_STATE",
+      "module": "WAWebPrivacySettings",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "off",
+          "value": "off"
+        },
+        {
+          "name": "on_standard",
+          "value": "on_standard"
+        }
+      ]
+    },
+    {
+      "name": "ONLINE_VISIBILITY_WITH_ERROR",
+      "module": "WAWebPrivacySettings",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "match_last_seen",
+          "value": "match_last_seen"
+        },
+        {
+          "name": "error",
+          "value": "error"
+        }
+      ]
+    },
+    {
+      "name": "VISIBILITY_WITH_ERROR",
+      "module": "WAWebPrivacySettings",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "contacts",
+          "value": "contacts"
+        },
+        {
+          "name": "contact_blacklist",
+          "value": "contact_blacklist"
+        },
+        {
+          "name": "none",
+          "value": "none"
+        },
+        {
+          "name": "error",
+          "value": "error"
         }
       ]
     },
@@ -8517,7 +10123,8 @@
           "name": "HID_FAILED_DECRYPT",
           "value": 2
         }
-      ]
+      ],
+      "bitPosition": true
     },
     {
       "name": "RetryReason",
@@ -9929,6 +11536,21 @@
         {
           "name": "MAX_FLAG",
           "value": 30
+        }
+      ]
+    },
+    {
+      "name": "ENC_RETRY_RECEIPT_ATTRS",
+      "module": "WAWebVoipSignalingEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "SINGLE_PARTICIPANT",
+          "value": "enc"
+        },
+        {
+          "name": "GROUP_CALL",
+          "value": "enc_rekey_retry"
         }
       ]
     },

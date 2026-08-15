@@ -235,11 +235,33 @@
       ]
     },
     "IqTarget": {
-      "description": "IQ target server.",
-      "type": "string",
-      "enum": [
-        "s.whatsapp.net",
-        "g.us"
+      "description": "Who the builder addresses an `<iq>` to — the `to` attribute it writes on the root.\n\nThe first three are claims about the wire and are **three different addresses**, not\ntwo. WA keeps `<group>@g.us` and the bare `g.us` apart in its own mixin names\n(`WASmaxOutGroupsBaseGetGroupMixin` writes `GROUP_JID(x)`,\n`…BaseGetServerMixin` writes `g.us`), and 26 of the 33 `w:g2` requests take the\nfirst: collapsing them told an emitter to send a group's subject change to the group\nserver, which answers nothing.\n\nThe last two record what the builder does when no server can be named: [`Unset`]\nmeans it writes no `to` at all, [`Unknown`] that it writes one whose value the scan\ncould not resolve. Neither is a polite spelling of \"server\" — an `<iq>` addressed to a\nruntime JID is exactly the case a `s.whatsapp.net` default sends to the wrong place,\nwhich is how every `w:g2` request came to claim the server while the client addressed\nthe group.\n\n[`Unset`]: IqTarget::Unset\n[`Unknown`]: IqTarget::Unknown",
+      "oneOf": [
+        {
+          "description": "`to=\"s.whatsapp.net\"` — written as the literal or as WA's `S_WHATSAPP_NET`\nconstant. The literal string to send.",
+          "type": "string",
+          "const": "s.whatsapp.net"
+        },
+        {
+          "description": "`to=\"g.us\"` — the group *server*, written as the literal or as `G_US`. Also the\nliteral string to send. Used by the operations that are not about one group:\ncreating one, listing, exiting.\n\nDistinct from [`GroupJid`], which is a specific group.\n\n[`GroupJid`]: IqTarget::GroupJid",
+          "type": "string",
+          "const": "g.us"
+        },
+        {
+          "description": "`to=GROUP_JID(x)` — a `<group>@g.us` JID built at runtime from the call's\nargument. **Not a literal to send**: the server is fixed, the JID is not, so an\nemitter has to supply the group. Serialized as `group_jid` rather than a JID-like\nstring for exactly that reason — there is no string here to copy.",
+          "type": "string",
+          "const": "group_jid"
+        },
+        {
+          "description": "The builder writes **no** `to` attribute, and no mixin it folds in adds one. A\nfact about the request, not a failure: `deprecatedSendIq` adds nothing of its\nown, so the stanza really does go out without the attribute. An emitter should\nomit it too rather than substitute a server.",
+          "type": "string",
+          "const": "unset"
+        },
+        {
+          "description": "The builder writes a `to` whose value is a runtime JID the scan could not resolve\nto a server (`JID(x)`, `DOMAIN_JID(x)`, a field of an argument). The addressee is\na parameter of the call, so the IR states that it does not know it — counted\nunder `manifest.diagnostics.iq.targets.unknown`, never rounded to [`Server`].\n\n[`Server`]: IqTarget::Server",
+          "type": "string",
+          "const": "unknown"
+        }
       ]
     },
     "IqType": {
@@ -336,7 +358,7 @@
           "format": "int64"
         },
         "literalValue": {
-          "description": "The fixed value the parser pins this field to — `literal(attrString, participant,\n\"type\", \"admin\")` → `\"admin\"`, `literal(attrInt, error, \"code\", 429)` → `\"429\"`.\nAlways the string form of the literal; [`field_type`] says how to read it (a\n`code` field with `literalValue: \"429\"` is the integer 429 on the wire). On a\n[`ParsedFieldType::Bytes`] field it is **lowercase hex** — the encoding\n[`WapContent::const_bytes`] already uses on the request side —\nand [`byte_length`] is its length: `contentLiteralBytes(node, new Uint8Array([5]))`\n→ `literalValue: \"05\"`, `byteLength: 1`.\n\n[`byte_length`]: ParsedField::byte_length\n\n[`required`] tells the two pinning forms apart, and the difference matters to an\nemitter: a **required** literal (`literal`) is a hard discriminator — the\nattribute MUST be present and equal to this value or the variant does not match;\nan **optional** one (`optionalLiteral`) is pinned only when present — the emitter\nmay omit the attribute, but must never send a contradicting value.\n\n**On a [`ParsedFieldType::Bool`] field the pin is always conditional.** Such a\nfield is a *presence flag* — `{hasListCDhash: m.value != null}` — so its\n`required: true` describes the flag (the parser always produces it), never the\nwire attribute named by [`wire_name`], which by construction may be absent. The\npin constrains that attribute when present, and never the boolean itself.\n\n[`field_type`]: ParsedField::field_type\n[`required`]: ParsedField::required\n[`wire_name`]: ParsedField::wire_name",
+          "description": "The fixed value the parser pins this field to — `literal(attrString, participant,\n\"type\", \"admin\")` → `\"admin\"`, `literal(attrInt, error, \"code\", 429)` → `\"429\"`.\nAlways the string form of the literal; [`field_type`] says how to read it (a\n`code` field with `literalValue: \"429\"` is the integer 429 on the wire). On a\n[`ParsedFieldType::Bytes`] field it is **lowercase hex** — the encoding\n[`WapContent::const_bytes`] already uses on the request side —\nand [`byte_length`] is its length: `contentLiteralBytes(node, new Uint8Array([5]))`\n→ `literalValue: \"05\"`, `byteLength: 1`.\n\n[`byte_length`]: ParsedField::byte_length\n\n[`parser_required`] tells the two pinning forms apart, and the difference matters\nto an emitter: a **required** literal (`literal`) is a hard discriminator — the\nattribute MUST be present and equal to this value or the variant does not match;\nan **optional** one (`optionalLiteral`) is pinned only when present — the emitter\nmay omit the attribute, but must never send a contradicting value.\n\n**On a [`ParsedFieldType::Bool`] field the pin is always conditional.** Such a\nfield is a *presence flag* — `{hasListCDhash: m.value != null}` — so its\n`required: true` describes the flag (the parser always produces it), never the\nwire attribute named by [`wire_name`], which by construction may be absent. The\npin constrains that attribute when present, and never the boolean itself.\n\n[`field_type`]: ParsedField::field_type\n[`parser_required`]: ParsedField::parser_required\n[`wire_name`]: ParsedField::wire_name",
           "type": [
             "string",
             "null"
@@ -348,6 +370,10 @@
         "name": {
           "description": "The output (struct field) name — the camelCase `makeResult` key in smax.",
           "type": "string"
+        },
+        "parserRequired": {
+          "description": "**The accessor does not tolerate absence** — it is `attrX`, not `maybeAttrX`, so\nthe parser rejects the node when the value is missing *at the point it reads it*.\n\nDeliberately not called `required`, which is what it was called and what it never\nmeant. `<meta polltype>` is read with a non-`maybe` accessor and so is\n`parserRequired`, but the client only reaches that read when the envelope's\n`type` is `poll` — 1 of 7 values. A consumer that treated the old name as \"the\nwire always carries this\" and validated on it rejected legitimate traffic.\n\nThe IR models shape and constraint, not control flow: **no domain carries the\nbranch condition** that decides whether a field is read at all, so `true` here is\nan upper bound on presence, never a guarantee of it. `false` is the sharper\nclaim — the parser accepts the node without the value.\n\nOn the *request* side [`WapAttrDef::required`] is a different statement (the\nbuilder always writes the attribute) and keeps its name.",
+          "type": "boolean"
         },
         "referencePath": {
           "description": "The field is pinned not to a constant but to **a value taken from the request** —\nthe same echo rule [`AssertionKind::Reference`] carries, in the same\n`attrStringFromReference` path form, but for a pin that is *not* a variant guard.\n\nA required echo (`literal(…, \"from\", ref.to)`) is recorded as an assertion, since\nit must hold for the variant to match at all. An **optional** one\n(`optionalLiteral(…, \"c_dhash\", ref.item.dhash)`) is not a guard — the attribute\nmay be absent — so it lives here instead: an emitter may omit it, but if it sends\nit, the value must be the request's. Mutually exclusive with [`literal_value`],\nand — like it — always conditional when carried on a [`ParsedFieldType::Bool`]\npresence flag.\n\n[`literal_value`]: ParsedField::literal_value",
@@ -364,9 +390,6 @@
             "boolean",
             "null"
           ]
-        },
-        "required": {
-          "type": "boolean"
         },
         "sameNode": {
           "description": "The field's attrs/content are read off the PARENT node, not a child named\n`tag` (a smax payload mixin spread inline) — codegen must not descend.",
@@ -401,6 +424,17 @@
             "$ref": "#/$defs/UnionVariant"
           }
         },
+        "unknownValue": {
+          "description": "What the parser does with a wire value **outside** this field's legal set — the\ndimension the accessor's name carried and the IR did not. Present exactly on the\nfields whose type is `enum`, which are the ones this document publishes a value\nset for; absent means there is no set *here*, not that anything goes.\n\nThe JID accessors are outside it, `attrJidEnum` included. They do reject an\nunrecognised server, but they decode to [`ParsedFieldType::JidTyped`] and the enum\nlinker never resolves their argument, so a policy on them would name a set this\ndocument does not carry.\n\nWithout it `attrEnum` and `attrEnumOrNullIfUnknown` are the same field — same\n`type`, same `parserRequired` — while one rejects the whole stanza on an\nunrecognised value and the other yields null. Which one a wire enum is decides\nwhether a consumer may close its generated enum or must give it a fallback\nvariant, so reading it off the WhatsApp method name in English was the last step\na consumer had to do by hand.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnknownValuePolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "wireName": {
           "description": "The wire attribute/content name (snake_case), when it differs from `name`.\nCodegen reads the attribute by this name; falls back to `name` when absent.",
           "type": [
@@ -413,7 +447,7 @@
         "method",
         "name",
         "type",
-        "required"
+        "parserRequired"
       ]
     },
     "ParsedFieldType": {
@@ -502,6 +536,11 @@
           "description": "A discriminated union (`{name, value}` smax disjunction) — the alternatives\nare carried in [`ParsedField::union_variants`].",
           "type": "string",
           "const": "union"
+        },
+        {
+          "description": "A structural container, not a value: the field has **no accessor of its own**\n(`method` is empty) and its content is entirely in [`ParsedField::children`] —\na smax payload mixin folded into the response (`groupAddressingModeMixin`,\n`wAMOSubMixin`, …), read off this same node when [`same_node`] is set.\n\nIt exists because the alternative was worse: `method_field_type(\"\")` fell through\nto [`String`], so 517 containers in `iq/index.json` alone declared a scalar type\nthey have no value for, and a codegen switching on `type` emitted `String` for a\nnode with children. Carrying no scalar type at all is the fact.\n\nIt says nothing about the *identity* of the mixin that was folded in — that\nsurvives only in the field's camelCase name.\n\n[`String`]: ParsedFieldType::String\n[`same_node`]: ParsedField::same_node",
+          "type": "string",
+          "const": "node"
         }
       ]
     },
@@ -681,6 +720,26 @@
       "required": [
         "name",
         "fields"
+      ]
+    },
+    "UnknownValuePolicy": {
+      "description": "What a response parser does when the wire carries a value **outside** the legal set\na field's accessor checks against.\n\nThe second dimension of an accessor, next to the type it decodes to\n([`crate::wap::method_field_type`]): WA spells both into one method name, and only\nthe first was ever published. See [`ParsedField::unknown_value`] for why the\ndifference is not cosmetic.",
+      "oneOf": [
+        {
+          "description": "The parse fails: an unrecognised value makes the whole node unparseable, so the\nvariant does not match and the stanza falls through to the next one (or is\nrejected outright). `attrEnum`, `attrEnumValues`, `attrStringEnum`, `contentEnum`,\n`contentStringEnum`. A consumer may generate a closed enum — the client cannot see\na value outside it either.",
+          "type": "string",
+          "const": "reject"
+        },
+        {
+          "description": "The field becomes null and the parse continues — `attrEnumOrNullIfUnknown`. The\nwire may legitimately carry a value this bundle's enum does not list (a newer\nserver), so a consumer needs a fallback variant or an optional field; closing the\nenum here rejects traffic the official client accepts.",
+          "type": "string",
+          "const": "null"
+        },
+        {
+          "description": "The accessor has a closed value set and this build does **not** know which of the\nabove it does with a value outside it. Emitted rather than silently folded into\n[`Reject`], the commoner state: a new WA enum accessor must be visible as\nunclassified — `scripts/lint-ir.py` counts it and holds the count at zero — rather\nthan arriving with a policy nobody checked.\n\n[`Reject`]: UnknownValuePolicy::Reject",
+          "type": "string",
+          "const": "unclassified"
+        }
       ]
     },
     "Unparseable": {

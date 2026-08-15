@@ -493,7 +493,7 @@ fn union_field(name: &str, variants: Vec<wa_ir::UnionVariant>) -> ParsedField {
         name: name.to_string(),
         field_type: ParsedFieldType::Union,
         union_variants: Some(variants),
-        required: true,
+        parser_required: true,
         ..Default::default()
     }
 }

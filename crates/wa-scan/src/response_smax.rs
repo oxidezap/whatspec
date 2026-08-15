@@ -1159,7 +1159,7 @@ fn classify_child(
                 name: tag.clone(),
                 field_type: ParsedFieldType::Union,
                 union_variants: Some(variants),
-                required: true,
+                parser_required: true,
                 ..Default::default()
             }],
             _ => return Binding::None,
@@ -1383,7 +1383,7 @@ fn analyze_disjunction(fn_src: &str, resolver: &Resolver) -> Vec<UnionVariant> {
                     name: "value".to_string(),
                     field_type: ParsedFieldType::Union,
                     union_variants: Some(v),
-                    required: true,
+                    parser_required: true,
                     ..Default::default()
                 }],
                 _ => Vec::new(),
@@ -1483,7 +1483,7 @@ fn resolve_tail(
                     name: "value".to_string(),
                     field_type: ParsedFieldType::Union,
                     union_variants: Some(variants.clone()),
-                    required: true,
+                    parser_required: true,
                     source_path: opt_vec(source_path.clone()),
                     ..Default::default()
                 }]),
@@ -1581,7 +1581,7 @@ fn collect_object_fields(
                 name: key.to_string(),
                 field_type: ParsedFieldType::Bool,
                 wire_name: underlying.and_then(binding_wire_name),
-                required: true,
+                parser_required: true,
                 literal_value: underlying.and_then(binding_literal_value),
                 reference_path: underlying.and_then(binding_reference_path),
                 // The flag reports on an attribute of whatever node the underlying
@@ -1630,7 +1630,7 @@ fn collect_object_fields(
                     name: key.to_string(),
                     wire_name: wire_name.clone(),
                     field_type: *field_type,
-                    required: *required && !optional,
+                    parser_required: *required && !optional,
                     byte_length: *byte_length,
                     byte_min,
                     byte_max,
@@ -1657,7 +1657,7 @@ fn collect_object_fields(
                     name: key.to_string(),
                     wire_name: path.last().cloned(),
                     field_type: *field_type,
-                    required: *required && !optional,
+                    parser_required: *required && !optional,
                     // The value IS the request's. Keeping the path makes that machine-
                     // visible; without it the field is indistinguishable from one read
                     // off the response node.
@@ -1679,7 +1679,7 @@ fn collect_object_fields(
                 out.push(ParsedField {
                     method: wap::CHILD.to_string(),
                     name: key.to_string(),
-                    required: !optional && !child_optional,
+                    parser_required: !optional && !child_optional,
                     tag: Some(tag.clone()),
                     children: Some(fields.clone()),
                     repeats: Some(*repeats),
@@ -1687,7 +1687,12 @@ fn collect_object_fields(
                     ..Default::default()
                 });
             }
-            Some(Binding::Fields(fields)) => {
+            // A container of nothing is not a container. A sub-parser whose result is
+            // `makeResult({})` resolves to an empty field list, and emitting it would
+            // publish a `node` with `children: []` — a field that declares it IS its
+            // children and then has none, which `scripts/lint-ir.py` rejects. Dropping it
+            // loses nothing: there is no shape under it to lose.
+            Some(Binding::Fields(fields)) if !fields.is_empty() => {
                 // A payload mixin / sub-parser referenced as `{ key: M.value }`: the
                 // JS object shape nests M's fields under `key`, so model it as a
                 // nested field. `same_node` marks that the children read off the
@@ -1697,9 +1702,13 @@ fn collect_object_fields(
                 // `keyId`/`keyValue` both expose `elementValue`).
                 out.push(ParsedField {
                     name: key.to_string(),
+                    // No accessor, so no scalar type: the container is its children.
+                    // `ParsedFieldType`'s default is `String`, which is what made 617 of
+                    // these declare a type they have no value for.
+                    field_type: ParsedFieldType::Node,
                     children: Some(fields.clone()),
                     same_node: true,
-                    required: !optional,
+                    parser_required: !optional,
                     ..Default::default()
                 });
             }
@@ -1713,7 +1722,7 @@ fn collect_object_fields(
                     name: key.to_string(),
                     field_type: ParsedFieldType::Union,
                     union_variants: Some(variants.clone()),
-                    required: !optional,
+                    parser_required: !optional,
                     source_path: opt_vec(source_path.clone()),
                     ..Default::default()
                 });
@@ -2240,7 +2249,7 @@ mod tests {
         assert_eq!(fields.len(), 2);
         let id = fields.iter().find(|f| f.name == "id").unwrap();
         assert_eq!(id.method, wap::ATTR_STRING);
-        assert!(id.required);
+        assert!(id.parser_required);
         let count = fields.iter().find(|f| f.name == "count").unwrap();
         assert_eq!(count.method, wap::ATTR_INT);
         assert_eq!(count.field_type, ParsedFieldType::Integer);
@@ -2254,7 +2263,7 @@ mod tests {
         }"#;
         let (_a, fields) = analyze_one(body).expect("analyzed");
         let size = fields.iter().find(|f| f.name == "size").unwrap();
-        assert!(!size.required, "optional → not required");
+        assert!(!size.parser_required, "optional → not required");
         assert_eq!(size.field_type, ParsedFieldType::Integer);
         assert_eq!(size.method, wap::MAYBE_ATTR_INT);
     }
@@ -2271,8 +2280,11 @@ mod tests {
         let (_a, fields) = analyze_one(body).expect("analyzed");
         let id = fields.iter().find(|f| f.name == "id").unwrap();
         let name = fields.iter().find(|f| f.name == "name").unwrap();
-        assert!(id.required, "plain V.value → required");
-        assert!(!name.required, "V.success ? V.value : null → optional");
+        assert!(id.parser_required, "plain V.value → required");
+        assert!(
+            !name.parser_required,
+            "V.success ? V.value : null → optional"
+        );
     }
 
     /// A one-field same-node mixin, pre-resolved for the seeded-resolver tests.
@@ -2281,7 +2293,7 @@ mod tests {
             method: wap::ATTR_STRING.into(),
             name: name.into(),
             field_type: ParsedFieldType::String,
-            required: true,
+            parser_required: true,
             ..Default::default()
         }])
     }
@@ -2489,7 +2501,10 @@ mod tests {
             .find(|f| f.name == "type")
             .expect("type field");
         assert_eq!(ty.literal_value.as_deref(), Some("admin"));
-        assert!(!ty.required, "optionalLiteral → the attr may be absent");
+        assert!(
+            !ty.parser_required,
+            "optionalLiteral → the attr may be absent"
+        );
     }
 
     #[test]
@@ -2513,7 +2528,7 @@ mod tests {
             Some(&["item".to_string(), "dhash".to_string()][..])
         );
         assert_eq!(f.literal_value, None, "an echo is not a constant");
-        assert!(!f.required);
+        assert!(!f.parser_required);
     }
 
     #[test]
@@ -2611,7 +2626,7 @@ mod tests {
         let (_a, fields) = analyze_one(body).expect("analyzed");
         let id = fields.iter().find(|f| f.name == "id").expect("id field");
         assert_eq!(id.wire_name.as_deref(), Some("id"));
-        assert!(id.required);
+        assert!(id.parser_required);
     }
 
     #[test]
@@ -2695,7 +2710,7 @@ mod tests {
         // `optional(attrIntRange, …)` still captures the bounds and stays optional.
         let sz = field("size");
         assert_eq!((sz.int_min, sz.int_max), (Some(0), Some(19999)));
-        assert!(!sz.required);
+        assert!(!sz.parser_required);
         // A plain attrInt has no bounds.
         let pl = field("plain");
         assert_eq!(pl.field_type, ParsedFieldType::Integer);
@@ -2738,7 +2753,7 @@ mod tests {
         // `optional(contentBytesRange, …)` still captures the bounds and stays optional.
         let tok = field("tok");
         assert_eq!((tok.byte_min, tok.byte_max), (Some(1), Some(128)));
-        assert!(!tok.required);
+        assert!(!tok.parser_required);
     }
 
     #[test]
@@ -2771,12 +2786,12 @@ mod tests {
         assert_eq!(group.tag.as_deref(), Some("group"));
         assert_eq!(group.repeats, Some(false));
         assert!(
-            !group.required,
+            !group.parser_required,
             "optionalChildWithTag → field is optional even with a plain `.value` tail"
         );
         let kids = group.children.as_ref().expect("nested fields");
         assert!(kids.iter().any(|f| f.name == "subject"));
-        assert!(kids.iter().any(|f| f.name == "size" && !f.required));
+        assert!(kids.iter().any(|f| f.name == "size" && !f.parser_required));
     }
 
     #[test]
@@ -2795,7 +2810,7 @@ mod tests {
             .find(|f| f.name == "type")
             .expect("type field");
         assert_eq!(ty.method, wap::ATTR_STRING);
-        assert!(ty.required);
+        assert!(ty.parser_required);
         assert!(fields.iter().any(|f| f.name == "id"));
     }
 
@@ -2909,6 +2924,11 @@ mod tests {
         );
         assert!(vars[0].fields.iter().any(|f| f.name == "a"));
         assert!(vars[1].fields.iter().any(|f| f.name == "b"));
+        // The other accessorless shape, and the one the structural-container fix must
+        // not swallow: both have an empty `method`, but a union's alternatives live in
+        // `unionVariants` and it is not a container of `children`.
+        assert!(bar.method.is_empty());
+        assert!(bar.children.is_none());
     }
 
     #[test]
@@ -2940,6 +2960,13 @@ mod tests {
                 .is_some_and(|k| k.iter().any(|f| f.name == "k")),
             "mixin fields nested under the key"
         );
+        // It carries no accessor, so it decodes to nothing: it IS its children. The
+        // default `String` this used to inherit from `method_field_type("")` told a
+        // codegen switching on `type` to emit a string for a container — 617 of them
+        // across the emitted documents, `wAMOSubMixin` and `groupAddressingModeMixin`
+        // among them.
+        assert_eq!(configs.field_type, ParsedFieldType::Node);
+        assert!(configs.method.is_empty());
     }
 
     #[test]

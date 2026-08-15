@@ -222,7 +222,7 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
             let mut path = base.to_vec();
             path.extend(f.source_path.iter().flatten().cloned());
             if f.field_type == ParsedFieldType::Union {
-                if reached && f.required {
+                if reached && f.parser_required {
                     // A nested union has no wire read of its own to name; its TAG is what the
                     // arm descends to, and failing that is what discriminates.
                     s.insert(format!(
@@ -242,7 +242,8 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
             if f.repeats == Some(true) {
                 continue;
             }
-            if reached && f.required && (f.method == "child" || f.method.starts_with("attr")) {
+            if reached && f.parser_required && (f.method == "child" || f.method.starts_with("attr"))
+            {
                 let (kind, wire) = if f.method == "child" {
                     ("child", f.tag.as_deref().unwrap_or(&f.name))
                 } else {
@@ -259,7 +260,7 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
                 // defaults the whole subtree when it is missing. The outcome-union walk has the
                 // same rule and took it in the same commit; review named both this time, which
                 // is the only reason the pair moved together.
-                walk(kids, &inner, reached && f.required, s);
+                walk(kids, &inner, reached && f.parser_required, s);
             }
         }
     }
@@ -461,7 +462,7 @@ fn is_simple_leaf(f: &ParsedField) -> bool {
 fn required_attrs(v: &UnionVariant) -> BTreeSet<String> {
     v.fields
         .iter()
-        .filter(|f| f.required && f.method.starts_with("attr"))
+        .filter(|f| f.parser_required && f.method.starts_with("attr"))
         .map(|f| f.wire_name.clone().unwrap_or_else(|| f.name.clone()))
         .collect()
 }
@@ -876,7 +877,10 @@ fn emit_attr_discriminated(
             // leaf pinned to a value before the guard below could compare it, so the arm
             // took a present `mode="y"` where the source accepts only `"x"` or nothing.
             .filter(|f| {
-                f.required || enum_values(f).is_some() || is_typed(f) || f.literal_value.is_some()
+                f.parser_required
+                    || enum_values(f).is_some()
+                    || is_typed(f)
+                    || f.literal_value.is_some()
             })
             .filter_map(|f| leaf_guard(f, node_var))
             .collect();
@@ -1118,7 +1122,7 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
         // Absence stays allowed for an optional leaf; a value that IS there
         // still has to be one the accessor accepts.
         let mut arms: Vec<String> = Vec::new();
-        if !f.required {
+        if !f.parser_required {
             arms.push("None".to_string());
         }
         arms.extend(values.iter().map(|v| format!("Some({})", rust_lit(v))));
@@ -1185,14 +1189,14 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
                     // not selected by carrying one — and gating on presence
                     // turned an absent payload the source accepts into no
                     // variant at all.
-                    if !f.required {
+                    if !f.parser_required {
                         return None;
                     }
                     format!("{node_var}.{raw}.is_some()")
                 }
             }
         };
-        if f.required {
+        if f.parser_required {
             return Some(decodes);
         }
         // Absence is what `required: false` means; only a payload that IS
@@ -1226,7 +1230,7 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
                 rust_lit(lit)
             ),
         };
-        if f.required {
+        if f.parser_required {
             return Some(pinned);
         }
         return Some(format!(
@@ -1240,10 +1244,10 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
     // length and buries the cases that really do validate something.
     if !is_typed(f) && int_band(f, "n").is_none() {
         let present = format!("{node_var}.get_attr({}).is_some()", rust_lit(wire_name));
-        return f.required.then_some(present);
+        return f.parser_required.then_some(present);
     }
     let mut probe = f.clone();
-    probe.required = false;
+    probe.parser_required = false;
     let read = field_expr(&probe, node_var);
     // A bounded accessor rejects a value outside its band, and reading it as a
     // bare `attrInt` let `attrIntRange("count", 1, 10)` select the arm on a
@@ -1252,7 +1256,7 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
         Some(band) => format!("{read}.is_some_and(|n| {band})"),
         None => format!("{read}.is_some()"),
     };
-    if f.required {
+    if f.parser_required {
         return Some(decodes);
     }
     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
@@ -1288,14 +1292,14 @@ fn field_expr(f: &ParsedField, node_var: &str) -> String {
     if wap::is_content_method(method) {
         // An arm that reads its content only sometimes declares the member `Option<T>`
         // (`rust_field_type` reads the IR's `required`), so the read has to hand one back.
-        if !f.required {
+        if !f.parser_required {
             return format!("{node_var}.{}", crate::emit::content_decoder_opt(method));
         }
         return format!("{node_var}.{}", crate::emit::content_decoder(method));
     }
     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
     let flit = rust_lit(wire);
-    let optional = wap::is_optional_method(method) || !f.required;
+    let optional = wap::is_optional_method(method) || !f.parser_required;
     match wap::method_field_type(method) {
         ParsedFieldType::Integer if optional => {
             format!("{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok())")
@@ -1337,7 +1341,7 @@ mod tests {
             fields: vec![
                 serde_json::from_value(serde_json::json!({
                     "method": "attrIntRange", "name": "count", "wireName": "count",
-                    "type": "integer", "required": true, "intMin": 1, "intMax": 10
+                    "type": "integer", "parserRequired": true, "intMin": 1, "intMax": 10
                 }))
                 .expect("field"),
             ],
@@ -1363,7 +1367,7 @@ mod tests {
             fields: vec![
                 serde_json::from_value(serde_json::json!({
                     "method": "contentInt", "name": "elementValue",
-                    "type": "integer", "required": true
+                    "type": "integer", "parserRequired": true
                 }))
                 .expect("field"),
             ],
@@ -1384,7 +1388,7 @@ mod tests {
             fields: vec![
                 serde_json::from_value(serde_json::json!({
                     "method": "contentString", "name": "elementValue",
-                    "type": "string", "required": required
+                    "type": "string", "parserRequired": required
                 }))
                 .expect("field"),
             ],
@@ -1407,7 +1411,7 @@ mod tests {
     fn member_mode_union() -> ParsedField {
         union_field(serde_json::json!({
             "method": "", "name": "memberAddModeMemberAddModes", "type": "union",
-            "required": true, "sourcePath": ["member_add_mode"],
+            "parserRequired": true, "sourcePath": ["member_add_mode"],
             "unionVariants": [
                 {"name": "AdminAddMode", "fields": [],
                  "assertions": [{"kind": "tag", "name": "member_add_mode"},
@@ -1417,7 +1421,7 @@ mod tests {
                                 {"kind": "content", "value": "all_member_add"}]},
                 {"name": "UnknownAddMode",
                  "fields": [{"method": "contentString", "name": "elementValue",
-                             "type": "string", "required": true}],
+                             "type": "string", "parserRequired": true}],
                  "assertions": [{"kind": "tag", "name": "member_add_mode"}]}
             ]
         }))
@@ -1428,14 +1432,14 @@ mod tests {
     fn subject_union() -> ParsedField {
         union_field(serde_json::json!({
             "method": "", "name": "namedSubjectOrUnnamedSubjectFallbackMixinGroup",
-            "type": "union", "required": true,
+            "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "NamedSubject",
                  "fields": [{"method": "attrString", "name": "subject",
-                             "wireName": "subject", "type": "string", "required": true}]},
+                             "wireName": "subject", "type": "string", "parserRequired": true}]},
                 {"name": "UnnamedSubjectFallback",
                  "fields": [{"method": "maybeAttrString", "name": "subject",
-                             "wireName": "subject", "type": "string", "required": false}]}
+                             "wireName": "subject", "type": "string", "parserRequired": false}]}
             ]
         }))
     }
@@ -1444,16 +1448,16 @@ mod tests {
     /// runtime calls the value read beside it.
     fn category_union() -> ParsedField {
         union_field(serde_json::json!({
-            "method": "dispatch", "name": "name_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "name_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "readreceipts",
                  "assertions": [{"kind": "attr", "name": "name", "value": "readreceipts"}],
                  "fields": [{"method": "attrString", "name": "readReceipts",
-                             "wireName": "value", "type": "string", "required": true}]},
+                             "wireName": "value", "type": "string", "parserRequired": true}]},
                 {"name": "calladd",
                  "assertions": [{"kind": "attr", "name": "name", "value": "calladd"}],
                  "fields": [{"method": "attrString", "name": "callAdd",
-                             "wireName": "value", "type": "string", "required": true}]},
+                             "wireName": "value", "type": "string", "parserRequired": true}]},
                 {"name": "stickers",
                  "assertions": [{"kind": "attr", "name": "name", "value": "stickers"}],
                  "fields": []}
@@ -1514,12 +1518,12 @@ mod tests {
         // Presence alone lets an unparseable value through to `unwrap_or_default`, which
         // fabricates a number the element never carried.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrInt", "name": "count",
-                             "wireName": "count", "type": "integer", "required": true}]},
+                             "wireName": "count", "type": "integer", "parserRequired": true}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -1540,12 +1544,12 @@ mod tests {
         // The accessor the parser used rejects a value outside the table; read as a plain
         // string the arm would accept anything and hand back a value WA never sends.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrEnum", "name": "mode", "wireName": "value",
-                             "type": "enum", "required": true,
+                             "type": "enum", "parserRequired": true,
                              "enumKeys": ["on", "off"]}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
@@ -1565,12 +1569,12 @@ mod tests {
         // Selected on the discriminator alone, an absent payload came back as an empty
         // vector where the source accessor enforces it.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentBytes", "name": "content",
-                             "type": "bytes", "required": true, "byteLength": 32}]},
+                             "type": "bytes", "parserRequired": true, "byteLength": 32}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -1596,12 +1600,12 @@ mod tests {
         // anyway produced Rust that does not compile. Skipping the check instead would
         // accept every other payload of that length, so the shape is declined.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentLiteralBytes", "name": "content",
-                             "type": "bytes", "required": true,
+                             "type": "bytes", "parserRequired": true,
                              "byteLength": 1, "literalValue": "05"}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
@@ -1616,12 +1620,12 @@ mod tests {
         // Looking for an attribute of that name found nothing, so a node carrying accepted
         // text fell through to `None`.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentEnum", "name": "content",
-                             "type": "enum", "required": true,
+                             "type": "enum", "parserRequired": true,
                              "enumKeys": ["on", "off"]}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
@@ -1640,12 +1644,12 @@ mod tests {
     fn attr_discriminated_union_validates_an_optional_enum_when_present() {
         // Absence is allowed; a value that IS there still has to be one the accessor takes.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "maybeAttrEnum", "name": "mode", "wireName": "mode",
-                             "type": "enum", "required": false,
+                             "type": "enum", "parserRequired": false,
                              "enumKeys": ["on", "off"]}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
@@ -1665,12 +1669,12 @@ mod tests {
         // Any text passed, and the decoder then turned `abc` into `0` — a value the source
         // accessor rejects outright.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentInt", "name": "content",
-                             "type": "integer", "required": true}]},
+                             "type": "integer", "parserRequired": true}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -1689,12 +1693,12 @@ mod tests {
         // A band is as much a constraint as a fixed length; checking only the latter let a
         // payload outside it decode.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentBytesRange", "name": "content",
-                             "type": "bytes", "required": true,
+                             "type": "bytes", "parserRequired": true,
                              "byteMin": 16, "byteMax": 64}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
@@ -1798,7 +1802,7 @@ mod tests {
         // Drop the fallback variant → an unknown content must decode to None.
         let f = union_field(serde_json::json!({
             "method": "", "name": "memberAddModeMemberAddModes", "type": "union",
-            "required": true, "sourcePath": ["member_add_mode"],
+            "parserRequired": true, "sourcePath": ["member_add_mode"],
             "unionVariants": [
                 {"name": "AdminAddMode", "fields": [],
                  "assertions": [{"kind": "content", "value": "admin_add"}]},
@@ -1851,12 +1855,12 @@ mod tests {
         // An UNRECOGNIZED value is still `None`, which is a different answer and the right one:
         // a name this bundle did not know about leaves the field empty.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "dispatch", "type": "union", "required": true,
+            "method": "", "name": "dispatch", "type": "union", "parserRequired": true,
             "attrDiscriminator": "kind",
             "unionVariants": [
                 {"name": "A", "fields": [
                     {"method": "attrInt", "name": "count", "wireName": "count",
-                     "type": "integer", "required": true}
+                     "type": "integer", "parserRequired": true}
                 ], "assertions": [{"kind": "attr", "name": "kind", "value": "a"}]},
                 {"name": "B", "fields": [],
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}]}
@@ -1892,18 +1896,18 @@ mod tests {
         // Review named both walks this time; the previous two rounds each found a twin I had
         // not been told about, so this pair moving together is the cheap version of that.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "opt", "type": "union", "required": true,
+            "method": "", "name": "opt", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Alpha", "fields": [
                     {"method": "maybeChild", "name": "detail", "tag": "detail",
-                     "type": "string", "required": false, "children": [
+                     "type": "string", "parserRequired": false, "children": [
                         {"method": "attrString", "name": "code", "wireName": "code",
-                         "type": "string", "required": true}
+                         "type": "string", "parserRequired": true}
                      ]}
                 ], "assertions": [{"kind": "tag", "name": "item"}]},
                 {"name": "Beta", "fields": [
                     {"method": "attrString", "name": "reason", "wireName": "reason",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"}]}
             ]
         }));
@@ -1914,18 +1918,18 @@ mod tests {
         // The bound: the same attribute under a REQUIRED child does make the arm bail, so it
         // separates them and the union stands.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "opt", "type": "union", "required": true,
+            "method": "", "name": "opt", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Alpha", "fields": [
                     {"method": "child", "name": "detail", "tag": "detail",
-                     "type": "string", "required": true, "children": [
+                     "type": "string", "parserRequired": true, "children": [
                         {"method": "attrString", "name": "code", "wireName": "code",
-                         "type": "string", "required": true}
+                         "type": "string", "parserRequired": true}
                      ]}
                 ], "assertions": [{"kind": "tag", "name": "item"}]},
                 {"name": "Beta", "fields": [
                     {"method": "attrString", "name": "reason", "wireName": "reason",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"}]}
             ]
         }));
@@ -1945,15 +1949,15 @@ mod tests {
         // unreachable. Round forty-six made this correction in the OUTCOME-union gate and left
         // this copy alone, which is the one-rule-two-places shape again.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "coded", "type": "union", "required": true,
+            "method": "", "name": "coded", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Alpha", "fields": [
                     {"method": "attrString", "name": "successCode", "wireName": "code",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"}]},
                 {"name": "Beta", "fields": [
                     {"method": "attrString", "name": "errorCode", "wireName": "code",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"}]}
             ]
         }));
@@ -1964,15 +1968,15 @@ mod tests {
         // The bounds, both things the key must not conflate. Two arms reading DIFFERENT wire
         // attributes are separable exactly as before…
         let f = union_field(serde_json::json!({
-            "method": "", "name": "coded", "type": "union", "required": true,
+            "method": "", "name": "coded", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Alpha", "fields": [
                     {"method": "attrString", "name": "successCode", "wireName": "code",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"}]},
                 {"name": "Beta", "fields": [
                     {"method": "attrString", "name": "errorCode", "wireName": "reason",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"}]}
             ]
         }));
@@ -1983,15 +1987,15 @@ mod tests {
         // …and so is the same name read at a different DESCENT, which is told apart by whether
         // the wrapper exists.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "coded", "type": "union", "required": true,
+            "method": "", "name": "coded", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Alpha", "fields": [
                     {"method": "attrString", "name": "successCode", "wireName": "code",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"}]},
                 {"name": "Beta", "fields": [
                     {"method": "attrString", "name": "errorCode", "wireName": "code",
-                     "type": "string", "required": true, "sourcePath": ["error"]}
+                     "type": "string", "parserRequired": true, "sourcePath": ["error"]}
                 ], "assertions": [{"kind": "tag", "name": "item"}]}
             ]
         }));
@@ -2009,16 +2013,16 @@ mod tests {
         // protective in this emitter — which is the reason to pin it rather than to leave it to
         // the next round to find.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "twinned", "type": "union", "required": true,
+            "method": "", "name": "twinned", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Alpha", "fields": [
                     {"method": "attrString", "name": "alphaOnly", "wireName": "alpha_only",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"},
                                   {"kind": "attr", "name": "kind", "value": "a"}]},
                 {"name": "Beta", "fields": [
                     {"method": "attrString", "name": "betaOnly", "wireName": "beta_only",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"},
                                   {"kind": "attr", "name": "kind", "value": "a"}]}
             ]
@@ -2059,16 +2063,16 @@ mod tests {
         // back as the fallback variant — where the source dispatch takes the `a` path and
         // rejects the integer. The pin is hoisted out and the payload is propagated.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "dispatched", "type": "union", "required": true,
+            "method": "", "name": "dispatched", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Alpha", "fields": [
                     {"method": "attrInt", "name": "count", "wireName": "count",
-                     "type": "integer", "required": true}
+                     "type": "integer", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"},
                                   {"kind": "attr", "name": "kind", "value": "a"}]},
                 {"name": "Beta", "fields": [
                     {"method": "attrString", "name": "other", "wireName": "other",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "item"},
                                   {"kind": "attr", "name": "kind", "value": "b"}]}
             ]
@@ -2106,15 +2110,15 @@ mod tests {
         // handed back the `0` its failed parse defaults to for a node the source rejects.
         // Presence is not decoding, and it is not a vocabulary, a band, a length or a pin.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "counted", "type": "union", "required": true,
+            "method": "", "name": "counted", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Counted", "fields": [
                     {"method": "attrInt", "name": "count", "wireName": "count",
-                     "type": "integer", "required": true}
+                     "type": "integer", "parserRequired": true}
                 ], "assertions": [{"kind": "attr", "name": "count"}]},
                 {"name": "Plain", "fields": [
                     {"method": "attrString", "name": "label", "wireName": "label",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ]}
             ]
         }));
@@ -2138,15 +2142,15 @@ mod tests {
         // accessor says nothing the pin has not already settled — and this filter exists to keep
         // that redundancy out.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "kinded", "type": "union", "required": true,
+            "method": "", "name": "kinded", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Kind", "fields": [
                     {"method": "attrString", "name": "kind", "wireName": "kind",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "attr", "name": "kind", "value": "a"}]},
                 {"name": "Plain", "fields": [
                     {"method": "attrString", "name": "label", "wireName": "label",
-                     "type": "string", "required": true}
+                     "type": "string", "parserRequired": true}
                 ]}
             ]
         }));
@@ -2167,12 +2171,12 @@ mod tests {
         // First variant has NO required attr → it would always match and shadow the
         // second. Must classify as unsupported (None), not emit a misleading cascade.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "ambiguous", "type": "union", "required": true,
+            "method": "", "name": "ambiguous", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Always", "fields": [{"method": "maybeAttrString", "name": "a",
-                                               "type": "string", "required": false}]},
+                                               "type": "string", "parserRequired": false}]},
                 {"name": "Specific", "fields": [{"method": "attrString", "name": "b",
-                                                 "type": "string", "required": true}]}
+                                                 "type": "string", "parserRequired": true}]}
             ]
         }));
         assert!(
@@ -2191,14 +2195,14 @@ mod tests {
         // over per-variant structs.
         let f = union_field(serde_json::json!({
             "method": "", "name": "groupInfoParticipantMixins", "type": "union",
-            "required": true,
+            "parserRequired": true,
             "unionVariants": [
                 {"name": "GroupInfoParticipantAdmin", "fields": [
-                    {"method": "attrEnum", "name": "type", "wireName": "type", "type": "enum", "required": true},
-                    {"method": "maybeAttrString", "name": "participantLabel", "wireName": "participant_label", "type": "string", "required": false}
+                    {"method": "attrEnum", "name": "type", "wireName": "type", "type": "enum", "parserRequired": true},
+                    {"method": "maybeAttrString", "name": "participantLabel", "wireName": "participant_label", "type": "string", "parserRequired": false}
                 ], "assertions": [{"kind": "tag", "name": "participant"}]},
                 {"name": "GroupInfoParticipantNonAdmin", "fields": [
-                    {"method": "maybeAttrString", "name": "participantLabel", "wireName": "participant_label", "type": "string", "required": false}
+                    {"method": "maybeAttrString", "name": "participantLabel", "wireName": "participant_label", "type": "string", "parserRequired": false}
                 ], "assertions": [{"kind": "tag", "name": "participant"}]}
             ]
         }));
@@ -2232,14 +2236,14 @@ mod tests {
         // Newsletter text/media: same tag, told apart by a pinned `type` attr value.
         let f = union_field(serde_json::json!({
             "method": "", "name": "newsletterTextOrMediaMixinGroup", "type": "union",
-            "required": true,
+            "parserRequired": true,
             "unionVariants": [
                 {"name": "NewsletterText", "fields": [
-                    {"method": "attrString", "name": "type", "wireName": "type", "type": "string", "required": true}
+                    {"method": "attrString", "name": "type", "wireName": "type", "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "message"}, {"kind": "attr", "name": "type", "value": "text"}]},
                 {"name": "NewsletterMedia", "fields": [
-                    {"method": "attrString", "name": "type", "wireName": "type", "type": "string", "required": true},
-                    {"method": "attrEnum", "name": "plaintextMediatype", "wireName": "mediatype", "type": "enum", "required": true}
+                    {"method": "attrString", "name": "type", "wireName": "type", "type": "string", "parserRequired": true},
+                    {"method": "attrEnum", "name": "plaintextMediatype", "wireName": "mediatype", "type": "enum", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "message"}, {"kind": "attr", "name": "type", "value": "media"}]}
             ]
         }));
@@ -2262,18 +2266,18 @@ mod tests {
         // userFetch shape: Error and ErrorFallback have IDENTICAL required sets and no
         // pinned-attr conflict → ErrorFallback is unreachable → must drop, not misclassify.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "userFetch", "type": "union", "required": true,
+            "method": "", "name": "userFetch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Success", "fields": [
-                    {"method": "attrString", "name": "skeyId", "wireName": "skey_id", "type": "string", "required": true}
+                    {"method": "attrString", "name": "skeyId", "wireName": "skey_id", "type": "string", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "user"}]},
                 {"name": "Error", "fields": [
-                    {"method": "attrString", "name": "errorText", "wireName": "error_text", "type": "string", "required": true},
-                    {"method": "attrInt", "name": "errorCode", "wireName": "error_code", "type": "integer", "required": true}
+                    {"method": "attrString", "name": "errorText", "wireName": "error_text", "type": "string", "parserRequired": true},
+                    {"method": "attrInt", "name": "errorCode", "wireName": "error_code", "type": "integer", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "user"}]},
                 {"name": "ErrorFallback", "fields": [
-                    {"method": "attrString", "name": "errorText", "wireName": "error_text", "type": "string", "required": true},
-                    {"method": "attrInt", "name": "errorCode", "wireName": "error_code", "type": "integer", "required": true}
+                    {"method": "attrString", "name": "errorText", "wireName": "error_text", "type": "string", "parserRequired": true},
+                    {"method": "attrInt", "name": "errorCode", "wireName": "error_code", "type": "integer", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "user"}]}
             ]
         }));
@@ -2290,15 +2294,15 @@ mod tests {
         // unconditionally and shadows the later `count`-attr arm. Must be rejected, not
         // emitted (which would drop the deprecated count).
         let f = union_field(serde_json::json!({
-            "method": "", "name": "viewsCountViewsOrDeprecated", "type": "union", "required": true,
+            "method": "", "name": "viewsCountViewsOrDeprecated", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Views", "fields": [
                     {"method": "child", "name": "viewsCount", "tag": "views_count", "type": "string",
-                     "required": true, "repeats": true,
-                     "children": [{"method": "attrInt", "name": "v", "wireName": "v", "type": "integer", "required": true}]}
+                     "parserRequired": true, "repeats": true,
+                     "children": [{"method": "attrInt", "name": "v", "wireName": "v", "type": "integer", "parserRequired": true}]}
                 ], "assertions": [{"kind": "tag", "name": "message"}]},
                 {"name": "Deprecated", "fields": [
-                    {"method": "attrInt", "name": "viewsCountCount", "wireName": "count", "type": "integer", "required": true}
+                    {"method": "attrInt", "name": "viewsCountCount", "wireName": "count", "type": "integer", "parserRequired": true}
                 ], "assertions": [{"kind": "tag", "name": "message"}]}
             ]
         }));
@@ -2314,18 +2318,18 @@ mod tests {
         // emitting neither — a parser selecting the arm on its payload alone, for every
         // `kind`/`mode` the source rejects.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"},
                                 {"kind": "attr", "name": "mode", "value": "x"}],
                  "fields": [{"method": "attrString", "name": "payloadA",
-                             "wireName": "payload_a", "type": "string", "required": true}]},
+                             "wireName": "payload_a", "type": "string", "parserRequired": true}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"},
                                 {"kind": "attr", "name": "mode", "value": "y"}],
                  "fields": [{"method": "attrString", "name": "payloadB",
-                             "wireName": "payload_b", "type": "string", "required": true}]}
+                             "wireName": "payload_b", "type": "string", "parserRequired": true}]}
             ]
         }));
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
@@ -2342,17 +2346,17 @@ mod tests {
         // The blocklist shape: the last arm reads `unknown_identifier` AND pins it to
         // `"true"`. Told apart by presence, it also matched `unknown_identifier="false"`.
         let f = union_field(serde_json::json!({
-            "method": "", "name": "blocklistIds", "type": "union", "required": true,
+            "method": "", "name": "blocklistIds", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "Username",
                  "fields": [{"method": "attrString", "name": "username",
-                             "wireName": "username", "type": "string", "required": true}]},
+                             "wireName": "username", "type": "string", "parserRequired": true}]},
                 {"name": "UnknownIdentifier",
                  "assertions": [{"kind": "attr", "name": "unknown_identifier",
                                  "value": "true"}],
                  "fields": [{"method": "attrString", "name": "unknownIdentifier",
                              "wireName": "unknown_identifier", "type": "string",
-                             "required": true, "literalValue": "true"}]}
+                             "parserRequired": true, "literalValue": "true"}]}
             ]
         }));
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
@@ -2374,12 +2378,12 @@ mod tests {
         // The member is typed from the IR's `required`; defaulting the read handed a
         // `String` to an `Option<String>` field and the module did not compile.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentString", "name": "body",
-                             "type": "string", "required": false}]},
+                             "type": "string", "parserRequired": false}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -2407,12 +2411,12 @@ mod tests {
         // only `attrIntRange` sets a range — but codegen takes the IR directly, which is where
         // the two spellings of one rule could drift apart unobserved.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentInt", "name": "content",
-                             "type": "integer", "required": true,
+                             "type": "integer", "parserRequired": true,
                              "intMin": -10, "intMax": -1}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
@@ -2432,12 +2436,12 @@ mod tests {
         // The bound: an unranged content integer has nothing to compare, and inventing a
         // comparison would reject payloads the parser accepts.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentInt", "name": "content",
-                             "type": "integer", "required": true}]},
+                             "type": "integer", "parserRequired": true}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -2456,12 +2460,12 @@ mod tests {
         // `attrIntRange("count", 1, 10)` rejects `count="99"` at the source; guarded on
         // parsing alone the arm materialized a value the parser turns away.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrIntRange", "name": "count", "wireName": "count",
-                             "type": "integer", "required": true,
+                             "type": "integer", "parserRequired": true,
                              "intMin": 1, "intMax": 10}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
@@ -2480,12 +2484,12 @@ mod tests {
         // `literal(attrString, node, "mode", "x")` rejects `mode="y"` at the source; a
         // guard testing only that `mode` decodes materialized the variant anyway.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrString", "name": "mode", "wireName": "mode",
-                             "type": "string", "required": true, "literalValue": "x"}]},
+                             "type": "string", "parserRequired": true, "literalValue": "x"}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -2503,11 +2507,11 @@ mod tests {
         // The pin may be absent, but a value that IS there has to be the pinned one —
         // the leaf was filtered out before the comparison could be emitted at all.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "maybeAttrString", "name": "mode", "wireName": "mode",
-                             "type": "string", "required": false, "literalValue": "x"}]},
+                             "type": "string", "parserRequired": false, "literalValue": "x"}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]
@@ -2525,11 +2529,11 @@ mod tests {
         // The equality is against a request field this decoder was never handed, so there
         // is nothing to compare with — and read unguarded it took any value at all.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "maybeAttrString", "name": "to", "wireName": "to",
-                             "type": "string", "required": false,
+                             "type": "string", "parserRequired": false,
                              "referencePath": ["request", "to"]}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -2547,11 +2551,11 @@ mod tests {
         // bounds: keeping only the maximum over an unsigned parse is what made a wire
         // `-500` fail `samplingWeight`'s guard and take the whole union field down with it.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrInt", "name": "count", "wireName": "count",
-                             "type": "integer", "required": true,
+                             "type": "integer", "parserRequired": true,
                              "intMin": -10, "intMax": -1}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -2575,11 +2579,11 @@ mod tests {
         // alone left it `u64`, so the guard rejected everything the source accepts and the arm
         // was additionally classified unreachable.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrInt", "name": "score", "wireName": "score",
-                             "type": "integer", "required": true, "intMax": -1}]},
+                             "type": "integer", "parserRequired": true, "intMax": -1}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]
@@ -2597,11 +2601,11 @@ mod tests {
         // ordinary signed band meaning "at most -1", and declining it lost every value the
         // source accepts.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrInt", "name": "count", "wireName": "count",
-                             "type": "integer", "required": true,
+                             "type": "integer", "parserRequired": true,
                              "intMin": 5, "intMax": -1}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -2617,11 +2621,11 @@ mod tests {
         // `literal(attrInt, node, "code", 429)` accepts a wire `"0429"`; a raw text
         // compare against `"429"` turned that element away and selected no variant.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrInt", "name": "code", "wireName": "code",
-                             "type": "integer", "required": true, "literalValue": "429"}]},
+                             "type": "integer", "parserRequired": true, "literalValue": "429"}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]
@@ -2638,14 +2642,14 @@ mod tests {
         // Presence alone selected the arm and `field_expr` then handed back the JID
         // default for a node the source parser rejects.
         let f = union_field(serde_json::json!({
-            "method": "group", "name": "ids", "type": "union", "required": true,
+            "method": "group", "name": "ids", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "PnJid", "assertions": [],
                  "fields": [{"method": "attrUserJid", "name": "pn_jid", "wireName": "pn_jid",
-                             "type": "user_jid", "required": true}]},
+                             "type": "user_jid", "parserRequired": true}]},
                 {"name": "Plain", "assertions": [],
                  "fields": [{"method": "attrString", "name": "other", "wireName": "other",
-                             "type": "string", "required": true}]}
+                             "type": "string", "parserRequired": true}]}
             ]
         }));
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
@@ -2665,11 +2669,11 @@ mod tests {
         // then validated only the byte payload and the arm could be selected and materialized
         // on a band nothing satisfies.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentUint", "name": "code", "wireName": "code",
-                             "type": "integer", "required": true, "intMax": -1}]},
+                             "type": "integer", "parserRequired": true, "intMax": -1}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]
@@ -2686,11 +2690,11 @@ mod tests {
         // `attrIntRange` with no floor is signed, so "at most -1" is a band values really do
         // satisfy. Declining on a negative ceiling alone would throw the arm away.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrIntRange", "name": "code", "wireName": "code",
-                             "type": "integer", "required": true, "intMax": -1}]},
+                             "type": "integer", "parserRequired": true, "intMax": -1}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]
@@ -2708,11 +2712,11 @@ mod tests {
         // Compared as text the arm takes `"-1"`, and the payload then decodes that to `0`
         // — the source returns the pinned negative integer.
         let f = union_field(serde_json::json!({
-            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrInt", "name": "code", "wireName": "code",
-                             "type": "integer", "required": true, "literalValue": "-1"}]},
+                             "type": "integer", "parserRequired": true, "literalValue": "-1"}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]
@@ -2727,17 +2731,17 @@ mod tests {
     fn optional_enum_arm_union() -> ParsedField {
         union_field(serde_json::json!({
             "method": "", "name": "namedSubjectOrUnnamedSubjectFallbackMixinGroup",
-            "type": "union", "required": true,
+            "type": "union", "parserRequired": true,
             "unionVariants": [
                 {"name": "NamedSubject",
                  "fields": [{"method": "attrString", "name": "subject",
-                             "wireName": "subject", "type": "string", "required": true},
+                             "wireName": "subject", "type": "string", "parserRequired": true},
                             {"method": "maybeAttrEnum", "name": "mode", "wireName": "mode",
-                             "type": "string", "required": false,
+                             "type": "string", "parserRequired": false,
                              "enumKeys": ["fast", "slow"]}]},
                 {"name": "UnnamedSubjectFallback",
                  "fields": [{"method": "maybeAttrString", "name": "subject",
-                             "wireName": "subject", "type": "string", "required": false}]}
+                             "wireName": "subject", "type": "string", "parserRequired": false}]}
             ]
         }))
     }
@@ -2765,16 +2769,16 @@ mod tests {
         // payload of any length — `value_payload` copies or defaults whatever it finds.
         let f = union_field(serde_json::json!({
             "method": "", "name": "blobModes", "type": "union",
-            "required": true, "sourcePath": ["blob"],
+            "parserRequired": true, "sourcePath": ["blob"],
             "unionVariants": [
                 {"name": "Known", "fields": [],
                  "assertions": [{"kind": "tag", "name": "blob"},
                                 {"kind": "content", "value": "known"}]},
                 {"name": "Other",
                  "fields": [{"method": "contentBytes", "name": "elementValue",
-                             "type": "bytes", "required": true, "byteLength": 32},
+                             "type": "bytes", "parserRequired": true, "byteLength": 32},
                             {"method": "attrString", "name": "kind", "wireName": "kind",
-                             "type": "string", "required": true}],
+                             "type": "string", "parserRequired": true}],
                  "assertions": [{"kind": "tag", "name": "blob"},
                                 {"kind": "attr", "name": "extra", "value": "yes"}]}
             ]
