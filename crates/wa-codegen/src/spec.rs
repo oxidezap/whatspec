@@ -1294,6 +1294,7 @@ mod tests {
             exported_function: exported.map(str::to_string),
             all_exports: vec![],
             request: IqRequestDef {
+                target_arg_path: None,
                 namespace: "w:test".into(),
                 iq_type: IqType::Get,
                 target: IqTarget::Server,

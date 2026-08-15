@@ -62,11 +62,22 @@ fn leaf_content(
     scope: &VarScope,
     module_source: &str,
     ref_off: Option<usize>,
+    aliases: &AliasMap,
 ) -> Option<WapContent> {
     if child_args.len() != 1 {
         return None;
     }
     let e = arg_expr(child_args.first()?)?;
+    // A node is a CHILD, never a payload. The identifier rule below tells a local bound to
+    // a `smax(…)` call from one bound to a value; this is the same question asked of the
+    // expression written in place. It matters most where children are collected flat — a
+    // `.map()` callback returning `wap("product", null, wap("id", null, v))` — because
+    // there the wrapper's child argument is still a node while the walk below would
+    // descend into it, find the element parameter and report the inner node's payload as
+    // the wrapper's own.
+    if as_call(e).is_some_and(|call| parse_wap_call(call, aliases).is_some()) {
+        return None;
+    }
     // The EMPTY path is kept here, unlike everywhere else it is a no-op: a template whose
     // whole parameter is the payload (`function t(v){ return wap("id", null, v) }`, over a
     // list of scalars) says its content is the element itself, and the combinator that
@@ -792,6 +803,14 @@ fn relative_arg_path_with(
             let Some(p) =
                 relative_arg_path_with(ae, scope, module_source, ref_off, depth + 1, rule)
             else {
+                // An argument that MENTIONS the root but resolved to nothing —
+                // `combine(e.primary, e.values[i])`, where computed access has no static
+                // key — is a second source the resolver merely could not read. Publishing
+                // the one it did read describes a value the builder does not produce from
+                // that path alone. Same rule the conditional below applies to its arms.
+                if mentions(ae, root) {
+                    return None;
+                }
                 continue;
             };
             match &found {
@@ -1130,7 +1149,7 @@ pub(crate) fn resolve_child_node(
             }
         }
         let content = if children.is_empty() {
-            leaf_content(wap.child_args, scope, module_source, ref_off)
+            leaf_content(wap.child_args, scope, module_source, ref_off, aliases)
         } else {
             None
         };
@@ -2235,7 +2254,13 @@ impl<'a> Visit<'a> for WapCollector<'_> {
                 tag: wap.tag.to_string(),
                 attrs,
                 children: Vec::new(),
-                content: leaf_content(wap.child_args, self.scope, self.source, ref_off),
+                content: leaf_content(
+                    wap.child_args,
+                    self.scope,
+                    self.source,
+                    ref_off,
+                    self.aliases,
+                ),
                 repeats: false,
                 variant_groups: Vec::new(),
                 ..Default::default()
@@ -2868,6 +2893,42 @@ mod tests {
         assert!(
             u.arg_path.is_none() && u.attrs[0].arg_path.is_none(),
             "{u:?}"
+        );
+    }
+
+    #[test]
+    fn a_wrapper_around_a_mapped_node_carries_no_payload() {
+        // `wap("product", null, wap("id", null, v))` over a list of scalars: the value is
+        // the inner element's, and the wrapper has none. The flat sweep that collects a
+        // mapper's calls does not nest them, so nothing else stops the wrapper from
+        // resolving its child argument as a payload — it would report `productIds[]` as
+        // its own content and a consumer would write the id twice, once where it does not
+        // belong.
+        let code = r#"
+            function b(e){ var l = e.productIds;
+              return o("WAWap").wap("iq", null, o("WAWap").wap("product_list", null,
+                l.map(function(v){ return o("WAWap").wap("product", null, o("WAWap").wap("id", null, v)); }))); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let all: Vec<_> = out
+            .iter()
+            .flat_map(|c| std::iter::once(c).chain(c.children.iter()))
+            .collect();
+        let product = all.iter().find(|c| c.tag == "product").expect("product");
+        let id = all.iter().find(|c| c.tag == "id").expect("id");
+        assert!(
+            product.content.is_none(),
+            "the wrapper holds a node, not a value: {:?}",
+            product.content
+        );
+        assert_eq!(
+            path_of(
+                &id.content
+                    .as_ref()
+                    .expect("the id carries the value")
+                    .arg_path
+            ),
+            vec![("productIds".to_string(), true)]
         );
     }
 

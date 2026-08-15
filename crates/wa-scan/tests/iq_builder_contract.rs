@@ -253,6 +253,44 @@ fn every_combinator_child_of_a_smax_builder_is_addressable() {
 }
 
 #[test]
+fn a_runtime_addressee_says_which_argument_supplies_it() {
+    // `target` says this request goes to one group's own JID rather than to a server.
+    // That is half an instruction: a consumer running the vendor builder still has to know
+    // where the JID goes. Both are needed, and the second is recoverable — including
+    // through a mixin group, where the path composes across the fold.
+    let Some(ir) = committed_ir() else { return };
+    let path_of = |name: &str| -> Option<Vec<String>> {
+        ir.stanzas
+            .iter()
+            .find(|s| s.module_name == name)
+            .and_then(|s| s.request.target_arg_path.as_ref())
+            .map(|p| p.iter().map(|x| x.key.clone()).collect())
+    };
+    assert_eq!(
+        path_of("WASmaxOutGroupsGetGroupInfoRequest").as_deref(),
+        Some(["iqTo".to_string()].as_slice()),
+        "a group request addresses the group it is about"
+    );
+    assert_eq!(
+        path_of("WASmaxOutGroupsGetGroupProfilePicturesRequest").as_deref(),
+        Some(
+            [
+                "baseGetGroupOrServerMixinGroupArgs".to_string(),
+                "baseGetGroup".to_string(),
+                "iqTo".to_string()
+            ]
+            .as_slice()
+        ),
+        "and one reached through a mixin group carries the whole chain"
+    );
+    // A constant addressee has nothing to supply, so it names nothing.
+    assert!(
+        path_of("WASmaxOutGroupsCreateRequest").is_none(),
+        "the group server is a constant, not an argument"
+    );
+}
+
+#[test]
 fn a_pinned_constant_payload_keeps_its_address() {
     // `<link_code_pairing_nonce>` is one byte of zero at every call site, which is how
     // `constBytes` got there. That does not make it builder-written: the payload is still

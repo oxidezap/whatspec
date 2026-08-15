@@ -175,6 +175,16 @@
         },
         "target": {
           "$ref": "#/$defs/IqTarget"
+        },
+        "targetArgPath": {
+          "description": "Where the addressee comes from in the builder's argument object, when the builder\nwrites a `to` it reads from an argument rather than from a constant.\n\n[`target`] says WHAT kind of addressee the request takes — a group's own JID, the\ngroup server, `s.whatsapp.net` — and for the runtime ones a consumer calling the\nvendor builder still has to know where to put it. Absent when the addressee is a\ncompile-time constant (nothing to supply), when the builder writes no `to`, and\nwhen the path is not structurally recoverable, which is counted like every other\nmissing address rather than guessed.\n\n[`target`]: IqRequestDef::target",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/WapArgSegment"
+          }
         }
       },
       "required": [

@@ -53,6 +53,25 @@ BASELINE = {
     # once it is the shape of a claim withdrawn.
     "iq request with a unknown addressee": 5,
     "iq request with a unset addressee": 0,
+    # Builder-side values whose address the scan could not recover — an attribute or an
+    # element content that reads an argument, or a combinator-fed child, with no
+    # `argPath`. Counted rather than floor-guarded for the same reason as the addressees
+    # above, and it is the direction `diagnostics.iq.builder` cannot see: that block
+    # guards the RECOVERED totals against falling, so a bundle update that leaves more
+    # values unaddressed while unrelated ones start resolving holds those totals steady
+    # and says nothing. Almost all of these are the legacy `WAWeb*Job` builders, which
+    # take positional parameters and have no argument object to address at all; they fall
+    # only if those builders stop existing or start being read.
+    "iq builder attribute with no argument path": 55,
+    "iq builder content with no argument path": 23,
+    "iq builder child with no argument path": 12,
+    # A request whose addressee is supplied at runtime — a group's own JID, a newsletter's
+    # — and whose argument key the scan could not recover. One: `WAWebGroupInviteJob`,
+    # a legacy positional builder with no argument object to address. It falls if that
+    # family goes; it RISES if a smax request starts hiding its `to`, which is the case
+    # worth catching, since `target` alone tells a consumer that a value is required
+    # without telling it where to put it.
+    "iq request with a runtime addressee and no argument path": 1,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -822,6 +841,56 @@ def count_unresolved_targets(data, domain, counts):
             counts[f"iq request with a {st['target']} addressee"] += 1
 
 
+def count_builder_gaps(data, domain, counts):
+    """Values a builder reads from its argument object whose address is not recovered.
+
+    The same three questions `iq_builder_counts` asks in the emitter, asked of the emitted
+    document: an attribute reads an argument unless the builder supplies the value itself
+    (a const, a generated id, or a recorded fixed `value`), a content reads one unless it
+    is a `const` literal, and a child has an argument of its own when a combinator fed it
+    (it repeats, or its presence is not the default).
+    """
+    if domain != "iq":
+        return
+
+    def walk_node(n):
+        for a in n.get("attrs") or []:
+            reads = a.get("kind") not in ("const", "generated_id") and "value" not in a
+            if reads and "argPath" not in a:
+                counts["iq builder attribute with no argument path"] += 1
+        c = n.get("content")
+        if c and c.get("kind") != "const" and "argPath" not in c:
+            counts["iq builder content with no argument path"] += 1
+        if (n.get("repeats") or n.get("presence", "required") != "required") and (
+            "argPath" not in n
+        ):
+            counts["iq builder child with no argument path"] += 1
+        for g in n.get("variantGroups") or []:
+            for v in g.get("variants") or []:
+                for a in v.get("attrs") or []:
+                    reads = a.get("kind") not in ("const", "generated_id") and "value" not in a
+                    if reads and "argPath" not in a:
+                        counts["iq builder attribute with no argument path"] += 1
+                for ch in v.get("children") or []:
+                    walk_node(ch)
+        for ch in n.get("children") or []:
+            walk_node(ch)
+
+    for st in data.get("stanzas") or []:
+        for ch in ((st.get("request") or {}).get("children")) or []:
+            walk_node(ch)
+
+
+def count_unaddressed_targets(data, domain, counts):
+    """Runtime addressees with no argument path — see the baseline entry."""
+    if domain != "iq":
+        return
+    for st in data.get("stanzas") or []:
+        r = st.get("request") or {}
+        if r.get("target") in ("group_jid", "unknown") and "targetArgPath" not in r:
+            counts["iq request with a runtime addressee and no argument path"] += 1
+
+
 def check_event_codes(data, domain, errors):
     """A WAM event's `code` is its wire identifier, so two events cannot share one.
 
@@ -1583,6 +1652,8 @@ def main() -> int:
         check_notif_identifiers(data, domain, errors)
         check_catalog_resolution(data, domain, catalog_keys, errors)
         count_unresolved_targets(data, domain, counts)
+        count_builder_gaps(data, domain, counts)
+        count_unaddressed_targets(data, domain, counts)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 
     ok = True

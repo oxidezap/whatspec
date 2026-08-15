@@ -73,6 +73,12 @@ pub(crate) struct MixinIqFragment {
     /// all — distinct from [`IqTarget::Unknown`], which is a `to` that resolved to no
     /// server.
     pub target: Option<IqTarget>,
+    /// Where this mixin reads the addressee from, when it reads one from its own argument
+    /// object — relative to the mixin's frame, so the merge chain prefixes it like
+    /// everything else it contributes. Most runtime addressees live here rather than in
+    /// the request builder: a newsletter mixin writes `to: JID(args.newsletterId)` and the
+    /// request only folds it in.
+    pub target_arg_path: Option<wa_ir::WapArgPath>,
     /// Other `WASmaxOut…` mixins this mixin folds in, in source order — for transitive
     /// resolution (e.g. a Hack mixin whose `type` comes from a Base mixin it calls), each
     /// with the argument this mixin handed it so the fold can rebase what it contributes.
@@ -314,6 +320,19 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                 // Same rule as a request's own root, so a fragment's `to` and a
                 // request's cannot be read differently.
                 self.frag.target = crate::module::iq_target_from_to(&attrs);
+                let mut root = attrs.clone();
+                crate::request::annotate_attr_arg_paths(
+                    &mut root,
+                    attrs_node,
+                    self.aliases,
+                    self.scope,
+                    self.source,
+                    Some(call.span().start as usize),
+                );
+                self.frag.target_arg_path = root
+                    .into_iter()
+                    .find(|a| a.name == "to")
+                    .and_then(|a| a.arg_path);
             }
             // The fragment's own children (e.g. `spam_list{spam_flow}`) — merged by
             // tag into a Request's children so cross-module attrs/children survive.
@@ -367,13 +386,22 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
 pub(crate) fn resolve(
     index: &MixinIndex,
     mixin_modules: &[MergeCallee],
-) -> (Option<String>, Option<IqType>, Option<IqTarget>) {
-    // Transitive closure over merged_callees (BFS; visited set bounds cycles). Only the
-    // module names matter here: an xmlns is a property of the mixin, not of what it was
-    // handed.
+) -> (
+    Option<String>,
+    Option<IqType>,
+    Option<IqTarget>,
+    Option<wa_ir::WapArgPath>,
+) {
+    // Transitive closure over merged_callees (BFS; visited set bounds cycles). An xmlns is
+    // a property of the mixin itself and needs no prefix; the addressee's PATH is a
+    // property of what the mixin was handed, so the merge arguments ride along for it.
     let mut visited = std::collections::HashSet::new();
-    let mut queue: std::collections::VecDeque<String> =
-        mixin_modules.iter().map(|c| c.module.clone()).collect();
+    let mut queue: std::collections::VecDeque<(String, MergeArg)> = mixin_modules
+        .iter()
+        .map(|c| (c.module.clone(), c.arg.clone()))
+        .collect();
+    let mut target_path: Option<wa_ir::WapArgPath> = None;
+    let mut target_path_conflict = false;
     let mut xmlns: Option<String> = None;
     let mut xmlns_conflict = false;
     let mut iq_type: Option<IqType> = None;
@@ -381,13 +409,28 @@ pub(crate) fn resolve(
     let mut target: Option<IqTarget> = None;
     let mut target_conflict = false;
 
-    while let Some(name) = queue.pop_front() {
+    while let Some((name, acc)) = queue.pop_front() {
         if !visited.insert(name.clone()) {
             continue;
         }
         let Some(frag) = index.get(&name) else {
             continue;
         };
+        if let Some(p) = &frag.target_arg_path {
+            // Prefixed by what this mixin was handed, and dropped when the chain cannot
+            // name it — the same three outcomes its contribution gets.
+            let mut node = [WapChildNode {
+                arg_path: Some(p.clone()),
+                ..Default::default()
+            }];
+            acc.apply(&mut node);
+            match (&target_path, node[0].arg_path.take()) {
+                (_, None) => target_path_conflict = true,
+                (Some(prev), Some(now)) if *prev != now => target_path_conflict = true,
+                (Some(_), Some(_)) => {}
+                (None, Some(now)) => target_path = Some(now),
+            }
+        }
         if let Some(x) = &frag.xmlns {
             match &xmlns {
                 None => xmlns = Some(x.clone()),
@@ -418,7 +461,7 @@ pub(crate) fn resolve(
         }
         for c in &frag.merged_callees {
             if !visited.contains(&c.module) {
-                queue.push_back(c.module.clone());
+                queue.push_back((c.module.clone(), acc.then(&c.arg)));
             }
         }
     }
@@ -433,6 +476,12 @@ pub(crate) fn resolve(
             Some(IqTarget::Unknown)
         } else {
             target
+        },
+        // An address the chain disagrees about, or cannot spell, is no address.
+        if target_path_conflict {
+            None
+        } else {
+            target_path
         },
     )
 }
@@ -619,6 +668,7 @@ mod tests {
             xmlns: xmlns.map(String::from),
             iq_type: ty,
             target: None,
+            target_arg_path: None,
             merged_callees: callees.iter().map(|s| MergeCallee::from(*s)).collect(),
             children: Vec::new(),
         }
@@ -654,7 +704,7 @@ mod tests {
             (IqTarget::Server, IqTarget::Unknown),
         ] {
             let idx = index(&[("A", with_target(first)), ("B", with_target(second))]);
-            let (_, _, got) = resolve(&idx, &["A".into(), "B".into()]);
+            let (_, _, got, _) = resolve(&idx, &["A".into(), "B".into()]);
             assert_eq!(
                 got,
                 Some(IqTarget::Unknown),
@@ -689,7 +739,7 @@ mod tests {
             ("Xmlns", frag(Some("spam"), None, &[])),
             ("Type", frag(None, Some(IqType::Set), &[])),
         ]);
-        let (x, t, _) = resolve(&idx, &["Xmlns".into(), "Type".into()]);
+        let (x, t, _, _) = resolve(&idx, &["Xmlns".into(), "Type".into()]);
         assert_eq!(x.as_deref(), Some("spam"));
         assert_eq!(t, Some(IqType::Set));
     }
@@ -701,7 +751,7 @@ mod tests {
             ("Hack", frag(Some("w:biz"), None, &["Base"])),
             ("Base", frag(None, Some(IqType::Get), &[])),
         ]);
-        let (x, t, _) = resolve(&idx, &["Hack".into()]);
+        let (x, t, _, _) = resolve(&idx, &["Hack".into()]);
         assert_eq!(x.as_deref(), Some("w:biz"));
         assert_eq!(t, Some(IqType::Get), "type recovered transitively");
     }
@@ -712,7 +762,7 @@ mod tests {
             ("A", frag(Some("spam"), Some(IqType::Set), &[])),
             ("B", frag(Some("blocklist"), None, &[])),
         ]);
-        let (x, t, _) = resolve(&idx, &["A".into(), "B".into()]);
+        let (x, t, _, _) = resolve(&idx, &["A".into(), "B".into()]);
         assert_eq!(x, None, "ambiguous xmlns → discard, never guess");
         assert_eq!(t, Some(IqType::Set));
     }
@@ -723,7 +773,7 @@ mod tests {
             ("A", frag(Some("x"), None, &["B"])),
             ("B", frag(None, Some(IqType::Get), &["A"])),
         ]);
-        let (x, t, _) = resolve(&idx, &["A".into()]);
+        let (x, t, _, _) = resolve(&idx, &["A".into()]);
         assert_eq!(x.as_deref(), Some("x"));
         assert_eq!(t, Some(IqType::Get));
     }

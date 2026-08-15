@@ -506,6 +506,19 @@ pub struct IqRequestDef {
     pub namespace: String,
     pub iq_type: IqType,
     pub target: IqTarget,
+    /// Where the addressee comes from in the builder's argument object, when the builder
+    /// writes a `to` it reads from an argument rather than from a constant.
+    ///
+    /// [`target`] says WHAT kind of addressee the request takes — a group's own JID, the
+    /// group server, `s.whatsapp.net` — and for the runtime ones a consumer calling the
+    /// vendor builder still has to know where to put it. Absent when the addressee is a
+    /// compile-time constant (nothing to supply), when the builder writes no `to`, and
+    /// when the path is not structurally recoverable, which is counted like every other
+    /// missing address rather than guessed.
+    ///
+    /// [`target`]: IqRequestDef::target
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_arg_path: Option<WapArgPath>,
     pub children: Vec<WapChildNode>,
 }
 
@@ -1315,6 +1328,7 @@ mod tests {
             exported_function: None,
             all_exports: vec![],
             request: IqRequestDef {
+                target_arg_path: None,
                 namespace: "w:foo".into(),
                 iq_type: IqType::Get,
                 target: IqTarget::Server,

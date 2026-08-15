@@ -152,7 +152,7 @@ pub fn scan_module_outcome(
     let mixin_resolved = if needs_resolution {
         crate::mixin_index::resolve(mixins, &scanner.mixin_callees)
     } else {
-        (None, None, None)
+        (None, None, None, None)
     };
     // The union names the fragments the MODULE folds in, not the ones this call does.
     // With one `<iq>` builder in the module those are the same statement; with more than
@@ -161,6 +161,13 @@ pub fn scan_module_outcome(
     // withholding is remembered, because "some fragment in this module names an addressee
     // and we cannot say whose" is `Unknown`, not `Unset`.
     let one_builder = scanner.iq_calls.len() == 1;
+    // Same attribution rule as the addressee itself: with more than one builder the
+    // module's mixin set is not this call's, so its address is not either.
+    let mixin_target_path = if one_builder {
+        mixin_resolved.3.clone()
+    } else {
+        None
+    };
     let mixin_target = if one_builder { mixin_resolved.2 } else { None };
     let target_unattributable = !one_builder && mixin_resolved.2.is_some();
     // Cross-module `mergeStanzas` fragments: the children/attrs the referenced
@@ -233,6 +240,12 @@ pub fn scan_module_outcome(
                         namespace,
                         iq_type,
                         target: iq.target.unwrap_or(IqTarget::Unset),
+                        // The builder's own `to` wins; a mixin's is used when the builder
+                        // writes none, which is where most runtime addressees live.
+                        target_arg_path: iq
+                            .target_arg_path
+                            .clone()
+                            .or_else(|| mixin_target_path.clone()),
                         children: iq.children,
                         export: iq.export,
                     })
@@ -346,6 +359,7 @@ pub fn scan_module_outcome(
                 namespace: iq.namespace,
                 iq_type: iq.iq_type,
                 target: iq.target,
+                target_arg_path: iq.target_arg_path,
                 children: iq.children,
             },
             response: response.clone(),
@@ -386,6 +400,10 @@ fn ends_ci(s: &str, suffix: &str) -> bool {
 struct IqCall {
     namespace: Option<String>,
     iq_type: Option<IqType>,
+    /// The argument path of the root `to`, when the builder reads its addressee from an
+    /// argument. Resolved here because `to` is consumed into [`IqCall::target`] and the
+    /// attribute itself never reaches the IR.
+    target_arg_path: Option<wa_ir::WapArgPath>,
     /// `None` when the builder writes no `to` — distinct from a `to` that resolved to
     /// nothing, which is [`IqTarget::Unknown`] and must not be overwritten by a mixin.
     target: Option<IqTarget>,
@@ -401,6 +419,7 @@ struct ResolvedIqCall {
     namespace: String,
     iq_type: IqType,
     target: IqTarget,
+    target_arg_path: Option<wa_ir::WapArgPath>,
     children: Vec<WapChildNode>,
     export: Option<String>,
 }
@@ -584,6 +603,26 @@ impl ModuleScanner<'_> {
             None => mixin_type,
         };
         let target = iq_target_from_to(&attrs);
+        // The root attributes are consumed into namespace/type/target and never emitted,
+        // so the `to` attribute's address has to be read here or not at all. A consumer
+        // running the vendor builder needs it for exactly the requests whose addressee is
+        // supplied at runtime — a group's own JID, a newsletter's — which is the state the
+        // IR now names rather than flattening into the server.
+        let target_arg_path = wap
+            .attrs_node
+            .and_then(|n| {
+                let mut root = attrs.clone();
+                crate::request::annotate_attr_arg_paths(
+                    &mut root,
+                    n,
+                    self.aliases,
+                    self.scope,
+                    self.source,
+                    Some(call.span().start as usize),
+                );
+                root.into_iter().find(|a| a.name == "to")
+            })
+            .and_then(|a| a.arg_path);
 
         let mut children = Vec::new();
         for child_arg in wap.child_args {
@@ -615,6 +654,7 @@ impl ModuleScanner<'_> {
             namespace,
             iq_type,
             target,
+            target_arg_path,
             children,
             export: self.current_export.clone(),
         })

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "3.1.0",
+  "schemaVersion": "4.0.0",
   "waVersion": "2.3000.1044659339",
   "stanzas": [
     {
@@ -14790,6 +14790,11 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "unknown",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "message_updates",
@@ -26998,6 +27003,11 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "unknown",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "question_responses",
@@ -27945,6 +27955,11 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "unknown",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "status_updates",
@@ -32655,6 +32670,11 @@
         "namespace": "newsletter",
         "iqType": "set",
         "target": "unknown",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "live_updates",
@@ -46784,15 +46804,6 @@
                 "tag": "product",
                 "attrs": [],
                 "children": [],
-                "content": {
-                  "kind": "dynamic",
-                  "argPath": [
-                    {
-                      "key": "productIds",
-                      "list": true
-                    }
-                  ]
-                },
                 "repeats": true,
                 "argPath": [
                   {
@@ -52295,6 +52306,11 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "query",
@@ -56075,6 +56091,17 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "unknown",
+        "targetArgPath": [
+          {
+            "key": "baseGetGroupOrServerMixinGroupArgs"
+          },
+          {
+            "key": "baseGetGroup"
+          },
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": []
       },
       "response": {
@@ -60200,6 +60227,11 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": []
       },
       "response": {
@@ -63237,6 +63269,11 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "linked_groups_participants",
@@ -63883,6 +63920,11 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "membership_approval_requests",
@@ -68658,6 +68700,11 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "reports",
@@ -69483,6 +69530,11 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "groupWid"
+          }
+        ],
         "children": [
           {
             "tag": "picture",
@@ -69661,6 +69713,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "accept",
@@ -70612,6 +70669,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "ack",
@@ -71115,6 +71177,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "add",
@@ -73352,6 +73419,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "cancel_membership_requests",
@@ -77954,6 +78026,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "sub_group_suggestion",
@@ -79137,6 +79214,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "delete_parent",
@@ -79607,6 +79689,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "join_linked_group",
@@ -80490,6 +80577,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "links",
@@ -81909,6 +82001,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "membership_requests_action",
@@ -83598,6 +83695,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "admin",
@@ -84611,6 +84713,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "promote",
@@ -85743,6 +85850,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "remove",
@@ -86846,6 +86958,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "reports",
@@ -87419,6 +87536,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "revoke",
@@ -88218,6 +88340,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "description",
@@ -88992,6 +89119,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "locked",
@@ -90327,6 +90459,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "subject",
@@ -91035,6 +91172,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "sub_group_suggestions_action",
@@ -92569,6 +92711,11 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
         "children": [
           {
             "tag": "unlink",
