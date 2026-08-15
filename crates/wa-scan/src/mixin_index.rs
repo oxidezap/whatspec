@@ -395,9 +395,9 @@ pub(crate) fn resolve(
     // Transitive closure over merged_callees (BFS; visited set bounds cycles). An xmlns is
     // a property of the mixin itself and needs no prefix; the addressee's PATH is a
     // property of what the mixin was handed, so the merge arguments ride along for it.
-    // A list rather than a set: the pair carries a path, which is not hashable, and the
-    // walk is a handful of mixins deep.
-    let mut visited: Vec<(String, MergeArg)> = Vec::new();
+    // Module → the frame it was reached through, as a list because a frame carries a path
+    // and the walk is a handful of mixins deep.
+    let mut reached: Vec<(String, MergeArg)> = Vec::new();
     let mut queue: std::collections::VecDeque<(String, MergeArg)> = mixin_modules
         .iter()
         .map(|c| (c.module.clone(), c.arg.clone()))
@@ -412,15 +412,28 @@ pub(crate) fn resolve(
     let mut target_conflict = false;
 
     while let Some((name, acc)) = queue.pop_front() {
-        // Keyed by (module, frame) rather than by module: the same mixin reached twice
-        // through different arguments is one xmlns but TWO addresses, and skipping the
-        // second reach would let the first one's path stand for both. The frame is part of
-        // the identity for exactly that reason; the pair still bounds the walk, since a
-        // frame either repeats (and is skipped) or resolves the disagreement below.
-        if visited.contains(&(name.clone(), acc.clone())) {
-            continue;
+        // A module is remembered WITH the frame it was reached through, because the same
+        // mixin reached twice through different arguments is one xmlns but two addresses
+        // — skipping the second reach by name alone would let the first one's path stand
+        // for both. Reaching it again through a different frame is a disagreement, and the
+        // answer is the same as everywhere else: no address. That also bounds the walk,
+        // which keying on the pair alone would not: a cycle carrying prefixes
+        // (`A → B/x → A/x/y → …`) never repeats a pair, while `Unnameable` absorbs and
+        // settles in one more round.
+        let acc = match reached.iter().find(|(m, _)| *m == name) {
+            Some((_, prev)) if *prev == acc => continue,
+            Some(_) => MergeArg::Unnameable,
+            None => acc,
+        };
+        match reached.iter_mut().find(|(m, _)| *m == name) {
+            Some(slot) => {
+                if slot.1 == MergeArg::Unnameable {
+                    continue;
+                }
+                slot.1 = MergeArg::Unnameable;
+            }
+            None => reached.push((name.clone(), acc.clone())),
         }
-        visited.push((name.clone(), acc.clone()));
         let Some(frag) = index.get(&name) else {
             continue;
         };
@@ -468,10 +481,7 @@ pub(crate) fn resolve(
             }
         }
         for c in &frag.merged_callees {
-            let next = acc.then(&c.arg);
-            if !visited.contains(&(c.module.clone(), next.clone())) {
-                queue.push_back((c.module.clone(), next));
-            }
+            queue.push_back((c.module.clone(), acc.then(&c.arg)));
         }
     }
 
@@ -1054,6 +1064,34 @@ mod tests {
             .and_then(|a| a.arg_path.as_ref())
             .map(|p| p.iter().map(|s| s.key.clone()).collect())
             .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_cycle_carrying_prefixes_still_terminates() {
+        // Two mixins that fold each other, each through a key of its own arguments. Every
+        // trip round the loop composes a longer prefix, so no (module, frame) pair ever
+        // repeats — remembering the module and collapsing a second, different frame to
+        // `Unnameable` is what ends the walk. Without it this hangs rather than fails.
+        let mut a = frag(Some("w:g2"), Some(IqType::Get), &[]);
+        a.merged_callees = vec![keyed("B", "x")];
+        let mut b = frag(None, None, &[]);
+        b.merged_callees = vec![keyed("A", "y")];
+        b.target = Some(IqTarget::GroupJid);
+        b.target_arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "iqTo".to_string(),
+            list: false,
+        }]);
+        let idx = index(&[("A", a), ("B", b)]);
+
+        let (xmlns, ty, target, path) = resolve(&idx, &[keyed("A", "start")]);
+        assert_eq!(xmlns.as_deref(), Some("w:g2"));
+        assert_eq!(ty, Some(IqType::Get));
+        assert_eq!(target, Some(IqTarget::GroupJid));
+        // And no address: going round the loop reaches the addressee mixin through a
+        // second, different frame, which is the disagreement rule doing its job. A cyclic
+        // merge graph is not a shape WA can execute anyway — it would recurse forever —
+        // so the honest answer to "where does its `to` come from" is nothing.
+        assert!(path.is_none(), "{path:?}");
     }
 
     #[test]

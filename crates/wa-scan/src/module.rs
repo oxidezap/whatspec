@@ -240,12 +240,19 @@ pub fn scan_module_outcome(
                         namespace,
                         iq_type,
                         target: iq.target.unwrap_or(IqTarget::Unset),
-                        // The builder's own `to` wins; a mixin's is used when the builder
-                        // writes none, which is where most runtime addressees live.
-                        target_arg_path: iq
-                            .target_arg_path
-                            .clone()
-                            .or_else(|| mixin_target_path.clone()),
+                        // The builder's own `to` wins whole: if it writes one, its
+                        // address is the answer even when that address is nothing (a
+                        // constant addressee, or one this scan could not read). Falling
+                        // back on the absence of a PATH rather than the absence of a `to`
+                        // would hand such a request a mixin's argument key for an
+                        // addressee that argument does not control. `iq.target` is `None`
+                        // exactly when the builder writes no `to`, which is the state the
+                        // fallback is for — and where most runtime addressees live.
+                        target_arg_path: if iq.wrote_to {
+                            iq.target_arg_path.clone()
+                        } else {
+                            mixin_target_path.clone()
+                        },
                         children: iq.children,
                         export: iq.export,
                     })
@@ -408,6 +415,12 @@ struct IqCall {
     /// argument. Resolved here because `to` is consumed into [`IqCall::target`] and the
     /// attribute itself never reaches the IR.
     target_arg_path: Option<wa_ir::WapArgPath>,
+    /// Whether the builder writes a root `to` at all — asked separately from
+    /// [`IqCall::target`], which a folded-in mixin's addressee overwrites before the
+    /// stanza is assembled. A builder that writes its own `to` owns the answer whole,
+    /// including when that answer is "no address to supply": inheriting a mixin's key
+    /// there would name an argument that does not control this request's addressee.
+    wrote_to: bool,
     /// `None` when the builder writes no `to` — distinct from a `to` that resolved to
     /// nothing, which is [`IqTarget::Unknown`] and must not be overwritten by a mixin.
     target: Option<IqTarget>,
@@ -659,6 +672,7 @@ impl ModuleScanner<'_> {
             iq_type,
             target,
             target_arg_path,
+            wrote_to: attrs.iter().any(|a| a.name == "to"),
             children,
             export: self.current_export.clone(),
         })
