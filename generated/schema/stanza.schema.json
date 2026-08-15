@@ -833,7 +833,7 @@
           }
         },
         "content": {
-          "description": "The leaf element content, when this node carries a value instead of child\nnodes (`<id>`, `<value>`, `<signature>` in a prekey `<skey>`). `None` for\ncontainer nodes and attr-only nodes.",
+          "description": "The leaf element content, when this node carries a value instead of child\nnodes (`<id>`, `<value>`, `<signature>` in a prekey `<skey>`). `None` for\ncontainer nodes and attr-only nodes.\n\nSays what the element carries when the builder writes it, not that it is always\nwritten: a payload contributed by an `optionalMerge` onto a node built elsewhere\nis stated here even though that merge can be skipped. There is no per-content\noptionality in this contract — [`presence`] is a property of the node.\n\n[`presence`]: WapChildNode::presence",
           "anyOf": [
             {
               "$ref": "#/$defs/WapContent"

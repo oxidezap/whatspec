@@ -1303,6 +1303,10 @@ fn repeat_bounds(call: &oxc_ast::ast::CallExpression) -> (Option<u32>, Option<u3
 /// Whether an expression is JavaScript's positive infinity as a minifier writes it:
 /// `1/0`, or the global `Infinity`. Structural — a variable that merely holds infinity
 /// at runtime is not recognized, and is treated as an unresolved bound.
+///
+/// The numerator has to be *positive*: `-1/0` is negative infinity, an upper bound no
+/// list length can satisfy, and reading it as "unbounded" would state the opposite of
+/// what the builder enforces.
 fn is_infinity(e: &Expression) -> bool {
     if let Expression::Identifier(id) = e {
         return id.name == "Infinity";
@@ -1311,7 +1315,7 @@ fn is_infinity(e: &Expression) -> bool {
         return false;
     };
     b.operator == oxc_syntax::operator::BinaryOperator::Division
-        && as_int(&b.left).is_some_and(|n| n != 0)
+        && as_int(&b.left).is_some_and(|n| n > 0)
         && as_int(&b.right) == Some(0)
 }
 
@@ -1396,7 +1400,7 @@ fn merge_node_into(d: &mut WapChildNode, src: &WapChildNode, optional: bool) {
 }
 
 /// Take from a merged-in fragment the builder facts the destination doesn't have:
-/// element content, repeat bounds, argument path.
+/// element content and repeat bounds.
 ///
 /// Fill-if-empty rather than overwrite — the destination is the node built at the call
 /// site and is the more specific description; a fragment only ever ADDS, mirroring
@@ -1424,9 +1428,12 @@ pub(crate) fn adopt_builder_facts(d: &mut WapChildNode, src: &WapChildNode) {
         d.repeat_min = src.repeat_min;
         d.repeat_max = src.repeat_max;
     }
-    if d.arg_path.is_none() {
-        d.arg_path = src.arg_path.clone();
-    }
+    // `arg_path` is deliberately NOT adopted. Content and bounds are wire facts about the
+    // element — the merged stanza really does carry that value, really is bounded that
+    // way — but a path is an address for the node's own argument object, and a node two
+    // sites build together has no single one. The destination was built at its own call
+    // site; taking the fragment's address would tell a consumer to hand that object over
+    // whole and get the destination's locally-built half for free, which it would not.
 }
 
 /// Weaken a node the caller knows may be skipped. Only ever `Required` → `Optional`: a
@@ -1953,7 +1960,11 @@ fn find_wap_calls_in_body(
 ) -> Vec<WapChildNode> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, body_code);
-    let local = build_alias_map(&ret.program);
+    // Layered over the enclosing module's aliases: the callback calls `WASmaxAttrs`
+    // through a name declared outside the body it is re-parsed from, so a body-only map
+    // reads `A.OPTIONAL_LITERAL(…)` as an ordinary dynamic value and publishes its
+    // presence flag as the attribute's address.
+    let local = build_alias_map(&ret.program).over(outer);
     // A scope over this body ALONE, with the callback's parameter as its argument root.
     // That is all a mapper needs: it reads one element and nothing else, so every path it
     // states is relative to that parameter — and the caller rebases the lot onto the
@@ -1968,9 +1979,7 @@ fn find_wap_calls_in_body(
     let mut c = WapCollector {
         out: Vec::new(),
         source: body_code,
-        // Prefer the body-local aliases; fall back to the outer ones.
-        local: &local,
-        outer,
+        aliases: &local,
         scope: &scope,
         rooted: arg_root.is_some(),
     };
@@ -1981,8 +1990,9 @@ fn find_wap_calls_in_body(
 struct WapCollector<'s> {
     out: Vec<WapChildNode>,
     source: &'s str,
-    local: &'s AliasMap,
-    outer: &'s AliasMap,
+    /// The body's own aliases layered over the enclosing module's, so every pass below
+    /// reads the same names — the tag, the attribute kinds and the paths.
+    aliases: &'s AliasMap,
     /// The body's own scope, carrying the callback parameter as an argument root when
     /// there is one.
     scope: &'s VarScope,
@@ -1994,11 +2004,11 @@ struct WapCollector<'s> {
 
 impl<'a> Visit<'a> for WapCollector<'_> {
     fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
-        let parsed = parse_wap_call(call, self.local).or_else(|| parse_wap_call(call, self.outer));
+        let parsed = parse_wap_call(call, self.aliases);
         if let Some(wap) = parsed {
             let mut attrs = wap
                 .attrs_node
-                .map(|n| extract_attrs_from_obj(n, self.source, self.local))
+                .map(|n| extract_attrs_from_obj(n, self.source, self.aliases))
                 .unwrap_or_default();
             // Offset 0 is inside the synthetic body span, so it names the callback frame.
             let ref_off = self.rooted.then_some(0);
@@ -2006,7 +2016,7 @@ impl<'a> Visit<'a> for WapCollector<'_> {
                 annotate_attr_arg_paths(
                     &mut attrs,
                     n,
-                    self.local,
+                    self.aliases,
                     self.scope,
                     self.source,
                     ref_off,
@@ -2365,6 +2375,26 @@ mod tests {
         assert_eq!((item.repeat_min, item.repeat_max), (None, None));
     }
 
+    #[test]
+    fn a_negative_infinity_max_is_not_unbounded() {
+        // `-1/0` is negative infinity: an upper bound no list length can satisfy. It is
+        // written the same way as the open bound above and differs only in sign, so a
+        // check for "numerator over zero" reads it as the opposite of what it says.
+        let code = r#"
+            function t(e){ return o("WASmaxJsx").smax("item", null); }
+            function b(e){ var a = e.itemArgs;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxChildren").REPEATED_CHILD(t, a, 0, -1/0)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let item = out.iter().find(|c| c.tag == "item").expect("item");
+        assert_eq!(
+            (item.repeat_min, item.repeat_max),
+            (None, None),
+            "an unreadable bound, not an open one"
+        );
+    }
+
     /// Resolve a builder's return the way `module.rs` does when it walks an `<iq>` call:
     /// against the MODULE scope, at the reference's real module offset. Distinct from
     /// [`resolve_builder`], which re-parses the body first and so puts the body's own
@@ -2660,6 +2690,35 @@ mod tests {
                 ("productId".to_string(), false)
             ],
             "and its keys are read off an element, not off the request's arguments"
+        );
+    }
+
+    #[test]
+    fn a_map_callback_reads_the_enclosing_module_aliases() {
+        // The callback body is re-parsed on its own, so the module-level
+        // `A = o("WASmaxAttrs")` it calls through is not declared in what the sweep sees.
+        // With only the body's own aliases, `A.OPTIONAL_LITERAL("true", e.hasDelete)` is
+        // an ordinary dynamic value: the fixed wire string is lost and the boolean that
+        // merely gates the attribute is published as the address to put a value at.
+        let code = r#"
+            var A; A = o("WASmaxAttrs");
+            function b(e){ var l = e.itemArgs;
+              return o("WAWap").wap("iq", null, l.map(function(e){
+                return o("WAWap").wap("item", {del: A.OPTIONAL_LITERAL("true", e.hasDelete)}); })); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let item = out
+            .iter()
+            .flat_map(|c| std::iter::once(c).chain(c.children.iter()))
+            .find(|c| c.tag == "item")
+            .expect("item");
+        let del = item.attrs.iter().find(|a| a.name == "del").expect("del");
+        assert_eq!(del.kind, WapAttrKind::Optional);
+        assert_eq!(del.value.as_deref(), Some("true"));
+        assert!(
+            del.arg_path.is_none(),
+            "a fixed literal's gate is not its value address: {:?}",
+            del.arg_path
         );
     }
 

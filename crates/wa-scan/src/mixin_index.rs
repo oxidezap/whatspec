@@ -736,10 +736,29 @@ mod tests {
             Some("subjectElementValue"),
             "the element value survives the fold"
         );
-        assert_eq!(
-            merged.arg_path.as_ref().map(|p| p[0].key.as_str()),
-            Some("subjectArgs")
+        assert!(
+            merged.arg_path.is_none(),
+            "but the fragment's own argument address does not transfer: {:?}",
+            merged.arg_path
         );
+    }
+
+    #[test]
+    fn merge_children_does_not_hand_a_fragments_address_to_the_destination() {
+        // Content and bounds are wire facts about the element — the merged stanza really
+        // does carry that value, really is bounded that way. An argument path is not: it
+        // addresses the object a node is built FROM, and a node two call sites build
+        // together has no single one. Adopting the fragment's would tell a consumer that
+        // handing over `pictureArgs` produces the whole `<picture>`, when half of it is
+        // built at the destination's own site from something else.
+        let mut into = vec![node("picture", &[], vec![])];
+        let mut frag = node("picture", &[], vec![]);
+        frag.arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "pictureArgs".to_string(),
+            list: false,
+        }]);
+        merge_children(&mut into, &[frag]);
+        assert!(into[0].arg_path.is_none(), "{:?}", into[0].arg_path);
     }
 
     #[test]

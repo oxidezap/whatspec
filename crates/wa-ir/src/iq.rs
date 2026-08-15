@@ -276,6 +276,13 @@ pub struct WapChildNode {
     /// The leaf element content, when this node carries a value instead of child
     /// nodes (`<id>`, `<value>`, `<signature>` in a prekey `<skey>`). `None` for
     /// container nodes and attr-only nodes.
+    ///
+    /// Says what the element carries when the builder writes it, not that it is always
+    /// written: a payload contributed by an `optionalMerge` onto a node built elsewhere
+    /// is stated here even though that merge can be skipped. There is no per-content
+    /// optionality in this contract — [`presence`] is a property of the node.
+    ///
+    /// [`presence`]: WapChildNode::presence
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<WapContent>,
     /// Whether this child can appear multiple times (maps to `Vec<_>` in codegen).

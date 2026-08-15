@@ -45,6 +45,22 @@ impl AliasMap {
         self.map.get(name).copied()
     }
 
+    /// This map layered over `outer`: every alias `outer` knows, plus this map's, which
+    /// win on a collision.
+    ///
+    /// A function body re-parsed on its own sees only the aliases it declares itself,
+    /// while the module-level `(X = o("WASmaxAttrs"))` it actually calls through lives in
+    /// the enclosing program. Layering restores the lexical view: the outer alias is
+    /// visible inside the body, and a name the body redeclares shadows it, which is what
+    /// JavaScript does. Nothing here proves the outer name is still in scope at that
+    /// point — a body that shadows a tracked alias with an untracked value is read as
+    /// still holding the outer owner.
+    pub(crate) fn over(&self, outer: &AliasMap) -> AliasMap {
+        let mut map = outer.map.clone();
+        map.extend(self.map.iter().map(|(k, v)| (k.clone(), *v)));
+        AliasMap { map }
+    }
+
     #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.map.is_empty()
