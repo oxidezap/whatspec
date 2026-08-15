@@ -10,8 +10,8 @@
     },
     "iq": {
       "builder": {
-        "argPathAttrs": 218,
-        "argPathAttrsMissing": 64,
+        "argPathAttrs": 211,
+        "argPathAttrsMissing": 63,
         "argPathChildren": 108,
         "argPathChildrenMissing": 12,
         "argPathContents": 42,
@@ -86,7 +86,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "c6e057b3aa46b44e5041d2ffbc57daf2a8522598e2a85e8f55b0746c475e69de"
+      "sha256": "ae47b4ab09a10fca144dae4caf2033df3fe68064e43922217b0740d0ed69707b"
     },
     "mex": {
       "file": "mex/index.json",

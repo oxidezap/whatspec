@@ -41570,93 +41570,37 @@
                       {
                         "name": "platform",
                         "kind": "string",
-                        "required": true,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "configPlatform"
-                          }
-                        ]
+                        "required": true
                       },
                       {
                         "name": "id",
                         "kind": "string",
-                        "required": true,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "configId"
-                          }
-                        ]
+                        "required": true
                       },
                       {
                         "name": "appid",
                         "kind": "optional",
-                        "required": false,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "configAppid"
-                          }
-                        ]
+                        "required": false
                       },
                       {
                         "name": "app_mute",
                         "kind": "optional",
-                        "required": false,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "configAppMute"
-                          }
-                        ]
+                        "required": false
                       },
                       {
                         "name": "pkey",
                         "kind": "optional",
-                        "required": false,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "configPkey"
-                          }
-                        ]
+                        "required": false
                       },
                       {
                         "name": "voip_payload_type",
                         "kind": "optional",
-                        "required": false,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "configVoipPayloadType"
-                          }
-                        ]
+                        "required": false
                       },
                       {
                         "name": "num_acc",
                         "kind": "optional",
-                        "required": false,
-                        "argPath": [
-                          {
-                            "key": "configMixinsArgs"
-                          },
-                          {
-                            "key": "configNumAcc"
-                          }
-                        ]
+                        "required": false
                       }
                     ],
                     "children": [

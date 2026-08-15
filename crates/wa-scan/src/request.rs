@@ -467,7 +467,7 @@ pub(crate) fn enforce_argument_boundary(
 /// Drop every argument path in a subtree. Used where a subtree's paths are relative to a
 /// frame this call site cannot name: a relative path published as an absolute one is a
 /// wrong address, which is worse than none — an absent path is counted.
-fn clear_arg_paths(nodes: &mut [WapChildNode]) {
+pub(crate) fn clear_arg_paths(nodes: &mut [WapChildNode]) {
     for n in nodes {
         n.arg_path = None;
         for a in &mut n.attrs {
@@ -1174,17 +1174,21 @@ pub(crate) fn resolve_child_node(
                     // makes `namedSubjectOrUnnamedSubjectFallbackMixinGroupArgs`
                     // reachable from the request root; without it the mixin's paths
                     // would silently claim to start at the request's own arguments.
+                    // Same three outcomes as every other frame-handing call site, via the
+                    // same helper: prefix when the argument names a path, clear when this
+                    // frame has an argument object but cannot name what it passed, and
+                    // leave alone when it has none — the two-parameter merge frame, which
+                    // a caller further out rebases.
                     let args_idx = if is_optional_merge { 2 } else { 1 };
-                    let prefix = call
-                        .arguments
-                        .get(args_idx)
-                        .and_then(arg_expr)
-                        .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0))
-                        .filter(|p| !p.is_empty());
                     let mut contrib = contrib.clone();
-                    if let Some(prefix) = prefix.as_deref() {
-                        prefix_arg_paths(&mut contrib, prefix);
-                    }
+                    rebase_template(
+                        &mut contrib,
+                        call.arguments.get(args_idx).and_then(arg_expr),
+                        false,
+                        scope,
+                        module_source,
+                        ref_off,
+                    );
                     apply_contribution(&mut out, &contrib, is_optional_merge);
                 }
             }

@@ -1064,12 +1064,17 @@ fn iq_builder_counts(ir: &wa_ir::IqIr) -> IqBuilderCounts {
         }
     }
     fn count_attr(a: &wa_ir::WapAttrDef, c: &mut IqBuilderCounts) {
-        // A const is a literal the builder writes and a generated id is produced by
-        // `wap.generateId()`; neither reads an argument, so neither can be missing one.
+        // An attribute whose value the BUILDER supplies reads no argument, so it can be
+        // missing none: a const literal, a `wap.generateId()` id, and an
+        // `OPTIONAL_LITERAL` whose recorded `value` is the literal and whose argument is
+        // a presence flag rather than the value. Counting the last as unresolved reported
+        // eight extraction gaps that do not exist — and contradicted the contract test,
+        // which already asks whether an attribute reads an argument at all.
         if matches!(
             a.kind,
             wa_ir::WapAttrKind::Const | wa_ir::WapAttrKind::GeneratedId
-        ) {
+        ) || a.value.is_some()
+        {
             return;
         }
         if a.arg_path.is_some() {
