@@ -774,8 +774,10 @@ struct Counts {
     /// `manifest.diagnostics.iq.{stanzas,typedResponses}`.
     iq_stanzas: usize,
     iq_typed_responses: usize,
-    /// Requests whose addressee the scan named — see [`IqTargetCounts::resolved`].
-    iq_targets_resolved: usize,
+    /// The addressee distribution, floored per class — see [`IqTargetCounts`]. Kept
+    /// whole rather than reduced to `resolved()` here, because a floor on the sum alone
+    /// cannot see one class trade places with another.
+    iq_targets: IqTargetCounts,
     /// Validation-constraint coverage, mirroring
     /// `manifest.diagnostics.iq.constraints` — see [`IqConstraintCounts`].
     iq_reference_constraints: usize,
@@ -1973,7 +1975,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         notif_stanza_tags: notif_tags,
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
-        iq_targets_resolved: iq_diag.targets.resolved(),
+        iq_targets: iq_diag.targets,
         iq_reference_constraints: iq_diag.constraints.reference_constraints,
         iq_field_literals: iq_diag.constraints.field_literals,
         iq_field_enum_refs: iq_diag.constraints.field_enum_refs,
@@ -2184,14 +2186,27 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         // moves from `server`/`group` into `unset`/`unknown`, which this sees and the
         // stanza count cannot. The two unresolved states are held against *rising* by
         // `scripts/lint-ir.py`, so neither direction is unwatched.
-        if let Some(t) = iq.get("targets")
-            && let Some(prev) = t.get("resolved").and_then(serde_json::Value::as_u64)
-            && (counts.iq_targets_resolved as u64) < prev
-        {
-            regressions.push(format!(
-                "iq.targets.resolved: {prev} → {}",
-                counts.iq_targets_resolved
-            ));
+        //
+        // Per class, not only on the total. The sum cannot see a SUBSTITUTION, and the
+        // substitution it cannot see is this PR's own headline defect: 27 requests moving
+        // between `groupJid` and `server` holds `resolved` at 139 and passes, while the
+        // generated builder swaps a caller-supplied group JID for a literal server —
+        // which is a subject change sent to `g.us` instead of to the group. Same reasoning
+        // as the split unresolved counters in `lint-ir.py`; an aggregate is only a floor
+        // for the thing it aggregates.
+        if let Some(t) = iq.get("targets") {
+            for (key, new) in [
+                ("resolved", counts.iq_targets.resolved()),
+                ("server", counts.iq_targets.server),
+                ("groupServer", counts.iq_targets.group_server),
+                ("groupJid", counts.iq_targets.group_jid),
+            ] {
+                if let Some(prev) = t.get(key).and_then(serde_json::Value::as_u64)
+                    && (new as u64) < prev
+                {
+                    regressions.push(format!("iq.targets.{key}: {prev} → {new}"));
+                }
+            }
         }
         // The validation-constraint layer. Each counter keys on a distinct JS construct
         // (`attrStringFromReference`, `literal`/`optionalLiteral`, the enum accessors,
@@ -3218,7 +3233,7 @@ mod tests {
             notif_stanza_tags: 0,
             iq_stanzas: 0,
             iq_typed_responses: 0,
-            iq_targets_resolved: 0,
+            iq_targets: IqTargetCounts::default(),
             stanza_defs: 0,
             incoming_defs: 0,
             server_request_defs: 0,
@@ -3259,13 +3274,57 @@ mod tests {
             iq_modules: 33,
             iq_stanzas: 90,
             iq_typed_responses: 40,
-            iq_targets_resolved: 0,
+            iq_targets: IqTargetCounts::default(),
             ..Default::default()
         };
         let regressions = check_floor(&dir, &counts).unwrap();
         assert!(regressions.iter().any(|r| r.contains("iq.stanzas")));
         assert!(regressions.iter().any(|r| r.contains("iq.typedResponses")));
         assert!(!regressions.iter().any(|r| r.contains("iqModules")));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn check_floor_sees_one_addressee_class_trade_places_with_another() {
+        let dir = std::env::temp_dir().join(format!("whatspec-floor-tgt-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let prior = serde_json::json!({
+            "diagnostics": { "iq": { "targets": {
+                "server": 106, "groupServer": 6, "groupJid": 27, "resolved": 139,
+            } } },
+        });
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_string_pretty(&prior).unwrap(),
+        )
+        .unwrap();
+        // Every group JID re-read as the server. The total is still 139, so a floor on
+        // the sum passes — while every one of those 27 generated builders swaps a
+        // caller-supplied group JID for a literal `s.whatsapp.net`, which is this PR's
+        // own headline defect coming back.
+        let counts = Counts {
+            iq_targets: IqTargetCounts {
+                server: 133,
+                group_server: 6,
+                group_jid: 0,
+                unset: 0,
+                unknown: 0,
+            },
+            ..Default::default()
+        };
+        let regressions = check_floor(&dir, &counts).unwrap();
+        assert!(
+            regressions
+                .iter()
+                .any(|r| r.contains("iq.targets.groupJid")),
+            "the class that lost its requests must be named: {regressions:?}"
+        );
+        assert!(
+            !regressions
+                .iter()
+                .any(|r| r.contains("iq.targets.resolved")),
+            "and the sum is exactly what could not see it: {regressions:?}"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 

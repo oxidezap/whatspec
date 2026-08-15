@@ -61,10 +61,22 @@ pub fn extract_enums_from_modules(
     // Deterministic order independent of bundle layout.
     enums.sort_by(|a, b| a.module.cmp(&b.module).then_with(|| a.name.cmp(&b.name)));
     enums.dedup_by(|a, b| a.module == b.module && a.name == b.name);
-    EnumsIr {
+    let mut ir = EnumsIr {
         wa_version: wa_version.to_string(),
         enums,
-    }
+    };
+    // Here, not only in the caller. `bitPosition` is part of what this IR says, and the
+    // evidence for it — a `1 << Enum.VARIANT` somewhere in the bundle — is in the `source`
+    // this function already holds. A consumer calling the documented extractor otherwise
+    // gets every definition flagged `false`, which is not "we did not check" but a plain
+    // statement that no enum here is bit positions.
+    //
+    // The pipeline calls it again after promoting inline `enumRef`s into the catalog,
+    // which is the one thing this cannot cover: an enum reachable only through a
+    // reference does not exist yet at this point. Marking is idempotent, so the second
+    // pass costs a scan and changes nothing already decided here.
+    mark_bit_position_enums(&mut ir, source);
+    ir
 }
 
 fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
@@ -1834,6 +1846,30 @@ mod tests {
         };
         assert!(by("MODE"), "shifted by, so its values are bit positions");
         assert!(!by("CODE"), "never shifted by — a plain code table");
+    }
+
+    #[test]
+    fn the_public_extractor_marks_bit_positions_by_itself() {
+        // `run_with_shifts` calls the marking pass explicitly, which is how the pipeline
+        // uses it — but a library consumer calls the extractor and serializes what comes
+        // back. `bitPosition: false` on every definition is not "we did not look", it is
+        // a statement that no enum here is bit positions, so the extractor has to have
+        // looked before it returns.
+        let src = r#"
+            __d("WAWebModes",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:0,B:1,C:2});i.MODE=e}),1);
+            __d("WAWebCodes",["$InternalEnum"],(function(t,n,r,o,a,i){var e=n("$InternalEnum")({A:0,B:1,C:2});i.CODE=e}),1);
+            __d("WAWebUser",["WAWebModes"],(function(t,n,r,o,a,i){function f(){var x=0;x|=1<<o("WAWebModes").MODE.C;return x}i.f=f}),1);
+        "#;
+        let enums = run(src);
+        let by = |n: &str| {
+            enums
+                .iter()
+                .find(|e| e.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .bit_position
+        };
+        assert!(by("MODE"), "no separate pass needed to learn this");
+        assert!(!by("CODE"));
     }
 
     #[test]
