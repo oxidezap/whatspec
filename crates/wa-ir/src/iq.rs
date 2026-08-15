@@ -45,6 +45,81 @@ pub enum WapAttrKind {
     Dynamic,
 }
 
+/// One step of a [`WapArgPath`] — a key in the builder's argument object, plus
+/// whether that key holds the **list** a repeated child iterates.
+///
+/// `list` is set on one kind of segment: the array argument of a
+/// `WASmaxChildren.REPEATED_CHILD(template, list, min, max)` call, which invokes the
+/// template once per element. It is *not* set for `OPTIONAL_CHILD`/`HAS_OPTIONAL_CHILD`,
+/// where the argument object is handed to the template as-is. A path may carry several,
+/// one per repeated combinator it passes through — `userArgs[] → deviceArgs[] → deviceId`
+/// is read off an element of an element. The distinction is
+/// load-bearing rather than cosmetic: writing `participantArgs.participantJid` where the
+/// builder reads `participantArgs[0].participantJid` puts the value somewhere the vendor
+/// builder never looks, and the stanza goes out without it.
+///
+/// It does not say how long the list may be — that is [`WapChildNode::repeat_min`] /
+/// [`repeat_max`] on the node the path addresses — and it does not say the key is
+/// present at runtime.
+///
+/// [`repeat_max`]: WapChildNode::repeat_max
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WapArgSegment {
+    /// The property name read off the argument object (`participantArgs`, `iqTo`, …).
+    pub key: String,
+    /// This key holds the array a `REPEATED_CHILD` iterates; the next segment (and
+    /// everything below it) is read off an *element*, not off the array.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub list: bool,
+}
+
+/// Where a value lives in the **argument object of WhatsApp's own request builder** —
+/// an absolute path from the builder's single parameter, e.g.
+/// `participantArgs[] → participantJid` for `makeCreateRequest({participantArgs: [{
+/// participantJid: … }]})`.
+///
+/// This describes the *builder*, not the wire. A consumer that encodes the stanza itself
+/// has no use for it and should read `tag`/`attrs`/`content`; a consumer that calls the
+/// vendor builder needs it, because the argument key is frequently not derivable from
+/// the wire name it ends up in (`subjectElementValue` → the content of `<subject>`).
+///
+/// What it does **not** guarantee: that the key is required (see
+/// [`WapChildNode::presence`]), that a value written there is valid, or that a path
+/// exists at all — an unrecoverable path is absent from the IR and counted under
+/// `manifest.diagnostics.iq.argPaths`, never guessed.
+pub type WapArgPath = Vec<WapArgSegment>;
+
+/// Whether a request child node must be built, may be omitted, or exists only to
+/// signal a flag — the three states `WASmaxChildren` distinguishes and the wire does
+/// not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum WapChildPresence {
+    /// Built unconditionally — the builder calls the child template directly, or
+    /// `REPEATED_CHILD` iterates a list that is itself a required argument. For a
+    /// repeated child, "required" is about the *list argument*: a `repeat_min` of 0
+    /// still allows the list to be empty.
+    #[default]
+    Required,
+    /// `WASmaxChildren.OPTIONAL_CHILD(template, args)` — emitted only when the
+    /// argument object is supplied. The child carries real attrs/content when present.
+    Optional,
+    /// `WASmaxChildren.HAS_OPTIONAL_CHILD(template, flag)` — a **presence marker**:
+    /// the template takes no arguments, so the element is empty and its entire meaning
+    /// is being there (`<locked/>` on a group create). A consumer can model it as a
+    /// `bool` argument, which it cannot do for [`Optional`] and must not do for an
+    /// empty [`Required`] child.
+    ///
+    /// It does not guarantee the element has no attributes on the wire — only that
+    /// this builder writes none.
+    ///
+    /// [`Optional`]: WapChildPresence::Optional
+    PresenceFlag,
+}
+
 /// A single attribute on a request stanza node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -52,7 +127,19 @@ pub enum WapAttrKind {
 pub struct WapAttrDef {
     pub name: String,
     pub kind: WapAttrKind,
-    /// Present only for [`WapAttrKind::Const`].
+    /// The fixed wire value the builder writes itself.
+    ///
+    /// Present for a [`WapAttrKind::Const`] attribute, and for an
+    /// [`Optional`](WapAttrKind::Optional) one built by
+    /// `WASmaxAttrs.OPTIONAL_LITERAL(lit, flag)` — there the value is this literal and
+    /// the argument is a boolean deciding whether the attribute is written at all, the
+    /// attribute analogue of [`WapChildPresence::PresenceFlag`]. Such an attribute
+    /// carries no [`arg_path`]: there is no address for a value the builder supplies, and
+    /// pointing at the boolean would tell a consumer to put the wire string there.
+    ///
+    /// It does not say the attribute is always sent — only what it says when it is.
+    ///
+    /// [`arg_path`]: WapAttrDef::arg_path
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     pub required: bool,
@@ -65,6 +152,12 @@ pub struct WapAttrDef {
     /// a variable, or any non-enum expression (never guessed from value coincidence).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_ref: Option<AttrEnumRef>,
+    /// Where this attribute's value comes from in the builder's argument object — an
+    /// absolute [`WapArgPath`]. Absent for a [`WapAttrKind::Const`] (the builder writes
+    /// the literal itself, there is no argument) and whenever the path is not
+    /// structurally recoverable; those are counted, not guessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arg_path: Option<WapArgPath>,
 }
 
 /// A wire enum a request attribute's value is drawn from, recovered by resolving a
@@ -89,6 +182,60 @@ pub struct AttrEnumRef {
 pub struct AttrEnumVariant {
     pub name: String,
     pub value: String,
+}
+
+impl WapChildPresence {
+    /// Whether this is the default (unconditional) presence — the serde skip predicate,
+    /// so the common case costs no bytes in the emitted document.
+    pub fn is_required(&self) -> bool {
+        matches!(self, WapChildPresence::Required)
+    }
+}
+
+impl WapAttrDef {
+    /// Whether this attribute's wire value comes from a caller argument rather than from
+    /// the builder itself — so an absent [`arg_path`] is an extraction gap rather than
+    /// nothing to address. A constant, a generated id, and an attribute with a recorded
+    /// fixed [`value`] (WA's `OPTIONAL_LITERAL`, whose argument is a presence flag) all
+    /// read none.
+    ///
+    /// Says nothing about whether the value is required, only about where it comes from.
+    ///
+    /// [`arg_path`]: WapAttrDef::arg_path
+    /// [`value`]: WapAttrDef::value
+    pub fn reads_argument(&self) -> bool {
+        !matches!(self.kind, WapAttrKind::Const | WapAttrKind::GeneratedId) && self.value.is_none()
+    }
+}
+
+impl WapContent {
+    /// Whether this payload comes from a caller argument rather than from the builder —
+    /// the same question [`WapAttrDef::reads_argument`] asks, for element content. Only a
+    /// [`WapContentKind::Const`] reads none: the builder writes that literal itself.
+    ///
+    /// A [`const_bytes`] payload still does. It is *pinned* rather than written — every
+    /// call site in the bundle passes the same compile-time constant — so the argument
+    /// exists and a consumer calling the builder must supply it. The two facts answer
+    /// different questions: [`arg_path`] says where the value goes, `const_bytes` says
+    /// what to put there.
+    ///
+    /// [`const_bytes`]: WapContent::const_bytes
+    /// [`arg_path`]: WapContent::arg_path
+    pub fn reads_argument(&self) -> bool {
+        self.kind != WapContentKind::Const
+    }
+}
+
+impl WapChildNode {
+    /// Whether a `WASmaxChildren` combinator fed this child — `REPEATED_CHILD`,
+    /// `OPTIONAL_CHILD` or `HAS_OPTIONAL_CHILD` — so it has an argument of its own for
+    /// [`arg_path`] to address. A child built unconditionally in the builder body has no
+    /// argument object behind it and is not missing an address by lacking one.
+    ///
+    /// [`arg_path`]: WapChildNode::arg_path
+    pub fn is_combinator_fed(&self) -> bool {
+        self.repeats || !self.presence.is_required()
+    }
 }
 
 /// The kind of leaf payload a request node carries in its element content
@@ -157,6 +304,18 @@ pub struct WapContent {
     /// [`value`]: WapContent::value
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value_source: Option<String>,
+    /// Where the content value comes from in the builder's argument object — an
+    /// absolute [`WapArgPath`] (`<subject>`'s text is `subjectElementValue`). Absent for a
+    /// [`WapContentKind::Const`] payload, which the builder writes itself, and whenever
+    /// the path is not structurally recoverable.
+    ///
+    /// A [`const_bytes`] payload keeps its path: it is *pinned* — every call site passes
+    /// the same constant — not written by the builder, so the argument is still read and
+    /// a consumer still has to supply it. The constant says what to put here.
+    ///
+    /// [`const_bytes`]: WapContent::const_bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arg_path: Option<WapArgPath>,
 }
 
 /// A node in a request stanza tree.
@@ -171,10 +330,53 @@ pub struct WapChildNode {
     /// The leaf element content, when this node carries a value instead of child
     /// nodes (`<id>`, `<value>`, `<signature>` in a prekey `<skey>`). `None` for
     /// container nodes and attr-only nodes.
+    ///
+    /// Says what the element carries when the builder writes it, not that it is always
+    /// written: a payload contributed by an `optionalMerge` onto a node built elsewhere
+    /// is stated here even though that merge can be skipped. There is no per-content
+    /// optionality in this contract — [`presence`] is a property of the node.
+    ///
+    /// [`presence`]: WapChildNode::presence
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<WapContent>,
     /// Whether this child can appear multiple times (maps to `Vec<_>` in codegen).
     pub repeats: bool,
+    /// Whether the builder emits this child unconditionally, only when its arguments
+    /// are supplied, or only as a presence marker. See [`WapChildPresence`]; defaults
+    /// to [`WapChildPresence::Required`], which is also what a node whose call site was
+    /// not one of the `WASmaxChildren` combinators gets.
+    #[serde(default, skip_serializing_if = "WapChildPresence::is_required")]
+    pub presence: WapChildPresence,
+    /// Lower bound on the number of repetitions, from the 3rd argument of
+    /// `REPEATED_CHILD(template, list, min, max)`. Present only when [`repeats`] is set
+    /// and the bound is a literal; a computed or non-finite bound is omitted and
+    /// counted, never defaulted to 0.
+    ///
+    /// It is the bound *this builder* enforces before sending. The server enforces its
+    /// own, which may be stricter.
+    ///
+    /// [`repeats`]: WapChildNode::repeats
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_min: Option<u32>,
+    /// Upper bound on the number of repetitions — the 4th argument of `REPEATED_CHILD`
+    /// (`add/participant` caps at 1024, `query/group` at 10000). Same presence rules as
+    /// [`repeat_min`].
+    ///
+    /// [`repeat_min`]: WapChildNode::repeat_min
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_max: Option<u32>,
+    /// Where this node's own argument object lives in the builder's arguments — the
+    /// list for a [`repeats`] child (its last segment carries [`WapArgSegment::list`]),
+    /// the argument object for an [`WapChildPresence::Optional`] one, the boolean for a
+    /// [`WapChildPresence::PresenceFlag`] one.
+    ///
+    /// Absent for a node the builder constructs inline: such a node has no argument
+    /// object of its own, and its attrs/content carry absolute paths regardless, so a
+    /// consumer never has to concatenate.
+    ///
+    /// [`repeats`]: WapChildNode::repeats
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arg_path: Option<WapArgPath>,
     /// Mutually-exclusive variant groups this node can take, each from a smax
     /// MixinGroup disjunction (e.g. newsletter params: a `jid` variant XOR an
     /// `invite` variant, discriminated by `type`). Exactly one variant of each
@@ -312,6 +514,19 @@ pub struct IqRequestDef {
     pub namespace: String,
     pub iq_type: IqType,
     pub target: IqTarget,
+    /// Where the addressee comes from in the builder's argument object, when the builder
+    /// writes a `to` it reads from an argument rather than from a constant.
+    ///
+    /// [`target`] says WHAT kind of addressee the request takes — a group's own JID, the
+    /// group server, `s.whatsapp.net` — and for the runtime ones a consumer calling the
+    /// vendor builder still has to know where to put it. Absent when the addressee is a
+    /// compile-time constant (nothing to supply), when the builder writes no `to`, and
+    /// when the path is not structurally recoverable, which is counted like every other
+    /// missing address rather than guessed.
+    ///
+    /// [`target`]: IqRequestDef::target
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_arg_path: Option<WapArgPath>,
     pub children: Vec<WapChildNode>,
 }
 
@@ -1121,6 +1336,7 @@ mod tests {
             exported_function: None,
             all_exports: vec![],
             request: IqRequestDef {
+                target_arg_path: None,
                 namespace: "w:foo".into(),
                 iq_type: IqType::Get,
                 target: IqTarget::Server,

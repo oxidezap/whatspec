@@ -120,7 +120,41 @@ pub enum Scalar {
 /// [`ParsedFieldType`]: crate::ParsedFieldType
 /// [`parserRequired`]: crate::ParsedField::parser_required
 /// [`ParsedField::unknown_value`]: crate::ParsedField::unknown_value
-pub const SCHEMA_VERSION: &str = "3.0.0";
+///
+/// # 4.0.0 — the builder side of a request
+///
+/// The IR gained a dimension it did not have: where a value goes in the argument object
+/// of WA's own request builder ([`WapArgSegment`], on nodes, attributes, element contents
+/// and the request's addressee), the cardinality of a request child
+/// ([`WapChildPresence`], plus [`WapChildNode::repeat_min`]/[`repeat_max`]), and element
+/// contents that used to stop at the mixin boundary.
+///
+/// Nearly all of it is additive — every new property is optional and skipped at its
+/// default, and each committed `*/index.json` validates clean against its own 3.0.0
+/// schema, 0 errors across all 12 domains. **One change is not**, and it is why this is a
+/// major rather than a minor:
+///
+/// - [`WapAttrDef::value`] was documented as present only for [`WapAttrKind::Const`], and
+///   now also carries the fixed literal of an `OPTIONAL_LITERAL` attribute, whose `kind`
+///   is [`Optional`](WapAttrKind::Optional). A 3.0 consumer reading a present `value` as
+///   an unconditional constant would send that attribute always; it is written only when
+///   the builder's boolean gate says so. Migration: treat `value` on a non-`Const`
+///   attribute as "this is what it says WHEN it is written", and read
+///   [`WapChildPresence`]'s attribute analogue from the `kind`. Eight committed IQ
+///   attributes are in this state. The old JSON Schema accepts them, which is exactly why
+///   the version has to say what the schema cannot.
+///
+/// What else changed *value* rather than shape: `content` is now populated on 45 request
+/// nodes that previously had none — an optional field filled in where the builder does
+/// supply a payload.
+///
+/// [`WapArgSegment`]: crate::WapArgSegment
+/// [`WapChildPresence`]: crate::WapChildPresence
+/// [`WapChildNode::repeat_min`]: crate::WapChildNode::repeat_min
+/// [`repeat_max`]: crate::WapChildNode::repeat_max
+/// [`WapAttrDef::value`]: crate::WapAttrDef::value
+/// [`WapAttrKind::Const`]: crate::WapAttrKind::Const
+pub const SCHEMA_VERSION: &str = "4.0.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

@@ -9,6 +9,18 @@
       }
     },
     "iq": {
+      "builder": {
+        "argPathAttrs": 218,
+        "argPathAttrsMissing": 55,
+        "argPathChildren": 108,
+        "argPathChildrenMissing": 12,
+        "argPathContents": 44,
+        "argPathContentsMissing": 23,
+        "elementValues": 67,
+        "optionalChildren": 33,
+        "presenceFlagChildren": 31,
+        "repeatBounds": 35
+      },
       "candidateModules": 207,
       "constraints": {
         "errorArms": 645,
@@ -62,37 +74,37 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "8f55c73c67c6ee632d81f3240861883ec0026abc524bdb32a73dcd500b031336"
+      "sha256": "21f6f4a28fef514bf2f4e9006839c946d9a6b9e2df376c7170bd2e8520ae9abd"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "86fd39f3e7c709fe6f44c6c968aa0ef73203f321bba5b95815ba0c0738fb139f"
+      "sha256": "655e50ecd5f3e592a9c5e5a32a98cfd40d9aa2e6a4b142f3f9203750116d6092"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "bd8bc2a97ab35967978aeca3aa0b0b48e95da1a0f0aa4f062e01d2e4cb457799"
+      "sha256": "e0f9d1d71ab254f14a7ac2725db50e6f820a408900feb422bca481292e46c104"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "dc5700e2f8400d76f2b49876cbd860504d63b05f59db0ec3c9f67b858f9a1c83"
+      "sha256": "990d1ba619cde34bb07f929d4360618f024f388ad0c2a7ebdac6dbb516882750"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "abe219f06bea1138af6b6e6970f47ace0120dfb8d87e34eed274aa4121338a9b"
+      "sha256": "e8e68c739a74e7551393e786eb9e63ae413209aa46330549135b7912bfa2431c"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "7d5fd5ff2dde0acebbc1b780eb728f93beb5b1490c8c56896bd5ad10292e4826"
+      "sha256": "7d14b1daf2169e9647adb3f18d31482bb7e0271344774ed7ae0e937392d8dbee"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "a9bf2d409d11eb52fc03d39c8a6d8c170f4e5920134c6cd425191d688279f6a6"
+      "sha256": "bd9637539c7d439746fc1866e625ab5f7cbce333350b01e1322a3494496a1018"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -101,27 +113,27 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "785f32b10c5a92a6f9e43e07efba4af63e4602cdd5857a5323df06b353ee35b1"
+      "sha256": "b7cc61c5811b028e24cd82e1ad54c1e26c5f6d1ccc8742515937e09e259bea9e"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "95aee43b67cf84ce7556298bc110f2af09cb7bdc85ed3351152285e6e38309ee"
+      "sha256": "5b0819a64a5d938759ddc58e1bd86f7594de0ba8bcacdf7d8a0013f8dc3b92d2"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "a7ffc66bedf994e007268ace0ce64a17c0bb04e8d28fcd4770c1d1aa25d70ca6"
+      "sha256": "676ab4a648f64397e2b571293dee683bb27efc3a74dc58ef7b52390782ce960f"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "4bc2f0147ffd95e1d46d0c3c1c032ffcc41e210a7e1eaf7c34c7826a62778ae1"
+      "sha256": "6e3ecf31c667b8b71042c6a0dd7708bf4677a3c86d8f1372b1f9441cab8fa75f"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "dd590de1b1f785057d7c5a722f95b356865d50c9c8b687c83b8ed65e6a445df7"
+      "sha256": "02afd546f61f089220858f350220e94c6d056e9ac9ea7a94339d54f99b22d156"
     }
   },
   "enumDefs": 403,
@@ -131,7 +143,7 @@
   "mexOperations": 137,
   "notifTypes": 27,
   "protoEntities": 268,
-  "schemaVersion": "3.0.0",
+  "schemaVersion": "4.0.0",
   "serverRequestDefs": 22,
   "stanzaDefs": 179,
   "tokenDoubleByte": 1024,

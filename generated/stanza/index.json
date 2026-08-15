@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "3.0.0",
+  "schemaVersion": "4.0.0",
   "waVersion": "2.3000.1044659339",
   "stanzas": [
     {
@@ -103,7 +103,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -182,7 +187,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -224,7 +234,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -298,7 +313,13 @@
           "tag": "ctwa_attribution",
           "attrs": [],
           "children": [],
-          "repeats": false
+          "repeats": false,
+          "presence": "optional",
+          "argPath": [
+            {
+              "key": "ctwaAttributionArgs"
+            }
+          ]
         }
       ],
       "response": null,
@@ -323,7 +344,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -352,7 +378,12 @@
             {
               "name": "message_association_type",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaMessageAssociationType"
+                }
+              ]
             }
           ],
           "children": [],
@@ -381,7 +412,12 @@
             {
               "name": "premium_type",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaPremiumType"
+                }
+              ]
             }
           ],
           "children": [],
@@ -410,7 +446,12 @@
             {
               "name": "origin",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaOrigin"
+                }
+              ]
             }
           ],
           "children": [],
@@ -465,12 +506,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         },
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageServerId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -492,7 +543,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -518,7 +574,12 @@
             {
               "name": "mediatype",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "plaintextMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -543,7 +604,12 @@
         {
           "name": "media_id",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageMediaId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -618,7 +684,27 @@
               "tag": "vote",
               "attrs": [],
               "children": [],
-              "repeats": true
+              "content": {
+                "kind": "dynamic",
+                "argPath": [
+                  {
+                    "key": "voteArgs",
+                    "list": true
+                  },
+                  {
+                    "key": "voteElementValue"
+                  }
+                ]
+              },
+              "repeats": true,
+              "repeatMin": 0,
+              "repeatMax": 1000,
+              "argPath": [
+                {
+                  "key": "voteArgs",
+                  "list": true
+                }
+              ]
             }
           ],
           "repeats": false
@@ -692,7 +778,12 @@
             {
               "name": "code",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "reactionCode"
+                }
+              ]
             }
           ],
           "children": [],
@@ -740,7 +831,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -811,12 +907,22 @@
             {
               "name": "parent_server_id",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaParentServerId"
+                }
+              ]
             },
             {
               "name": "response_server_id",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaResponseServerId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -964,7 +1070,12 @@
             {
               "name": "content_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "plaintextContentId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1128,7 +1239,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1179,7 +1295,15 @@
           "tag": "extension_screen",
           "attrs": [],
           "children": [],
-          "repeats": true
+          "repeats": true,
+          "repeatMin": 1,
+          "repeatMax": 100,
+          "argPath": [
+            {
+              "key": "extensionScreenArgs",
+              "list": true
+            }
+          ]
         }
       ],
       "response": null,
@@ -1202,12 +1326,22 @@
         {
           "name": "from",
           "kind": "group_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         },
         {
           "name": "phash",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messagePhash"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1232,7 +1366,12 @@
             {
               "name": "reported_link",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "iabReportedLink"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1283,7 +1422,13 @@
           "tag": "raw",
           "attrs": [],
           "children": [],
-          "repeats": false
+          "repeats": false,
+          "presence": "optional",
+          "argPath": [
+            {
+              "key": "rawArgs"
+            }
+          ]
         }
       ],
       "response": null,
@@ -1306,27 +1451,52 @@
         {
           "name": "t",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageT"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         },
         {
           "name": "selected",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageSelected"
+            }
+          ]
         },
         {
           "name": "unsent",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageUnsent"
+            }
+          ]
         },
         {
           "name": "deleted_reason",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageDeletedReason"
+            }
+          ]
         }
       ],
       "children": [
@@ -1336,16 +1506,49 @@
             {
               "name": "mediatype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "rawArgs"
+                },
+                {
+                  "key": "rawMediatype"
+                }
+              ]
             },
             {
               "name": "local_message_type",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "rawArgs"
+                },
+                {
+                  "key": "rawLocalMessageType"
+                }
+              ]
             }
           ],
           "children": [],
-          "repeats": false
+          "content": {
+            "kind": "dynamic",
+            "argPath": [
+              {
+                "key": "rawArgs"
+              },
+              {
+                "key": "rawElementValue"
+              }
+            ]
+          },
+          "repeats": false,
+          "presence": "optional",
+          "argPath": [
+            {
+              "key": "rawArgs"
+            }
+          ]
         }
       ],
       "response": null,
@@ -1366,22 +1569,42 @@
         {
           "name": "participant",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageParticipant"
+            }
+          ]
         },
         {
           "name": "participant_type",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageParticipantType"
+            }
+          ]
         },
         {
           "name": "member_tag",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageMemberTag"
+            }
+          ]
         },
         {
           "name": "member_tag_ts_s",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "messageMemberTagTsS"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1433,7 +1656,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1455,7 +1683,12 @@
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1481,7 +1714,12 @@
             {
               "name": "tid",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "hsmTid"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1506,12 +1744,22 @@
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageServerId"
+            }
+          ]
         },
         {
           "name": "response_server_id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageResponseServerId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1580,7 +1828,12 @@
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1647,7 +1900,12 @@
         {
           "name": "reported_push_name",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageReportedPushName"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1696,7 +1954,12 @@
             {
               "name": "biz_source",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaBizSource"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1721,7 +1984,12 @@
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -1745,7 +2013,13 @@
           "tag": "raw",
           "attrs": [],
           "children": [],
-          "repeats": false
+          "repeats": false,
+          "presence": "presence_flag",
+          "argPath": [
+            {
+              "key": "hasRaw"
+            }
+          ]
         }
       ],
       "response": null,
@@ -1766,22 +2040,42 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "recipientJid"
+            }
+          ]
         },
         {
           "name": "phash",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "phash"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "messageType"
+            }
+          ]
         }
       ],
       "children": [
@@ -1891,7 +2185,21 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "sendMsgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
@@ -1901,7 +2209,12 @@
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "edit",
@@ -1963,7 +2276,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         }
       ],
       "children": [
@@ -1973,12 +2291,22 @@
             {
               "name": "v",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "version"
+                }
+              ]
             }
           ],
           "children": [],
           "content": {
-            "kind": "dynamic"
+            "kind": "dynamic",
+            "argPath": [
+              {
+                "key": "reportingToken"
+              }
+            ]
           },
           "repeats": false
         }
@@ -2000,7 +2328,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -2021,22 +2354,51 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "device_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "edit",
@@ -2079,12 +2441,25 @@
             {
               "name": "count",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "deviceMsgType"
+                },
+                {
+                  "key": "retryCount"
+                }
+              ]
             },
             {
               "name": "mediatype",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2114,17 +2489,41 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "edit",
@@ -2390,7 +2789,21 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
@@ -2400,27 +2813,64 @@
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgProtobuf"
+            }
+          ]
         },
         {
           "name": "peer_recipient_pn",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "peer_recipient_lid",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "peerRecipientLid"
+            }
+          ]
         },
         {
           "name": "peer_recipient_username",
@@ -2440,7 +2890,18 @@
         {
           "name": "push_priority",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "params"
+            },
+            {
+              "key": "option"
+            },
+            {
+              "key": "pushPriority"
+            }
+          ]
         },
         {
           "name": "privacy_sensitive",
@@ -2485,7 +2946,12 @@
             {
               "name": "mediatype",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2591,12 +3057,37 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "msgRecord"
+            },
+            {
+              "key": "data"
+            },
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "type",
@@ -2711,7 +3202,12 @@
             {
               "name": "native_flow_name",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2790,7 +3286,15 @@
             {
               "name": "st",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "scheduledMsgMetadata"
+                },
+                {
+                  "key": "scheduledTimestampS"
+                }
+              ]
             }
           ],
           "children": [
@@ -2800,12 +3304,28 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "scheduledMsgMetadata"
+                    },
+                    {
+                      "key": "revealKeyId"
+                    }
+                  ]
                 }
               ],
               "children": [],
               "content": {
-                "kind": "dynamic"
+                "kind": "dynamic",
+                "argPath": [
+                  {
+                    "key": "scheduledMsgMetadata"
+                  },
+                  {
+                    "key": "revealKey"
+                  }
+                ]
               },
               "repeats": false
             },
@@ -2815,7 +3335,15 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "scheduledMsgMetadata"
+                    },
+                    {
+                      "key": "revealKeyId"
+                    }
+                  ]
                 }
               ],
               "children": [],
@@ -2836,7 +3364,15 @@
             {
               "name": "type",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                }
+              ]
             },
             {
               "name": "local_automated_type",
@@ -2880,7 +3416,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "receiptTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -2903,7 +3444,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "receiptId"
+            }
+          ]
         }
       ],
       "children": [
@@ -2917,11 +3463,28 @@
                 {
                   "name": "server_id",
                   "kind": "integer",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "itemArgs",
+                      "list": true
+                    },
+                    {
+                      "key": "itemServerId"
+                    }
+                  ]
                 }
               ],
               "children": [],
-              "repeats": true
+              "repeats": true,
+              "repeatMin": 0,
+              "repeatMax": 255,
+              "argPath": [
+                {
+                  "key": "itemArgs",
+                  "list": true
+                }
+              ]
             }
           ],
           "repeats": false
@@ -2993,12 +3556,22 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         }
       ],
       "children": [
@@ -3026,22 +3599,42 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "type",
@@ -3284,22 +3877,42 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "type",
@@ -3326,22 +3939,42 @@
             {
               "name": "count",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "retryCount"
+                }
+              ]
             },
             {
               "name": "id",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "externalId"
+                }
+              ]
             },
             {
               "name": "t",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "rawTs"
+                }
+              ]
             },
             {
               "name": "error",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "retryReason"
+                }
+              ]
             }
           ],
           "children": [],
@@ -3397,7 +4030,15 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "id"
+            },
+            {
+              "key": "id"
+            }
+          ]
         }
       ],
       "children": [
@@ -4101,12 +4742,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4307,7 +4958,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4526,12 +5182,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4565,12 +5231,22 @@
         {
           "name": "to",
           "kind": "group_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "chatId"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -4587,7 +5263,12 @@
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "author"
+            }
+          ]
         }
       ],
       "children": [],
@@ -4806,27 +5487,52 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "externalId"
+            }
+          ]
         },
         {
           "name": "class",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaClass"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "type"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5102,7 +5808,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5119,7 +5830,12 @@
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5140,7 +5856,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5332,32 +6053,62 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "ackId"
+            }
+          ]
         },
         {
           "name": "class",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "ackClass"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "type"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "error",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "error"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5394,12 +6145,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5420,12 +6181,22 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5436,12 +6207,22 @@
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "ackString"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5535,17 +6316,32 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "to"
+            }
+          ]
         },
         {
           "name": "recipient",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "recipient"
+            }
+          ]
         },
         {
           "name": "participant",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "participant"
+            }
+          ]
         },
         {
           "name": "class",
@@ -5598,17 +6394,32 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callTo"
+            }
+          ]
         },
         {
           "name": "from",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callFrom"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callId"
+            }
+          ]
         }
       ],
       "children": [
@@ -5618,42 +6429,82 @@
             {
               "name": "duration",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "callInfoDuration"
+                }
+              ]
             },
             {
               "name": "terminate_reason",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoTerminateReason"
+                }
+              ]
             },
             {
               "name": "reason",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoReason"
+                }
+              ]
             },
             {
               "name": "terminator",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoTerminator"
+                }
+              ]
             },
             {
               "name": "start_time",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoStartTime"
+                }
+              ]
             },
             {
               "name": "adder",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoAdder"
+                }
+              ]
             },
             {
               "name": "creator",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoCreator"
+                }
+              ]
             },
             {
               "name": "mediatype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -5684,7 +6535,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "callTo"
+            }
+          ]
         }
       ],
       "children": [
@@ -5694,16 +6550,27 @@
             {
               "name": "media",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "linkCreateMedia"
+                }
+              ]
             },
             {
               "name": "link_creator_username",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "linkCreateLinkCreatorUsername"
+                }
+              ]
             },
             {
               "name": "waiting_room_enabled",
               "kind": "optional",
+              "value": "1",
               "required": false
             }
           ],
@@ -5714,11 +6581,25 @@
                 {
                   "name": "start_time",
                   "kind": "integer",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "eventArgs"
+                    },
+                    {
+                      "key": "eventStartTime"
+                    }
+                  ]
                 }
               ],
               "children": [],
-              "repeats": false
+              "repeats": false,
+              "presence": "optional",
+              "argPath": [
+                {
+                  "key": "eventArgs"
+                }
+              ]
             }
           ],
           "repeats": false
@@ -5756,17 +6637,32 @@
             {
               "name": "token",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "linkQueryToken"
+                }
+              ]
             },
             {
               "name": "media",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "linkQueryMedia"
+                }
+              ]
             },
             {
               "name": "action",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "linkQueryAction"
+                }
+              ]
             }
           ],
           "children": [],
@@ -5805,12 +6701,22 @@
             {
               "name": "enabled",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "waitingRoomToggleEnabled"
+                }
+              ]
             },
             {
               "name": "media",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "waitingRoomToggleMedia"
+                }
+              ]
             }
           ],
           "children": [],
@@ -5834,7 +6740,12 @@
         {
           "name": "to",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "peerJid"
+            }
+          ]
         },
         {
           "name": "id",
@@ -5883,7 +6794,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "chatstateTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5908,6 +6824,7 @@
             {
               "name": "media",
               "kind": "optional",
+              "value": "audio",
               "required": false
             }
           ],
@@ -5956,12 +6873,22 @@
         {
           "name": "type",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceType"
+            }
+          ]
         },
         {
           "name": "name",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceName"
+            }
+          ]
         }
       ],
       "children": [],
@@ -5988,17 +6915,32 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "presenceTo"
+            }
+          ]
         },
         {
           "name": "name",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceName"
+            }
+          ]
         },
         {
           "name": "context",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "presenceContext"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6019,12 +6961,22 @@
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusServerId"
+            }
+          ]
         },
         {
           "name": "t",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusT"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6096,7 +7048,12 @@
             {
               "name": "mediatype",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "plaintextMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6144,7 +7101,12 @@
         {
           "name": "from",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "statusFrom"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6165,12 +7127,22 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusId"
+            }
+          ]
         },
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusServerId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6192,7 +7164,12 @@
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6214,7 +7191,12 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusTo"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6397,12 +7379,22 @@
             {
               "name": "parent_server_id",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaParentServerId"
+                }
+              ]
             },
             {
               "name": "response_server_id",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaResponseServerId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6437,7 +7429,12 @@
             {
               "name": "response_server_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaResponseServerId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6466,7 +7463,12 @@
             {
               "name": "mediatype",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "plaintextMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6491,7 +7493,12 @@
         {
           "name": "media_id",
           "kind": "optional",
-          "required": false
+          "required": false,
+          "argPath": [
+            {
+              "key": "statusMediaId"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6513,7 +7520,12 @@
         {
           "name": "server_id",
           "kind": "integer",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "statusServerId"
+            }
+          ]
         }
       ],
       "children": [
@@ -6546,7 +7558,12 @@
             {
               "name": "code",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "reactionCode"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6833,17 +7850,32 @@
             {
               "name": "name",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "name"
+                }
+              ]
             },
             {
               "name": "value",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "value"
+                }
+              ]
             },
             {
               "name": "dhash",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "dhash"
+                }
+              ]
             }
           ],
           "children": [],

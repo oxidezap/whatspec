@@ -45,6 +45,29 @@ impl AliasMap {
         self.map.get(name).copied()
     }
 
+    /// This map layered over `outer`: every alias `outer` knows that this body does not
+    /// bind itself, plus this map's own.
+    ///
+    /// A function body re-parsed on its own sees only the aliases it declares itself,
+    /// while the module-level `(X = o("WASmaxAttrs"))` it actually calls through lives in
+    /// the enclosing program. Layering restores the lexical view.
+    ///
+    /// `shadowed` is every name the body BINDS — parameters and declarations — whether or
+    /// not it binds them to something tracked. Those names are dropped from the outer map
+    /// rather than inherited: the minifier reuses `n`, `t` and `a` everywhere, so a
+    /// callback whose parameter is spelled like the module's `WASmaxAttrs` alias would
+    /// otherwise have its own element read as that builder.
+    pub(crate) fn over(&self, outer: &AliasMap, shadowed: &HashSet<String>) -> AliasMap {
+        let mut map: HashMap<String, &'static str> = outer
+            .map
+            .iter()
+            .filter(|(k, _)| !shadowed.contains(*k))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        map.extend(self.map.iter().map(|(k, v)| (k.clone(), *v)));
+        AliasMap { map }
+    }
+
     #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.map.is_empty()
@@ -81,6 +104,58 @@ pub(crate) fn resolve_owner(e: &Expression, aliases: &AliasMap) -> Option<&'stat
         return resolve_owner(&assign.right, aliases);
     }
     None
+}
+
+/// Every name this program's OWN scope binds: `var`/`let`/`const` declarators, and the
+/// names of the functions and classes it declares. Not an alias map — a binding is
+/// recorded whatever it is bound to, which is the point: an untracked local still shadows
+/// an outer alias of the same name.
+///
+/// Nested functions and classes are named but not entered. A `function helper(A){…}`
+/// inside the body binds `A` in ITS scope, not in this one, so treating it as a shadow
+/// here would unresolve a perfectly good outer alias for the body's own calls. The
+/// nested body, when it is scanned in turn, gets its own set.
+pub(crate) fn bound_names(program: &oxc_ast::ast::Program) -> HashSet<String> {
+    struct Binder {
+        names: HashSet<String>,
+    }
+    impl Binder {
+        fn declare(&mut self, id: Option<&oxc_ast::ast::BindingIdentifier>) {
+            if let Some(id) = id {
+                self.names.insert(id.name.to_string());
+            }
+        }
+    }
+    impl<'a> Visit<'a> for Binder {
+        fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+            self.names.insert(id.name.to_string());
+        }
+
+        // A declaration's NAME is bound here; everything inside it — parameters and
+        // locals — belongs to the scope it opens.
+        fn visit_function(
+            &mut self,
+            func: &oxc_ast::ast::Function<'a>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+            self.declare(func.id.as_ref());
+        }
+
+        fn visit_arrow_function_expression(
+            &mut self,
+            _arrow: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+
+        fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+            self.declare(class.id.as_ref());
+        }
+    }
+    let mut b = Binder {
+        names: HashSet::new(),
+    };
+    b.visit_program(program);
+    b.names
 }
 
 /// Build the [`AliasMap`] for a parsed module program.

@@ -53,6 +53,32 @@ BASELINE = {
     # once it is the shape of a claim withdrawn.
     "iq request with a unknown addressee": 5,
     "iq request with a unset addressee": 0,
+    # Builder-side values whose address the scan could not recover — an attribute or an
+    # element content that reads an argument, or a combinator-fed child, with no
+    # `argPath`. Counted rather than floor-guarded for the same reason as the addressees
+    # above, and it is the direction `diagnostics.iq.builder` cannot see: that block
+    # guards the RECOVERED totals against falling, so a bundle update that leaves more
+    # values unaddressed while unrelated ones start resolving holds those totals steady
+    # and says nothing. Almost all of these are the legacy `WAWeb*Job` builders, which
+    # take positional parameters and have no argument object to address at all; they fall
+    # only if those builders stop existing or start being read.
+    "iq builder attribute with no argument path": 55,
+    "iq builder content with no argument path": 23,
+    "iq builder child with no argument path": 12,
+    # A request whose addressee is supplied at runtime — a group's own JID, a newsletter's
+    # — and whose argument key the scan could not recover. Two, for different reasons.
+    # `WAWebGroupInviteJob` is a legacy positional builder with no argument object to
+    # address at all. `WASmaxOutGroupsGetGroupProfilePicturesRequest` folds in a runtime
+    # router whose arms address a group's own JID and the group server: the union reports
+    # `unknown` because the two disagree, and a disagreement about WHICH addressee is one
+    # about its address too — publishing the group arm's key beside `unknown` would
+    # advertise one branch's argument as the request's answer. This one is a claim
+    # withdrawn rather than a loss, the same correction #44 made to its `target`.
+    #
+    # It falls if the legacy family goes or the router learns to name both arms; it RISES
+    # if a smax request starts hiding its `to`, which is the case worth catching, since
+    # `target` alone tells a consumer that a value is required without telling it where.
+    "iq request with a runtime addressee and no argument path": 2,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -822,6 +848,56 @@ def count_unresolved_targets(data, domain, counts):
             counts[f"iq request with a {st['target']} addressee"] += 1
 
 
+def count_builder_gaps(data, domain, counts):
+    """Values a builder reads from its argument object whose address is not recovered.
+
+    The same three questions `iq_builder_counts` asks in the emitter, asked of the emitted
+    document: an attribute reads an argument unless the builder supplies the value itself
+    (a const, a generated id, or a recorded fixed `value`), a content reads one unless it
+    is a `const` literal, and a child has an argument of its own when a combinator fed it
+    (it repeats, or its presence is not the default).
+    """
+    if domain != "iq":
+        return
+
+    def walk_node(n):
+        for a in n.get("attrs") or []:
+            reads = a.get("kind") not in ("const", "generated_id") and "value" not in a
+            if reads and "argPath" not in a:
+                counts["iq builder attribute with no argument path"] += 1
+        c = n.get("content")
+        if c and c.get("kind") != "const" and "argPath" not in c:
+            counts["iq builder content with no argument path"] += 1
+        if (n.get("repeats") or n.get("presence", "required") != "required") and (
+            "argPath" not in n
+        ):
+            counts["iq builder child with no argument path"] += 1
+        for g in n.get("variantGroups") or []:
+            for v in g.get("variants") or []:
+                for a in v.get("attrs") or []:
+                    reads = a.get("kind") not in ("const", "generated_id") and "value" not in a
+                    if reads and "argPath" not in a:
+                        counts["iq builder attribute with no argument path"] += 1
+                for ch in v.get("children") or []:
+                    walk_node(ch)
+        for ch in n.get("children") or []:
+            walk_node(ch)
+
+    for st in data.get("stanzas") or []:
+        for ch in ((st.get("request") or {}).get("children")) or []:
+            walk_node(ch)
+
+
+def count_unaddressed_targets(data, domain, counts):
+    """Runtime addressees with no argument path — see the baseline entry."""
+    if domain != "iq":
+        return
+    for st in data.get("stanzas") or []:
+        r = st.get("request") or {}
+        if r.get("target") in ("group_jid", "unknown") and "targetArgPath" not in r:
+            counts["iq request with a runtime addressee and no argument path"] += 1
+
+
 def check_event_codes(data, domain, errors):
     """A WAM event's `code` is its wire identifier, so two events cannot share one.
 
@@ -1287,6 +1363,168 @@ def check_variant_groups(node, path, errors):
             )
 
 
+def check_arg_path(node, path, errors):
+    """An argument path must be an ADDRESS: keyed throughout, and indexed exactly where
+    the builder iterates.
+
+    The `[]` marker is the whole reason the path is structured rather than a string, so
+    the invariants are about where it may sit:
+
+    * a path present but empty, or a segment with no `key` — the IR claims to know where
+      a value goes and then names nowhere;
+    * a CHILD's own path ends in `[]` if and only if the child repeats. That path
+      addresses the argument the combinator was handed, which is a list for
+      `REPEATED_CHILD` and a single object for `OPTIONAL_CHILD` /
+      `HAS_OPTIONAL_CHILD`; getting it backwards is precisely the confusion that writes
+      a value where the vendor builder never reads;
+    * an ATTRIBUTE's or CONTENT's path ends in `[]` only when it is the node's OWN path —
+      the value is then the list element itself, which is what a list of scalars looks
+      like (`REPEATED_CHILD(t, productIds)` with `t(v){ wap("id", null, v) }`). Any other
+      trailing `[]` on a value says the value is the whole array, which is the confusion
+      that writes `participantArgs.participantJid` where the builder reads
+      `participantArgs[0].participantJid`.
+
+    Driven from the `argPath` ARRAY wherever it appears, so a node, an attribute and an
+    element content are all covered; a node is told apart by carrying a `tag`. The value
+    rule is checked from the NODE, because only there is the node's own path in hand.
+    """
+    p = node.get("argPath")
+    if p is None:
+        return
+    if not isinstance(p, list) or not p:
+        errors.append(f"{path}/argPath: present but names no segment")
+        return
+    for i, seg in enumerate(p):
+        if not isinstance(seg, dict) or not seg.get("key"):
+            errors.append(f"{path}/argPath/{i}: segment with no key")
+            return
+    tail_is_list = bool(p[-1].get("list"))
+    if "tag" in node:
+        if tail_is_list and not node.get("repeats"):
+            errors.append(
+                f"{path}/argPath: ends in a list marker on a child that does not repeat"
+            )
+        elif node.get("repeats") and not tail_is_list:
+            errors.append(
+                f"{path}/argPath: repeated child whose path does not address a list"
+            )
+        values = [
+            (f"{path}/attrs/{i}/argPath", a.get("argPath"))
+            for i, a in enumerate(node.get("attrs") or [])
+        ]
+        content = node.get("content") or {}
+        if content.get("argPath"):
+            values.append((f"{path}/content/argPath", content["argPath"]))
+            # A `const` payload is a literal the builder writes itself, so there is no
+            # argument to address. A `constBytes` one is *pinned* rather than written —
+            # every call site passes the same constant — so it keeps its address, and the
+            # two facts answer different questions.
+            if content.get("kind") == "const":
+                errors.append(
+                    f"{path}/content/argPath: a literal the builder writes itself has no "
+                    f"argument to address"
+                )
+        for at, vp in values:
+            if not isinstance(vp, list) or not vp or not vp[-1].get("list"):
+                continue
+            if vp != p:
+                errors.append(
+                    f"{at}: a value path ends in a list marker without being the node's "
+                    f"own list — its last segment is read off an element, not off the array"
+                )
+
+
+
+def check_request_child_cardinality(node, path, errors):
+    """A request child must not claim a cardinality it contradicts.
+
+    `presence` and the repeat bounds describe the same call site, so the combinations
+    below are the document disagreeing with itself rather than an extraction gap:
+
+    * a `presence_flag` child with attributes or content — the marker template takes no
+      arguments, so a consumer told to model it as a `bool` would silently drop them;
+    * `repeatMin`/`repeatMax` on a child that does not repeat;
+    * `repeatMin` greater than `repeatMax`, which admits nothing at all.
+
+    Driven from the `children` ARRAY of a request node, which is the only place these
+    keys live; `presence` is skipped when required, so gating on it would have skipped
+    exactly the children this is about.
+    """
+    children = node.get("children")
+    if not isinstance(children, list):
+        return
+    for i, c in enumerate(children):
+        if not isinstance(c, dict) or "tag" not in c:
+            continue
+        at = f"{path}/children/{i}"
+        if c.get("presence") == "presence_flag":
+            # A marker's template takes no arguments, so anything it writes is a constant
+            # the IR already carries — `<x type="fixed"/>` is still modelled as a bool
+            # plus a fixed payload, and rejecting it outright would block a regeneration
+            # over a perfectly consumable node. What cannot be true is a marker whose
+            # payload needs a VALUE, since the flag supplies none and nothing else can.
+            # Variant-group attributes count too: a marker whose disjunction carries a
+            # runtime attribute is exactly as unmodellable as one carrying it directly,
+            # and reading only `attrs` is how a guard passes by not looking.
+            variant_attrs = [
+                a
+                for g in c.get("variantGroups") or []
+                for v in g.get("variants") or []
+                for a in v.get("attrs") or []
+            ]
+            needy = [
+                a.get("name")
+                for a in (c.get("attrs") or []) + variant_attrs
+                if a.get("kind") not in ("const", "generated_id")
+            ]
+            if needy:
+                errors.append(
+                    f"{at}: presence marker reads argument(s) {needy} its boolean cannot "
+                    f"supply"
+                )
+            content = c.get("content") or {}
+            if content and content.get("kind") != "const" and "constBytes" not in content:
+                errors.append(
+                    f"{at}: presence marker carries a runtime element value its boolean "
+                    f"cannot supply"
+                )
+        lo, hi = c.get("repeatMin"), c.get("repeatMax")
+        if (lo is not None or hi is not None) and not c.get("repeats"):
+            errors.append(f"{at}: repeat bounds on a child that does not repeat")
+        if lo is not None and hi is not None and lo > hi:
+            errors.append(f"{at}: repeatMin {lo} exceeds repeatMax {hi}")
+
+
+def check_mixin_group_depth(node, path, domain, errors):
+    """A response field named `…MixinGroup` must carry the alternatives that make it one.
+
+    WA composes most of a response out of mixins, and a `…MixinGroup` is the disjunction
+    over them — the group listing of `GetParticipatingGroups`, the key bundle of
+    `PreKeysFetchKeyBundles`. A field with that name and neither `unionVariants` nor
+    `children` is a leaf that looks like a scalar and is an entire union: a consumer
+    reads it as a string, gets nothing, and has no way to know what it missed.
+
+    Named-based on purpose, and only here: this checks a NAME against the SHAPE the IR
+    already gave the field, rather than deriving anything from the name.
+
+    Scoped to IQ response fields, which is the only place the construct exists. The
+    walker visits every object in every domain, so without the scope a request attribute,
+    an enum entry or a WAM field that happens to end in `MixinGroup` would be failed for
+    lacking keys its own shape never has.
+    """
+    if domain != "iq" or "/response" not in path or "method" not in node:
+        return
+    name = node.get("name")
+    if not isinstance(name, str) or not name.endswith("MixinGroup"):
+        return
+    if node.get("unionVariants") or node.get("children"):
+        return
+    errors.append(
+        f"{path}: `{name}` is a union mixin group with no alternatives and no children — "
+        f"the extraction stopped at the mixin boundary"
+    )
+
+
 def check_assertion(a, path, errors):
     if a.get("kind") == "reference":
         if not a.get("referencePath"):
@@ -1404,6 +1642,9 @@ def main() -> int:
             check_action_keys(node, f"{domain}{path}", errors, flattened)
             check_variant_groups(node, f"{domain}{path}", errors)
             check_child_requiredness(node, f"{domain}{path}", errors)
+            check_arg_path(node, f"{domain}{path}", errors)
+            check_request_child_cardinality(node, f"{domain}{path}", errors)
+            check_mixin_group_depth(node, f"{domain}{path}", domain, errors)
 
         walk(data, visit)
         # Needs the whole document, not one node: the reference and its definition sit in
@@ -1418,6 +1659,8 @@ def main() -> int:
         check_notif_identifiers(data, domain, errors)
         check_catalog_resolution(data, domain, catalog_keys, errors)
         count_unresolved_targets(data, domain, counts)
+        count_builder_gaps(data, domain, counts)
+        count_unaddressed_targets(data, domain, counts)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 
     ok = True

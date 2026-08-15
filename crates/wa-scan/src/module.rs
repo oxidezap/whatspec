@@ -15,7 +15,7 @@ use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::helper_index::HelperIndex;
 use crate::mixin_index::MixinIndex;
-use crate::request::{VarScope, build_var_scope, resolve_child_node};
+use crate::request::{VarScope, build_var_scope, enforce_argument_boundary, resolve_child_node};
 use crate::response_index::ResponseIndex;
 use wa_oxc::{arg_expr, as_call, callee_method, callee_object};
 
@@ -152,7 +152,7 @@ pub fn scan_module_outcome(
     let mixin_resolved = if needs_resolution {
         crate::mixin_index::resolve(mixins, &scanner.mixin_callees)
     } else {
-        (None, None, None)
+        (None, None, None, None)
     };
     // The union names the fragments the MODULE folds in, not the ones this call does.
     // With one `<iq>` builder in the module those are the same statement; with more than
@@ -161,13 +161,27 @@ pub fn scan_module_outcome(
     // withholding is remembered, because "some fragment in this module names an addressee
     // and we cannot say whose" is `Unknown`, not `Unset`.
     let one_builder = scanner.iq_calls.len() == 1;
+    // Same attribution rule as the addressee itself: with more than one builder the
+    // module's mixin set is not this call's, so its address is not either.
+    let mixin_target_path = if one_builder {
+        mixin_resolved.3.clone()
+    } else {
+        None
+    };
     let mixin_target = if one_builder { mixin_resolved.2 } else { None };
     let target_unattributable = !one_builder && mixin_resolved.2.is_some();
     // Cross-module `mergeStanzas` fragments: the children/attrs the referenced
     // mixins add to the `<iq>` (e.g. `spam_list{spam_flow}`). Merged by tag into the
     // locally-built children so those cross-module fields aren't lost.
+    //
+    // Held to the same rule as the addressee above, and for the same reason: the callee
+    // list is the MODULE's, so with more than one builder a sibling's `<spam_list>` — and
+    // now its argument addresses — would be merged into a request that folds no mixin at
+    // all. No module in the current bundle has both, so this withholds nothing today; it
+    // is here so the shape cannot start leaking silently. Attributing each merge call to
+    // the builder that encloses it is the real answer, and a larger change than this.
     let referenced_mixins = !scanner.mixin_callees.is_empty();
-    let frag_children = if scanner.mixin_callees.is_empty() {
+    let frag_children = if scanner.mixin_callees.is_empty() || !one_builder {
         Vec::new()
     } else {
         crate::mixin_index::resolve_fragment_children(mixins, &scanner.mixin_callees)
@@ -218,10 +232,27 @@ pub fn scan_module_outcome(
                         crate::mixin_index::count_recovered_fields(&iq.children, &frag_children);
                     fields_recovered = fields_recovered.max(recovered);
                     crate::mixin_index::merge_children(&mut iq.children, &frag_children);
+                    // A contribution can arrive holding the empty path — a mixin whose
+                    // own parameter is a payload, handed the request's whole argument
+                    // object. It composed to nothing, and nothing is not an address.
+                    crate::request::drop_empty_arg_paths(&mut iq.children);
                     Some(ResolvedIqCall {
                         namespace,
                         iq_type,
                         target: iq.target.unwrap_or(IqTarget::Unset),
+                        // The builder's own `to` wins whole: if it writes one, its
+                        // address is the answer even when that address is nothing (a
+                        // constant addressee, or one this scan could not read). Falling
+                        // back on the absence of a PATH rather than the absence of a `to`
+                        // would hand such a request a mixin's argument key for an
+                        // addressee that argument does not control. `iq.target` is `None`
+                        // exactly when the builder writes no `to`, which is the state the
+                        // fallback is for — and where most runtime addressees live.
+                        target_arg_path: if iq.wrote_to {
+                            iq.target_arg_path.clone()
+                        } else {
+                            mixin_target_path.clone()
+                        },
                         children: iq.children,
                         export: iq.export,
                     })
@@ -240,6 +271,10 @@ pub fn scan_module_outcome(
             d.namespace == r.namespace
                 && d.iq_type == r.iq_type
                 && d.target == r.target
+                // Two builders can write the same stanza and read the addressee from
+                // different keys; collapsing them would hand one builder's contract to
+                // the other's callers.
+                && d.target_arg_path == r.target_arg_path
                 && d.children == r.children
         }) {
             deduped.push(r);
@@ -335,6 +370,7 @@ pub fn scan_module_outcome(
                 namespace: iq.namespace,
                 iq_type: iq.iq_type,
                 target: iq.target,
+                target_arg_path: iq.target_arg_path,
                 children: iq.children,
             },
             response: response.clone(),
@@ -375,6 +411,16 @@ fn ends_ci(s: &str, suffix: &str) -> bool {
 struct IqCall {
     namespace: Option<String>,
     iq_type: Option<IqType>,
+    /// The argument path of the root `to`, when the builder reads its addressee from an
+    /// argument. Resolved here because `to` is consumed into [`IqCall::target`] and the
+    /// attribute itself never reaches the IR.
+    target_arg_path: Option<wa_ir::WapArgPath>,
+    /// Whether the builder writes a root `to` at all — asked separately from
+    /// [`IqCall::target`], which a folded-in mixin's addressee overwrites before the
+    /// stanza is assembled. A builder that writes its own `to` owns the answer whole,
+    /// including when that answer is "no address to supply": inheriting a mixin's key
+    /// there would name an argument that does not control this request's addressee.
+    wrote_to: bool,
     /// `None` when the builder writes no `to` — distinct from a `to` that resolved to
     /// nothing, which is [`IqTarget::Unknown`] and must not be overwritten by a mixin.
     target: Option<IqTarget>,
@@ -390,6 +436,7 @@ struct ResolvedIqCall {
     namespace: String,
     iq_type: IqType,
     target: IqTarget,
+    target_arg_path: Option<wa_ir::WapArgPath>,
     children: Vec<WapChildNode>,
     export: Option<String>,
 }
@@ -406,9 +453,10 @@ struct ModuleScanner<'src> {
     /// Populated when the wrapper is visited (parent-before-child), read when the
     /// inner iq call is visited.
     type_hints: std::collections::HashMap<u32, IqType>,
-    /// `WASmaxOut…` mixin modules this module folds in (by name, source order,
-    /// deduped) — the candidates for cross-module xmlns/type resolution.
-    mixin_callees: Vec<String>,
+    /// `WASmaxOut…` mixin modules this module folds in (source order, deduped), each
+    /// with the argument it was handed — the candidates for cross-module xmlns/type
+    /// resolution, and the prefixes their contributions need.
+    mixin_callees: Vec<crate::mixin_index::MergeCallee>,
     /// The export name currently being walked (`e.<name> = …`), so an iq call is
     /// tagged with the function that lexically encloses it. Saved/restored around
     /// each member-assignment to handle nesting.
@@ -449,15 +497,27 @@ impl<'a> Visit<'a> for ModuleScanner<'_> {
         }
 
         // Collect `o("WASmaxOut…").merge…Mixin(…)` references so the post-walk
-        // pass can resolve xmlns/type from those mixins' fragments.
+        // pass can resolve xmlns/type from those mixins' fragments. EVERY call is kept,
+        // including a second one to the same module: the two may hand it different
+        // argument objects, and which prefix a contribution needs is decided where the
+        // chain is walked, not here.
         if let Some(method) = callee_method(call)
             && method.starts_with("merge")
             && method.contains("Mixin")
             && let Some(name) = callee_object(call).and_then(require_module_name)
             && name.starts_with("WASmaxOut")
-            && !self.mixin_callees.contains(&name)
         {
-            self.mixin_callees.push(name);
+            // The argument this request hands the mixin is the prefix its contribution
+            // needs; recorded here because the fold happens in a later pass that walks
+            // mixins by module name and never sees this call.
+            let arg = crate::request::MergeArg::of(
+                call,
+                self.scope,
+                self.source,
+                Some(call.span().start as usize),
+            );
+            self.mixin_callees
+                .push(crate::mixin_index::MergeCallee { module: name, arg });
         }
 
         let hint = self.type_hints.get(&call.span().start).copied();
@@ -560,6 +620,26 @@ impl ModuleScanner<'_> {
             None => mixin_type,
         };
         let target = iq_target_from_to(&attrs);
+        // The root attributes are consumed into namespace/type/target and never emitted,
+        // so the `to` attribute's address has to be read here or not at all. A consumer
+        // running the vendor builder needs it for exactly the requests whose addressee is
+        // supplied at runtime — a group's own JID, a newsletter's — which is the state the
+        // IR now names rather than flattening into the server.
+        let target_arg_path = wap
+            .attrs_node
+            .and_then(|n| {
+                let mut root = attrs.clone();
+                crate::request::annotate_attr_arg_paths(
+                    &mut root,
+                    n,
+                    self.aliases,
+                    self.scope,
+                    self.source,
+                    Some(call.span().start as usize),
+                );
+                root.into_iter().find(|a| a.name == "to")
+            })
+            .and_then(|a| a.arg_path);
 
         let mut children = Vec::new();
         for child_arg in wap.child_args {
@@ -582,11 +662,17 @@ impl ModuleScanner<'_> {
                 ));
             }
         }
+        // A builder with no single options object publishes no paths at all — including
+        // any that arrived inlined from a helper or a mapper. Once for the whole call:
+        // every child of one `smax("iq", …)` shares the frame that built it.
+        enforce_argument_boundary(&mut children, self.scope, call.span().start as usize);
 
         Some(IqCall {
             namespace,
             iq_type,
             target,
+            target_arg_path,
+            wrote_to: attrs.iter().any(|a| a.name == "to"),
             children,
             export: self.current_export.clone(),
         })
@@ -789,6 +875,33 @@ mod tests {
                 IqTarget::Unknown,
                 "{}: a module-scoped addressee is not this call's",
                 st.namespace
+            );
+        }
+    }
+
+    #[test]
+    fn a_sibling_builders_mixin_does_not_furnish_this_one() {
+        // The same rule as the addressee above, for what the fragment BUILDS. The callee
+        // list is the module's, so a `<spam_list>` — and the argument addresses that now
+        // ride with it — would otherwise be merged into a builder that folds no mixin.
+        let mixin = r#"__d("WASmaxOutBazIQGetRequestMixin",["WAWap","WASmaxJsx"],function(g,r,d,o,e,i){
+            e.mergeBazIQGetRequestMixin = function(s){ return o("WASmaxJsx").smax("iq", { xmlns: "w:baz", type: "get" }, o("WASmaxJsx").smax("spam_list", { flow: o("WAWap").CUSTOM_STRING("x") })); };
+        });"#;
+        let m = r#"__d("WASmaxOutBazRequest",["WASmaxJsx","WASmaxOutBazIQGetRequestMixin"],function(g,r,d,o,e,i){
+            e.makeA = function(){ var q = o("WASmaxJsx").smax("iq", { xmlns: "w:baz", type: "get" }); o("WASmaxOutBazIQGetRequestMixin").mergeBazIQGetRequestMixin(q); return q; };
+            e.makeB = function(){ return o("WASmaxJsx").smax("iq", { xmlns: "w:other", type: "set" }); };
+        });"#;
+        let bundle = format!("{mixin}\n{m}");
+        let defs = wa_transform::extract_module_definitions(&bundle);
+        let mixins = crate::mixin_index::build_pass(&defs, &bundle, &hi());
+        let s = scan_module_source(m, &mixins, &ri(), &hi());
+        assert_eq!(s.len(), 2);
+        for st in &s {
+            assert!(
+                st.request.children.is_empty(),
+                "{}: a module-scoped fragment is not this call's: {:?}",
+                st.namespace,
+                st.request.children
             );
         }
     }

@@ -32,10 +32,33 @@ use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::helper_index::HelperIndex;
 use crate::module::{iq_type_from_merge_name, require_module_name};
 use crate::request::{
-    MixinContributions, VarScope, build_var_scope, resolve_child_node, resolve_contribution,
+    MergeArg, MixinContributions, VarScope, build_var_scope, resolve_child_node,
+    resolve_contribution,
 };
 use wa_oxc::{arg_expr, callee_method, callee_object};
 use wa_transform::ModuleDefinition;
+
+/// A mixin folded in by another, with the argument the folding frame handed it.
+///
+/// The pair is what lets a fold rebase: the module says WHAT is contributed, the
+/// [`MergeArg`] says where in the calling frame's argument object it was read from.
+#[derive(Clone, Debug)]
+pub(crate) struct MergeCallee {
+    pub module: String,
+    pub arg: MergeArg,
+}
+
+/// A callee handed the caller's whole argument object — the ordinary shape, and the one
+/// tests use when the chain's prefixes are not what they exercise.
+#[cfg(test)]
+impl From<&str> for MergeCallee {
+    fn from(module: &str) -> Self {
+        MergeCallee {
+            module: module.to_string(),
+            arg: MergeArg::Whole,
+        }
+    }
+}
 
 /// What one mixin contributes to the `<iq>` it helps build.
 #[derive(Clone, Default, Debug)]
@@ -50,10 +73,18 @@ pub(crate) struct MixinIqFragment {
     /// all — distinct from [`IqTarget::Unknown`], which is a `to` that resolved to no
     /// server.
     pub target: Option<IqTarget>,
-    /// Other `WASmaxOut…` mixins this mixin folds in (by module name), in source
-    /// order with duplicates removed — for transitive resolution (e.g. a Hack
-    /// mixin whose `type` comes from a Base mixin it calls).
-    pub merged_callees: Vec<String>,
+    /// Where this mixin reads the addressee from, when it reads one from its own argument
+    /// object — relative to the mixin's frame, so the merge chain prefixes it like
+    /// everything else it contributes. Most runtime addressees live here rather than in
+    /// the request builder: a newsletter mixin writes `to: JID(args.newsletterId)` and the
+    /// request only folds it in.
+    pub target_arg_path: Option<wa_ir::WapArgPath>,
+    /// Other `WASmaxOut…` mixins this mixin folds in, in source order — for transitive
+    /// resolution (e.g. a Hack mixin whose `type` comes from a Base mixin it calls), each
+    /// with the argument this mixin handed it so the fold can rebase what it contributes.
+    /// A module merged twice appears twice: the two calls may hand it different objects,
+    /// and collapsing them here would silently keep the first one's address.
+    pub merged_callees: Vec<MergeCallee>,
     /// The children the mixin's inner `smax("iq", …, children)` fragment adds to
     /// the `<iq>` (e.g. `BaseReportMixin` → `spam_list{spam_flow}`). Merged by tag
     /// into a Request's children so cross-module attrs/children aren't lost.
@@ -289,6 +320,19 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                 // Same rule as a request's own root, so a fragment's `to` and a
                 // request's cannot be read differently.
                 self.frag.target = crate::module::iq_target_from_to(&attrs);
+                let mut root = attrs.clone();
+                crate::request::annotate_attr_arg_paths(
+                    &mut root,
+                    attrs_node,
+                    self.aliases,
+                    self.scope,
+                    self.source,
+                    Some(call.span().start as usize),
+                );
+                self.frag.target_arg_path = root
+                    .into_iter()
+                    .find(|a| a.name == "to")
+                    .and_then(|a| a.arg_path);
             }
             // The fragment's own children (e.g. `spam_list{spam_flow}`) — merged by
             // tag into a Request's children so cross-module attrs/children survive.
@@ -318,9 +362,16 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
             && method.contains("Mixin")
             && let Some(name) = callee_object(call).and_then(require_module_name)
             && name.starts_with("WASmaxOut")
-            && !self.frag.merged_callees.contains(&name)
         {
-            self.frag.merged_callees.push(name);
+            let arg = crate::request::MergeArg::of_in_mixin(
+                call,
+                self.scope,
+                self.source,
+                Some(call.span().start as usize),
+            );
+            self.frag
+                .merged_callees
+                .push(MergeCallee { module: name, arg });
         }
 
         walk::walk_call_expression(self, call);
@@ -334,11 +385,25 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
 /// for that field so the caller's guard discards the stanza rather than guess.
 pub(crate) fn resolve(
     index: &MixinIndex,
-    mixin_modules: &[String],
-) -> (Option<String>, Option<IqType>, Option<IqTarget>) {
-    // Transitive closure over merged_callees (BFS; visited set bounds cycles).
-    let mut visited = std::collections::HashSet::new();
-    let mut queue: std::collections::VecDeque<String> = mixin_modules.iter().cloned().collect();
+    mixin_modules: &[MergeCallee],
+) -> (
+    Option<String>,
+    Option<IqType>,
+    Option<IqTarget>,
+    Option<wa_ir::WapArgPath>,
+) {
+    // Transitive closure over merged_callees (BFS; visited set bounds cycles). An xmlns is
+    // a property of the mixin itself and needs no prefix; the addressee's PATH is a
+    // property of what the mixin was handed, so the merge arguments ride along for it.
+    // Module → the frame it was reached through, as a list because a frame carries a path
+    // and the walk is a handful of mixins deep.
+    let mut reached: Vec<(String, MergeArg)> = Vec::new();
+    let mut queue: std::collections::VecDeque<(String, MergeArg)> = mixin_modules
+        .iter()
+        .map(|c| (c.module.clone(), c.arg.clone()))
+        .collect();
+    let mut target_path: Option<wa_ir::WapArgPath> = None;
+    let mut target_path_conflict = false;
     let mut xmlns: Option<String> = None;
     let mut xmlns_conflict = false;
     let mut iq_type: Option<IqType> = None;
@@ -346,13 +411,47 @@ pub(crate) fn resolve(
     let mut target: Option<IqTarget> = None;
     let mut target_conflict = false;
 
-    while let Some(name) = queue.pop_front() {
-        if !visited.insert(name.clone()) {
-            continue;
+    while let Some((name, acc)) = queue.pop_front() {
+        // A module is remembered WITH the frame it was reached through, because the same
+        // mixin reached twice through different arguments is one xmlns but two addresses
+        // — skipping the second reach by name alone would let the first one's path stand
+        // for both. Reaching it again through a different frame is a disagreement, and the
+        // answer is the same as everywhere else: no address. That also bounds the walk,
+        // which keying on the pair alone would not: a cycle carrying prefixes
+        // (`A → B/x → A/x/y → …`) never repeats a pair, while `Unnameable` absorbs and
+        // settles in one more round.
+        let acc = match reached.iter().find(|(m, _)| *m == name) {
+            Some((_, prev)) if *prev == acc => continue,
+            Some(_) => MergeArg::Unnameable,
+            None => acc,
+        };
+        match reached.iter_mut().find(|(m, _)| *m == name) {
+            Some(slot) => {
+                if slot.1 == MergeArg::Unnameable {
+                    continue;
+                }
+                slot.1 = MergeArg::Unnameable;
+            }
+            None => reached.push((name.clone(), acc.clone())),
         }
         let Some(frag) = index.get(&name) else {
             continue;
         };
+        if let Some(p) = &frag.target_arg_path {
+            // Prefixed by what this mixin was handed, and dropped when the chain cannot
+            // name it — the same three outcomes its contribution gets.
+            let mut node = [WapChildNode {
+                arg_path: Some(p.clone()),
+                ..Default::default()
+            }];
+            acc.apply(&mut node);
+            match (&target_path, node[0].arg_path.take()) {
+                (_, None) => target_path_conflict = true,
+                (Some(prev), Some(now)) if *prev != now => target_path_conflict = true,
+                (Some(_), Some(_)) => {}
+                (None, Some(now)) => target_path = Some(now),
+            }
+        }
         if let Some(x) = &frag.xmlns {
             match &xmlns {
                 None => xmlns = Some(x.clone()),
@@ -382,9 +481,7 @@ pub(crate) fn resolve(
             }
         }
         for c in &frag.merged_callees {
-            if !visited.contains(c) {
-                queue.push_back(c.clone());
-            }
+            queue.push_back((c.module.clone(), acc.then(&c.arg)));
         }
     }
 
@@ -399,32 +496,77 @@ pub(crate) fn resolve(
         } else {
             target
         },
+        // An address the chain disagrees about, or cannot spell, is no address — and a
+        // disagreement about the addressee's KIND is one about its address too. A router
+        // whose arms address a group's own JID and the group server has one arm with a key
+        // and one without; publishing the first alongside `Unknown` would advertise one
+        // branch's argument as the request's answer.
+        if target_path_conflict || target_conflict {
+            None
+        } else {
+            target_path
+        },
     )
 }
 
 /// The transitive union of the `<iq>` children every referenced mixin contributes
 /// (following `merged_callees`), pre-merged by tag. The scanner merges this into a
 /// Request's children to recover cross-module attrs/children (e.g. `spam_flow`).
+///
+/// Each hop carries the argument the previous frame handed it, composed along the way,
+/// so a contribution reached through `mergeGroup(dst, e.groupArgs)` arrives with its
+/// paths rooted where the REQUEST would read them rather than where the mixin does. A
+/// hop no frame can name ([`MergeArg::Unnameable`] — typically a mixin dispatching on a
+/// key of its own second parameter) drops the paths of everything below it: a
+/// mixin-relative path published as a request address is a wrong address, and an absent
+/// one is counted.
+///
+/// A module reached twice keeps the first chain's prefix, as it keeps the first chain's
+/// contribution — the merge is by tag and only ever adds.
 pub(crate) fn resolve_fragment_children(
     index: &MixinIndex,
-    mixin_modules: &[String],
+    mixin_modules: &[MergeCallee],
 ) -> Vec<WapChildNode> {
-    let mut visited = std::collections::HashSet::new();
-    let mut queue: std::collections::VecDeque<String> = mixin_modules.iter().cloned().collect();
-    let mut out: Vec<WapChildNode> = Vec::new();
-    while let Some(name) = queue.pop_front() {
-        if !visited.insert(name.clone()) {
-            continue;
-        }
+    // Two passes, because a module can be reached more than once — merged twice by one
+    // frame, or by two frames in a diamond — and the prefixes may disagree. The
+    // contribution is merged ONCE, so it can carry only one address; when the reaches
+    // disagree there is no single answer and the fold takes none.
+    let mut order: Vec<String> = Vec::new();
+    let mut reach: std::collections::HashMap<String, MergeArg> = std::collections::HashMap::new();
+    let mut queue: std::collections::VecDeque<(String, MergeArg)> = mixin_modules
+        .iter()
+        .map(|c| (c.module.clone(), c.arg.clone()))
+        .collect();
+    while let Some((name, acc)) = queue.pop_front() {
+        let next = match reach.get(&name) {
+            // The same route again — nothing to revise, and nothing below it either.
+            Some(prev) if *prev == acc => continue,
+            // Reached before, by a route naming something else. Same disagreement rule
+            // as everywhere else here: two addresses for one thing is no address at all.
+            // Re-expanded so what hangs below it becomes unnameable too; `Unnameable`
+            // absorbs, so that settles in one more round rather than looping.
+            Some(_) => MergeArg::Unnameable,
+            None => {
+                order.push(name.clone());
+                acc
+            }
+        };
+        reach.insert(name.clone(), next.clone());
         let Some(frag) = index.get(&name) else {
             continue;
         };
-        merge_children(&mut out, &frag.children);
         for c in &frag.merged_callees {
-            if !visited.contains(c) {
-                queue.push_back(c.clone());
-            }
+            queue.push_back((c.module.clone(), next.then(&c.arg)));
         }
+    }
+    let mut out: Vec<WapChildNode> = Vec::new();
+    for name in &order {
+        let Some(frag) = index.get(name) else {
+            continue;
+        };
+        let mut contributed = frag.children.clone();
+        reach[name].apply(&mut contributed);
+        merge_children(&mut out, &contributed);
     }
     out
 }
@@ -501,6 +643,7 @@ pub(crate) fn merge_children(into: &mut Vec<WapChildNode>, from: &[WapChildNode]
             // A fragment that marks the child repeated promotes it (the local build
             // may have seen a single template).
             existing.repeats = existing.repeats || fc.repeats;
+            crate::request::adopt_builder_facts(existing, fc);
             // Union variant groups (a node can carry several disjunctions); dedup so
             // a re-merge of the same fragment doesn't duplicate a group.
             for g in &fc.variant_groups {
@@ -527,6 +670,7 @@ mod tests {
             value: None,
             required: false,
             enum_ref: None,
+            arg_path: None,
         }
     }
 
@@ -538,6 +682,7 @@ mod tests {
             content: None,
             repeats: false,
             variant_groups: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -546,7 +691,8 @@ mod tests {
             xmlns: xmlns.map(String::from),
             iq_type: ty,
             target: None,
-            merged_callees: callees.iter().map(|s| s.to_string()).collect(),
+            target_arg_path: None,
+            merged_callees: callees.iter().map(|s| MergeCallee::from(*s)).collect(),
             children: Vec::new(),
         }
     }
@@ -581,7 +727,7 @@ mod tests {
             (IqTarget::Server, IqTarget::Unknown),
         ] {
             let idx = index(&[("A", with_target(first)), ("B", with_target(second))]);
-            let (_, _, got) = resolve(&idx, &["A".into(), "B".into()]);
+            let (_, _, got, _) = resolve(&idx, &["A".into(), "B".into()]);
             assert_eq!(
                 got,
                 Some(IqTarget::Unknown),
@@ -616,7 +762,7 @@ mod tests {
             ("Xmlns", frag(Some("spam"), None, &[])),
             ("Type", frag(None, Some(IqType::Set), &[])),
         ]);
-        let (x, t, _) = resolve(&idx, &["Xmlns".into(), "Type".into()]);
+        let (x, t, _, _) = resolve(&idx, &["Xmlns".into(), "Type".into()]);
         assert_eq!(x.as_deref(), Some("spam"));
         assert_eq!(t, Some(IqType::Set));
     }
@@ -628,7 +774,7 @@ mod tests {
             ("Hack", frag(Some("w:biz"), None, &["Base"])),
             ("Base", frag(None, Some(IqType::Get), &[])),
         ]);
-        let (x, t, _) = resolve(&idx, &["Hack".into()]);
+        let (x, t, _, _) = resolve(&idx, &["Hack".into()]);
         assert_eq!(x.as_deref(), Some("w:biz"));
         assert_eq!(t, Some(IqType::Get), "type recovered transitively");
     }
@@ -639,7 +785,7 @@ mod tests {
             ("A", frag(Some("spam"), Some(IqType::Set), &[])),
             ("B", frag(Some("blocklist"), None, &[])),
         ]);
-        let (x, t, _) = resolve(&idx, &["A".into(), "B".into()]);
+        let (x, t, _, _) = resolve(&idx, &["A".into(), "B".into()]);
         assert_eq!(x, None, "ambiguous xmlns → discard, never guess");
         assert_eq!(t, Some(IqType::Set));
     }
@@ -650,7 +796,7 @@ mod tests {
             ("A", frag(Some("x"), None, &["B"])),
             ("B", frag(None, Some(IqType::Get), &["A"])),
         ]);
-        let (x, t, _) = resolve(&idx, &["A".into()]);
+        let (x, t, _, _) = resolve(&idx, &["A".into()]);
         assert_eq!(x.as_deref(), Some("x"));
         assert_eq!(t, Some(IqType::Get));
     }
@@ -759,6 +905,110 @@ mod tests {
     }
 
     #[test]
+    fn merge_children_carries_the_builder_facts_of_a_folded_fragment() {
+        // `mergeStanzas` folds a fragment onto a destination with the same tag, and the
+        // merge used to union attrs and children and drop everything else — so a mixin's
+        // `<subject>` arrived at the request as a bare tag, and a cardinality resolved at
+        // the fragment's own call site was lost with it.
+        //
+        // Unexercised by the current bundle (every mixin that carries these builds a tag
+        // the destination does not already have, so it is appended whole), which is
+        // exactly why it is asserted directly: the loss would be silent and would look
+        // like an extraction gap rather than a merge that discards.
+        let mut into = vec![node("subject", &[], vec![])];
+        let mut frag = node("subject", &[], vec![]);
+        frag.content = Some(wa_ir::WapContent {
+            kind: wa_ir::WapContentKind::Dynamic,
+            arg_path: Some(vec![wa_ir::WapArgSegment {
+                key: "subjectElementValue".to_string(),
+                list: false,
+            }]),
+            ..Default::default()
+        });
+        frag.arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "subjectArgs".to_string(),
+            list: false,
+        }]);
+        merge_children(&mut into, &[frag]);
+        assert_eq!(into.len(), 1, "same tag merges, not duplicates");
+        let merged = &into[0];
+        assert_eq!(
+            merged
+                .content
+                .as_ref()
+                .and_then(|c| c.arg_path.as_ref())
+                .map(|p| p[0].key.as_str()),
+            Some("subjectElementValue"),
+            "the element value survives the fold"
+        );
+        assert!(
+            merged.arg_path.is_none(),
+            "but the fragment's own argument address does not transfer: {:?}",
+            merged.arg_path
+        );
+    }
+
+    #[test]
+    fn merge_children_does_not_hand_a_fragments_address_to_the_destination() {
+        // Content and bounds are wire facts about the element — the merged stanza really
+        // does carry that value, really is bounded that way. An argument path is not: it
+        // addresses the object a node is built FROM, and a node two call sites build
+        // together has no single one. Adopting the fragment's would tell a consumer that
+        // handing over `pictureArgs` produces the whole `<picture>`, when half of it is
+        // built at the destination's own site from something else.
+        let mut into = vec![node("picture", &[], vec![])];
+        let mut frag = node("picture", &[], vec![]);
+        frag.arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "pictureArgs".to_string(),
+            list: false,
+        }]);
+        merge_children(&mut into, &[frag]);
+        assert!(into[0].arg_path.is_none(), "{:?}", into[0].arg_path);
+    }
+
+    #[test]
+    fn merge_children_does_not_overwrite_the_destinations_own_facts() {
+        // Fill-if-empty, not overwrite: the destination is the node built at the call
+        // site and is the more specific description. A fragment only ever ADDS.
+        let mut into = vec![node("body", &[], vec![])];
+        into[0].repeat_max = Some(10);
+        let mut frag = node("body", &[], vec![]);
+        frag.repeat_max = Some(99);
+        merge_children(&mut into, &[frag]);
+        assert_eq!(into[0].repeat_max, Some(10));
+    }
+
+    #[test]
+    fn merge_children_keeps_an_explicitly_unbounded_maximum_open() {
+        // A minimum with no maximum is the contract's *stated* unbounded range (WA's
+        // `1/0`), not a half-filled pair. Taking a fragment's finite ceiling would cap a
+        // list the destination's own call site left open, so bounds move together or not
+        // at all.
+        let mut into = vec![node("participant", &[], vec![])];
+        into[0].repeats = true;
+        into[0].repeat_min = Some(1);
+        let mut frag = node("participant", &[], vec![]);
+        frag.repeats = true;
+        frag.repeat_min = Some(0);
+        frag.repeat_max = Some(10);
+        merge_children(&mut into, &[frag]);
+        assert_eq!((into[0].repeat_min, into[0].repeat_max), (Some(1), None));
+    }
+
+    #[test]
+    fn merge_children_never_weakens_a_required_destination() {
+        // `Required` is a real state AND the serde default, so a fill-if-empty test on
+        // `presence` cannot tell "unconditional" from "unclassified". A child that some
+        // call site emits unconditionally is unconditional, whatever an optional
+        // fragment for the same tag says.
+        let mut into = vec![node("locked", &[], vec![])];
+        let mut frag = node("locked", &[], vec![]);
+        frag.presence = wa_ir::WapChildPresence::Optional;
+        merge_children(&mut into, &[frag]);
+        assert_eq!(into[0].presence, wa_ir::WapChildPresence::Required);
+    }
+
+    #[test]
     fn merge_children_appends_non_matching_tag() {
         let mut into = vec![node("a", &[], vec![])];
         merge_children(&mut into, &[node("b", &["x"], vec![])]);
@@ -797,6 +1047,169 @@ mod tests {
         assert!(
             names.contains(&"subject"),
             "transitive child attr via callee"
+        );
+    }
+
+    /// A `MergeCallee` reached through a named key of the caller's argument object.
+    fn keyed(module: &str, key: &str) -> MergeCallee {
+        MergeCallee {
+            module: module.to_string(),
+            arg: MergeArg::Prefix(vec![wa_ir::WapArgSegment {
+                key: key.to_string(),
+                list: false,
+            }]),
+        }
+    }
+
+    fn attr_path(n: &WapChildNode, name: &str) -> Vec<String> {
+        n.attrs
+            .iter()
+            .find(|a| a.name == name)
+            .and_then(|a| a.arg_path.as_ref())
+            .map(|p| p.iter().map(|s| s.key.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_cycle_carrying_prefixes_still_terminates() {
+        // Two mixins that fold each other, each through a key of its own arguments. Every
+        // trip round the loop composes a longer prefix, so no (module, frame) pair ever
+        // repeats — remembering the module and collapsing a second, different frame to
+        // `Unnameable` is what ends the walk. Without it this hangs rather than fails.
+        let mut a = frag(Some("w:g2"), Some(IqType::Get), &[]);
+        a.merged_callees = vec![keyed("B", "x")];
+        let mut b = frag(None, None, &[]);
+        b.merged_callees = vec![keyed("A", "y")];
+        b.target = Some(IqTarget::GroupJid);
+        b.target_arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "iqTo".to_string(),
+            list: false,
+        }]);
+        let idx = index(&[("A", a), ("B", b)]);
+
+        let (xmlns, ty, target, path) = resolve(&idx, &[keyed("A", "start")]);
+        assert_eq!(xmlns.as_deref(), Some("w:g2"));
+        assert_eq!(ty, Some(IqType::Get));
+        assert_eq!(target, Some(IqTarget::GroupJid));
+        // And no address: going round the loop reaches the addressee mixin through a
+        // second, different frame, which is the disagreement rule doing its job. A cyclic
+        // merge graph is not a shape WA can execute anyway — it would recurse forever —
+        // so the honest answer to "where does its `to` come from" is nothing.
+        assert!(path.is_none(), "{path:?}");
+    }
+
+    #[test]
+    fn two_reaches_of_one_addressee_mixin_disagree_to_nothing() {
+        // The same mixin merged twice through different arguments is one xmlns but TWO
+        // addresses. Deduplicating the walk by module name alone would let the first
+        // reach's path stand for both callers, which is a wrong address rather than a
+        // missing one.
+        let mut m = frag(Some("w:g2"), Some(IqType::Get), &[]);
+        m.target = Some(IqTarget::GroupJid);
+        m.target_arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "iqTo".to_string(),
+            list: false,
+        }]);
+        let idx = index(&[("Addr", m)]);
+
+        let (_, _, target, path) = resolve(&idx, &[keyed("Addr", "left"), keyed("Addr", "right")]);
+        assert_eq!(
+            target,
+            Some(IqTarget::GroupJid),
+            "still one kind of addressee"
+        );
+        assert!(path.is_none(), "but no single address: {path:?}");
+
+        // Agreeing reaches are not a disagreement.
+        let (_, _, _, path) = resolve(&idx, &[keyed("Addr", "left"), keyed("Addr", "left")]);
+        assert_eq!(
+            path.map(|p| p.iter().map(|s| s.key.clone()).collect::<Vec<_>>()),
+            Some(vec!["left".to_string(), "iqTo".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_fragment_chain_composes_the_arguments_it_was_handed() {
+        // The mixin closure walks by MODULE NAME and holds no call site, which is why a
+        // contribution used to arrive with paths relative to whichever mixin resolved
+        // them: `configMixinsArgs → configPlatform` published at a request root whose
+        // real address starts two hops earlier. Each hop now carries the argument it was
+        // handed, and the prefixes compose down the chain.
+        let mut inner = frag(Some("push"), Some(IqType::Set), &[]);
+        let mut cfg = node("config", &["platform"], vec![]);
+        cfg.attrs[0].arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "configPlatform".to_string(),
+            list: false,
+        }]);
+        inner.children = vec![cfg];
+        let mut group = frag(None, None, &[]);
+        group.merged_callees = vec![keyed("Inner", "setConfig")];
+        let idx = index(&[("Inner", inner), ("Group", group)]);
+
+        let kids = resolve_fragment_children(&idx, &[keyed("Group", "groupArgs")]);
+        assert_eq!(
+            attr_path(&kids[0], "platform"),
+            vec!["groupArgs", "setConfig", "configPlatform"],
+            "the request's address, not the innermost mixin's"
+        );
+    }
+
+    #[test]
+    fn two_call_sites_that_disagree_leave_no_address() {
+        // One contribution, merged once, cannot carry two addresses. A mixin merged twice
+        // with different argument objects — or reached by two routes of a diamond — has
+        // no single prefix, and keeping the first would publish it for the second's
+        // callers as well.
+        let mut inner = frag(Some("push"), Some(IqType::Set), &[]);
+        let mut cfg = node("config", &["platform"], vec![]);
+        cfg.attrs[0].arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "configPlatform".to_string(),
+            list: false,
+        }]);
+        inner.children = vec![cfg];
+        let idx = index(&[("Inner", inner)]);
+
+        let kids =
+            resolve_fragment_children(&idx, &[keyed("Inner", "left"), keyed("Inner", "right")]);
+        assert!(
+            attr_path(&kids[0], "platform").is_empty(),
+            "{:?}",
+            kids[0].attrs
+        );
+        // And agreeing routes are not a disagreement.
+        let kids =
+            resolve_fragment_children(&idx, &[keyed("Inner", "left"), keyed("Inner", "left")]);
+        assert_eq!(
+            attr_path(&kids[0], "platform"),
+            vec!["left", "configPlatform"]
+        );
+    }
+
+    #[test]
+    fn a_hop_no_frame_can_name_drops_the_paths_below_it() {
+        // The other outcome: a merge whose argument this chain cannot spell. A relative
+        // path published as an absolute one is a wrong address, which is worse than an
+        // absent one — the absent one is counted.
+        let mut inner = frag(Some("push"), Some(IqType::Set), &[]);
+        let mut cfg = node("config", &["platform"], vec![]);
+        cfg.attrs[0].arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "configPlatform".to_string(),
+            list: false,
+        }]);
+        inner.children = vec![cfg];
+        let idx = index(&[("Inner", inner)]);
+
+        let kids = resolve_fragment_children(
+            &idx,
+            &[MergeCallee {
+                module: "Inner".to_string(),
+                arg: MergeArg::Unnameable,
+            }],
+        );
+        assert!(
+            attr_path(&kids[0], "platform").is_empty(),
+            "{:?}",
+            kids[0].attrs
         );
     }
 }

@@ -1143,11 +1143,13 @@ mod tests {
                 value: None,
                 required: true,
                 enum_ref: None,
+                arg_path: None,
             }],
             children: vec![],
             content: None,
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let children = vec![
             node("participant", WapAttrKind::UserJid),
@@ -1292,6 +1294,7 @@ mod tests {
             exported_function: exported.map(str::to_string),
             all_exports: vec![],
             request: IqRequestDef {
+                target_arg_path: None,
                 namespace: "w:test".into(),
                 iq_type: IqType::Get,
                 target: IqTarget::Server,

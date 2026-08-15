@@ -786,6 +786,15 @@ struct Counts {
     iq_typed_error_variants: usize,
     iq_error_texts: usize,
     iq_error_arms: usize,
+    /// Builder-side coverage, mirroring `manifest.diagnostics.iq.builder` — see
+    /// [`IqBuilderCounts`].
+    iq_arg_path_attrs: usize,
+    iq_arg_path_contents: usize,
+    iq_arg_path_children: usize,
+    iq_element_values: usize,
+    iq_optional_children: usize,
+    iq_presence_flag_children: usize,
+    iq_repeat_bounds: usize,
     /// Notification payload action-union arms recovered (`diagnostics.notif.actions`).
     notif_actions: usize,
     /// Shape-level coverage of those arms: resolved `actionType`s plus every field,
@@ -838,6 +847,8 @@ struct IqDiagnostics {
     cross_module: wa_scan::CrossModuleStats,
     /// Validation-constraint coverage — see [`IqConstraintCounts`].
     constraints: IqConstraintCounts,
+    /// Builder-side coverage — see [`IqBuilderCounts`].
+    builder: IqBuilderCounts,
     /// Who the emitted requests are addressed to — see [`IqTargetCounts`].
     targets: IqTargetCounts,
 }
@@ -997,6 +1008,134 @@ fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
         }
     }
     c.error_texts = texts.len();
+    c
+}
+
+/// How much of the **builder side** of a request the IR was able to address, counted
+/// over the emitted document.
+///
+/// Every counter pairs a recovered total with what stayed unrecovered, because the two
+/// must never look alike: a request that carries no argument path because its builder
+/// takes positional parameters is a different fact from one whose path we failed to
+/// read, and "the field is absent" says neither on its own.
+#[derive(Debug, Default, Clone, Copy)]
+struct IqBuilderCounts {
+    /// Attributes whose value comes from an argument (so: not a `const` literal and not
+    /// a locally generated id) — how many carry an [`arg_path`], how many do not.
+    ///
+    /// [`arg_path`]: wa_ir::WapAttrDef::arg_path
+    arg_path_attrs: usize,
+    arg_path_attrs_missing: usize,
+    /// Element contents that carry a runtime value (not a builder-written constant).
+    arg_path_contents: usize,
+    arg_path_contents_missing: usize,
+    /// Children built through a `WASmaxChildren` combinator — repeated, optional, or a
+    /// presence flag — each of which is fed a specific argument.
+    arg_path_children: usize,
+    arg_path_children_missing: usize,
+    /// Request nodes carrying element content at all. The headline for "a request's
+    /// payload survives the mixin boundary": a `<subject>` with no content is a group
+    /// rename with no name in it.
+    element_values: usize,
+    /// Children by cardinality class. `presence_flag_children` is the one a consumer can
+    /// model as a `bool`, and the one that was indistinguishable from an empty required
+    /// child before it was classified.
+    optional_children: usize,
+    presence_flag_children: usize,
+    /// Repeated children carrying at least one literal `REPEATED_CHILD` bound. A
+    /// repeated child with a `repeat_min` and no `repeat_max` is explicitly unbounded
+    /// (WA writes `1/0`); one with neither came from a `.map()` that states no bound.
+    repeat_bounds: usize,
+}
+
+/// The `diagnostics.iq.builder` object. Built outside the manifest's `json!` literal
+/// because that literal is already at the macro's recursion limit; nesting one more
+/// level inside it fails to expand.
+fn iq_builder_diagnostics(b: &IqBuilderCounts) -> serde_json::Value {
+    serde_json::json!({
+        "argPathAttrs": b.arg_path_attrs,
+        "argPathAttrsMissing": b.arg_path_attrs_missing,
+        "argPathContents": b.arg_path_contents,
+        "argPathContentsMissing": b.arg_path_contents_missing,
+        "argPathChildren": b.arg_path_children,
+        "argPathChildrenMissing": b.arg_path_children_missing,
+        "elementValues": b.element_values,
+        "optionalChildren": b.optional_children,
+        "presenceFlagChildren": b.presence_flag_children,
+        "repeatBounds": b.repeat_bounds,
+    })
+}
+
+/// Count the builder-side coverage of an emitted IQ IR (see [`IqBuilderCounts`]).
+fn iq_builder_counts(ir: &wa_ir::IqIr) -> IqBuilderCounts {
+    fn walk(node: &wa_ir::WapChildNode, c: &mut IqBuilderCounts) {
+        for a in &node.attrs {
+            count_attr(a, c);
+        }
+        if let Some(content) = &node.content {
+            c.element_values += 1;
+            // A `const`/`const_bytes` payload is written by the builder itself, so there
+            // is no argument to address and its absence is not a gap.
+            if content.reads_argument() {
+                if content.arg_path.is_some() {
+                    c.arg_path_contents += 1;
+                } else {
+                    c.arg_path_contents_missing += 1;
+                }
+            }
+        }
+        match node.presence {
+            wa_ir::WapChildPresence::Optional => c.optional_children += 1,
+            wa_ir::WapChildPresence::PresenceFlag => c.presence_flag_children += 1,
+            wa_ir::WapChildPresence::Required => {}
+        }
+        if node.repeats && (node.repeat_min.is_some() || node.repeat_max.is_some()) {
+            c.repeat_bounds += 1;
+        }
+        if node.is_combinator_fed() {
+            if node.arg_path.is_some() {
+                c.arg_path_children += 1;
+            } else {
+                c.arg_path_children_missing += 1;
+            }
+        }
+        for g in &node.variant_groups {
+            for v in &g.variants {
+                for a in &v.attrs {
+                    count_attr(a, c);
+                }
+                for child in &v.children {
+                    walk(child, c);
+                }
+            }
+        }
+        for child in &node.children {
+            walk(child, c);
+        }
+    }
+    fn count_attr(a: &wa_ir::WapAttrDef, c: &mut IqBuilderCounts) {
+        // An attribute whose value the BUILDER supplies reads no argument, so it can be
+        // missing none: a const literal, a `wap.generateId()` id, and an
+        // `OPTIONAL_LITERAL` whose recorded `value` is the literal and whose argument is
+        // a presence flag rather than the value. Counting the last as unresolved reported
+        // eight extraction gaps that do not exist — and contradicted the contract test,
+        // which already asks whether an attribute reads an argument at all.
+        if !a.reads_argument() {
+            return;
+        }
+        if a.arg_path.is_some() {
+            c.arg_path_attrs += 1;
+        } else {
+            c.arg_path_attrs_missing += 1;
+        }
+    }
+
+    let mut c = IqBuilderCounts::default();
+    for s in &ir.stanzas {
+        for child in &s.request.children {
+            walk(child, &mut c);
+        }
+    }
     c
 }
 
@@ -1982,6 +2121,13 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         iq_typed_error_variants: iq_diag.constraints.typed_error_variants,
         iq_error_texts: iq_diag.constraints.error_texts,
         iq_error_arms: iq_diag.constraints.error_arms,
+        iq_arg_path_attrs: iq_diag.builder.arg_path_attrs,
+        iq_arg_path_contents: iq_diag.builder.arg_path_contents,
+        iq_arg_path_children: iq_diag.builder.arg_path_children,
+        iq_element_values: iq_diag.builder.element_values,
+        iq_optional_children: iq_diag.builder.optional_children,
+        iq_presence_flag_children: iq_diag.builder.presence_flag_children,
+        iq_repeat_bounds: iq_diag.builder.repeat_bounds,
         notif_actions,
         notif_action_shapes,
         stanza_defs: stanza_count,
@@ -2100,6 +2246,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                     "errorTexts": iq_diag.constraints.error_texts,
                     "errorArms": iq_diag.constraints.error_arms,
                 },
+                "builder": iq_builder_diagnostics(&iq_diag.builder),
             },
             "notif": {
                 "types": counts.notif_types,
@@ -2225,6 +2372,28 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
                     && (new as u64) < prev
                 {
                     regressions.push(format!("iq.constraints.{key}: {prev} → {new}"));
+                }
+            }
+        }
+        // The builder layer. Same reasoning as the constraint counters above: each keys
+        // on a distinct JS construct (the destructure that names an argument, the
+        // `smax(tag, attrs, value)` third argument, the three `WASmaxChildren`
+        // combinators), so a refactor that hides one fails the update rather than
+        // quietly shipping an IR that can no longer address WA's own builder.
+        if let Some(b) = iq.get("builder") {
+            for (key, new) in [
+                ("argPathAttrs", counts.iq_arg_path_attrs),
+                ("argPathContents", counts.iq_arg_path_contents),
+                ("argPathChildren", counts.iq_arg_path_children),
+                ("elementValues", counts.iq_element_values),
+                ("optionalChildren", counts.iq_optional_children),
+                ("presenceFlagChildren", counts.iq_presence_flag_children),
+                ("repeatBounds", counts.iq_repeat_bounds),
+            ] {
+                if let Some(prev) = b.get(key).and_then(serde_json::Value::as_u64)
+                    && (new as u64) < prev
+                {
+                    regressions.push(format!("iq.builder.{key}: {prev} → {new}"));
                 }
             }
         }
@@ -2600,6 +2769,7 @@ fn push_iq(
         drops_by_reason,
         cross_module,
         constraints: iq_constraint_counts(&ir),
+        builder: iq_builder_counts(&ir),
         targets: IqTargetCounts::of(&ir.stanzas),
     };
 

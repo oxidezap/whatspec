@@ -252,6 +252,7 @@ mod tests {
             value: None,
             required: true,
             enum_ref: None,
+            arg_path: None,
         }
     }
 
@@ -291,6 +292,7 @@ mod tests {
                 exported_function: Some("title".into()),
                 all_exports: vec!["title".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "fb:thrift_iq".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -347,6 +349,7 @@ mod tests {
                     exported_function: Some("detail".into()),
                     all_exports: vec!["detail".into()],
                     request: IqRequestDef {
+                        target_arg_path: None,
                         namespace: "fb:thrift_iq".into(),
                         iq_type: IqType::Get,
                         target: IqTarget::Server,
@@ -404,6 +407,7 @@ mod tests {
                 exported_function: Some("weights".into()),
                 all_exports: vec!["weights".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "fb:thrift_iq".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -455,6 +459,7 @@ mod tests {
                 exported_function: Some("scores".into()),
                 all_exports: vec!["scores".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "fb:thrift_iq".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -516,6 +521,7 @@ mod tests {
                 exported_function: Some("keys".into()),
                 all_exports: vec!["keys".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "encrypt".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -569,6 +575,7 @@ mod tests {
                 exported_function: Some("digest".into()),
                 all_exports: vec!["digest".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "encrypt".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -614,6 +621,7 @@ mod tests {
                 exported_function: Some("pn".into()),
                 all_exports: vec!["pn".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "w:g2".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -688,6 +696,7 @@ mod tests {
                 exported_function: Some("blob".into()),
                 all_exports: vec!["blob".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "encrypt".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -723,6 +732,7 @@ mod tests {
                 exported_function: Some("queryTest".into()),
                 all_exports: vec!["queryTest".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "w:test".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -736,6 +746,7 @@ mod tests {
                         content: None,
                         repeats: false,
                         variant_groups: vec![],
+                        ..Default::default()
                     }],
                 },
                 response: ParsedResponse {
@@ -787,6 +798,7 @@ mod tests {
                 exported_function: Some("queryMode".into()),
                 all_exports: vec!["queryMode".into()],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "w:mode".into(),
                     iq_type: IqType::Get,
                     target: IqTarget::Server,
@@ -826,6 +838,7 @@ mod tests {
                 exported_function: None,
                 all_exports: vec![],
                 request: IqRequestDef {
+                    target_arg_path: None,
                     namespace: "w:x".into(),
                     iq_type: IqType::Set,
                     target: IqTarget::GroupServer,
