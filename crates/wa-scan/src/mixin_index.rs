@@ -395,7 +395,9 @@ pub(crate) fn resolve(
     // Transitive closure over merged_callees (BFS; visited set bounds cycles). An xmlns is
     // a property of the mixin itself and needs no prefix; the addressee's PATH is a
     // property of what the mixin was handed, so the merge arguments ride along for it.
-    let mut visited = std::collections::HashSet::new();
+    // A list rather than a set: the pair carries a path, which is not hashable, and the
+    // walk is a handful of mixins deep.
+    let mut visited: Vec<(String, MergeArg)> = Vec::new();
     let mut queue: std::collections::VecDeque<(String, MergeArg)> = mixin_modules
         .iter()
         .map(|c| (c.module.clone(), c.arg.clone()))
@@ -410,9 +412,15 @@ pub(crate) fn resolve(
     let mut target_conflict = false;
 
     while let Some((name, acc)) = queue.pop_front() {
-        if !visited.insert(name.clone()) {
+        // Keyed by (module, frame) rather than by module: the same mixin reached twice
+        // through different arguments is one xmlns but TWO addresses, and skipping the
+        // second reach would let the first one's path stand for both. The frame is part of
+        // the identity for exactly that reason; the pair still bounds the walk, since a
+        // frame either repeats (and is skipped) or resolves the disagreement below.
+        if visited.contains(&(name.clone(), acc.clone())) {
             continue;
         }
+        visited.push((name.clone(), acc.clone()));
         let Some(frag) = index.get(&name) else {
             continue;
         };
@@ -460,8 +468,9 @@ pub(crate) fn resolve(
             }
         }
         for c in &frag.merged_callees {
-            if !visited.contains(&c.module) {
-                queue.push_back((c.module.clone(), acc.then(&c.arg)));
+            let next = acc.then(&c.arg);
+            if !visited.contains(&(c.module.clone(), next.clone())) {
+                queue.push_back((c.module.clone(), next));
             }
         }
     }
@@ -1045,6 +1054,36 @@ mod tests {
             .and_then(|a| a.arg_path.as_ref())
             .map(|p| p.iter().map(|s| s.key.clone()).collect())
             .unwrap_or_default()
+    }
+
+    #[test]
+    fn two_reaches_of_one_addressee_mixin_disagree_to_nothing() {
+        // The same mixin merged twice through different arguments is one xmlns but TWO
+        // addresses. Deduplicating the walk by module name alone would let the first
+        // reach's path stand for both callers, which is a wrong address rather than a
+        // missing one.
+        let mut m = frag(Some("w:g2"), Some(IqType::Get), &[]);
+        m.target = Some(IqTarget::GroupJid);
+        m.target_arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "iqTo".to_string(),
+            list: false,
+        }]);
+        let idx = index(&[("Addr", m)]);
+
+        let (_, _, target, path) = resolve(&idx, &[keyed("Addr", "left"), keyed("Addr", "right")]);
+        assert_eq!(
+            target,
+            Some(IqTarget::GroupJid),
+            "still one kind of addressee"
+        );
+        assert!(path.is_none(), "but no single address: {path:?}");
+
+        // Agreeing reaches are not a disagreement.
+        let (_, _, _, path) = resolve(&idx, &[keyed("Addr", "left"), keyed("Addr", "left")]);
+        assert_eq!(
+            path.map(|p| p.iter().map(|s| s.key.clone()).collect::<Vec<_>>()),
+            Some(vec!["left".to_string(), "iqTo".to_string()])
+        );
     }
 
     #[test]

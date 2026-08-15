@@ -264,6 +264,10 @@ pub fn scan_module_outcome(
             d.namespace == r.namespace
                 && d.iq_type == r.iq_type
                 && d.target == r.target
+                // Two builders can write the same stanza and read the addressee from
+                // different keys; collapsing them would hand one builder's contract to
+                // the other's callers.
+                && d.target_arg_path == r.target_arg_path
                 && d.children == r.children
         }) {
             deduped.push(r);
