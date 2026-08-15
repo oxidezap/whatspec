@@ -54085,7 +54085,7 @@
       "moduleName": "WASmaxOutGroupsGetGroupProfilePicturesRequest",
       "namespace": "w:g2",
       "iqType": "get",
-      "target": "group_jid",
+      "target": "unknown",
       "parserName": "WASmaxGroupsGetGroupProfilePicturesRPC",
       "exportedFunction": "makeGetGroupProfilePicturesRequest",
       "allExports": [
@@ -54094,7 +54094,7 @@
       "request": {
         "namespace": "w:g2",
         "iqType": "get",
-        "target": "group_jid",
+        "target": "unknown",
         "children": []
       },
       "response": {

@@ -44,7 +44,14 @@ BASELINE = {
     # them. Counted here rather than floor-guarded because these must FALL as extraction
     # improves; `diagnostics.iq.targets.resolved` guards the other direction in
     # `check_floor`, so a request cannot move from an address to no address unseen.
-    "iq request with a unknown addressee": 4,
+    # The fifth is `makeGetGroupProfilePicturesRequest`, and it is here by CORRECTION
+    # rather than by loss: it folds in `mergeBaseGetGroupOrServerMixinGroup`, a runtime
+    # router whose two arms address a group's own JID and the group server, so the union
+    # reaches both and the caller's argument decides. It was published as `group_jid`
+    # until the union learned to record a conflicting addressee the way it already did
+    # for `xmlns` and `type`. Raising a baseline is normally the shape of a loss; this
+    # once it is the shape of a claim withdrawn.
+    "iq request with a unknown addressee": 5,
     "iq request with a unset addressee": 0,
 }
 

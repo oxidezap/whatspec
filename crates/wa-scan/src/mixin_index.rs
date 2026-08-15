@@ -344,6 +344,7 @@ pub(crate) fn resolve(
     let mut iq_type: Option<IqType> = None;
     let mut type_conflict = false;
     let mut target: Option<IqTarget> = None;
+    let mut target_conflict = false;
 
     while let Some(name) = queue.pop_front() {
         if !visited.insert(name.clone()) {
@@ -366,15 +367,19 @@ pub(crate) fn resolve(
                 _ => {}
             }
         }
-        // A group addressee wins — either flavour, since the group mixins are what a
-        // `w:g2` request folds in for its address. Otherwise the first fragment that
-        // resolved an addressee at all does, and an unresolved one never displaces a
-        // resolved one.
-        if !target.is_some_and(|t: IqTarget| t.is_group())
-            && let Some(tg) = frag.target
-            && (tg.is_resolved() || target.is_none())
-        {
-            target = Some(tg);
+        // Two fragments naming DIFFERENT addressees is not a precedence question. WA
+        // writes runtime routers as mixin groups — `mergeBaseGetGroupOrServerMixinGroup`
+        // is `if (args.baseGetGroup) …GroupMixin else if (args.isBaseGetServer)
+        // …ServerMixin`, and the closure reaches both arms — so a request folding one in
+        // has two possible addressees and the argument decides. Picking either publishes
+        // an address the client may not send to, which is this whole change's subject
+        // one level in. Recorded as a conflict, exactly like `xmlns` and `type` above.
+        if let Some(tg) = frag.target {
+            match target {
+                None => target = Some(tg),
+                Some(prev) if prev != tg => target_conflict = true,
+                _ => {}
+            }
         }
         for c in &frag.merged_callees {
             if !visited.contains(c) {
@@ -386,7 +391,14 @@ pub(crate) fn resolve(
     (
         if xmlns_conflict { None } else { xmlns },
         if type_conflict { None } else { iq_type },
-        target,
+        // `Unknown`, not `None`: a fragment DID name an addressee, so the request has one
+        // — reporting nothing would let the caller read it as `unset` and send no `to`.
+        // What is unknown is which of them, which is what `Unknown` says.
+        if target_conflict {
+            Some(IqTarget::Unknown)
+        } else {
+            target
+        },
     )
 }
 
@@ -548,31 +560,53 @@ mod tests {
     }
 
     #[test]
-    fn target_union_prefers_group_then_any_resolved_addressee() {
-        // The union has three rules and every existing fixture leaves `target: None`, so
-        // none of them was exercised: `Group` wins outright, a resolved target replaces
-        // an unresolved one, and an unresolved one never displaces a resolved one. The
-        // last is the rule that matters — a fragment that writes a runtime JID must not
-        // erase a sibling fragment's `s.whatsapp.net`.
+    fn two_fragments_naming_different_addressees_name_neither() {
+        // WA writes runtime routers as mixin groups —
+        // `mergeBaseGetGroupOrServerMixinGroup` is `if (args.baseGetGroup) …GroupMixin
+        // else if (args.isBaseGetServer) …ServerMixin` — and the transitive walk reaches
+        // both arms. Whichever the walk picked, the published addressee would be one the
+        // client may not use: `GetGroupProfilePictures` addresses a group's own JID or
+        // the group server, and the caller's argument decides. `xmlns` and `type` have
+        // recorded conflicts in this function all along; the addressee had not.
         let with_target = |t: IqTarget| {
             let mut f = frag(Some("x"), Some(IqType::Get), &[]);
             f.target = Some(t);
             f
         };
-        for (first, second, want) in [
-            (
-                IqTarget::Server,
-                IqTarget::GroupServer,
-                IqTarget::GroupServer,
-            ),
-            (IqTarget::Server, IqTarget::GroupJid, IqTarget::GroupJid),
-            (IqTarget::Unknown, IqTarget::Server, IqTarget::Server),
-            (IqTarget::Server, IqTarget::Unknown, IqTarget::Server),
+        for (first, second) in [
+            (IqTarget::Server, IqTarget::GroupServer),
+            (IqTarget::Server, IqTarget::GroupJid),
+            (IqTarget::GroupServer, IqTarget::GroupJid),
+            (IqTarget::Unknown, IqTarget::Server),
+            (IqTarget::Server, IqTarget::Unknown),
         ] {
             let idx = index(&[("A", with_target(first)), ("B", with_target(second))]);
             let (_, _, got) = resolve(&idx, &["A".into(), "B".into()]);
-            assert_eq!(got, Some(want), "{first:?} then {second:?}");
+            assert_eq!(
+                got,
+                Some(IqTarget::Unknown),
+                "{first:?} vs {second:?}: two addressees, so neither is the answer"
+            );
         }
+
+        // Agreement is not a conflict, and one fragment naming an addressee still
+        // resolves it — the union must not become useless in the name of caution.
+        let idx = index(&[
+            ("A", with_target(IqTarget::GroupJid)),
+            ("B", with_target(IqTarget::GroupJid)),
+        ]);
+        assert_eq!(
+            resolve(&idx, &["A".into(), "B".into()]).2,
+            Some(IqTarget::GroupJid)
+        );
+        let idx = index(&[
+            ("A", frag(Some("x"), Some(IqType::Get), &[])),
+            ("B", with_target(IqTarget::Server)),
+        ]);
+        assert_eq!(
+            resolve(&idx, &["A".into(), "B".into()]).2,
+            Some(IqTarget::Server)
+        );
     }
 
     #[test]
