@@ -106,16 +106,49 @@ pub(crate) fn resolve_owner(e: &Expression, aliases: &AliasMap) -> Option<&'stat
     None
 }
 
-/// Every name a program binds: parameters, `var`/`let`/`const` declarators, function and
-/// class names. Not an alias map — a binding is recorded whatever it is bound to, which
-/// is the point: an untracked local still shadows an outer alias of the same name.
+/// Every name this program's OWN scope binds: `var`/`let`/`const` declarators, and the
+/// names of the functions and classes it declares. Not an alias map — a binding is
+/// recorded whatever it is bound to, which is the point: an untracked local still shadows
+/// an outer alias of the same name.
+///
+/// Nested functions and classes are named but not entered. A `function helper(A){…}`
+/// inside the body binds `A` in ITS scope, not in this one, so treating it as a shadow
+/// here would unresolve a perfectly good outer alias for the body's own calls. The
+/// nested body, when it is scanned in turn, gets its own set.
 pub(crate) fn bound_names(program: &oxc_ast::ast::Program) -> HashSet<String> {
     struct Binder {
         names: HashSet<String>,
     }
+    impl Binder {
+        fn declare(&mut self, id: Option<&oxc_ast::ast::BindingIdentifier>) {
+            if let Some(id) = id {
+                self.names.insert(id.name.to_string());
+            }
+        }
+    }
     impl<'a> Visit<'a> for Binder {
         fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
             self.names.insert(id.name.to_string());
+        }
+
+        // A declaration's NAME is bound here; everything inside it — parameters and
+        // locals — belongs to the scope it opens.
+        fn visit_function(
+            &mut self,
+            func: &oxc_ast::ast::Function<'a>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+            self.declare(func.id.as_ref());
+        }
+
+        fn visit_arrow_function_expression(
+            &mut self,
+            _arrow: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+
+        fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+            self.declare(class.id.as_ref());
         }
     }
     let mut b = Binder {

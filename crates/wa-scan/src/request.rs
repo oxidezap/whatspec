@@ -2939,6 +2939,31 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_functions_parameter_does_not_shadow_the_body() {
+        // Shadowing is per scope. A helper declared inside the callback binds its own
+        // parameter, not the callback's — so an outer `A = o("WASmaxAttrs")` is still the
+        // builder for the callback's own calls. Treating every binding anywhere in the
+        // body as a shadow unresolves aliases that are perfectly in scope, which reads a
+        // fixed wire literal as a caller-supplied value.
+        let code = r#"
+            var A; A = o("WASmaxAttrs");
+            function b(e){ var l = e.itemArgs;
+              return o("WAWap").wap("iq", null, l.map(function(n){
+                function h(A){ return A; }
+                return o("WAWap").wap("item", {del: A.OPTIONAL_LITERAL("true", n.hasDel)}); })); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let item = out
+            .iter()
+            .flat_map(|c| std::iter::once(c).chain(c.children.iter()))
+            .find(|c| c.tag == "item")
+            .expect("item");
+        let del = item.attrs.iter().find(|a| a.name == "del").expect("del");
+        assert_eq!(del.kind, WapAttrKind::Optional);
+        assert_eq!(del.value.as_deref(), Some("true"), "{del:?}");
+    }
+
+    #[test]
     fn a_map_callback_reads_the_enclosing_module_aliases() {
         // The callback body is re-parsed on its own, so the module-level
         // `A = o("WASmaxAttrs")` it calls through is not declared in what the sweep sees.

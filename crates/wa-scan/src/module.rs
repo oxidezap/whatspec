@@ -166,8 +166,15 @@ pub fn scan_module_outcome(
     // Cross-module `mergeStanzas` fragments: the children/attrs the referenced
     // mixins add to the `<iq>` (e.g. `spam_list{spam_flow}`). Merged by tag into the
     // locally-built children so those cross-module fields aren't lost.
+    //
+    // Held to the same rule as the addressee above, and for the same reason: the callee
+    // list is the MODULE's, so with more than one builder a sibling's `<spam_list>` — and
+    // now its argument addresses — would be merged into a request that folds no mixin at
+    // all. No module in the current bundle has both, so this withholds nothing today; it
+    // is here so the shape cannot start leaking silently. Attributing each merge call to
+    // the builder that encloses it is the real answer, and a larger change than this.
     let referenced_mixins = !scanner.mixin_callees.is_empty();
-    let frag_children = if scanner.mixin_callees.is_empty() {
+    let frag_children = if scanner.mixin_callees.is_empty() || !one_builder {
         Vec::new()
     } else {
         crate::mixin_index::resolve_fragment_children(mixins, &scanner.mixin_callees)
@@ -810,6 +817,33 @@ mod tests {
                 IqTarget::Unknown,
                 "{}: a module-scoped addressee is not this call's",
                 st.namespace
+            );
+        }
+    }
+
+    #[test]
+    fn a_sibling_builders_mixin_does_not_furnish_this_one() {
+        // The same rule as the addressee above, for what the fragment BUILDS. The callee
+        // list is the module's, so a `<spam_list>` — and the argument addresses that now
+        // ride with it — would otherwise be merged into a builder that folds no mixin.
+        let mixin = r#"__d("WASmaxOutBazIQGetRequestMixin",["WAWap","WASmaxJsx"],function(g,r,d,o,e,i){
+            e.mergeBazIQGetRequestMixin = function(s){ return o("WASmaxJsx").smax("iq", { xmlns: "w:baz", type: "get" }, o("WASmaxJsx").smax("spam_list", { flow: o("WAWap").CUSTOM_STRING("x") })); };
+        });"#;
+        let m = r#"__d("WASmaxOutBazRequest",["WASmaxJsx","WASmaxOutBazIQGetRequestMixin"],function(g,r,d,o,e,i){
+            e.makeA = function(){ var q = o("WASmaxJsx").smax("iq", { xmlns: "w:baz", type: "get" }); o("WASmaxOutBazIQGetRequestMixin").mergeBazIQGetRequestMixin(q); return q; };
+            e.makeB = function(){ return o("WASmaxJsx").smax("iq", { xmlns: "w:other", type: "set" }); };
+        });"#;
+        let bundle = format!("{mixin}\n{m}");
+        let defs = wa_transform::extract_module_definitions(&bundle);
+        let mixins = crate::mixin_index::build_pass(&defs, &bundle, &hi());
+        let s = scan_module_source(m, &mixins, &ri(), &hi());
+        assert_eq!(s.len(), 2);
+        for st in &s {
+            assert!(
+                st.request.children.is_empty(),
+                "{}: a module-scoped fragment is not this call's: {:?}",
+                st.namespace,
+                st.request.children
             );
         }
     }
