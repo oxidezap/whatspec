@@ -769,7 +769,7 @@
       ]
     },
     "WapArgSegment": {
-      "description": "One step of a [`WapArgPath`] — a key in the builder's argument object, plus\nwhether that key holds the **list** a repeated child iterates.\n\n`list` is set on exactly one kind of segment: the array argument of a\n`WASmaxChildren.REPEATED_CHILD(template, list, min, max)` call, which invokes the\ntemplate once per element. It is *not* set for `OPTIONAL_CHILD`/`HAS_OPTIONAL_CHILD`,\nwhere the argument object is handed to the template as-is. The distinction is\nload-bearing rather than cosmetic: writing `participantArgs.participantJid` where the\nbuilder reads `participantArgs[0].participantJid` puts the value somewhere the vendor\nbuilder never looks, and the stanza goes out without it.\n\nIt does not say how long the list may be — that is [`WapChildNode::repeat_min`] /\n[`repeat_max`] on the node the path addresses — and it does not say the key is\npresent at runtime.\n\n[`repeat_max`]: WapChildNode::repeat_max",
+      "description": "One step of a [`WapArgPath`] — a key in the builder's argument object, plus\nwhether that key holds the **list** a repeated child iterates.\n\n`list` is set on one kind of segment: the array argument of a\n`WASmaxChildren.REPEATED_CHILD(template, list, min, max)` call, which invokes the\ntemplate once per element. It is *not* set for `OPTIONAL_CHILD`/`HAS_OPTIONAL_CHILD`,\nwhere the argument object is handed to the template as-is. A path may carry several,\none per repeated combinator it passes through — `userArgs[] → deviceArgs[] → deviceId`\nis read off an element of an element. The distinction is\nload-bearing rather than cosmetic: writing `participantArgs.participantJid` where the\nbuilder reads `participantArgs[0].participantJid` puts the value somewhere the vendor\nbuilder never looks, and the stanza goes out without it.\n\nIt does not say how long the list may be — that is [`WapChildNode::repeat_min`] /\n[`repeat_max`] on the node the path addresses — and it does not say the key is\npresent at runtime.\n\n[`repeat_max`]: WapChildNode::repeat_max",
       "type": "object",
       "properties": {
         "key": {
@@ -990,7 +990,7 @@
       "type": "object",
       "properties": {
         "argPath": {
-          "description": "Where the content value comes from in the builder's argument object — an\nabsolute [`WapArgPath`] (`<subject>`'s text is `subjectElementValue`). Absent for\na [`WapContentKind::Const`]/`const_bytes` payload the builder writes itself, and\nwhenever the path is not structurally recoverable.",
+          "description": "Where the content value comes from in the builder's argument object — an\nabsolute [`WapArgPath`] (`<subject>`'s text is `subjectElementValue`). Absent for a\n[`WapContentKind::Const`] payload, which the builder writes itself, and whenever\nthe path is not structurally recoverable.\n\nA [`const_bytes`] payload keeps its path: it is *pinned* — every call site passes\nthe same constant — not written by the builder, so the argument is still read and\na consumer still has to supply it. The constant says what to put here.\n\n[`const_bytes`]: WapContent::const_bytes",
           "type": [
             "array",
             "null"

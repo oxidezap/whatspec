@@ -66,12 +66,19 @@ BASELINE = {
     "iq builder content with no argument path": 23,
     "iq builder child with no argument path": 12,
     # A request whose addressee is supplied at runtime — a group's own JID, a newsletter's
-    # — and whose argument key the scan could not recover. One: `WAWebGroupInviteJob`,
-    # a legacy positional builder with no argument object to address. It falls if that
-    # family goes; it RISES if a smax request starts hiding its `to`, which is the case
-    # worth catching, since `target` alone tells a consumer that a value is required
-    # without telling it where to put it.
-    "iq request with a runtime addressee and no argument path": 1,
+    # — and whose argument key the scan could not recover. Two, for different reasons.
+    # `WAWebGroupInviteJob` is a legacy positional builder with no argument object to
+    # address at all. `WASmaxOutGroupsGetGroupProfilePicturesRequest` folds in a runtime
+    # router whose arms address a group's own JID and the group server: the union reports
+    # `unknown` because the two disagree, and a disagreement about WHICH addressee is one
+    # about its address too — publishing the group arm's key beside `unknown` would
+    # advertise one branch's argument as the request's answer. This one is a claim
+    # withdrawn rather than a loss, the same correction #44 made to its `target`.
+    #
+    # It falls if the legacy family goes or the router learns to name both arms; it RISES
+    # if a smax request starts hiding its `to`, which is the case worth catching, since
+    # `target` alone tells a consumer that a value is required without telling it where.
+    "iq request with a runtime addressee and no argument path": 2,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.

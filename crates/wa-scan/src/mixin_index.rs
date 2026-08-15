@@ -496,8 +496,12 @@ pub(crate) fn resolve(
         } else {
             target
         },
-        // An address the chain disagrees about, or cannot spell, is no address.
-        if target_path_conflict {
+        // An address the chain disagrees about, or cannot spell, is no address — and a
+        // disagreement about the addressee's KIND is one about its address too. A router
+        // whose arms address a group's own JID and the group server has one arm with a key
+        // and one without; publishing the first alongside `Unknown` would advertise one
+        // branch's argument as the request's answer.
+        if target_path_conflict || target_conflict {
             None
         } else {
             target_path

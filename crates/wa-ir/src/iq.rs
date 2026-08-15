@@ -48,10 +48,12 @@ pub enum WapAttrKind {
 /// One step of a [`WapArgPath`] — a key in the builder's argument object, plus
 /// whether that key holds the **list** a repeated child iterates.
 ///
-/// `list` is set on exactly one kind of segment: the array argument of a
+/// `list` is set on one kind of segment: the array argument of a
 /// `WASmaxChildren.REPEATED_CHILD(template, list, min, max)` call, which invokes the
 /// template once per element. It is *not* set for `OPTIONAL_CHILD`/`HAS_OPTIONAL_CHILD`,
-/// where the argument object is handed to the template as-is. The distinction is
+/// where the argument object is handed to the template as-is. A path may carry several,
+/// one per repeated combinator it passes through — `userArgs[] → deviceArgs[] → deviceId`
+/// is read off an element of an element. The distinction is
 /// load-bearing rather than cosmetic: writing `participantArgs.participantJid` where the
 /// builder reads `participantArgs[0].participantJid` puts the value somewhere the vendor
 /// builder never looks, and the stanza goes out without it.
@@ -303,9 +305,15 @@ pub struct WapContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value_source: Option<String>,
     /// Where the content value comes from in the builder's argument object — an
-    /// absolute [`WapArgPath`] (`<subject>`'s text is `subjectElementValue`). Absent for
-    /// a [`WapContentKind::Const`]/`const_bytes` payload the builder writes itself, and
-    /// whenever the path is not structurally recoverable.
+    /// absolute [`WapArgPath`] (`<subject>`'s text is `subjectElementValue`). Absent for a
+    /// [`WapContentKind::Const`] payload, which the builder writes itself, and whenever
+    /// the path is not structurally recoverable.
+    ///
+    /// A [`const_bytes`] payload keeps its path: it is *pinned* — every call site passes
+    /// the same constant — not written by the builder, so the argument is still read and
+    /// a consumer still has to supply it. The constant says what to put here.
+    ///
+    /// [`const_bytes`]: WapContent::const_bytes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arg_path: Option<WapArgPath>,
 }

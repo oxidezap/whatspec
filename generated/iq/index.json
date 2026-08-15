@@ -56091,17 +56091,6 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "unknown",
-        "targetArgPath": [
-          {
-            "key": "baseGetGroupOrServerMixinGroupArgs"
-          },
-          {
-            "key": "baseGetGroup"
-          },
-          {
-            "key": "iqTo"
-          }
-        ],
         "children": []
       },
       "response": {

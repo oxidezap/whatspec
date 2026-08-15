@@ -271,17 +271,15 @@ fn a_runtime_addressee_says_which_argument_supplies_it() {
         Some(["iqTo".to_string()].as_slice()),
         "a group request addresses the group it is about"
     );
-    assert_eq!(
-        path_of("WASmaxOutGroupsGetGroupProfilePicturesRequest").as_deref(),
-        Some(
-            [
-                "baseGetGroupOrServerMixinGroupArgs".to_string(),
-                "baseGetGroup".to_string(),
-                "iqTo".to_string()
-            ]
-            .as_slice()
-        ),
-        "and one reached through a mixin group carries the whole chain"
+    // And a request whose addressee comes from a runtime ROUTER names none. Its two arms
+    // address a group's own JID and the group server; the union already reports `unknown`
+    // for which, and one arm's key is not the request's answer. The composition works —
+    // the path resolves to `baseGetGroupOrServerMixinGroupArgs → baseGetGroup → iqTo`
+    // before the disagreement withdraws it — which is why the withdrawal is deliberate
+    // rather than a gap.
+    assert!(
+        path_of("WASmaxOutGroupsGetGroupProfilePicturesRequest").is_none(),
+        "a disagreement about which addressee is one about its address"
     );
     // A constant addressee has nothing to supply, so it names nothing.
     assert!(
