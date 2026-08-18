@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.0.0",
-  "waVersion": "2.3000.1044659339",
+  "waVersion": "2.3000.1045368834",
   "incoming": [
     {
       "tag": "message",
@@ -2974,6 +2974,369 @@
                 ]
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxInStatusPublishPostBroadcastStatusResponseNegative",
+      "shape": {
+        "parserName": "parsePostBroadcastStatusResponseNegative",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "reference",
+            "name": "from",
+            "referencePath": [
+              "to"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "status"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDeviceJid",
+            "name": "participant",
+            "wireName": "participant",
+            "type": "device_jid",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "status"
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "timestamp",
+            "parserRequired": true
+          },
+          {
+            "method": "",
+            "name": "statusAckEditOrRevokeOrAdminRevokeMixinGroup",
+            "type": "union",
+            "parserRequired": false,
+            "unionVariants": [
+              {
+                "name": "StatusAckEdit",
+                "fields": [
+                  {
+                    "method": "attrString",
+                    "name": "edit",
+                    "wireName": "edit",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "1"
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "ack"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "edit",
+                    "value": "1"
+                  }
+                ]
+              },
+              {
+                "name": "StatusAckRevoke",
+                "fields": [
+                  {
+                    "method": "attrString",
+                    "name": "edit",
+                    "wireName": "edit",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "7"
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "ack"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "edit",
+                    "value": "7"
+                  }
+                ]
+              },
+              {
+                "name": "StatusAckAdminRevoke",
+                "fields": [
+                  {
+                    "method": "attrString",
+                    "name": "edit",
+                    "wireName": "edit",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "8"
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "ack"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "edit",
+                    "value": "8"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "method": "",
+            "name": "statusApplicationNegativeAckMixin",
+            "type": "node",
+            "parserRequired": false,
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "applicationError",
+                "wireName": "application_error",
+                "type": "integer",
+                "parserRequired": true
+              }
+            ],
+            "sameNode": true
+          },
+          {
+            "method": "",
+            "name": "messageNackRetryAttributesMixin",
+            "type": "node",
+            "parserRequired": false,
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "backoff",
+                "wireName": "backoff",
+                "type": "integer",
+                "parserRequired": true,
+                "intMin": 0,
+                "intMax": 86400
+              }
+            ],
+            "sameNode": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxInStatusPublishPostBroadcastStatusResponseSuccess",
+      "shape": {
+        "parserName": "parsePostBroadcastStatusResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "reference",
+            "name": "from",
+            "referencePath": [
+              "to"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "status"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDeviceJid",
+            "name": "participant",
+            "wireName": "participant",
+            "type": "device_jid",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "status"
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "timestamp",
+            "parserRequired": true
+          },
+          {
+            "method": "",
+            "name": "statusAckEditOrRevokeOrAdminRevokeMixinGroup",
+            "type": "union",
+            "parserRequired": false,
+            "unionVariants": [
+              {
+                "name": "StatusAckEdit",
+                "fields": [
+                  {
+                    "method": "attrString",
+                    "name": "edit",
+                    "wireName": "edit",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "1"
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "ack"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "edit",
+                    "value": "1"
+                  }
+                ]
+              },
+              {
+                "name": "StatusAckRevoke",
+                "fields": [
+                  {
+                    "method": "attrString",
+                    "name": "edit",
+                    "wireName": "edit",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "7"
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "ack"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "edit",
+                    "value": "7"
+                  }
+                ]
+              },
+              {
+                "name": "StatusAckAdminRevoke",
+                "fields": [
+                  {
+                    "method": "attrString",
+                    "name": "edit",
+                    "wireName": "edit",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "8"
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "ack"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "edit",
+                    "value": "8"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "method": "",
+            "name": "deviceListStaleMixin",
+            "type": "node",
+            "parserRequired": false,
+            "children": [
+              {
+                "method": "attrString",
+                "name": "phash",
+                "wireName": "phash",
+                "type": "string",
+                "parserRequired": true
+              }
+            ],
+            "sameNode": true
+          },
+          {
+            "method": "",
+            "name": "fanoutCountMixin",
+            "type": "node",
+            "parserRequired": false,
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "count",
+                "wireName": "count",
+                "type": "integer",
+                "parserRequired": true
+              }
+            ],
+            "sameNode": true
+          },
+          {
+            "method": "",
+            "name": "statusAckRcatMixin",
+            "type": "node",
+            "parserRequired": false,
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "rcatElementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "sourcePath": [
+                  "rcat"
+                ]
+              }
+            ],
+            "sameNode": true
           }
         ]
       }

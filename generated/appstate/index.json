@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.0.0",
-  "waVersion": "2.3000.1044659339",
+  "waVersion": "2.3000.1045368834",
   "collections": [
     "regular",
     "regular_low",
@@ -694,7 +694,7 @@
         },
         {
           "type": "string",
-          "name": "id"
+          "name": "labelId"
         }
       ]
     },

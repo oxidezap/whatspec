@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.0.0",
-  "waVersion": "2.3000.1044659339",
+  "waVersion": "2.3000.1045368834",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -849,6 +849,34 @@
         }
       }
     },
+    "ContactManagerCustomerProfile": {
+      "originalName": "WAWebContactManagerCustomerProfileQuery",
+      "docId": "37925750573706165",
+      "operationKind": "query",
+      "variables": [
+        "lid"
+      ],
+      "variablesShape": {
+        "lid": "string"
+      },
+      "response": {
+        "xfb_wa_customer_profile": {
+          "acquisition_date": "string",
+          "acquisition_source": "string",
+          "address": "string",
+          "dob": "string",
+          "email": "string",
+          "last_order_date": "string",
+          "last_updates": [
+            {
+              "ts": "string"
+            }
+          ],
+          "lead_stage": "string",
+          "name": "string"
+        }
+      }
+    },
     "ContactManagerCustomerProfileUpsert": {
       "originalName": "WAWebContactManagerCustomerProfileUpsertMutation",
       "docId": "27789071790751197",
@@ -931,7 +959,7 @@
     },
     "CreateLabyrinthBackup": {
       "originalName": "WAWebCreateLabyrinthBackupJobMutation",
-      "docId": "28017003717917462",
+      "docId": "27515507191403198",
       "operationKind": "mutation",
       "variables": [
         "input"
@@ -947,7 +975,8 @@
           "epoch_id": "string",
           "mailbox_id": "string",
           "message": "string",
-          "status": "string"
+          "status": "string",
+          "vd_device_id": "string"
         }
       }
     },
@@ -1260,6 +1289,35 @@
         "xwa2_newsletter_admin_demote": {
           "__typename": "string",
           "id": "string"
+        }
+      }
+    },
+    "EBMessageMetadataQuery": {
+      "originalName": "EBMessageMetadataQueryQuery",
+      "docId": "28525853583670706",
+      "operationKind": "query",
+      "variables": [
+        "data"
+      ],
+      "variablesShape": {
+        "data": "string"
+      },
+      "response": {
+        "viewer": {
+          "encrypted_backup": {
+            "id": "string",
+            "mailbox": {
+              "deanon_messages_metadata": [
+                {
+                  "admin_message": "string",
+                  "is_admin_message": "boolean",
+                  "offline_threading_id": "string",
+                  "sender_id": "string",
+                  "sort_order_ms": "number"
+                }
+              ]
+            }
+          }
         }
       }
     },
@@ -1817,7 +1875,7 @@
     },
     "FetchNewChatMessageCappingInfo": {
       "originalName": "WAWebMexFetchNewChatMessageCappingInfoJobQuery",
-      "docId": "24503548349331633",
+      "docId": "27910975521856601",
       "operationKind": "query",
       "variables": [
         "input"
@@ -1835,6 +1893,10 @@
           "mv_status": "string",
           "ote_status": "string",
           "server_sent_timestamp": "number",
+          "subscription_status": {
+            "name": "string",
+            "status": "string"
+          },
           "total_quota": "string",
           "used_quota": "string"
         }
@@ -3185,6 +3247,43 @@
             "text": "string"
           }
         ]
+      }
+    },
+    "FetchWassBotListProfilesGQL": {
+      "originalName": "WAWebFetchWassBotListProfilesGQLQuery",
+      "docId": "28479090065021614",
+      "operationKind": "query",
+      "response": {
+        "wass_account_list_profiles": [
+          {
+            "bot_fbid": "string",
+            "is_deprecated": "boolean",
+            "name": "string",
+            "product": "string",
+            "profile_pic_full_url": "string",
+            "profile_pic_thumb_url": "string"
+          }
+        ]
+      }
+    },
+    "FetchWassBotProfileGQL": {
+      "originalName": "WAWebFetchWassBotProfileGQLQuery",
+      "docId": "27911751148486446",
+      "operationKind": "query",
+      "variables": [
+        "botFbid"
+      ],
+      "variablesShape": {
+        "botFbid": "string"
+      },
+      "response": {
+        "get_wass_account_profile": {
+          "is_deprecated": "boolean",
+          "name": "string",
+          "product": "string",
+          "profile_pic_full_url": "string",
+          "profile_pic_thumb_url": "string"
+        }
       }
     },
     "GetAccessTokenFromOIDCCode": {
@@ -4612,6 +4711,25 @@
         }
       }
     },
+    "RotateLabyrinthEpoch": {
+      "originalName": "WAWebRotateLabyrinthEpochJobMutation",
+      "docId": "27545094465170765",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "response": {
+        "wa_labyrinth_rotate_epoch": {
+          "__typename": "string",
+          "message": "string",
+          "new_epoch_id": "string",
+          "status": "string"
+        }
+      }
+    },
     "SetUsername": {
       "originalName": "WAWebMexSetUsernameJobMutation",
       "docId": "25757341163897635",
@@ -5164,6 +5282,22 @@
               }
             ]
           }
+        }
+      }
+    },
+    "useWAWebSmartComposerReportUsed": {
+      "originalName": "useWAWebSmartComposerReportUsedMutation",
+      "docId": "27016039438072594",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "response": {
+        "meta_ai_biz_agent_wa_suggested_reply_used": {
+          "success": "string"
         }
       }
     }

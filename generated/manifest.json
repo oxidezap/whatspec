@@ -1,5 +1,5 @@
 {
-  "abPropsConfigs": 2546,
+  "abPropsConfigs": 2660,
   "appstateActions": 66,
   "diagnostics": {
     "incoming": {
@@ -74,83 +74,83 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "21f6f4a28fef514bf2f4e9006839c946d9a6b9e2df376c7170bd2e8520ae9abd"
+      "sha256": "616888631995690f6c476aa9c13544050d07889f3d3afd98c429805a8c7f084d"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "655e50ecd5f3e592a9c5e5a32a98cfd40d9aa2e6a4b142f3f9203750116d6092"
+      "sha256": "5d54aa53b653a015d43d8f5d334401348d16ca9e7418cbfc3c0f6b0677dfc166"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "e0f9d1d71ab254f14a7ac2725db50e6f820a408900feb422bca481292e46c104"
+      "sha256": "253e9be951c270c1f29161610211ae5b86e07f6f116bdc97268cdd7da594e42f"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "990d1ba619cde34bb07f929d4360618f024f388ad0c2a7ebdac6dbb516882750"
+      "sha256": "aca77465db3abae1bcf9fba6401d1e0ec70fa6f52b52b9bb3f80de864739f0f0"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "e8e68c739a74e7551393e786eb9e63ae413209aa46330549135b7912bfa2431c"
+      "sha256": "15c9d3f7e4b62f1f6549e335714dac757e878b690b1cbd4cfb47d7bbc3f99808"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "7d14b1daf2169e9647adb3f18d31482bb7e0271344774ed7ae0e937392d8dbee"
+      "sha256": "84e2ea45b035e8425dd7c1cc2e2f371aab3c89cce6ed8d4fd0bda4d839b35b59"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "bd9637539c7d439746fc1866e625ab5f7cbce333350b01e1322a3494496a1018"
+      "sha256": "fade6781d9eb6cb4931bf1d967d9c00e8dd8e4a49b0ad9d6822cd815059d553e"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "021d53059e7b35d8553c97c09567da8d6aba7278c7f2510242eab686bff3647a"
+      "sha256": "f3da4ba028402ea225747dc40247a5d55473012da9c4ef0c4b9de5c443117e2f"
     },
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "b7cc61c5811b028e24cd82e1ad54c1e26c5f6d1ccc8742515937e09e259bea9e"
+      "sha256": "abedd4d0d6404bfa0bd6d11b821a9879a93364ebdd24c56c6403351a924b5e18"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "5b0819a64a5d938759ddc58e1bd86f7594de0ba8bcacdf7d8a0013f8dc3b92d2"
+      "sha256": "cd588054d2b49acecd0d8afa753d1ff54954ad89961eba66931912ae2a020f25"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "676ab4a648f64397e2b571293dee683bb27efc3a74dc58ef7b52390782ce960f"
+      "sha256": "c258bd0be728578cbf94a4b09014a997b8ce980d7334fdccd716ad5510c3eb99"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "6e3ecf31c667b8b71042c6a0dd7708bf4677a3c86d8f1372b1f9441cab8fa75f"
+      "sha256": "16678577c8c42760b5115a46d46ee1ad6cb051478973e1f9ddef3d68e56cdc5a"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "02afd546f61f089220858f350220e94c6d056e9ac9ea7a94339d54f99b22d156"
+      "sha256": "ae0d851f84a7c1fabf7d3388662839d78ebae4bb969c35a8bb1f29b47f06cf7b"
     }
   },
-  "enumDefs": 403,
+  "enumDefs": 416,
   "generatorVersion": "0.1.0",
-  "incomingDefs": 16,
+  "incomingDefs": 18,
   "iqModules": 33,
-  "mexOperations": 137,
+  "mexOperations": 143,
   "notifTypes": 27,
-  "protoEntities": 268,
+  "protoEntities": 356,
   "schemaVersion": "4.0.0",
-  "serverRequestDefs": 22,
-  "stanzaDefs": 179,
+  "serverRequestDefs": 23,
+  "stanzaDefs": 198,
   "tokenDoubleByte": 1024,
   "tokenSingleByte": 236,
-  "waVersion": "2.3000.1044659339",
+  "waVersion": "2.3000.1045368834",
   "wamEvents": 436,
   "wasmBinaries": 7,
-  "wasmResources": 46,
-  "wasmWasmHandles": 7
+  "wasmResources": 54,
+  "wasmWasmHandles": 15
 }

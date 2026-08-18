@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.0.0",
-  "waVersion": "2.3000.1044659339",
+  "waVersion": "2.3000.1045368834",
   "enums": [
     {
       "name": "DGWAuth",
@@ -101,6 +101,21 @@
         {
           "name": "TRANSPORT_NORMAL_CLOSURE",
           "value": 9
+        }
+      ]
+    },
+    {
+      "name": "EBDBEnvironment",
+      "module": "EBDB",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "UI",
+          "value": 0
+        },
+        {
+          "name": "Worker",
+          "value": 1
         }
       ]
     },
@@ -250,44 +265,158 @@
       ]
     },
     {
-      "name": "ClickInteractionComponent",
-      "module": "PaymentLinkWamLogger",
+      "name": "LockMode",
+      "module": "LockManager",
       "valueKind": "string",
       "variants": [
         {
-          "name": "LINK",
-          "value": "link"
+          "name": "Exclusive",
+          "value": "exclusive"
         },
         {
-          "name": "LINK_PREVIEW",
-          "value": "link_preview"
-        },
-        {
-          "name": "LINK_CTA",
-          "value": "link_cta"
-        },
-        {
-          "name": "UNKNOWN",
-          "value": "unknown"
+          "name": "Shared_NOT_IMPLEMENTED",
+          "value": "shared"
         }
       ]
     },
     {
-      "name": "LinkPreviewStatus",
-      "module": "PaymentLinkWamLogger",
+      "name": "ActionType",
+      "module": "MWMsgActionLogUtils",
       "valueKind": "string",
       "variants": [
         {
-          "name": "NOT_STARTED",
-          "value": "not_started"
+          "name": "Send",
+          "value": "send"
         },
         {
-          "name": "STARTED",
-          "value": "started"
+          "name": "Reaction",
+          "value": "reaction"
         },
         {
-          "name": "COMPLETED",
-          "value": "completed"
+          "name": "Reply",
+          "value": "reply"
+        },
+        {
+          "name": "Forward",
+          "value": "forward"
+        },
+        {
+          "name": "Share",
+          "value": "share"
+        },
+        {
+          "name": "StoryReply",
+          "value": "story-reply"
+        },
+        {
+          "name": "Unsend",
+          "value": "unsend"
+        },
+        {
+          "name": "GroupInvite",
+          "value": "group-invite"
+        },
+        {
+          "name": "SenderKeyDistribution",
+          "value": "sender-key-distribution"
+        },
+        {
+          "name": "EphemeralSetting",
+          "value": "ephemeral-setting"
+        },
+        {
+          "name": "Edit",
+          "value": "edit"
+        },
+        {
+          "name": "Bump",
+          "value": "bump"
+        },
+        {
+          "name": "Retry",
+          "value": "retry"
+        }
+      ]
+    },
+    {
+      "name": "AttachmentType",
+      "module": "MWMsgMediaTypeLogUtils",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Application",
+          "value": "application"
+        },
+        {
+          "name": "Audio",
+          "value": "audio"
+        },
+        {
+          "name": "Avatar",
+          "value": "avatar"
+        },
+        {
+          "name": "HotEmoji",
+          "value": "hot_emoji"
+        },
+        {
+          "name": "File",
+          "value": "file"
+        },
+        {
+          "name": "Gif",
+          "value": "gif"
+        },
+        {
+          "name": "Image",
+          "value": "image"
+        },
+        {
+          "name": "Link",
+          "value": "link"
+        },
+        {
+          "name": "None",
+          "value": "none"
+        },
+        {
+          "name": "Poll",
+          "value": "poll"
+        },
+        {
+          "name": "Reaction",
+          "value": "reaction"
+        },
+        {
+          "name": "Sticker",
+          "value": "sticker"
+        },
+        {
+          "name": "Video",
+          "value": "video"
+        },
+        {
+          "name": "Share",
+          "value": "share"
+        },
+        {
+          "name": "NoteReply",
+          "value": "note_reply"
+        }
+      ]
+    },
+    {
+      "name": "MsgType",
+      "module": "MWSharedMsgLogUtils",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Text",
+          "value": "text"
+        },
+        {
+          "name": "NonText",
+          "value": "non-text"
         }
       ]
     },
@@ -652,6 +781,405 @@
         {
           "name": "BEST_EFFORT",
           "value": "BEST_EFFORT"
+        }
+      ]
+    },
+    {
+      "name": "Entity",
+      "module": "WAOdsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "WA_CONNECTIVITY",
+          "value": "wa_connectivity"
+        },
+        {
+          "name": "SPAM_REPORT",
+          "value": "wmi_spam_report"
+        },
+        {
+          "name": "DECRYPTION",
+          "value": "armadillo_msg_decryption"
+        },
+        {
+          "name": "DEVICE_REREG_CHECK",
+          "value": "armadillo_device_rereg_check"
+        },
+        {
+          "name": "DEVICE_REGISTRATION",
+          "value": "armadillo_device_registration"
+        },
+        {
+          "name": "DEVICE_REGISTRATION_NON_EMPLOYEE",
+          "value": "armadillo_device_registration_non_employee"
+        },
+        {
+          "name": "PHASH_MISMATCH",
+          "value": "phash_mismatch"
+        },
+        {
+          "name": "WEB_PLACEHOLDER",
+          "value": "armadillo_web_placeholder"
+        },
+        {
+          "name": "PREKEY_UPLOAD",
+          "value": "armadillo_prekey_upload"
+        },
+        {
+          "name": "PREKEY_DIGEST",
+          "value": "armadillo_prekey_digest"
+        },
+        {
+          "name": "C2C_META_SYNC",
+          "value": "armadillo_c2c_meta_sync"
+        },
+        {
+          "name": "ADMIN_MESSAGE",
+          "value": "armadillo_admin_message"
+        },
+        {
+          "name": "PREVIEW_SNIPPET",
+          "value": "armadillo_snippet"
+        },
+        {
+          "name": "TOTAL_INCOMING_MESSAGE",
+          "value": "armadillo_total_incoming_message"
+        },
+        {
+          "name": "COMPARE_IDENTITY",
+          "value": "armadillo_compare_identity"
+        },
+        {
+          "name": "GET_PREKEY",
+          "value": "armadillo_get_prekey"
+        },
+        {
+          "name": "SECURITY_ALERT_FOR_CONTACT",
+          "value": "armadillo_security_alert_for_contact"
+        },
+        {
+          "name": "SECURITY_ALERT_FOR_SELF",
+          "value": "armadillo_security_alert_for_self"
+        },
+        {
+          "name": "MSG_SEND",
+          "value": "armadillo_message_send"
+        },
+        {
+          "name": "RETRY_MISSING_MSG",
+          "value": "armadillo_retry_missing_msg"
+        },
+        {
+          "name": "REGISTRATION_TYPE",
+          "value": "aramdillo_registration_type"
+        },
+        {
+          "name": "CLOCK_SKEW_UPDATE",
+          "value": "clock_skew_update"
+        },
+        {
+          "name": "STREAM_ERROR",
+          "value": "wajs_stream_error"
+        },
+        {
+          "name": "LOAD_MORE_NO_ORIGINAL_MSG_IN_MAW",
+          "value": "load_more_no_original_msg_in_maw"
+        },
+        {
+          "name": "POISON_QUEUE_ENTTITY",
+          "value": "armadillo_poison_queue_entity"
+        },
+        {
+          "name": "PQ_MIGRATION",
+          "value": "wajs_pq_migration"
+        },
+        {
+          "name": "WORM",
+          "value": "wajs_worm"
+        },
+        {
+          "name": "CAT_ROTATION",
+          "value": "cat_rotation"
+        },
+        {
+          "name": "EB_RESTORE",
+          "value": "eb_restore"
+        },
+        {
+          "name": "EB_UPLOAD",
+          "value": "eb_upload"
+        },
+        {
+          "name": "WA_REREGISTRATION",
+          "value": "wa_reregistration"
+        },
+        {
+          "name": "EB_SWITCH_STATE",
+          "value": "eb_switch_state"
+        },
+        {
+          "name": "EB_MESSAGE_PROBE",
+          "value": "eb_message_probe"
+        },
+        {
+          "name": "EB_CLIENT_STATE_CHECK",
+          "value": "eb_client_state_check"
+        },
+        {
+          "name": "EB_RECOVERY_CODE_DB",
+          "value": "eb_recovery_code_db"
+        },
+        {
+          "name": "AUTOMATIC_EB",
+          "value": "automatic_eb"
+        },
+        {
+          "name": "MAW_BRIDGE",
+          "value": "maw_bridge"
+        },
+        {
+          "name": "MAW_BRIDGE_UI_EVENT",
+          "value": "maw_bridge_ui_event"
+        },
+        {
+          "name": "MAW_DB_DEPRECATION",
+          "value": "maw_db_deprecation"
+        },
+        {
+          "name": "WA_DISCONNECT",
+          "value": "armadillo_disconnect"
+        },
+        {
+          "name": "GROUP_CREATE",
+          "value": "armadillo_group_create"
+        },
+        {
+          "name": "GROUP_DELETE",
+          "value": "armadillo_group_delete"
+        },
+        {
+          "name": "GROUP_ADD_PARTICIPANT",
+          "value": "armadillo_group_add_participant"
+        },
+        {
+          "name": "GROUP_PROMOTE_PARTICIPANT",
+          "value": "armadillo_group_promote_participant"
+        },
+        {
+          "name": "GROUP_DEMOTE_PARTICIPANT",
+          "value": "armadillo_group_demote_participant"
+        },
+        {
+          "name": "GROUP_REMOVE_PARTICIPANT",
+          "value": "armadillo_group_remove_participant"
+        },
+        {
+          "name": "GROUP_LEAVE_PARTICIPANT",
+          "value": "armadillo_group_leave_participant"
+        },
+        {
+          "name": "GROUP_REVOKE_PARTICIPANT_INVITE",
+          "value": "armadillo_group_revoke_participant_invite"
+        },
+        {
+          "name": "GROUP_SKS_INVALID",
+          "value": "armadillo_group_sks_invalid"
+        },
+        {
+          "name": "GROUP_SET_MEMBER_ADD_MODE",
+          "value": "armadillo_group_set_member_add_mode"
+        },
+        {
+          "name": "GROUP_JOIN",
+          "value": "armadillo_group_join"
+        },
+        {
+          "name": "GROUP_SET_SUBJECT",
+          "value": "armadillo_group_set_subject"
+        },
+        {
+          "name": "OPEN_GROUP_ADD_PARTICIPANT",
+          "value": "open_group_add_participant"
+        },
+        {
+          "name": "SEND_READ_RECEIPTS",
+          "value": "armadillo_send_read_receipts"
+        },
+        {
+          "name": "MESSAGE_MISSING_THREAD_JID",
+          "value": "MESSAGE_MISSING_THREAD_JID"
+        },
+        {
+          "name": "MESSAGE_MISSING",
+          "value": "MESSAGE_MISSING"
+        },
+        {
+          "name": "MAW_NON_TIMEOUT",
+          "value": "maw_non_timeout"
+        },
+        {
+          "name": "MAW_TIMEOUT",
+          "value": "maw_timeout"
+        },
+        {
+          "name": "WA_FAIL_STANZA_QUEUE_ITEM",
+          "value": "wa_fail_stanza_queue_item"
+        },
+        {
+          "name": "MAW_MISMATCH_PARTICIPANT",
+          "value": "maw_mismatch_participant"
+        },
+        {
+          "name": "MAW_ONE_TO_ONE_THREAD_PARTICIPANT_CLEANUP",
+          "value": "maw_one_to_one_thread_participant_cleanup"
+        },
+        {
+          "name": "MAW_THREADID_DEPRECATION",
+          "value": "maw_threadid_deprecation"
+        },
+        {
+          "name": "MAW_THREADID_DEPRECATION_DETAILS",
+          "value": "maw_threadid_deprecation_details"
+        },
+        {
+          "name": "MAW_DELETE_DANGLING_PARTICIPANTS",
+          "value": "maw_delete_dangling_participants"
+        },
+        {
+          "name": "S2S_QPL_MISSING_INSTANCE_KEY",
+          "value": "s2s_qpl_missing_instance_key"
+        },
+        {
+          "name": "MAW_DEPRECATED_REDIRECT",
+          "value": "maw_deprecated_redirect"
+        },
+        {
+          "name": "MAW_DEPRECATED_BRIDGE_USAGE",
+          "value": "maw_deprecated_bridge_usage"
+        },
+        {
+          "name": "MAW_MUTATION_VALIDATOR",
+          "value": "maw_mutation_validator"
+        },
+        {
+          "name": "MAW_THREAD_UPDATE_MIDDLEWARE",
+          "value": "maw_thread_update_middleware"
+        },
+        {
+          "name": "MAW_THREADLIST_ITEM_UPDATE",
+          "value": "maw_threadlist_item_update"
+        },
+        {
+          "name": "MAW_THREAD_BUMPED_V2",
+          "value": "maw_thread_bumped_v2"
+        },
+        {
+          "name": "MAW_MY_USER_JID_GETTER",
+          "value": "maw_my_user_jid_getter"
+        },
+        {
+          "name": "WA_NO_SIGNED_PRE_KEY",
+          "value": "wa_no_signed_pre_key"
+        },
+        {
+          "name": "WA_LONG_SESSION_DROP",
+          "value": "wa_long_session_drop"
+        },
+        {
+          "name": "MAW_PROTOCOL_MSG_ID_INDEX",
+          "value": "maw_protocol_msg_id_index"
+        },
+        {
+          "name": "MAW_DUPLICATE_MSGS",
+          "value": "maw_duplicate_msgs"
+        },
+        {
+          "name": "MAW_LS_SYNC_IMPROVEMENTS",
+          "value": "maw_ls_sync_improvements"
+        },
+        {
+          "name": "MAW_DELETE_DB_ON_LOGOUT",
+          "value": "maw_delete_db_on_logout"
+        },
+        {
+          "name": "MAW_VAULTING",
+          "value": "maw_vaulting"
+        },
+        {
+          "name": "MAW_SEND_REACTION",
+          "value": "maw_send_reaction"
+        },
+        {
+          "name": "MAW_OLD_MESSAGE_SEND",
+          "value": "maw_old_message_send"
+        },
+        {
+          "name": "MAW_MIGRATE_REACTION_TS_AS_INDEX",
+          "value": "maw_migrate_reaction_ts_as_index"
+        },
+        {
+          "name": "MAW_TC_MS5_OPEN_SNIPPET",
+          "value": "maw_tc_ms5_open_snippet"
+        },
+        {
+          "name": "MAW_S2S_INSTANCE_KEY_NULL",
+          "value": "maw_s2s_instance_key_null"
+        },
+        {
+          "name": "MAW_XMA_PROTOCOL_PARSING",
+          "value": "maw_xma_protocol_parsing"
+        },
+        {
+          "name": "IGDW_INSTAMADILLO_MESSAGE_ON_OLD_WORKER",
+          "value": "igdw_new_msg_old_worker"
+        },
+        {
+          "name": "WORKER_SCHEDULER_STUCK",
+          "value": "worker_scheduler_stuck"
+        },
+        {
+          "name": "MAW_DB_UNEXPECTED_VERSION",
+          "value": "maw_db_unexpected_version"
+        },
+        {
+          "name": "MAW_DB_MIGRATION_CURRENT_VERSION",
+          "value": "maw_db_migration_current_version"
+        },
+        {
+          "name": "MAW_MEDIA_DB_DUPLICATE_MEDIA",
+          "value": "maw_media_db_duplicate_media"
+        },
+        {
+          "name": "MAW_MEDIA_DB_DUPLICATE_CHUNK",
+          "value": "maw_media_db_duplicate_chunk"
+        },
+        {
+          "name": "MAW_MEDIA_MISMATCH_HASHED_PLAINTEXT_HASH",
+          "value": "maw_media_mismatch_hashed_plaintext_hash"
+        },
+        {
+          "name": "MAW_EB_DECODE_MESSAGE_PROTOBUF_SUPPLEMENTAL",
+          "value": "maw_eb_decode_message_protobuf_supplemental"
+        },
+        {
+          "name": "MAW_THREAD_GET_NEWEST_REACTION_BATCH_NUM",
+          "value": "maw_thread_get_newest_reaction_batch_num"
+        },
+        {
+          "name": "MAW_THREAD_MAPPING",
+          "value": "maw_thread_mapping"
+        },
+        {
+          "name": "WA_PROTOCOL_QUEUE_NOTIFICATION",
+          "value": "wa_protocol_queue_notification"
+        },
+        {
+          "name": "MPS_THREAD_SNIPPET_CONSISTENCY",
+          "value": "mps_thread_snippet_consistency"
+        },
+        {
+          "name": "MAW_JOB_MANAGER",
+          "value": "maw_job_manager"
         }
       ]
     },
@@ -2540,6 +3068,210 @@
       "syntheticName": true
     },
     {
+      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_BUTTONSRESPONSE_CATALOGLINK_COLLECTION_CONTACT_CONTACTARRAY_DOCUMENT_FEEDRESHARE_GENAISTICKER_GIF_GROUPHISTORY_HISTORY_IMAGE_LISTRESPONSE_LOCATION_MOTIONPHOTO_MOTIONVIDEO_NATIVEFLOWRESPONSE_ORDER_PRODUCT_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_STORYREPLY_URL_USERCREATEDSTICKER_VCARD_VIDEO_XMA",
+      "module": "WASmaxInStatusDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "1p_sticker",
+          "value": "1p_sticker"
+        },
+        {
+          "name": "audio",
+          "value": "audio"
+        },
+        {
+          "name": "avatar_sticker",
+          "value": "avatar_sticker"
+        },
+        {
+          "name": "buttons_response",
+          "value": "buttons_response"
+        },
+        {
+          "name": "cataloglink",
+          "value": "cataloglink"
+        },
+        {
+          "name": "collection",
+          "value": "collection"
+        },
+        {
+          "name": "contact",
+          "value": "contact"
+        },
+        {
+          "name": "contact_array",
+          "value": "contact_array"
+        },
+        {
+          "name": "document",
+          "value": "document"
+        },
+        {
+          "name": "feed_reshare",
+          "value": "feed_reshare"
+        },
+        {
+          "name": "genai_sticker",
+          "value": "genai_sticker"
+        },
+        {
+          "name": "gif",
+          "value": "gif"
+        },
+        {
+          "name": "group_history",
+          "value": "group_history"
+        },
+        {
+          "name": "history",
+          "value": "history"
+        },
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "list_response",
+          "value": "list_response"
+        },
+        {
+          "name": "location",
+          "value": "location"
+        },
+        {
+          "name": "motion_photo",
+          "value": "motion_photo"
+        },
+        {
+          "name": "motion_video",
+          "value": "motion_video"
+        },
+        {
+          "name": "native_flow_response",
+          "value": "native_flow_response"
+        },
+        {
+          "name": "order",
+          "value": "order"
+        },
+        {
+          "name": "product",
+          "value": "product"
+        },
+        {
+          "name": "productlink",
+          "value": "productlink"
+        },
+        {
+          "name": "ptt",
+          "value": "ptt"
+        },
+        {
+          "name": "ptv",
+          "value": "ptv"
+        },
+        {
+          "name": "sticker",
+          "value": "sticker"
+        },
+        {
+          "name": "sticker_pack",
+          "value": "sticker_pack"
+        },
+        {
+          "name": "story_reply",
+          "value": "story_reply"
+        },
+        {
+          "name": "url",
+          "value": "url"
+        },
+        {
+          "name": "user_created_sticker",
+          "value": "user_created_sticker"
+        },
+        {
+          "name": "vcard",
+          "value": "vcard"
+        },
+        {
+          "name": "video",
+          "value": "video"
+        },
+        {
+          "name": "xma",
+          "value": "xma"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ACCOUNTAUTHENTICATIONREQUEST_ADDRESSMESSAGE_APISIGNUP_CALLPERMISSIONREQUEST_FORMMESSAGE_GALAXYMESSAGE_MENUOPTIONS",
+      "module": "WASmaxInStatusDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "account_authentication_request",
+          "value": "account_authentication_request"
+        },
+        {
+          "name": "address_message",
+          "value": "address_message"
+        },
+        {
+          "name": "api_signup",
+          "value": "api_signup"
+        },
+        {
+          "name": "call_permission_request",
+          "value": "call_permission_request"
+        },
+        {
+          "name": "form_message",
+          "value": "form_message"
+        },
+        {
+          "name": "galaxy_message",
+          "value": "galaxy_message"
+        },
+        {
+          "name": "menu_options",
+          "value": "menu_options"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ALLOWLIST_CLOSEFRIENDS_CONTACTS_CUSTOMLIST_DENYLIST",
+      "module": "WASmaxInStatusDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "allowlist",
+          "value": "allowlist"
+        },
+        {
+          "name": "closefriends",
+          "value": "closefriends"
+        },
+        {
+          "name": "contacts",
+          "value": "contacts"
+        },
+        {
+          "name": "customlist",
+          "value": "customlist"
+        },
+        {
+          "name": "denylist",
+          "value": "denylist"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
       "name": "ENUM_AUDIO_GIF_IMAGE_VIDEO",
       "module": "WASmaxInStatusDeliverEnums",
       "valueKind": "string",
@@ -2559,6 +3291,38 @@
         {
           "name": "video",
           "value": "video"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInStatusDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_MSG_PKMSG",
+      "module": "WASmaxInStatusDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "msg",
+          "value": "msg"
+        },
+        {
+          "name": "pkmsg",
+          "value": "pkmsg"
         }
       ],
       "syntheticName": true
@@ -3970,6 +4734,21 @@
       ]
     },
     {
+      "name": "AdCreationEntryPointSuppressionReason",
+      "module": "WAWebBizNativeAdsWamLogger",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "LINKED_ACCOUNTS_NULL",
+          "value": "suppressed_linked_accounts_null"
+        },
+        {
+          "name": "LINKED_ACCOUNTS_THREW",
+          "value": "suppressed_linked_accounts_threw"
+        }
+      ]
+    },
+    {
       "name": "OrderReferral",
       "module": "WAWebBizOrderDetailsParams",
       "valueKind": "string",
@@ -4138,6 +4917,10 @@
         {
           "name": "PAYMENT_LINK",
           "value": "payment_link"
+        },
+        {
+          "name": "OFFSITE_CARD_PAY",
+          "value": "offsite_card_pay"
         }
       ]
     },
@@ -4184,6 +4967,14 @@
         {
           "name": "FLOW_MOUNTED",
           "value": "flow_mounted"
+        },
+        {
+          "name": "PRO_RELAY_ENVIRONMENT_FETCH_END",
+          "value": "pro_relay_environment_fetch_end"
+        },
+        {
+          "name": "PRO_RELAY_ENVIRONMENT_FETCH_START",
+          "value": "pro_relay_environment_fetch_start"
         },
         {
           "name": "SCREEN_MOUNTED",
@@ -5011,6 +5802,25 @@
         {
           "name": "DBOperationFailed",
           "value": 552
+        }
+      ]
+    },
+    {
+      "name": "SyncErrorCode",
+      "module": "WAWebCustomPaymentMethodsSyncLogger",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "MALFORMED_MUTATION",
+          "value": "malformed_mutation"
+        },
+        {
+          "name": "TRANSPORT_FLUSH_FAILED",
+          "value": "transport_flush_failed"
+        },
+        {
+          "name": "UNSUPPORTED_OPERATION",
+          "value": "unsupported_operation"
         }
       ]
     },
@@ -7071,21 +7881,6 @@
       ]
     },
     {
-      "name": "NotifyForType",
-      "module": "WAWebNotifyForTypes",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "ALL",
-          "value": "all"
-        },
-        {
-          "name": "HIGHLIGHTS",
-          "value": "highlights"
-        }
-      ]
-    },
-    {
       "name": "NuxSyncKey",
       "module": "WAWebNux",
       "valueKind": "string",
@@ -7409,6 +8204,48 @@
         {
           "name": "MISSING_PARENT_MESSAGE_KEY",
           "value": "missing_parent_message_key"
+        }
+      ]
+    },
+    {
+      "name": "ClickInteractionComponent",
+      "module": "WAWebPaymentLinkWamLogger",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "LINK",
+          "value": "link"
+        },
+        {
+          "name": "LINK_PREVIEW",
+          "value": "link_preview"
+        },
+        {
+          "name": "LINK_CTA",
+          "value": "link_cta"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "LinkPreviewStatus",
+      "module": "WAWebPaymentLinkWamLogger",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "NOT_STARTED",
+          "value": "not_started"
+        },
+        {
+          "name": "STARTED",
+          "value": "started"
+        },
+        {
+          "name": "COMPLETED",
+          "value": "completed"
         }
       ]
     },
@@ -11899,21 +12736,6 @@
       ]
     },
     {
-      "name": "AppState_v2586",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2586",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
       "name": "AppState_v2587",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2587",
       "valueKind": "string",
@@ -12411,6 +13233,36 @@
     {
       "name": "AppState_v2631",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2631",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2632",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2632",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2633",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2633",
       "valueKind": "string",
       "variants": [
         {

@@ -1,7 +1,7 @@
 {
-  "waVersion": "2.3000.1044659339",
-  "setHash": "00c96d4a94dabc8c6ddbb0f8a9d9a64736c156733575d0e0b6b31e2a5b3d82fa",
-  "bundleCount": 497,
+  "waVersion": "2.3000.1045368834",
+  "setHash": "99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00",
+  "bundleCount": 516,
   "bundles": [
     {
       "sha256": "0011c9c4f6a4b6736e2bd77b4b6eee2974cd32215a13e80ca6dc3e3390c39384",
@@ -34,9 +34,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iV_m4/yx/l/en_US-j/OOoXZ98bHcs.js"
     },
     {
-      "sha256": "031826318ba57376820089b24e0e88496df02a27dc2f8f39bddf5c3a366f3ecd",
-      "size": 181803,
-      "url": "https://static.whatsapp.net/rsrc.php/v4im_m4/ys/l/en_US-j/LKd7aHkMwSw.js"
+      "sha256": "034314e49fa571a8e2e8491843a15536326b4a47d1f66ac7704d2332ee1b391e",
+      "size": 4863634,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iBc14/y-/l/en_US-j/1vLy2N_PPugqSrss8uw7CPaa9q_D6jvJkXIwTbR2Tnlg7pOWVzIUw3ee7jTTDPurfCXT-7o6LR_rE-ogzCe7u9uc0fOqRaOpcmC.js"
     },
     {
       "sha256": "043b01d7d95e1c5a1f101d4d2d094d0b1a3cc1ca20f48c51df41f6075fa34dc2",
@@ -44,19 +44,29 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yX/r/ovwRl0_L7P4.js"
     },
     {
+      "sha256": "05249f0fc33509d3551d6a26b2484e9c48422a2b02d8edcd983f7a16e14c1989",
+      "size": 41652,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iPOD4/yg/l/en_US-j/UXWSWp5MFg-.js"
+    },
+    {
+      "sha256": "0617d8c17dea0a843535e5c99ebc13bd728ebd6d42843f918fda3f9267e4615e",
+      "size": 8339,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yQ/r/gXsbcDktNLy.js"
+    },
+    {
       "sha256": "0679c5a8faa43408a0a8355dc6376f2dfe5dba7c239824c43a38471a9b5c9377",
       "size": 1475,
       "url": "https://static.whatsapp.net/rsrc.php/v4/ye/r/VDTplSuw3fV.js"
     },
     {
+      "sha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+      "size": 652899,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i0ur4/ym/l/en_US-j/d0ehw14wSxg.js"
+    },
+    {
       "sha256": "075d82b7f1ad1399eec986ff434a4ff204dbd316891aef68dd535ead4bd6a4f4",
       "size": 22874,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yG/r/lVudrwLzW0E.js"
-    },
-    {
-      "sha256": "07a479f96daa46797fcc31f723e194f7b23c93ff1d9e83e391aad63bec442f4b",
-      "size": 27819,
-      "url": "https://static.whatsapp.net/rsrc.php/v4inNX4/y8/l/en_US-j/OXlthZVdoOn.js"
     },
     {
       "sha256": "083141edfbb7dbb0729289dfe3029b0827283b21d1fa742af58e4b60680cf84e",
@@ -69,6 +79,16 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yl/r/8m31OMmYDtc.js"
     },
     {
+      "sha256": "0860221f72dc14fa1da2bb2ce719167ccd5ec7ea6f10dfcae4f31dd67ff316d1",
+      "size": 9738,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i5ns4/yM/l/en_US-j/Mxryz3vuYCg.js"
+    },
+    {
+      "sha256": "0999fc1fd445746e04981ffed0a53406efdc7bd192148215ff7244a946d7fea0",
+      "size": 550602,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iyOp4/y2/l/en_US-j/aa9q_D6jvJk.js"
+    },
+    {
       "sha256": "0a4c1531d9b35ab8699c0402ff79140757ad985eea1a716aa78c0738aeef5c69",
       "size": 143194,
       "url": "https://static.whatsapp.net/rsrc.php/v4i04K4/yW/l/en_US-j/VSHXAkcm8TM.js"
@@ -77,6 +97,16 @@
       "sha256": "0a56c033322644b82dbed6bd607f73a0d2b0a5414a289c8653f5f1fe8d7aa36e",
       "size": 17622,
       "url": "https://static.whatsapp.net/rsrc.php/v4iFFd4/y0/l/en_US-j/vdWAlob_vW6.js"
+    },
+    {
+      "sha256": "0b4f95cf8e37870760313d3532c0b921ba48b5c36442407f8ffbdf8a7df6a2d7",
+      "size": 44686,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iADL4/yx/l/en_US-j/2BCHIk3FdQ9.js"
+    },
+    {
+      "sha256": "0e26fa3a7faf57cdc92032ba972fb19f0fe9481ed4f5b7dfcb5f932164521a00",
+      "size": 186611,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iSyM4/ya/l/en_US-j/0T-pFmAe0kf.js"
     },
     {
       "sha256": "0e885ee3f2669b661ba796700b389dc44f1b7b00d9b4151a1a3947852cc59be5",
@@ -109,24 +139,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yD/r/s41nE6DVnp4.js"
     },
     {
-      "sha256": "0f6df732004619aa7c532ad942f35c83583d80c96b77ae20f485ef83469088a7",
-      "size": 5079195,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iAAc4/yM/l/en_US-j/SGDyxpm-c5eZ_vMfvLKLy0a80CwS6x1RJeAQ4Lge5z5Y0Dr5E4kn-fZxVtN0a0bNQ_nBO-VxeyZstHCrBx1tW8Z93XhgQIOUQSbsrBnhxKql2ZPeOxkvOf8SNkFzfFN5C7q-Fza7AZ7vl3nPOYJTAQ0fmsiuosXm1USFvvTtyAtQpfayUXjFvdEODcC-fCE_X1oSHqa5B5wvI7DUUJFORDZ37W9mrJSeZuCGV6ZuX_wyTOPPyAZ-mX87-6DyGKwHM6fOExpEhRgxME01XdEQQKpVY6sUatqflmPVap5RU7zgD1wrYAm-.js"
-    },
-    {
-      "sha256": "0fcc91cdb492a5af629200d63145169f70a42c17a7d3aa1085a70ddb8a2fdb54",
-      "size": 20876,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iY_s4/yE/l/en_US-j/ReoA6tt7KNw.js"
-    },
-    {
       "sha256": "1016f0a3d2b0791fb636db8bbb8ccacaf77b9bde3ab0b97e9fed0fa1274fa818",
       "size": 130631,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yA/r/cQrCX9qfnnK.js"
     },
     {
-      "sha256": "10a0eafab6f15351d8419d43d1b5c6d33448f7d6ff28a31c727f724a4f4085b1",
-      "size": 1350,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yO/r/mKWT1oG0ydC.js"
+      "sha256": "10e4e1a1783af55df1ba0ba04a50e3ee31d41c8f735830bb019974adfb60909c",
+      "size": 69777,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ibBk4/yA/l/en_US-j/GvHD4Byomol.js"
     },
     {
       "sha256": "1122e0f9ab6734cd0b79df6e515ff1e35fb89fc99f6cd86ab097663f4cd8f3b1",
@@ -142,6 +162,11 @@
       "sha256": "117bbb3622ca02d5b30d8b05fa4658115dd51c4992dfaeb8c1546af8f0e016ab",
       "size": 1103,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yn/r/B3en8NrHHBU.js"
+    },
+    {
+      "sha256": "118cd1e717ad3f01b70b23d5a883639f224d39334d369f41d4025d65643077e7",
+      "size": 24088,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ijUL4/yj/l/en_US-j/QpBdp1SH2PK.js"
     },
     {
       "sha256": "119fc16a35bd3a157b15e054590323390cd2edbca8ccc66775ed4dc0fd061a1b",
@@ -174,11 +199,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y8/r/xp6Rmqx3I2i.js"
     },
     {
-      "sha256": "12f5233fe9a3642e676725d09cc6e7e8486a1f3a41a63af6ba04779eae7ac79a",
-      "size": 1711368,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iWI34/yd/l/en_US-j/OOzCQCUjcljZp-tWWUpHut1HP06z6wk3E6VUmM2M88dUjc6xvohj7LqpVO_lFuTNjKkTZo7z3n_CO2WRPuvUO_-OUz89H7kaZU8-xaAtgWFhLNXnDPC425fT4B2OMWkdLYkFfTIG7UFlDrlIyv8P-Yjo1ur0m3_ykNjyO672g6p7tCmCN6qITO7ABGCh7JKwdVQSUNdmfiU5x6CLvYN_qB0FdP3h9Azaat6zM6Mifb8swvDZefwdl7kYEODFm0ODbHvtGWHNbA2uasE8V0EhC4sM8pHXEURS54SKY5fDCI5Ks4nnxslLIkB67_ZKw9j_cUVu92oDgl.js"
-    },
-    {
       "sha256": "12fdc5e353a4969e9f92d38f5dbcf0f3bf608d7a8413e3c24838b7e2418d73de",
       "size": 4383,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yG/r/RrOi3N3KtNr.js"
@@ -189,19 +209,24 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iQhY4/yO/l/en_US-j/m1fBKTlOHU_.js"
     },
     {
-      "sha256": "13ced0c19b357ce5e3f242ab9a4868c4900ab9771e3e7b92e082a17126d84759",
-      "size": 294240,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yH/r/lBOdEJVMo8D.js"
+      "sha256": "142ee71d3fa26133cfa3e4f6646ee3b9049bf5754a1bc6d13be905397d974322",
+      "size": 4553,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yD/r/AILgE1-Wq0K.js"
     },
     {
-      "sha256": "13db014c1bbee20f3169411d209aa115ff981fc5de07bb776a1784636e8e3477",
-      "size": 1724064,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iZv44/yi/l/en_US-j/dJp5iBEellQ.js"
+      "sha256": "15339e541ca850185a14c0603d262eed300ad5019b65d3582aaf3a8eeab1cc96",
+      "size": 938598,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ilT24/yx/l/en_US-j/DJawFx8wWYB.js"
     },
     {
       "sha256": "15600de96efa85f6a7769029aef5a48f2974ee22d0bba1f88e9260492474b9ee",
       "size": 2062,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y7/r/QsQSCEKvX8g.js"
+    },
+    {
+      "sha256": "15a1cf291d90d06f386699fa9bbcd5a76157f001f935dc240c6413d23458cc82",
+      "size": 102003,
+      "url": "https://static.whatsapp.net/rsrc.php/v4itn94/yf/l/en_US-j/zipoWqf7fOD.js"
     },
     {
       "sha256": "1650bae763a55c01993f08613d944c7e0ce412b7fd897ba08370c619cef08cdc",
@@ -224,9 +249,29 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ym/r/ZS39uyVoYMQ.js"
     },
     {
+      "sha256": "185ec323d46c3ee506be15b0b895117f8509f8acc361f1d9d72e57af3156ed0b",
+      "size": 17656,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i9Cb4/yH/l/en_US-j/fAVuE2DNN7-.js"
+    },
+    {
+      "sha256": "196dbd8b31066b11bbfa3bcae0668c881823355a81fb81995699994fe79a1cfe",
+      "size": 41388,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iYOC4/yk/l/en_US-j/fRP6CKYxsK5.js"
+    },
+    {
       "sha256": "1988301c08093715ca47add0971e607b93cde50c6ef85129013b12bf679c40e8",
       "size": 303004,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yX/r/UuR15Zg2Grr.js"
+    },
+    {
+      "sha256": "1a76cb9c4c1f859e9df72e87dd482f33a28d5791a83848dbb2d9734d071d563f",
+      "size": 9710,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yP/r/y35G_m9inoo.js"
+    },
+    {
+      "sha256": "1acb18e961392eeff40f5599054d845aa50e74a3d193920412b601ab4da43ada",
+      "size": 13245,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iTNh4/yB/l/en_US-j/AuthFv9DgVu.js"
     },
     {
       "sha256": "1aee23f33e6b1fa11f77a1e690cbc96e8a9bd48d1e3d7d3e75a4a537fe3bdd4b",
@@ -239,19 +284,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yY/r/s9gjlP_E9H-.js"
     },
     {
+      "sha256": "1b39b7ba826252dba2f534d5e64992cb5d6b70b86c78481c8eca6358fe3e3b91",
+      "size": 1379,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y2/r/IM9vMmfXpMI.js"
+    },
+    {
       "sha256": "1b6751cc4a1d60ef4251ea067b0694d73aded629e562361ce6a13da580a66f56",
       "size": 1961,
       "url": "https://static.whatsapp.net/rsrc.php/v4iKat4/yC/l/en_US-j/EyuRaO2-9UO.js"
     },
     {
-      "sha256": "1c1554db0d2f84d7f455a975d2700d6572550c2a06ce4f55eb3d4bc1ead208de",
-      "size": 932161,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ilT24/yf/l/en_US-j/5jkhOFMZ1QW.js"
-    },
-    {
-      "sha256": "1c5b90435675fd814d26899be939780eab19fb9e8c6e6b69a726d603d25a8869",
-      "size": 527138,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iT9V4/yM/l/en_US-j/iGXmHNtkKek.js"
+      "sha256": "1b7268dfaaeb30b0d50c481d0df381bb451131b551845e263e40ca3bf24a27ac",
+      "size": 8378,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i-Re4/yr/l/en_US-j/-njArpikP23.js"
     },
     {
       "sha256": "1cb1c06dd51f00aa6879186b2fca54d271877a54c06fee38224565246b46cd47",
@@ -274,14 +319,34 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yQ/r/bfnMgiCIWmf.js"
     },
     {
+      "sha256": "1fa7d4da125375aec91177b97fb5ab7ddc64491d9777fd51d9d5a8ddbdb9d462",
+      "size": 52371,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ibup4/y2/l/en_US-j/bd8LOUnBBwT.js"
+    },
+    {
       "sha256": "1ff78d62985711540936490ed49c2c49d7d18211aa6d21dc7d47aa94fa7e25cc",
       "size": 2475,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y3/r/3h1-_Iu-XHE.js"
     },
     {
-      "sha256": "21786a84dbd130cab90d92a7acd62483838c68f4d4ebc22760b5892da5b31068",
-      "size": 3624,
-      "url": "https://static.whatsapp.net/rsrc.php/v4igMp4/yw/l/en_US-j/DkSXg5-iPPZ.js"
+      "sha256": "2033eedf6329cbf1c6a12f5eb7e24c8985b8a3d0cbdc05a741309ffc85d71072",
+      "size": 23374,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/ym/r/4f1kAcRen52.js"
+    },
+    {
+      "sha256": "2037c89f757bd516d809188bfcb6d9d3940f8a07df6ca4a7b640e415b742bd1d",
+      "size": 671239,
+      "url": "https://static.whatsapp.net/rsrc.php/v4io3m4/yy/l/en_US-j/1vLy2N_PPug.js"
+    },
+    {
+      "sha256": "208da4bdcb2d331955b3e3f645807c8e1020774fa4bdaabad4ef6c66259f9e41",
+      "size": 602207,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iskP4/yr/l/en_US-j/nhFWakHwJig.js"
+    },
+    {
+      "sha256": "21651eb966325eebeecb5207cd4ba9f3116045b15966d42f458f248976ecaab1",
+      "size": 803,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y8/r/DGFT2WhusFh.js"
     },
     {
       "sha256": "232984d16e2966b480e48976cf6497c9aa8f0ed4c25946d6aacda3664db0a17b",
@@ -289,9 +354,24 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iqta4/yg/l/en_US-j/Dtb0KXE9XZT.js"
     },
     {
+      "sha256": "2348ad53f207fd3f6b9fb3e3984f1b877f1b1a9687052573600c2d3c762f2862",
+      "size": 429133,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y-/r/RdRVnC5VmcVecXQcCOqvj-Y9gDQ7XKEvGPwYYknZAXuEEttPODJqq4tw9aDda8SluQibJkO_PKzLnGHMUHq9yDE9e8DCgt-Yc0se0qnL2dG90H4pVrB9WxtSWfibXh0vdaWG.js"
+    },
+    {
+      "sha256": "23be9fcdfe786d263c9ba64827870b1b8a11131df1922129bc8d7cf4d1b51696",
+      "size": 72263,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iBYA4/yb/l/en_US-j/_kwqs-xBJux.js"
+    },
+    {
       "sha256": "245dfefab381cf24260ecf2b84432bde4042e29db00929d7bacfc87bb93ffec6",
       "size": 3141,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yX/r/Z60D3CBuaHE.js"
+    },
+    {
+      "sha256": "246bc05727c7fde426711ec2786b1efa7416b9d2ff85b37ecc65e4d851ed0c01",
+      "size": 715,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y1/r/YjOEDoIcMq1.js"
     },
     {
       "sha256": "24ff4234ea04c383a9165b9e5a0aab866dc950d69f1a76dd0cc1bdc779df5798",
@@ -304,14 +384,24 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yA/r/e0O5emZGGVm.js"
     },
     {
+      "sha256": "25ea81c939d4c7562a8f283727232367daafaf4832fa0cde2ea634672c5df76c",
+      "size": 16599,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ieby4/yL/l/en_US-j/UB5hA2Ny2th.js"
+    },
+    {
+      "sha256": "26784785ea9a5445b28093b75c2cf91459be003cbd771247d4bc941c6080576d",
+      "size": 28861,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i5ZG4/y1/l/en_US-j/KFVJaxv3ovt.js"
+    },
+    {
+      "sha256": "277a2d068c3e1b0b25042606173de8d959480f5184c8789539e9d5078c99b830",
+      "size": 1220,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y7/r/ck7hCuyBC1y.js"
+    },
+    {
       "sha256": "27efa331f5407be61be4f48f28af8e00bde03e5ca5930ebe3ca0f846c1083eb0",
       "size": 4554,
       "url": "https://static.whatsapp.net/rsrc.php/v4iL0p4/yB/l/en_US-j/hqegk10X0fU.js"
-    },
-    {
-      "sha256": "28681c9a9086c522aa0ea7707100948145f4bb0d9cd59fd907c2219b8abd9794",
-      "size": 2690,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yl/r/i-mkyrL738S.js"
     },
     {
       "sha256": "286d2b3ec37f6e1ac3269d5a2abf65d4a878da00db93b85667f9095c2914da84",
@@ -319,9 +409,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yO/r/op88iTvt1jI.js"
     },
     {
-      "sha256": "2870f68c834852dc4afc6b68e718e9c3e84ef401555abcfdfe1fa21115b8a7cf",
-      "size": 1427656,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/KGHMEjgcpPP.js"
+      "sha256": "29da6fe9d79ebab83a40e2a512293c9c02b2621fcc82490de5abd12fde564afb",
+      "size": 84395,
+      "url": "https://static.whatsapp.net/rsrc.php/v4imyr4/yL/l/en_US-j/Y10hS8eEk9X.js"
     },
     {
       "sha256": "2a2116188ea2d977ace687eb5811acf5c9e9d2ad22056acaf50e69e54944ae39",
@@ -329,19 +419,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yf/r/vPDwltlkLXn.js"
     },
     {
-      "sha256": "2a2b6068d71aa51acd5b1015fe4a93918ceaa8052357550692b791f76a81c4db",
-      "size": 870727,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iJ6I4/yx/l/en_US-j/7xOWmEQtTGw.js"
-    },
-    {
       "sha256": "2a887f215976b9edb18c0010536733b8c37f685686dac5cf55341981e2abb27a",
       "size": 4843,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yA/r/mRQzXvAbthE.js"
-    },
-    {
-      "sha256": "2aaf3ee09d43cafad8a804e7d2c3e119132fb504c7e0226daa4641d2ecd00d9e",
-      "size": 73246,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i3_04/yN/l/en_US-j/XUCSsI_7DFx.js"
     },
     {
       "sha256": "2ab13c0fe88efc994d30409cc9edd4669a9f57bc0c698d50f95edfc42fe5b28a",
@@ -356,7 +436,12 @@
     {
       "sha256": "2c7690039c079b0ce29589093e2edc0990c7599cf40f90939b89447732128685",
       "size": 33797,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iiA24/y6/l/en_US-j/rwJvixvAWoT.js"
+      "url": "https://static.whatsapp.net/rsrc.php/v4iiA24/yF/l/en_US-j/_ApIzBqX3BE.js"
+    },
+    {
+      "sha256": "2cf83f262d4379562cf762e2a455970b187c03664e3388054310c2191975e888",
+      "size": 89140,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y4/r/lur51vpPtTy.js"
     },
     {
       "sha256": "2d0428561029cf43fd1e91a9fd71bf0f87954c5ea6e58a7de313346dfbb3a250",
@@ -389,29 +474,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yP/r/AF2DK3enQqW.js"
     },
     {
+      "sha256": "317a1a8e9d9bf69797ad3ec733e5a5c2e2ab475617f31351aee934b6b63554e1",
+      "size": 161847,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iJVq4/y6/l/en_US-j/cJL8PBWBmMp.js"
+    },
+    {
       "sha256": "31983d109b041cae64b8d1e034c4cc075e255d5c06860ffdfaf431b1fda7002d",
       "size": 237539,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yQ/r/nQWuajK9RdX.js"
     },
     {
-      "sha256": "31a60001ee80b515aae6383bb9fa90756a0bf5250b80786340ecd28ab69a6b3a",
-      "size": 26383,
-      "url": "https://static.whatsapp.net/rsrc.php/v4itVf4/ys/l/en_US-j/BaC7nuuIICB.js"
-    },
-    {
-      "sha256": "31f7b039cc8c6bfa8bd53415561b916febd3e2fd6bc62ba7d256f6c233441c64",
-      "size": 69683,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ibBk4/yg/l/en_US-j/-xaAtgWFhLN.js"
-    },
-    {
       "sha256": "3301ec98513175bfa67a6163a51545c4d492bcf9105ee18fae98fd2286e36eb5",
       "size": 1526,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yT/r/lek2esm9afI.js"
-    },
-    {
-      "sha256": "3321e3e88fa5c978b65f0c2a24274a69ade4a225b952214a96a6183f15947b78",
-      "size": 1505694,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ikzm4/yS/l/en_US-j/M5UGE_FdD2p.js"
     },
     {
       "sha256": "335a8c7f3abf0c2737d739e7a50a08b07d85b7b310be6497d47195a7b6aa3879",
@@ -429,11 +504,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ye/r/s0gZGit6hkz.js"
     },
     {
-      "sha256": "34c2fa3cd6a11a54d5e5f585d116e88a129b3496c6a6bdf6191b8cfd31cdb7d6",
-      "size": 38773,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yj/r/fTIG7UFlDrl.js"
-    },
-    {
       "sha256": "3593306b66856b39634823d1be1e8fdc93c80b36eb468562c5ecfd66d903f5fa",
       "size": 1235,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yM/r/ziSTjBe46bk.js"
@@ -449,16 +519,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4irPE4/yj/l/en_US-j/EA2lrn2OnOi.js"
     },
     {
-      "sha256": "37033415150a143ebd5fe00fedeece77250b3bfd0db1ab29bf23e180d76fcd6f",
-      "size": 27130,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iADL4/yi/l/en_US-j/fMtCWJMI0vd.js"
-    },
-    {
-      "sha256": "37a2b12c90e5c4799b62179319f288314fd9f267ccc1e20a384516d2b90c7466",
-      "size": 16809,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i3R-4/yp/l/en_US-j/7EIvVD2wNQm.js"
-    },
-    {
       "sha256": "385861aa125c75f8ef63e6abff73f445ad5d2e57d9bbb35e32274c1c9207a29e",
       "size": 281407,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yO/r/8pgvY2Paq4K.js"
@@ -469,9 +529,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yz/r/izuDMgvhBYa.js"
     },
     {
-      "sha256": "3a3800c758b741e926cf30c2ef9184f3b7ac056ea13f8763d469702efd0844fc",
-      "size": 672114,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iOyZ4/y0/l/en_US-j/T5Aj2o28-vk.js"
+      "sha256": "38cc03362dc9c17195fd420f16b8ada76b9abefb2da1be675f57e093c2da8495",
+      "size": 803525,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iEpC4/y_/l/en_US-j/qSrss8uw7CP.js"
+    },
+    {
+      "sha256": "3a394dba369575334ca85c9c0fc9a3c88dc5e7707b85b6be3c691a8fbe7152b9",
+      "size": 15157,
+      "url": "https://static.whatsapp.net/rsrc.php/v4irEt4/yH/l/en_US-j/s9Gr_QIuCV5.js"
+    },
+    {
+      "sha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+      "size": 1383194,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/eIm471QtKbB.js"
     },
     {
       "sha256": "3a7c0e7c17e56d1389fd09f4b5aeb14820f6dd3d385a990923e0ac0608ff4580",
@@ -479,19 +549,29 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iJbk4/y_/l/en_US-j/9u35txGkiVc.js"
     },
     {
+      "sha256": "3a7e6980765158590b39d441563d83daa0788e81c66c0bf53adeaa4891721ba3",
+      "size": 123680,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iZjc4/yw/l/en_US-j/2gtOdQpWKYh.js"
+    },
+    {
       "sha256": "3a8d5714bdbbfe73f52c39006b8a1f680923fe5f63d7f5a806e318b291c0f9ec",
       "size": 1356,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yi/r/X97oXlGT8RW.js"
     },
     {
-      "sha256": "3c5270ee668de2a1d73535f277da72fd445f0b4456c48a1693279185de0e370b",
-      "size": 8035,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i-Re4/y2/l/en_US-j/LgWwIYRyjMP.js"
+      "sha256": "3b437a3cc48599ab85853e54dbcaffd57b0c526f43dda0258fe88ae68acaeac7",
+      "size": 15009,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ia544/yP/l/en_US-j/DBGTFAkDgru.js"
     },
     {
-      "sha256": "3c5c0bb7c6c4de8e232f8ad21218668603c6a64e958df21eb71cd6869a4328f7",
-      "size": 531,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/y7/r/7G0lPA2L7--.js"
+      "sha256": "3c0057e47963852939184498e1ff606517643b6c65b40b2f5912025379b5605f",
+      "size": 2909,
+      "url": "https://static.whatsapp.net/rsrc.php/v4igMp4/yW/l/en_US-j/9acaU6HyKFl.js"
+    },
+    {
+      "sha256": "3c9f835088e4de6ee6821cf53a95a496510408ed2cd51e01e5d6b95cfd078944",
+      "size": 854,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yT/r/gyRtAZ3OE0E.js"
     },
     {
       "sha256": "3cc4dcfe0ca70349782a928cd2fa087f55bc198119a5ee1dda1888a8633b1c0b",
@@ -509,14 +589,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yH/r/QFPbAwosIpH.js"
     },
     {
-      "sha256": "3ee4979a2528017e7f5a8803666c5e655240e0ec5dc9031a90fe5cd11afec9d0",
-      "size": 4042,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/ys/r/9u-bcxmCPzd.js"
-    },
-    {
-      "sha256": "3f51e1f8bd3e80573c69842dbb8544e792a20bdab814cc2ff180985036a1761e",
-      "size": 20301,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i5oR4/yz/l/en_US-j/I05E7yRmXKd.js"
+      "sha256": "3e28a36ec0aefd1c60f79e3e8a5a154c0a4a3b4d050eba0c1a6c958c8da7bdee",
+      "size": 11843,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iJDT4/y1/l/en_US-j/GSsB38IsaUI.js"
     },
     {
       "sha256": "3f855e35dd32e989132628224618e28db68ca94e3a7b008afa08fe219692b418",
@@ -524,14 +599,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y5/r/8d9M4fQAkcU.js"
     },
     {
-      "sha256": "3fad92e0b7a4e480bd04a0e070e24600d43999463c86903b19c943a275455fdb",
-      "size": 115043,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yR/r/jc6xvohj7Lq.js"
+      "sha256": "3ff62c9536d9695777c8cd82d91102cc198a47010b2e5893867397f9a0295bdd",
+      "size": 3127,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yx/r/Y_cEwoYrR1A.js"
     },
     {
       "sha256": "403e620db4975b374f31992cba39b2128f71af87d862be667ad34145bcc28f48",
       "size": 20221,
       "url": "https://static.whatsapp.net/rsrc.php/v4ifjx4/yP/l/en_US-j/L9a-mMmwtoa.js"
+    },
+    {
+      "sha256": "40dd234856a51f9cb267f6f946700a2fb4b53f46119842946c6531198615f488",
+      "size": 107603,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y3/r/BSbrnXCNtBT3XyOGoBgAfDJEP1HUyB_rEdGuLcbUeWRIqLHCXmPk0ZW7EEAe-7x-4r4Ou9ZMwG9u7bF8dTOsL9IeIGT8bemE126dSrorW8hkcy9cDhulIoXfgUBUcfvfsstKhAwq_P-04_N3R_QuDr2v0qioc9HPVa5NR_ZZX4kLmSGG9x8kUwrpTBglSOJmFB6VcB6Gvthxdb-pgK4Cx0g62rGUjGCMz9USE3UME9NAJIwAaeDUf4C9opEkKFR9bxF7pAy9ke0clJzMzpjo5ReWt9ABi4Nv46YQ2YP1PBy57olT7s-XBWQH8TZPuhcZiCZp8pgh5q.js"
     },
     {
       "sha256": "41120f8b6acf5a76b1612bf574c6b10bfb76fc2606a9026d933587b5a4e2c627",
@@ -559,6 +639,16 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yi/r/x6KyNPsc4K4.js"
     },
     {
+      "sha256": "440ea4f9c3e790dd452205356c1619cf5e971d6cd289fd485a1d202c6b93787a",
+      "size": 733,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yE/r/psRcVTqyG1R.js"
+    },
+    {
+      "sha256": "4446d0354d05d4a8ce5e59d157432605f86d304daf0700d73def45671816775d",
+      "size": 297040,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yM/r/iNwQvK2f8BQ.js"
+    },
+    {
       "sha256": "4501bc938cafa8a78a42ec077026122f556f28aad4438673b1c009365e0758ae",
       "size": 1197,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yv/r/dHxvOMW6rDs.js"
@@ -566,7 +656,12 @@
     {
       "sha256": "452410fb835a086986e928b2f5508327e02f4b804ee80dbd74874a87254d95b9",
       "size": 69562,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i_QT4/yf/l/en_US-j/ZAX612rkWy3.js"
+      "url": "https://static.whatsapp.net/rsrc.php/v4i_QT4/yy/l/en_US-j/vJrcohpNsMA.js"
+    },
+    {
+      "sha256": "45b8b40748bb792c872159a88ac2468bf10b92155195413705b77984f94ad6bb",
+      "size": 563535,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iNGv4/yw/l/en_US-j/7pOWVzIUw3e.js"
     },
     {
       "sha256": "46426af784eb06155030a53dfd1a62c2ea3c5d1d03508a9c91e33110d815b8fa",
@@ -577,6 +672,16 @@
       "sha256": "4678faeafbcc99afa1011a3b81763923fe766994bd7eae7622147a5d278d0971",
       "size": 5245,
       "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/yOcXVq4kY7O.js"
+    },
+    {
+      "sha256": "46979caab7131afa0cc03c1f79c561d698170cabef01b15493d0a978aa5bc45a",
+      "size": 42653,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iKHf4/yh/l/en_US-j/jbKbzNU8GIT.js"
+    },
+    {
+      "sha256": "469e8e15743d3d0d694e5157379c9d8e7b55ab57a790d1b129112021619f7e02",
+      "size": 886438,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ir0e4/yi/l/en_US-j/rmtuQeyeEnW.js"
     },
     {
       "sha256": "471c832cda2e61b99d983e7dd4e410c73bbbb7b6a76fc4168fdfd55aead63db3",
@@ -594,6 +699,21 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yD/r/HT-9J5wVeUO.js"
     },
     {
+      "sha256": "47aa5abf1e13c37c46820345af86012d2314d098317f2849d1fc7d46ba19f247",
+      "size": 73410,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i3_04/yS/l/en_US-j/VSuRNQZ8FOf.js"
+    },
+    {
+      "sha256": "47b83b6ce3dd6b1aabff956f0920ca991a3bf6a4207dd50649961470ed93abf6",
+      "size": 20310,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yu/r/AlhOmGgHDMc.js"
+    },
+    {
+      "sha256": "485d15434ad7f26b5372ac0e3c0f05770edcf62481643911cf0ac8d2eb3a6750",
+      "size": 7325,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iL264/yw/l/en_US-j/UoGlDotuR8B.js"
+    },
+    {
       "sha256": "48c1ae27fe40888a737b01a0a32c45351b7bf411cb884d01fe7519315396ceb1",
       "size": 2580,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yc/r/l6v09_a4dKP.js"
@@ -604,9 +724,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yB/r/w3HBWxj5wPw.js"
     },
     {
-      "sha256": "496da3c808f537703e5c473102c686d96bbf00f94ce83759abca4d3bc47ec864",
-      "size": 80046,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iF-J4/yY/l/en_US-j/tU_e0JYanJf.js"
+      "sha256": "49648899bceaaada82024ec316e48477420cdf0c65fb739be8b9204a5f3fed49",
+      "size": 117821,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/ym/r/WqiU1DnabX8.js"
     },
     {
       "sha256": "4a9081dd07d41ded306465f307361e369d7516d65ebfac11e6577289bd2ae956",
@@ -624,24 +744,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yp/r/CwlyIlGjiMR.js"
     },
     {
-      "sha256": "4cbeec32ea63ef811546e524f693dbc8a35aed4704abdb2ff9d07f678dcb96e2",
-      "size": 579937,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ixBa4/yN/l/en_US-j/wZj_9iDz968.js"
-    },
-    {
-      "sha256": "4d105b510f32b196d2aa837691636b1aa4d7d402ca13bfd752f4edc06660c27d",
-      "size": 1482321,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iaQp4/yn/l/en_US-j/Tm4EW9LLmqX.js"
-    },
-    {
-      "sha256": "4e00c0f4be0141ed12721dd42c58b079120c91fe84a77a7abddc39c5f45672b7",
-      "size": 417058,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iMwK4/yO/l/en_US-j/Xi9ulOR7352.js"
-    },
-    {
       "sha256": "4ee08913ecb56826dc1d367392aa85e97aace99edb3b1db47681783cabaa6944",
       "size": 346866,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y4/r/0BpHS_eKCvS.js"
+    },
+    {
+      "sha256": "4f04da26431ff1b219ce077cc696e598ba2863006da2af96c8e0c93cec429952",
+      "size": 264612,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iPls4/yg/l/en_US-j/IrMwV6FrPGc.js"
     },
     {
       "sha256": "4f679ea0238c297501efc034da4773c264dffbf026e71674d94b4583d3e4f916",
@@ -649,19 +759,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y6/r/uIaZfab99Dl.js"
     },
     {
+      "sha256": "4f8a400c335a7ba45a44f337d090aab4e1e899a2e2e01e2c18ff7b8197fef8d8",
+      "size": 21944,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y8/r/xJVxz5Us_Uy.js"
+    },
+    {
       "sha256": "50268652f46e6af227a7d568dbdb5e4aba29727fc9355bead392658e7c7c9423",
       "size": 26863,
       "url": "https://static.whatsapp.net/rsrc.php/v4i3Je4/yB/l/en_US-j/dpPT_nyNkok.js"
-    },
-    {
-      "sha256": "50f2819023b0ca1cc355b4bee0c5b49dd54e09d0617326ccf996ac1686578357",
-      "size": 60552,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i9jF4/yp/l/en_US-j/s07UCwqWHyD.js"
-    },
-    {
-      "sha256": "514880682b13ff4b3c40e3c810cb7d4a82022cb4beb274928dd17cd158a17bd6",
-      "size": 172924,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iV0l4/yQ/l/en_US-j/Xt-igvQUnAgrKBHAbP5HdXJ4XTwdbhTxY--lzWXXxBsrpMfpeKUxUagkzlfHmhQVNMJEP1HUyB_rEqLHCXmPk0ZW7EEAe-7x-4r4Ou9ZMwG9u7Cn14wtB9fUabF8dTOsL9Ie9cDhulIoXfgUBUcfvfsstKhAwq_P-04_NLeGxduda2QH3R_QuDr2v0q_ZZX4kLmSGGbBnvsrqh1Hb9x8kUwrpTBgjGCMz9USE3UDUf4C9opEkKFR9bxF7pAy9ke0clJzMzpja5mUrn144Rto5ReWt9ABi4Nv46YQ2YP1PnogrJIok4WpBy57olT7s-XZiCZp8pgh5q.js"
     },
     {
       "sha256": "515f66c3364356efe5fd788ae225fb3f82b89498729a67f7871448a7fee8035d",
@@ -674,9 +779,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iRvQ4/y1/l/en_US-j/Dw80fjge_oT.js"
     },
     {
-      "sha256": "5221ab1a7122e973ab33a806545d658e3c022a8698fc0fd8c08158caac6faf6f",
-      "size": 21286,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yB/r/hLpCNZxGvYO.js"
+      "sha256": "52a152b3690467f891f75030739d9966084264a0798bb696946a7891b154dca7",
+      "size": 82485,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i6mD4/yF/l/en_US-j/g_RexsfMe_k.js"
     },
     {
       "sha256": "52ddd8e0e30d2cd66a14eb1722a7d54b830e8e30a7dba7f4f850bbbb0e2503d0",
@@ -749,11 +854,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iqyP4/yO/l/en_US-j/R5T2SuHpwfj.js"
     },
     {
-      "sha256": "571b9efd569a8a25bbbbbc7814db5b48220f224246f520eb9e50a5dd6342ef1d",
-      "size": 599874,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iELa4/yh/l/en_US-j/xlMrYj_Mvai.js"
-    },
-    {
       "sha256": "573f9221bcb00c8f94c8d082bf864cc2388cd8885dfadcaab97ae4879ec85ca8",
       "size": 590085,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yD/r/97wtdTiGRz1.js"
@@ -769,9 +869,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yD/r/s4FUMKeVtKi.js"
     },
     {
-      "sha256": "58c80aa835cf34b9e1f3a5fd0535a5d127138236a3c7cde9abacb421847a87e2",
-      "size": 11737,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iJDT4/yT/l/en_US-j/HdeymV_iHR5.js"
+      "sha256": "57b9a60023e360f919100185575050868e2fc70a679d31ecad9390961409fb6d",
+      "size": 5817,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ieED4/yb/l/en_US-j/YqjgurbtGOs.js"
     },
     {
       "sha256": "58d8cde0149e13ed5d3e600128260359cb82eae749a30315f9842229987a7afb",
@@ -782,11 +882,6 @@
       "sha256": "592fd6e31e0fc1de7e2ed76d295406578d480a300499f06f8a87a47f1403d68c",
       "size": 4331,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yG/r/dODWQALZUUZ.js"
-    },
-    {
-      "sha256": "597ac077c9d822f0be6aa418429677916b4f0cbf76ae70c61e24c41f85ecfece",
-      "size": 636487,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i0ur4/yg/l/en_US-j/Fh8FrZKV6Qw.js"
     },
     {
       "sha256": "59f2d7f7316f75c82ec178c90f718330ddaee1d4823245677f821dfe4ef21de0",
@@ -816,17 +911,12 @@
     {
       "sha256": "5b398d32334072c5ad700b5f4d3a5bbb3f77321da03cafabd71bec3249f54754",
       "size": 10131,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iEXQ4/yz/l/en_US-j/TGz9uEk7fcl.js"
+      "url": "https://static.whatsapp.net/rsrc.php/v4iEXQ4/yx/l/en_US-j/D1q88XRi_l5.js"
     },
     {
       "sha256": "5b6a17e1e094bb7c1b77ea02eca6cbd3ef9f9260c702b4034fe7ea5eaf7975ad",
       "size": 223459,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y0/r/bwB9n0pUHFh.js"
-    },
-    {
-      "sha256": "5c328f3124790adbffb9f715dd3b61e746fd0dca20653849861c59c59a9eb030",
-      "size": 323134,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i2nm4/yk/l/en_US-j/BiPrGc33ipJ.js"
     },
     {
       "sha256": "5c554928223fdc2779697f660a16bb95d7ebf34da5f240a5e0b03918bb61f240",
@@ -854,9 +944,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yz/r/c1N9jG9quT8.js"
     },
     {
-      "sha256": "5eb6c1d21c70ec762c79ca9c658775ff436e7a898747be4f21391559f7b1e4e1",
-      "size": 27393,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iDIZ4/ym/l/en_US-j/L_rQ9huhSQJ.js"
+      "sha256": "5e163ede77197697fbd7ead4cfc559dd4d84f7f914a4e1bb709627b6ae8c0ca6",
+      "size": 16834,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i3R-4/y-/l/en_US-j/cM_7v0yqTED.js"
+    },
+    {
+      "sha256": "5e3f15ca2851b5e65830c90cf0d0e6c2987d307ebbc827ce34ad7750e55b71a6",
+      "size": 49367,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yg/r/bN7H9pp7Wjs.js"
+    },
+    {
+      "sha256": "5e75a5f37fc78d7abccf517347b149edf996e8820cf8241cc07b1fdae8cbf300",
+      "size": 2623,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yc/r/NwDSh9fp8BN.js"
     },
     {
       "sha256": "5edf767e786c059266960d7dc61d907bbebc721e5ef4abd647f0a4f37ff66705",
@@ -874,6 +974,11 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yY/r/RObP3Ews2Vo.js"
     },
     {
+      "sha256": "61b41a3ca37c8869cf586d535bec26b4b66fc1e00883f63bbfae4da7087e4d56",
+      "size": 8788,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i8wO4/yw/l/en_US-j/wOQavT5hZAJ.js"
+    },
+    {
       "sha256": "6241b890dbe3335cc9039d155d256b90f0c548bb3bc54321bdf96608b62f9092",
       "size": 4532,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yN/r/K-Zq19_WX-l.js"
@@ -882,6 +987,11 @@
       "sha256": "63b66ce68350f1639a78b3b978d93a1146fee95443e882786bfc04f41e542225",
       "size": 1298,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y8/r/B6ACY2_wj27.js"
+    },
+    {
+      "sha256": "63be93a5c2807c551152429a30959efdd24d37ec6ceb59d00d98a3aab0bbe81d",
+      "size": 322303,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i9Pw4/ye/l/en_US-j/6Bf5D4S9e1o.js"
     },
     {
       "sha256": "64bcf1eaf1adaa1f0ac4cf5186fb9650793ee96a5b50c432b1f82decb14f6e0a",
@@ -894,9 +1004,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iDNf4/yx/l/en_US-j/ahR9Wq_Yzys.js"
     },
     {
-      "sha256": "65bcdd5fce7467e30961c81f983514fdbde12eff1f5b43caeef14d545beefdf4",
-      "size": 789260,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iEpC4/yA/l/en_US-j/dRsbjdB1YPA.js"
+      "sha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
+      "size": 2715236,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iKdU4/yK/l/en_US-j/OaHqXfmMAEyCrpuFvd-ku944UUbY4SUwX.js"
+    },
+    {
+      "sha256": "65c12b81ea310a1da8ec64dd24a3b80bcc6d00082a179e61e420d2b7208a0862",
+      "size": 38342,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iCKj4/y9/l/en_US-j/nascZibZ9a2.js"
     },
     {
       "sha256": "65e9a79115027945e717fcdb2c0b365ec58eadaac037b0f3f9104f0d249eea55",
@@ -907,6 +1022,11 @@
       "sha256": "66af75ef89cca00db0de3a2d16ea42d5c5c81d3cba3841f795f4d873c51135b9",
       "size": 1447,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y6/r/e7eGUXyM7xY.js"
+    },
+    {
+      "sha256": "66c6719aeea5125b4162c65fa5174d47ea6d7ccd8493ad6bb32eb432ebd31a94",
+      "size": 1504972,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i2e64/yD/l/en_US-j/OOzCQCUjclj8K8Qu13qClgPKx0_EabJDo6VUmM2M88dUWqiU1DnabX8Y10hS8eEk9XUz89H7kaZU8GvHD4ByomolXnDPC425fT4B2OMWkdLYkFei8obLlBL6tIyv8P-Yjo1u672g6p7tCmCJ0WamoPPyWLN6qITO7ABGCh7JKwdVQSUNdmfiU5x6CLvgXsbcDktNLy9Azaat6zM6MbJSY00tWsYDifb8swvDZefwdl7kYEODFmNwDSh9fp8BN0ODbHvtGWHNbA2uasE8V0EhC4sM8pHXEURS54SKY5fDCI5Ks4nnxslLIkB67_ZKw9j_cUVu92oDgl.js"
     },
     {
       "sha256": "67156ca9cf29f2e94f24d66a5b04c75afb501f87d6d686ffe8b1f2e735e63142",
@@ -934,19 +1054,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/c7R9MTCYlhp.js"
     },
     {
+      "sha256": "6865aec73de5b843cd5924e360ff8d8d47dc149005bef224d869bea663b9cc0b",
+      "size": 140663,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yR/r/K2zZrhFEJ6P.js"
+    },
+    {
       "sha256": "68b5d6a8ad3e671c275ecf33e53ec4d094ce65f1926df5b44203cf8c38fc990b",
       "size": 1064,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yc/r/dfTaMIaOxAf.js"
-    },
-    {
-      "sha256": "693271bf335b76649a7966cb720af77e34efde7b154efeb8af488f7d478fad8a",
-      "size": 285858,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yS/r/GXa2utcR2RV.js"
-    },
-    {
-      "sha256": "6946483ee6d103135eb5cdfceb18e871a8cbaa798580666721165a98ffcfc50c",
-      "size": 24093,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iKxR4/yE/l/en_US-j/5uYG63ukSWm.js"
     },
     {
       "sha256": "69d2332bc7af0fbaa5bdd6368c3d60495d2c7e751009034c44fc4e2e4ddd1f9a",
@@ -954,14 +1069,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yc/r/engAs15xoSp.js"
     },
     {
+      "sha256": "6a3803572efa328680e2cc329b59cdb52e27fd76b8c10160bef875161a01d4e5",
+      "size": 37945,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yf/r/1G7qEbWZ8Zw.js"
+    },
+    {
       "sha256": "6a78b6f2d57021bdb44b535c62ed91aa23199306ac1021d125cf8e7bde18053b",
       "size": 4673,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yT/r/v22gqB6u2ad.js"
     },
     {
-      "sha256": "6a9d5332f804ebc20b282985106252e8d6c03963eca46ff022ae81eec066ca4f",
-      "size": 4388,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ilZ-4/yn/l/en_US-j/aX0FNavbqbX.js"
+      "sha256": "6b1b38acf6acd35813d77305dfa5c440ab9401358399f162491f585e921b7110",
+      "size": 28998,
+      "url": "https://static.whatsapp.net/rsrc.php/v4igqf4/yA/l/en_US-j/kvOJ3qI22Qa.js"
     },
     {
       "sha256": "6b2541c1f6d21dc8f9adfee06189594c01b0c644ab095bbe8c8b632169c695bc",
@@ -971,12 +1091,17 @@
     {
       "sha256": "6bd4a2278971aba14eb8e038f4021009bc27506ddc69cd89dd53d45d22353164",
       "size": 126644,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i5C44/yb/l/en_US-j/zBlo_RitGWy.js"
+      "url": "https://static.whatsapp.net/rsrc.php/v4i5C44/yq/l/en_US-j/cj1XVVK5PHX.js"
     },
     {
-      "sha256": "6c6ee0bcf86cb3fc323cd225a46dc675a34341067b8db0f578c26864e5f7a8ef",
-      "size": 341778,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iTXL4/y0/l/en_US-j/4qpRF3UFl8M.js"
+      "sha256": "6c83d155d35d8a7086b9ece97922d02acb37a603f5df1dc2c2107f347ae9283f",
+      "size": 842944,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iYAP4/yQ/l/en_US-j/wYHoJO5hpkC.js"
+    },
+    {
+      "sha256": "6cc9081de20b92d22decaeadc2b261f91038ca38434b6e4796cd038f1836ede7",
+      "size": 418925,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iMwK4/y9/l/en_US-j/-ogzCe7u9uc.js"
     },
     {
       "sha256": "6e425a70e6c0df262cb47f80141a64a7877362c260ab4e6f64a8936316dc7717",
@@ -984,24 +1109,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/l7RdMBTrS0X.js"
     },
     {
-      "sha256": "6e6f9ad9c76bd18c111cdb653db9e390e8101d4238c4b1c4c30359857b27dba9",
-      "size": 32735,
-      "url": "https://static.whatsapp.net/rsrc.php/v4it9A4/yi/l/en_US-j/-19xQtKKXBo.js"
-    },
-    {
-      "sha256": "6e8ee0e4d759a06292e0cc52cb960101202835ea2f63cab78a9f5230e2d4edc6",
-      "size": 7623,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yq/r/xtj0ZBofuSZ.js"
-    },
-    {
       "sha256": "6ea38a8a9ab7a3f81f5d40959d33e58e81db246244b64498663e1f6b35e9e028",
       "size": 14956,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yd/r/aaAGuca6Iur.js"
     },
     {
-      "sha256": "6efc6ace889c3015ade8933d556fb7d85108c96a5a4f4ed2fb88716f84aab294",
-      "size": 15019,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ia544/yV/l/en_US-j/x1dmXNlvsTI.js"
+      "sha256": "6fdb39e43e1ab6afd5cb4c6010459b6aae017c4a37dc3abc623fc1481c69c2fe",
+      "size": 818351,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y_/r/1Hwxj4KUfPn.js"
     },
     {
       "sha256": "70cb11b509f1eae230655514286a71958a49289127ee374afe0ad4ccb4653818",
@@ -1009,14 +1124,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iN584/yX/l/en_US-j/Ceie0llnBwt.js"
     },
     {
-      "sha256": "7159c58d89a6eca0d4b220b9930deaa0a7ea269989b35c32d4289bb928b3bfa0",
-      "size": 1212454,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ieug4/y4/l/en_US-j/jVCZNlRLJ7J.js"
-    },
-    {
       "sha256": "715fe367acb6c54a2883b48185be2ad3f7131d6b8c2b639cd3a4e24f2c222e0d",
       "size": 2299,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yx/r/QLmpZMkafFu.js"
+    },
+    {
+      "sha256": "71ca068d2ff5e1276150518bc559e91a8d874708802419fcab8216fecf80daa8",
+      "size": 10079,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iKIr4/y_/l/en_US-j/p5iIYMQiXw4.js"
     },
     {
       "sha256": "71e478cb917b24d6086f3db0a4dea512e5767b0296700e15d26dd5e710c00791",
@@ -1029,14 +1144,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y-/r/LDANYR4fGth.js"
     },
     {
-      "sha256": "725576eaa2d0be623c39bfae1f113291a3695919005d2efa2f2af28f0279e55a",
-      "size": 105215,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yz/r/Y0u4Nik8Ri1.js"
-    },
-    {
-      "sha256": "732b13c4b588e2f1386aa70288e84a1ff90eeabc321422037dae080af9881065",
-      "size": 168634,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yH/r/_rWGB6OdaM9.js"
+      "sha256": "72622fd528bcdb8719660018f754e37ce201276a4c5fdead04f82bc81648de8d",
+      "size": 629437,
+      "url": "https://static.whatsapp.net/rsrc.php/v4icBo4/y7/l/en_US-j/gjZCyfpdZ7f.js"
     },
     {
       "sha256": "7376167f6d3119eca0b143915b751e914775bc0bdb40594eaa0dd5cca8290d44",
@@ -1069,11 +1179,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y9/r/6oiQienXihU.js"
     },
     {
-      "sha256": "751d386e7e9d421aef7ecbc8871ac6b9f7961333bd1f044c83699f2c61e47499",
-      "size": 99737,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/y9/r/kTZo7z3n_CO.js"
-    },
-    {
       "sha256": "754737dc5d025b8abff25a3a7cbb7d5a0d20b00ca530a02088921f241038fbb9",
       "size": 2415,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yP/r/AGMZE6xKUrE.js"
@@ -1084,9 +1189,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yd/r/a4zkmkrNYBm.js"
     },
     {
-      "sha256": "75c5e176a90192c76a19a2b1db4397ff8ed6bdac0349cbb0e5cbac6939ca112c",
-      "size": 24045,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i1zk4/y7/l/en_US-j/qZSpQ_wPp-p.js"
+      "sha256": "7602f612a831644e9af3ba2fc4cefc26298a3c1d52da1696e408ef0bf4e36537",
+      "size": 23657,
+      "url": "https://static.whatsapp.net/rsrc.php/v4isN64/yJ/l/en_US-j/WXEu7Lnabtf.js"
     },
     {
       "sha256": "76442eff37599bc3372a15886447711f8f0b09968df6a4b0028186d4e378a764",
@@ -1097,11 +1202,6 @@
       "sha256": "76963c036236402ab4558b87198623412f7b6ddbc886462cbd2ba617a2141fcd",
       "size": 290782,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y7/r/arWacgv2hE4.js"
-    },
-    {
-      "sha256": "774f9b1f67c479ad1be59a28fef63354d55d35734bf9bc600831ce06f4e7bb0a",
-      "size": 208,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yP/r/-rUgO-ZnFWu.js"
     },
     {
       "sha256": "7820d67df492d96425ca0bf8aac16461687ced0ba669be0ae21553b203b5a99c",
@@ -1119,14 +1219,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yl/r/8pdJx6gjkGN.js"
     },
     {
-      "sha256": "78d21b6e808ead2fc099acf13a9abaa5562721fd143e3e11b787e59e2f892c30",
-      "size": 134773,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yo/r/5e3QAc4sM9K.js"
-    },
-    {
-      "sha256": "79578c01265ebf904806072da94041d524d38a9d005e09a3d9fed01b8a5295a8",
-      "size": 772258,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iuex4/yp/l/en_US-j/dxGRa-vpIwG.js"
+      "sha256": "792466f7a00cd5862ac782f916733975cd9f46800bb9fd9679a1301411c24508",
+      "size": 188834,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iSbH4/yi/l/en_US-j/Qc_mClj79xM.js"
     },
     {
       "sha256": "79fde5bd7033787ffcb17ac67f2d3dc53764f20a802686826fbb9f3c440488c7",
@@ -1137,11 +1232,6 @@
       "sha256": "7adf92d4037c85fac34cc9654c1878cb2c41cd2242496acd4375605c84afdfde",
       "size": 4223,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yK/r/5v16zjLyTfN.js"
-    },
-    {
-      "sha256": "7ae94c7f015d98306a167d512f9a52e8ede6f4621660beee9a6fffde258551c0",
-      "size": 172478,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iNL94/yX/l/en_US-j/rhI2JAPiCiC.js"
     },
     {
       "sha256": "7aecd4cdc70f415786d4440b1c6902261c210aec44fc51ab7bab3b2181739175",
@@ -1159,19 +1249,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yB/r/OPFcuoP4Ffq.js"
     },
     {
-      "sha256": "7d27f193215c6bd95c9d813fa0cf70bb7a471a022e2a42ea83c6410abafeafca",
-      "size": 8618,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/y7/r/NROvz467BOS.js"
-    },
-    {
       "sha256": "7e4473b3fcda229af6a643fbb901b0146a31e95f92ab2b6c0c1436007e5a1719",
       "size": 341878,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yA/r/DMVjZHgHqUr.js"
-    },
-    {
-      "sha256": "7e48054a955efe6a4f9f4d8fe31b8dc9cbe515cbcea63a70f5ebe443313890a2",
-      "size": 670807,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iLkS4/y3/l/en_US-j/6zwbol20oqn.js"
     },
     {
       "sha256": "7ea5e7d1f4f79588886477866ceb90d89a70e74ba1eb93428d1ffd265c2d9f70",
@@ -1189,6 +1269,11 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/USjhxIkBcs_.js"
     },
     {
+      "sha256": "7ff96dbdc582984500c2c52058e64ad959a26a8b6cce0a1489fa3c6450beaff1",
+      "size": 1488,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yn/r/nsblJWp0aTT.js"
+    },
+    {
       "sha256": "7ffbdbfb7028ccc85ca470484de484fcde92f8d1d964a14a59d21ca02a2d2bb2",
       "size": 7850,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y7/r/vseA4E4AI63.js"
@@ -1202,11 +1287,6 @@
       "sha256": "80665e96a5838c0fe11857acfd0f35867e4406aed042282c0182f534abadbf7a",
       "size": 15041,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yI/r/CrhYb73KFxU.js"
-    },
-    {
-      "sha256": "81255c6332003f7951d11ff1f711a0433cdcf1d96f6c7480100ce6056d253a8d",
-      "size": 164218,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iDWi4/yZ/l/en_US-j/W7pm7Rxb8aN.js"
     },
     {
       "sha256": "81302ace246b2ba84d0d30403fffc2a905c9adee4301c86c33d18362decc4d90",
@@ -1224,9 +1304,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yn/r/_lSGM3c1n_5.js"
     },
     {
+      "sha256": "8243166deb5edd57c4962656c705f1f3fad3c295f92ab398889f70b24f0a7dc3",
+      "size": 95202,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yP/r/Oq07nzPieyN.js"
+    },
+    {
       "sha256": "8263d63b33fdb5bae3eb38a104a9cc7b20498e31ecdef04a179b1f3a770e04b7",
       "size": 17957,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yX/r/TA_W8IemqL5.js"
+    },
+    {
+      "sha256": "82f783508805f734f16747c4bd0670a496f13004e8a0acd11fe5f45efaffd754",
+      "size": 3470122,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i5fj4/yX/l/en_US-j/aMF39Q7B0n_-BwQFac2iD7t89IkeIkr8h0Dr5E4kn-fZxVtN0a0bNQ_rLj2oCYKiKsnmmc1oEkxQexkfR2UyPMRy2v9RqnYU51Nis_ev6Ukr5mFza7AZ7vl3niuosXm1USFvC3CepG33XLPmWhXkmEHo8gY7Z1kH0WOLx3fk6ae3pN4NJFORDZ37W9mqmpsAMSloMn81yoMYBEmFfTfbLCHDWbK7KwHM6fOExpEhRgxME01XdEx_eV_EueHdKqflmPVap5RUmPhUkrbOwPD7zgD1wrYAm-rKBHAbP5HdXq4Y_yL5yN55tjGU4zbC-1irF5CrRivsdb.js"
     },
     {
       "sha256": "8302de44d632e0bf3722079fef726df0f1d7f9549516ac295bf1e8448a4d8959",
@@ -1249,9 +1339,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yY/r/UJ95k416Olu.js"
     },
     {
-      "sha256": "850b8b7024b0f75d031b6d1581be7fab6bdb487c9db7abbec3c0e74099c13b44",
-      "size": 52590,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i-A54/yk/l/en_US-j/2lY_B40f4ym.js"
+      "sha256": "846444eecdefe432e2b4a984bf74ea8ebcd8caa7421a105b8f2e098616c9c7fe",
+      "size": 38832,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y_/r/ei8obLlBL6t.js"
     },
     {
       "sha256": "854672f75767552695b8a83f8abd42590f152a1afce30322ab08f679422dd6c4",
@@ -1259,19 +1349,34 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yx/r/dF0nIUjm-Qx.js"
     },
     {
+      "sha256": "8552e33ad54c4522055ed245077231f9825921f94c83358f81deadffdec734ac",
+      "size": 677050,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iOyZ4/yk/l/en_US-j/z5VjB7v5s-q.js"
+    },
+    {
+      "sha256": "8559609884c2d3e4496804d04d3ef1a7b52e435cc4c939dadbc3572a5e529b78",
+      "size": 149590,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iAS04/y8/l/en_US-j/8K8Qu13qClg.js"
+    },
+    {
       "sha256": "861d63256e81711d06fd78f56fec64778550770808cc51e3b500b66c56b877e8",
       "size": 18626,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yn/r/3ee7rVv8Ixx.js"
     },
     {
-      "sha256": "862dda35b18f9c56a975fba12291a9b2ea557370c402be5a70a912ffb8150b3f",
-      "size": 41738,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iKHf4/yP/l/en_US-j/DfSPhfz6h9S.js"
+      "sha256": "86428e9d5d6479273cd63ba7a361cdfc719f3fe08e864a328d2f529de6cc507f",
+      "size": 32780,
+      "url": "https://static.whatsapp.net/rsrc.php/v4it9A4/yn/l/en_US-j/faK7_jf77fK.js"
     },
     {
       "sha256": "86de0116bf4bf31ec5acdb65c014ff3f71fa1324313ace362d22e089d529c46c",
       "size": 5326,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yg/r/deqSGXd2PfO.js"
+    },
+    {
+      "sha256": "870ab390bb358c3ab5449dd9e7d82e043aa61dfbdd1a17b44293e84a7d1fdb98",
+      "size": 168919,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y1/r/uiQEh0DIRl4.js"
     },
     {
       "sha256": "870fc7d01c4de8d32a0d8054b807dcf69c578fef43e0bcf984d7420c08af25d5",
@@ -1289,34 +1394,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yE/r/BZBpi0Urqmy.js"
     },
     {
-      "sha256": "88cdfb4d5fb9c9cbee020af8825a2246588eb3254337bb183190c28596f1faaa",
-      "size": 7308,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iMY44/yT/l/en_US-j/YlTKiYhlh3F.js"
-    },
-    {
       "sha256": "88fa4e2b9a5c16fe1749976b5812a015960328da741742102d0bbaebf8284dae",
       "size": 17240,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yf/r/Q8SBJcs2XUt.js"
     },
     {
-      "sha256": "8ba6dbe4eb3de6bb15b55f1cdd769ab1a1a5fd128b3f23181cf85eb15ceb9aec",
-      "size": 420643,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iUnU4/yP/l/en_US-j/gUG3kbb_TD8.js"
+      "sha256": "894d9071fb4211a60f0e144fe5d45291b3da32a07aa7a9fe46fe189933c38962",
+      "size": 91431,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ieZl4/yU/l/en_US-j/qqbbdSYA2xr.js"
     },
     {
-      "sha256": "8ba94a7455ef4b19a1de54e44914c1f1987ec3c8b96aff181ba345a00a6e57b3",
-      "size": 329081,
-      "url": "https://static.whatsapp.net/rsrc.php/v4icBY4/yZ/l/en_US-j/qIo4ohIA4Rs.js"
-    },
-    {
-      "sha256": "8c267f77fc253e56bf9c1d88bd3fb3c739add4d9452d4e3cd750752dd08bcfa1",
-      "size": 262562,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yX/r/oGkGNEgIU0R.js"
-    },
-    {
-      "sha256": "8c4610aa047f720693b88f2b96cef053138bd86f25cffac1768eb43a51712327",
-      "size": 2019044,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iDD74/yJ/l/en_US-j/OVxcOB4VZMp.js"
+      "sha256": "89ca1c9dbea67318817d39472ca3f513a36b3328d7e11b1408faf9f6198c75b9",
+      "size": 43266,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ijRY4/y6/l/en_US-j/fUYIwc-iop-.js"
     },
     {
       "sha256": "8cad84bd8b2fd085741c31d6ee9d869d60289ed38a10c2f306ba782bf107e583",
@@ -1379,6 +1469,11 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y8/r/Ic7boYjoPFo.js"
     },
     {
+      "sha256": "91d65febb587cea7283313c48528407fce6e949cdcb7a29cd2e0d9df1d21b1a8",
+      "size": 2023941,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iXQl4/yP/l/en_US-j/so__EJ_VOpp.js"
+    },
+    {
       "sha256": "92a726fb0b653bfffbd84243d057098b80cf8bd952ce85ab0902a82154d10455",
       "size": 1123,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yq/r/78e47mTgftt.js"
@@ -1394,24 +1489,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4igpN4/yj/l/en_US-j/h56WqhpNUZq.js"
     },
     {
-      "sha256": "93039e42156ea5aba03bdc09ba1e6fd9e4b27abdb8bcbde1407b43c697fc17c7",
-      "size": 28003,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ieby4/yc/l/en_US-j/2YCpqQk6lX1.js"
-    },
-    {
       "sha256": "93577a10eed5712d24378098de46986d0e626b963d378e99688f91be4f066894",
       "size": 298,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yN/r/IkB67_ZKw9j.js"
     },
     {
-      "sha256": "93e783cb9431b045237397b6da78de238aff0790a48778e05aa4863c5bc33a3e",
-      "size": 41837,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iQvT4/yc/l/en_US-j/FOTqNx3Dcdd.js"
-    },
-    {
-      "sha256": "9408a701ed241c735c27c4fb844ea859746c12a0fcf76b2737925552d4d67a51",
-      "size": 102659,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iG-e4/yJ/l/en_US-j/pVO_lFuTNjK.js"
+      "sha256": "93b2471f434996d41576a3c42d10cb987f778abb49c7cf02d821fc5f1eedb772",
+      "size": 21352,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y6/r/wcRNRfGEgbT.js"
     },
     {
       "sha256": "947920c1ed1deaf91026c54ada8b88a01ce915b2f2fac542ff3b1c4708ff55c2",
@@ -1429,16 +1514,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yF/r/IDHwsFYXMvj.js"
     },
     {
-      "sha256": "95602bb68ab5ffdfed3d255a4abe791620f4fbcf041ba28558168ec55e8fe49a",
-      "size": 17184,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iivH4/yA/l/en_US-j/zi4g9CY9jjI.js"
-    },
-    {
-      "sha256": "9589a033749d1a99a601c411daffbf43ef45a4d5aad91d6eff66e1959dba3b98",
-      "size": 891082,
-      "url": "https://static.whatsapp.net/rsrc.php/v4itn94/yr/l/en_US-j/nxvgvm9zMuJ.js"
-    },
-    {
       "sha256": "959a65a73fe6d7b35841f1d6d3265c2f69d10c52d8b65d563c9f9b0aaf4c73e2",
       "size": 1339,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yu/r/y2ObiiFM6bv.js"
@@ -1447,11 +1522,6 @@
       "sha256": "95c76d64bc3c7f4667169621801471e27ff8247148d7fa89320f3ce6bf852fc0",
       "size": 5302,
       "url": "https://static.whatsapp.net/rsrc.php/v4i4tD4/y0/l/en_US-j/t7XrdCaynr-.js"
-    },
-    {
-      "sha256": "96666aca50ea7b89641573702694446178cf7255175b499c6d6571ff5341de2f",
-      "size": 8488,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yD/r/YN_qB0FdP3h.js"
     },
     {
       "sha256": "970e6453795dd994c8790ea41ea520525025a33e4e942ffc13c6d673defce82d",
@@ -1474,9 +1544,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yU/r/78zze62_fRn.js"
     },
     {
-      "sha256": "992360759cb8d670f8fa9c4d7ff29f294a6fe5e98211b26ae519f03b162f0146",
-      "size": 22746,
-      "url": "https://static.whatsapp.net/rsrc.php/v4isN64/y4/l/en_US-j/wXQbHohHpdk.js"
+      "sha256": "98c2fb4baec7daf44617ba0cb28b506f33d7cd63a36773fef217552660e4657c",
+      "size": 88117,
+      "url": "https://static.whatsapp.net/rsrc.php/v4isZ-4/y-/l/en_US-j/DkiDo4Bjd59.js"
     },
     {
       "sha256": "99674e16fa9727addff74ee172360769e908aae249c02a6d523a561ea59ebb13",
@@ -1494,9 +1564,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yT/r/W9pvwtaKgvl.js"
     },
     {
-      "sha256": "9b3161b2c7885e7d5dd9c38e47414cd1ed627710da06973651f90b8c11debb89",
-      "size": 211873,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iJXL4/yg/l/en_US-j/k9FMS2LqNKH.js"
+      "sha256": "9b558181141ddbbfed5d51313e3339e530666e6da582ab46c67853a452ac7751",
+      "size": 38196,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iLl54/yc/l/en_US-j/131mdL528qk.js"
     },
     {
       "sha256": "9b94af245b0c8f756041e10b2267f7786d398b54cbc8a1780d24e2c934b529e4",
@@ -1512,6 +1582,11 @@
       "sha256": "9c9b7bca51b85f3bb808b7a02cc2f72a64417782dac9940e44b0a08eff98162e",
       "size": 380099,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yz/r/UhB486M7fde.js"
+    },
+    {
+      "sha256": "9d3897273785385ceffb16bd782418bf1460264ee1ad124fcd2b86a96ce1b03d",
+      "size": 439140,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ilpH4/yo/l/en_US-j/e7jTTDPurfC.js"
     },
     {
       "sha256": "9da255bb27066f72082625a8745d265e0a5773849a21c44b9e4333d558e42814",
@@ -1544,14 +1619,29 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yz/r/jy-vWGzsBj2.js"
     },
     {
+      "sha256": "a011dabf17b23728010b8a8b185924b1ed68db49f18aa0b910efe5ab4b0328ca",
+      "size": 325717,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iDIs4/yx/l/en_US-j/zmmVuWAAugr.js"
+    },
+    {
+      "sha256": "a017155de51e62c255e57bb0ed38eaa7fa9026658ff959a87160b0008ee34042",
+      "size": 23542,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ixIF4/yY/l/en_US-j/oZE3eqOlJIs.js"
+    },
+    {
       "sha256": "a01ea2fd9751146818947c7834952675be5174c650e5c4e46843b45806be42ba",
       "size": 4308,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yg/r/OSUYN1lopu0.js"
     },
     {
-      "sha256": "a1da6901fdd1a9d470d56a696195ca91504af7bbd9e5020842ab2e33683584bb",
-      "size": 91468,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ieZl4/yq/l/en_US-j/onsWQlTway3.js"
+      "sha256": "a12d934acb9340d9c9408a3f38d1a44180bc763b1c79e6281bc61faeb8fa6ee6",
+      "size": 1138598,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iHTW4/yb/l/en_US-j/0Sj-rk1VYoN.js"
+    },
+    {
+      "sha256": "a1890921cb3ae4b583ddfa2df9a817733bf47a9cb4d5ffa36c23f62928b056b7",
+      "size": 792,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y_/r/4d0sbzNcf-C.js"
     },
     {
       "sha256": "a1f44904cdeb98dd5ea45dded779854af0918856c1fa445419e890d6617d989b",
@@ -1562,6 +1652,11 @@
       "sha256": "a257e9f52d2df26a75258b2fe5fb8d42070266e46798dc5bce28cd20a290288d",
       "size": 7259,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yU/r/prQZKTaZiyJ.js"
+    },
+    {
+      "sha256": "a30d07c0ecfa2e83d5e4517315207a850cd4c9467126ec577e5ca48547073069",
+      "size": 265680,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/ys/r/0fOqRaOpcmC.js"
     },
     {
       "sha256": "a40fa1e550d392b739ae8d6f651a483673b2bd6f467bfff5e6936d58b915c510",
@@ -1584,6 +1679,21 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y2/r/w5fDLL7gOJU.js"
     },
     {
+      "sha256": "a51b6b8c1584633efa63a9d8e73df154c51dbcc8bee5fab2e25287d28d11cd1d",
+      "size": 9211,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iyf74/y8/l/en_US-j/1e1HD2jxLqE.js"
+    },
+    {
+      "sha256": "a5c86f0b28738dfc7f0787e1c89351026539c8d269bc9315c4be0b9f2d8775bd",
+      "size": 525967,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iE7A4/yh/l/en_US-j/XT-7o6LR_rE.js"
+    },
+    {
+      "sha256": "a67083c2de0c0f8bdea9f0d1555f700577f9297ca016a1ffc1fdc94efc00ead5",
+      "size": 21545,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iQvT4/yh/l/en_US-j/myFqPGK04Bq.js"
+    },
+    {
       "sha256": "a73fd6fefa079ead756d68f2315fcf98c2ac67b76456fc7dc94cde394f02661e",
       "size": 475432,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yT/r/ljjdr53sX79.js"
@@ -1592,6 +1702,11 @@
       "sha256": "a89b8f994dfb4fc88c38e55e56652c0c8dd129f5e2b3a8a0bc148a341c116c4e",
       "size": 1516,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yi/r/5OZt-PBDriG.js"
+    },
+    {
+      "sha256": "a8efa0b05573d39b8ece63fc7b3883bcf6526a9906b3a4c82a81f76b6bf70bed",
+      "size": 4052,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/RSMAMlgksE9.js"
     },
     {
       "sha256": "a9eb41abcebc77e29ead7a10f514c9f3ed7c839d9ae1b1299fc23d7c31b8394b",
@@ -1614,19 +1729,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y2/r/AYLpU_5spq3.js"
     },
     {
-      "sha256": "ac903ff8b19b2003b3cbcc92aaea3fd2152bc809d88182561c659b919e633eda",
-      "size": 23665,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ijUL4/yv/l/en_US-j/jLgl2D42l29.js"
-    },
-    {
       "sha256": "ad53312a492d9501e3fb80ecef165053350c9074a0806191afd7051bff6bb429",
       "size": 3144,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yu/r/3AtGYDJRla3.js"
-    },
-    {
-      "sha256": "ad5cb0b20e77c5f78ecd3e026209bbae260ec5eb555d9f435aad33a1e77fa9fc",
-      "size": 41559,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iPOD4/y7/l/en_US-j/PCDSQhsZtw7.js"
     },
     {
       "sha256": "ad94c9684f6e3d47f7b28facceaa56bfbb85cd799a634998f3e94a62d27d7038",
@@ -1644,34 +1749,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yJ/r/rHi6wz59Qgo.js"
     },
     {
-      "sha256": "af67411cd86cbacf558aafb3d68dfb853c0c2f96c14f5d81a9cc4c7e8af9dc3d",
-      "size": 2820,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yJ/r/FTc2QGQi7D4.js"
-    },
-    {
       "sha256": "af7fee4ad91155f37f99234b882a1a2f473b0a25a95c95caea40185d544155fd",
       "size": 2592,
       "url": "https://static.whatsapp.net/rsrc.php/v4/ya/r/9rPUYk8FCll.js"
     },
     {
-      "sha256": "afa459e50acde96e9db9a0c291defd9913fc056b6ff22bb5c11dd77ec55df828",
-      "size": 615136,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iC2b4/y8/l/en_US-j/yA8qmd5PwsR.js"
+      "sha256": "b0518924ab394fa634900071b54678d4921fbf1a618f70d751cdcd5f69ada212",
+      "size": 26495,
+      "url": "https://static.whatsapp.net/rsrc.php/v4itVf4/yX/l/en_US-j/A2Q3CzHtbIn.js"
     },
     {
-      "sha256": "b0d3b467d108e058af04f09cd582a2c3337d60c92cac8c8bacc583e31650018e",
-      "size": 4378015,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iPyx4/yW/l/en_US-j/37BVgI0aVKZ6zwbol20oqndRsbjdB1YPAjTwFSgKoKSLiGXmHNtkKekXi9ulOR7352BiPrGc33ipJoGkGNEgIU0R.js"
-    },
-    {
-      "sha256": "b0e78874a0de5e47405d027c453082c1b764a43d373cc1808a130840411634fa",
-      "size": 161708,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iJVq4/yU/l/en_US-j/-W4JwcasbZL.js"
-    },
-    {
-      "sha256": "b1c8865391bd8e4484fccc741ba7ef31156dea1bfcffdc4f0497e5456babfab0",
-      "size": 65770,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iBYA4/yZ/l/en_US-j/OR_3ssCaxcU.js"
+      "sha256": "b0cfc2897a22e9dcdb36b15743b3ea87b925b868559df1477b8d4cbca10750d8",
+      "size": 953906,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yg/r/yTAJo4z_3Y0.js"
     },
     {
       "sha256": "b1f3a435b1d1c4dc7c2dfb70dca930b38010985e8f09866d0b5780141037cb1e",
@@ -1694,29 +1784,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4i1xf4/yQ/l/en_US-j/h45dFjmoR3y.js"
     },
     {
-      "sha256": "b2ac20dd2fc3b581e33bde54ac5e2fc9d1a7b0f072c834b5bbc8282ed9596017",
-      "size": 988473,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yZ/r/DbOb3Kkrc5X.js"
-    },
-    {
       "sha256": "b2f93e365cb26637860428a319dab5f7d6af85d8960af8cc0c1ad5dc5d7bd909",
       "size": 4022,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yv/r/dZ3YQbXtsSI.js"
     },
     {
-      "sha256": "b327972838ee1569f25fb8835b32b49d377a8353638cffc1ca058a9898f26a27",
-      "size": 39543,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iLl54/yC/l/en_US-j/OOdH7JZnuOe.js"
-    },
-    {
       "sha256": "b33e142184f787c51b062db1a35902c741e26a89e42f62af5f7a0229fcf88ee6",
       "size": 287169,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yo/r/SLGEYZwcE0U.js"
-    },
-    {
-      "sha256": "b3b56e0ba4d10f75e0e0c80510a954ee1c94e0c13e7de70efdfdeca081c948bb",
-      "size": 833204,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iPfp4/yh/l/en_US-j/ETkm4C8MP9M.js"
     },
     {
       "sha256": "b4209b23eefcb660c0397c6893372035f321f42dba6b2aaa554edde1634ec718",
@@ -1729,11 +1804,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ys/r/_-32-4tBOFV.js"
     },
     {
-      "sha256": "b48ac5fa059f93287fcec4b62c52cfecb5bf3b5f2b8b4e7796094da55f5472f7",
-      "size": 565515,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yX/r/CU_89xHNTer.js"
-    },
-    {
       "sha256": "b494e9f9f44fb19e082eb89f52c400d1e69a6c4f9e29d469759d1b427f170f74",
       "size": 2992,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yC/r/BRusAg3LNC-.js"
@@ -1744,19 +1814,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ys/r/JLjUmVUC3Jh.js"
     },
     {
-      "sha256": "b4f9e96443091fe70d9c42ac69907d4f0a445204850966f2a896f9dcd9b1fdb8",
-      "size": 40324,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iYOC4/yO/l/en_US-j/xdCFvYiFMVs.js"
-    },
-    {
       "sha256": "b54f688ae86038ad9ecdf4783c99011cd8ae728d6fbe6a2c903c4f3188993658",
       "size": 71835,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yf/r/B2OMWkdLYkF.js"
     },
     {
-      "sha256": "b649b91ea0dd9dfeb09b7cb8d37ac670acab797f1e72258c22d99a1614871ed7",
-      "size": 360536,
-      "url": "https://static.whatsapp.net/rsrc.php/v4id184/yM/l/en_US-j/ln-ZGRxFXDK.js"
+      "sha256": "b76403706f6c600df1c58209f961651d1f8150c0130eeb54ba20958ce5578f8e",
+      "size": 2426,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y0/r/hwpRBCgmsjL.js"
     },
     {
       "sha256": "b778bfcc9b92bb15c56b6aa8695bd3de4baaf8870348f530126d0289d00162c8",
@@ -1774,9 +1839,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y3/r/Cne9Ukupieo.js"
     },
     {
-      "sha256": "b7e64d028dfcaf39a743f5f959f61bcf3ea40774eb69bdb6321cb3b1d6df1bfa",
-      "size": 7320,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iQ_24/ye/l/en_US-j/GxqmvIqa-Pb.js"
+      "sha256": "b7af97a207e7b64f73bc1ed7d9219fffe5515f31f8e390c41ec8761b2408f3b5",
+      "size": 18516,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iivH4/yJ/l/en_US-j/WGrDkX-D2ql.js"
     },
     {
       "sha256": "b811c2b364ab501f02efddedcd28a83201b169e9aeefa070ec0800f8c1901314",
@@ -1784,9 +1849,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yG/r/XyH2rIAHwdU.js"
     },
     {
+      "sha256": "b8f654400b6c52e3f8e8091163082ef497bcc66064561fbee0cace23b47f00bb",
+      "size": 3412,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iGOv4/yB/l/en_US-j/C329fJ1AMwl.js"
+    },
+    {
       "sha256": "b9af0c37a678749e0d2c960fa647153f241852749ebca8b065ff6a1aad2dc0ec",
       "size": 2702,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yG/r/US7kZXIXyIo.js"
+    },
+    {
+      "sha256": "b9c08019c83ed4cba5629d4319d9271695fa3f04b172604312b578ac6564cff1",
+      "size": 185964,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iJK24/yh/l/en_US-j/yPjiZixODY1.js"
     },
     {
       "sha256": "b9e31a2f984460f3abaae892f65c8cb163a918dcaf77ede48adc5c9c0e0bce18",
@@ -1799,19 +1874,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/ym/r/IWic6sobyGl.js"
     },
     {
-      "sha256": "bb952d7026952e9635dbd258dcb1d32c88ccfff180efc69bbe23a3cd54483126",
-      "size": 28842,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i5ZG4/yZ/l/en_US-j/hkGjUox7njK.js"
-    },
-    {
-      "sha256": "bb9f950ac1191fe16fe93a07cfa3116afb20b5ed8cba69152e1828a37640c1f9",
-      "size": 907,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/ye/r/d3JEomuw0g2.js"
-    },
-    {
-      "sha256": "bbac9a95dc3b9eea2ff2449f55a66ddb5d4b5db45f2f21b3b6edeebf353ec811",
-      "size": 185141,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iSvs4/yb/l/en_US-j/34UqwLcJUhs.js"
+      "sha256": "bc492bdb513e5b667ca1f1d77c0331e33b9f6d606f92d674089f3b614f685d76",
+      "size": 6961,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y2/r/bJSY00tWsYD.js"
     },
     {
       "sha256": "bc52f08c271327b7b2d8e84c73a63dae84118713e4d6d1c33dab34d6b77a0177",
@@ -1821,7 +1886,7 @@
     {
       "sha256": "bc9fd7c9276013247b18ce7855ef5e8ddabf875a189b3471f322cf2a63aeef63",
       "size": 41406,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i05j4/yD/l/en_US-j/IXby56yiIcg.js"
+      "url": "https://static.whatsapp.net/rsrc.php/v4i05j4/y3/l/en_US-j/SMKF3FYso33.js"
     },
     {
       "sha256": "bd0aa5b370f8bac7f66733e06f5ea15b617afc023235a6b9bc1c33d3fc9eaa21",
@@ -1832,11 +1897,6 @@
       "sha256": "bd323bead9735b6ed8ca19255d55f11e23c8615f77577e069a574b7e6aeb7355",
       "size": 2141,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yO/r/4zaZGJ-Tuyo.js"
-    },
-    {
-      "sha256": "bd725e9b5f8cff36cc4867a4e4fcf696093c11c6bb76199e8005d7cd3e3860b3",
-      "size": 264334,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iPls4/yf/l/en_US-j/HRXiGE5CPZM.js"
     },
     {
       "sha256": "bdb731f6c931987d647339a9848280c06ca5296113f09d0cbf4903dd9ffa0916",
@@ -1869,11 +1929,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yp/r/0Ppbi7tKOq0.js"
     },
     {
-      "sha256": "befcea268b79f4d6a23a5a364a6d9ea7ce143d840c52d9a7d7c830ae23b823fb",
-      "size": 35887,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iNPp4/yz/l/en_US-j/aQRM4OdN-r0.js"
-    },
-    {
       "sha256": "bf427aff0fa2cd5929e56b6d245fe2039202847df4f50ad690e29591e491ca66",
       "size": 53024,
       "url": "https://static.whatsapp.net/rsrc.php/v4iiYx4/y7/l/en_US-j/vZ8PdxS2HQx.js"
@@ -1889,6 +1944,16 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y6/r/L0m6WVrP6_5.js"
     },
     {
+      "sha256": "c01080e622a2ebb525e40dfc3a4b3fd150a454555d821b8c22fec19269d0a7a8",
+      "size": 27829,
+      "url": "https://static.whatsapp.net/rsrc.php/v4inNX4/yC/l/en_US-j/FaeCO3X_Ngp.js"
+    },
+    {
+      "sha256": "c04bf1803bdd961a562cb85432e957ca92b38293916806a4e0f0cf30b5cd435f",
+      "size": 170393,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yH/r/PKx0_EabJDo.js"
+    },
+    {
       "sha256": "c06928e00fc7ee690139463a62268e6c278d42abf1d5823a53878e1d0d98c641",
       "size": 5068,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y4/r/eX-l3bIg0oc.js"
@@ -1897,11 +1962,6 @@
       "sha256": "c0cd8f9e559813e12dfcab91d8b8ae17b9dbadaa1e7439a08a8aced58e11deeb",
       "size": 1834,
       "url": "https://static.whatsapp.net/rsrc.php/v4icvb4/yI/l/en_US-j/3mPxkGx4cdA.js"
-    },
-    {
-      "sha256": "c12f1f4fcc05948e61f71341339b15f94addf03696abde8a811e1550248d6924",
-      "size": 36398,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yp/r/p_GlTb2lrZy.js"
     },
     {
       "sha256": "c19e73ad7a0caf3b48bbeb00bd3a8638c162568c7e0cc3c1810f442d1089de45",
@@ -1934,6 +1994,11 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/y2/r/YZJ-mWALWiC.js"
     },
     {
+      "sha256": "c54c33dd6f74be053881c3a7d0e750f8b8fa04140579821b214ab6f59711bbe0",
+      "size": 612123,
+      "url": "https://static.whatsapp.net/rsrc.php/v4if1M4/y2/l/en_US-j/_tW3O0x-L4A.js"
+    },
+    {
       "sha256": "c54c9f5d6efd0077efe74637fd08fd3a66a9b562f6b28d007dac4dcf6cefe6e9",
       "size": 60345,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yP/r/rrCxjEFdRGj.js"
@@ -1944,14 +2009,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yj/r/v5V7_aJ0F7e.js"
     },
     {
+      "sha256": "c617cab6625f65f12ff6d7b9be76feb3bb90598b31d88e4d2389d77d62162c4c",
+      "size": 111714,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yE/r/eY8b-BTWqup.js"
+    },
+    {
       "sha256": "c64daa79418ac208a4bd912912727bb968686247b9010df2a9ba2c7a9fd9e9c8",
       "size": 1182,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yC/r/B6NMIewe__M.js"
-    },
-    {
-      "sha256": "c6cdc0172189974dc95ed4a77c247f2fbce0f4074321d1c820e2848db2576aa5",
-      "size": 38586,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yk/r/zWbrNEjmbAj.js"
     },
     {
       "sha256": "c70fec1c86b2786dcd11f1ce2d24112ce0f9409509629b0a02edc15be3dc9fab",
@@ -1992,11 +2057,6 @@
       "sha256": "c8192c6d3a06dd99af994b3af102267e0e25a269899779eec1ff3eac4c69a794",
       "size": 688766,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yS/r/y-4zR8TYucJ.js"
-    },
-    {
-      "sha256": "c8dbdc2c62ccbf51f1ab12ee8ab0e38502228abd0f1eaab2b8d6c1f722cf9b6e",
-      "size": 88435,
-      "url": "https://static.whatsapp.net/rsrc.php/v4isZ-4/yv/l/en_US-j/50r4nCUEAck.js"
     },
     {
       "sha256": "c93b851472dd73991aa2ccdcc43d84e51e6e39778ca42b0d2bdf0efe0d088976",
@@ -2044,9 +2104,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yP/r/IGw5v3hGelz.js"
     },
     {
-      "sha256": "ce1147c1ecc727a7552acc801c3cb90e651d1d9e74dcf03386451e4463132c55",
-      "size": 1467159,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yZ/r/NIpGTFqv9Zj.js"
+      "sha256": "cdd52a78f095137056cfd01acd7bf7b54cc28d031472fa503fc6a57e8fcb747b",
+      "size": 552353,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iVv04/yn/l/en_US-j/zVjK2fd0_E9.js"
     },
     {
       "sha256": "ce68f2cf77731c0d2c284cee3acf739998fb1f43a1c4618f3d542a119ee299bd",
@@ -2054,9 +2114,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yq/r/Nwp-bscGaw6.js"
     },
     {
-      "sha256": "cfc7363f8f009d28e83b9794ba4112caf79a3532dd89a1925c8c26e711308956",
-      "size": 13216,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iTNh4/yD/l/en_US-j/gPKNUB-YETU.js"
+      "sha256": "cf6197f616a43cf9004101d911d5643e8fa63972b2d27a54e8bba8db062abb8f",
+      "size": 1314274,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iqUq4/yD/l/en_US-j/AEnOv27MbWa.js"
     },
     {
       "sha256": "d0ebafe7de7d0f909c37f18e6fc7e77e94ad2593fa91f3184226b6e6716d5e05",
@@ -2064,9 +2124,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yX/r/ZPcvhTCY45u.js"
     },
     {
+      "sha256": "d1082fa2f83f29a108934f80c12760f523d7ff7df8e666ad7fa061edc6c29023",
+      "size": 20790,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ilZ-4/yB/l/en_US-j/V9z1Djq_3z4.js"
+    },
+    {
       "sha256": "d134ec2131bd8c756ee1cd5e13ff9c1e80866392d3b93fe3cec8efdd1c74ddd2",
       "size": 1307,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yH/r/DNfd-5Vi_fI.js"
+    },
+    {
+      "sha256": "d15f68ba4d34b98628bad070730c7cbc3ee21d84b836e56a44d847db52c460f5",
+      "size": 12885,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iz2_4/yQ/l/en_US-j/SVjH9VNNhBe.js"
     },
     {
       "sha256": "d1b29c625bea8e5a6a963e3960186a35c1bf6ad518db21ebdccfb61fb9533623",
@@ -2089,16 +2159,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yC/r/TRNvxJH5sah.js"
     },
     {
-      "sha256": "d24235fcc9d257cc7ea8496d501cd10ebb3ae566f47b6c7ec0c2892617485fe8",
-      "size": 166942,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/y7/r/sttVHW_1s3u.js"
-    },
-    {
-      "sha256": "d279f5b1c7c15843f48f7f0d66c6bc3f7334789e2b049009762c09dec509a5fd",
-      "size": 23451,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ixIF4/yX/l/en_US-j/ryfoHxyKLKR.js"
-    },
-    {
       "sha256": "d2809993138bd6738a38ef1282ccc519bf1c4755c01d01b9e493928107db0e08",
       "size": 236113,
       "url": "https://static.whatsapp.net/rsrc.php/v4/ye/r/24TdJQtUtbu.js"
@@ -2112,16 +2172,6 @@
       "sha256": "d296110ced6b9c434916bc16f8489786946b2c812425aa38213f5ef031f94daf",
       "size": 1073,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yt/r/t5kDqiXpoNZ.js"
-    },
-    {
-      "sha256": "d2f24d904868b7ef87e2f79d3d801ab2e599810516dbea37ae104fccd353f8da",
-      "size": 149590,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iAS04/yw/l/en_US-j/Zp-tWWUpHut.js"
-    },
-    {
-      "sha256": "d3228097e8aec6e498ed2c53497503982fe1b13810fe69bba792c4ecb2b823b4",
-      "size": 428793,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yu/r/rHM-9kGVRlc71Uiwd_PJxTYzcgc6luJqHi5YEU2yRipeEttPODJqq4tw9aDda8SluQibJkO_PKzLnGHMUHq9yDE9e8DCgt-Yc0se0qnL2dG90H4pVrB9WxtSW.js"
     },
     {
       "sha256": "d3539858f4cba0437fca41148cea924ec509ffc7b0a664347754dfbad60376ed",
@@ -2154,19 +2204,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4iDb34/yW/l/en_US-j/cxtldQaz7Wn.js"
     },
     {
-      "sha256": "d4a2709c9fb13dd62ca97d51cf6dcb1cde4741d18419ae1367105d9969ea4fd7",
-      "size": 54295,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ibup4/y_/l/en_US-j/bwIKJT2eq1C.js"
-    },
-    {
       "sha256": "d5ca8b688e02b6b23a735b612f4ddbcb5124a8466d7ccbbb9397e11917775659",
       "size": 47459,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y9/r/P9qi80gl2Pc.js"
     },
     {
-      "sha256": "d6f522122f7fe7196d87b52bfd186be8a6f2e6be20fefbee60e2f261a362d108",
-      "size": 821533,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iZQF4/yk/l/en_US-j/37BVgI0aVKZ.js"
+      "sha256": "d6876151bfeddbb6ae5d004166db9e761a77713cbd3b64c124699ba3bda14d9c",
+      "size": 52452,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i-A54/yn/l/en_US-j/J3gbkQjbk1S.js"
     },
     {
       "sha256": "d6f6755880c76c479f1c6dba8e00e7852ce047d7d304d9a77a19a74a5f31acbf",
@@ -2179,9 +2224,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yK/r/Y9ukTC58nQs.js"
     },
     {
+      "sha256": "d7b3fc3bc307d7594e61febd02286797a81d4b35d1d4a33c07c346e11808f97d",
+      "size": 883503,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ifo24/yX/l/en_US-j/bt4brGb-oUx.js"
+    },
+    {
       "sha256": "d7dcbcee02fede1e04b8612f25e556cb7365b956bc0a3f4df7a0f0bffa8b96c8",
       "size": 9770,
       "url": "https://static.whatsapp.net/rsrc.php/v4i7V54/yf/l/en_US-j/HLi6Goj0MX3.js"
+    },
+    {
+      "sha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "size": 1483214,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yy/r/ckFlVXuFhYG.js"
     },
     {
       "sha256": "d8a651c120f9a685d90368684d0117cd535041bf19365693e990c0b44bd815da",
@@ -2217,6 +2272,11 @@
       "sha256": "db003e43efd7e73c4fc04e4ceb7b02ba316aac22568e5b936ee7a8fcfd751b3b",
       "size": 16896,
       "url": "https://static.whatsapp.net/rsrc.php/v4/y6/r/p2m9N8rr2FK.js"
+    },
+    {
+      "sha256": "db7bfce121df2b0a7cc723adc369b605d6eb9cd2f0e98749af3a5beeafdf7286",
+      "size": 705853,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iVAG4/yZ/l/en_US-j/e2cPSnpmxIq.js"
     },
     {
       "sha256": "db90ae598e51b4bb204ebf01f386a5bc4165c227af71b52511d600d81726c370",
@@ -2259,9 +2319,29 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yz/r/XvLNgQ-lnXm.js"
     },
     {
+      "sha256": "e0d5ef24b2dd63a25fd708d6045f497075da0d43091302f5aea5f8aa1ae38222",
+      "size": 43948,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ivjO4/yS/l/en_US-j/aZ77lHvGrzE.js"
+    },
+    {
       "sha256": "e170ff140e6fe6825a811520bef0937fa0c567aa8344fac5d14f519e72d90b32",
       "size": 232586,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yd/r/IJIOh6XcH40.js"
+    },
+    {
+      "sha256": "e1da5f94a47640c14b9b65df13c16fdc0ae5b6d1d4f776e5fcd73b6b1e7e21e9",
+      "size": 168112,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yb/r/BLPtwoT2LY0.js"
+    },
+    {
+      "sha256": "e1f2135976735b8b3c1c3807780c1ce0a276f3e2cb1e4fd0fd342fd541ba45f1",
+      "size": 330477,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iHqj4/yV/l/en_US-j/cwpKG5Wawtq.js"
+    },
+    {
+      "sha256": "e499c7d96bffc3f219ee7fb5e4b6a06a18d31caf9d23bd8cdf0314a44a820617",
+      "size": 36289,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yB/r/ITxXuT_txGk.js"
     },
     {
       "sha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
@@ -2269,9 +2349,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4i1vu4/yS/l/en_US-j/2tdw7cGRPnk.js"
     },
     {
-      "sha256": "e6646f60c78536bd53c1aa361e840429a09c5dd9fd274394093fac0a5236aff6",
-      "size": 40833,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yb/r/r0m3_ykNjyO.js"
+      "sha256": "e5989ac5e893a3bd117544a32330a5037a0a543d97ceb91eb6226b56e96f5a43",
+      "size": 625037,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i9Qv4/yc/l/en_US-j/XIwTbR2Tnlg.js"
     },
     {
       "sha256": "e6eeed2cfcdfdd6b201805f9eab57fb2bd2803c58da014ede6764232b3590abd",
@@ -2296,7 +2376,7 @@
     {
       "sha256": "e8cba9e0b8aa145374864c5fe0921beabc42b7b835562fdb77440cc975b9f95e",
       "size": 133754,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iFwW4/yM/l/en_US-j/P8iVcMbjubn.js"
+      "url": "https://static.whatsapp.net/rsrc.php/v4iFwW4/yJ/l/en_US-j/xs6LUD2gHfb.js"
     },
     {
       "sha256": "e93f15144d1f3cfbc177d8cf2b1b190db81ae9f1ee2fbc4382790258c7f63d61",
@@ -2314,11 +2394,6 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4irlK4/y5/l/en_US-j/Ha8p0a3_kFV.js"
     },
     {
-      "sha256": "ea48f1f3c8b1e23ebdf67205d7c6744bb2e611273effa716eeb210744e971572",
-      "size": 6044914,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i-LO4/yk/l/en_US-j/XoeFIEdBjlv.js"
-    },
-    {
       "sha256": "eb43be60ba8fc32cec69bd2e3a584e6ff89b652e20c845b643ed944f6ea6b8fb",
       "size": 1424,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yd/r/EYfNR6VIfLO.js"
@@ -2327,6 +2402,11 @@
       "sha256": "ebd50b443366486370ca700baa63fe446fedc324a4ec0cc1e9f37de1eccea459",
       "size": 5031,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yo/r/wQTMXedGFix.js"
+    },
+    {
+      "sha256": "ec06f8fecee459e0f999b1e103c3517251aea17aa246fff900b8d047f02d8c63",
+      "size": 429964,
+      "url": "https://static.whatsapp.net/rsrc.php/v4if2R4/yr/l/en_US-j/4OztlbDB7nB.js"
     },
     {
       "sha256": "ec922ad343c5ff12fa89a5fb21724d1ee7026da3afbccdbec2d619cde0d7582d",
@@ -2344,6 +2424,11 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yG/r/x1CoypIbeJn.js"
     },
     {
+      "sha256": "ed2f08bc12a1128a06ddafe25fc62e5d102593245a8b5e818fd8f2eedab3ffb9",
+      "size": 823721,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iXVn4/y1/l/en_US-j/X-Ogrq7XaSh.js"
+    },
+    {
       "sha256": "ed6f766a10105df14d71b63659e29adb39cd211f16358ce8f175fc65a5476e6e",
       "size": 4581,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yz/r/HtD4eZEsbP0.js"
@@ -2354,19 +2439,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yl/r/PiVCx7KAZY3.js"
     },
     {
-      "sha256": "eea576a41ee9d0d49da752bde76af4574aff02c559e65cc57d8c52d3782900f0",
-      "size": 9710,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/y_/r/KoENOQCXkrb.js"
-    },
-    {
-      "sha256": "eed16b16fd8af2b826b8e6860c02555fc5af61661b69a87bb140b32bbc33e376",
-      "size": 4900,
-      "url": "https://static.whatsapp.net/rsrc.php/v4ieED4/yD/l/en_US-j/GyBNiagegVR.js"
-    },
-    {
       "sha256": "eef0b7897b23b8729fc96718d19bf8f79642cb50b99cde83200c4954aa37bbc5",
       "size": 2055,
       "url": "https://static.whatsapp.net/rsrc.php/v4i31f4/yE/l/en_US-j/jwFxQQrA8Wn.js"
+    },
+    {
+      "sha256": "efa1bf4dc397ad0244805a123a1722bb85c2a2ede3cdd425c7da0d735400d30f",
+      "size": 172919,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iNL94/yO/l/en_US-j/s6yT0tyxhXd.js"
     },
     {
       "sha256": "f0108ce9a90e5c1cf92b36525b6d30282a30a8d8901457078514a7c4261827c4",
@@ -2379,9 +2459,19 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yB/r/KXwu7h6w8Ei.js"
     },
     {
+      "sha256": "f14cbee0ac3f32811e24b2e82b43146dd29c982229c30e2101cb385d5131e631",
+      "size": 7322,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iMY44/y1/l/en_US-j/3FCqLttN6nI.js"
+    },
+    {
       "sha256": "f15aaa9a43cbc079fa3335f7e0584a1ce36e7db6ab6d540fd8e5a735c8ae5923",
       "size": 35416,
       "url": "https://static.whatsapp.net/rsrc.php/v4iDlJ4/yE/l/en_US-j/fOICNS3pwy7.js"
+    },
+    {
+      "sha256": "f22c0e44566e7381a0552160afce20e3b19176e57bf8c3c0f2a4276feb1bd115",
+      "size": 579762,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yx/r/kFqaLkG_My4.js"
     },
     {
       "sha256": "f36bfdd9071aa6c34fb8fe9253c2c36a01a2d485cc4feffc7e7e50d812b2d935",
@@ -2389,14 +2479,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yQ/r/Q4PlzfsT-Wv.js"
     },
     {
-      "sha256": "f445b53fdadbecd1be628a6116ea3b089c018ca82735d003a63c4adabd879beb",
-      "size": 566537,
-      "url": "https://static.whatsapp.net/rsrc.php/v4i9Qv4/ya/l/en_US-j/jTwFSgKoKSL.js"
+      "sha256": "f50c36d2c65b09026ef6cb861f22a0b4e01674d73191a23c5fd287ba09da070d",
+      "size": 8617,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/y4/r/19JBjtUIaWq.js"
     },
     {
-      "sha256": "f4a72c341496f2e7fa2fe262d83ebac68189b7ed4a057525913bc35954030732",
-      "size": 641228,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iVv04/y6/l/en_US-j/iZLT84x0cWX.js"
+      "sha256": "f57cabfbdc9bb7ba48a6bcf65571877b0c23be0cfe7f4b9f9a254dfa5ea96408",
+      "size": 286072,
+      "url": "https://static.whatsapp.net/rsrc.php/v4/yv/r/5DWFMYfzluA.js"
     },
     {
       "sha256": "f585472f93ec16e79be3bdcdd3e5550851bb055ed1b0c77e867707a02571553a",
@@ -2429,19 +2519,9 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yy/r/lfpBGeUl83O.js"
     },
     {
-      "sha256": "f7e6184889bd668aeddc696e29d7b0352a804b35f39600cb5351566d727f5d14",
-      "size": 21230,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yO/r/9UgpFdkzZW9.js"
-    },
-    {
-      "sha256": "f808ea3941b4325af643acf9e9117cee3dd4c5eeafd4b51786ef3ad8830b6be9",
-      "size": 82776,
-      "url": "https://static.whatsapp.net/rsrc.php/v4imyr4/yj/l/en_US-j/2WRPuvUO_-O.js"
-    },
-    {
-      "sha256": "f830875fc7f2a0a6dacc1cab75f81ac35308ea83ca8955a6eaf48e562773f541",
-      "size": 43760,
-      "url": "https://static.whatsapp.net/rsrc.php/v4iyOW4/y0/l/en_US-j/XVuqDKIkGlg.js"
+      "sha256": "f7f3f435b8ba1c593365938698349c388e45c2edb9be9547f055f9534a2b5a75",
+      "size": 24146,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i1zk4/yO/l/en_US-j/TwstzfDr6gc.js"
     },
     {
       "sha256": "f8ed103c9bac938188f37e257723e75156b7cc3bda5cb0a91c8c6839a0c1746b",
@@ -2459,6 +2539,11 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yk/r/3GIj9BJONUe.js"
     },
     {
+      "sha256": "fa0aabcf53990728f74c500492824118e387ff9ff0aa4b5f15da55fb6e668274",
+      "size": 20319,
+      "url": "https://static.whatsapp.net/rsrc.php/v4iLrb4/yK/l/en_US-j/J0WamoPPyWL.js"
+    },
+    {
       "sha256": "fbd4426b15b1bc8bcd9cf7c7e174cc813812b00ef267f062e9dc114c2855e4d0",
       "size": 9662,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yp/r/dmfiU5x6CLv.js"
@@ -2467,6 +2552,16 @@
       "sha256": "fcd5cda55941bafd5f300a314b8b9b7286d7bb69decdfaaacf4db77e85a48086",
       "size": 4422,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yD/r/4zH9MYXTbXW.js"
+    },
+    {
+      "sha256": "fd26924373be0ce0e773c304511df62909fa76e11d9294c0509542d3f38f842d",
+      "size": 1482921,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i3QW4/y_/l/en_US-j/riUnzXZvuT7.js"
+    },
+    {
+      "sha256": "fdf44e6122bf4334328c59224adfebdc252d27b6f9c4b2240ab45b981288d7f9",
+      "size": 60688,
+      "url": "https://static.whatsapp.net/rsrc.php/v4i9jF4/yo/l/en_US-j/sTMJco69CYe.js"
     },
     {
       "sha256": "fdfa6b2b272064340cf9a35e57678d3175cab326cdbb0c98b0052ff9e15c43de",
@@ -2479,14 +2574,14 @@
       "url": "https://static.whatsapp.net/rsrc.php/v4/yR/r/EIy8CwIRoDn.js"
     },
     {
-      "sha256": "fea9a4840ffa99fc00394d5a6ba27ac5cece07d2fa1c3ffbb59ac6b728d3ec30",
-      "size": 167864,
-      "url": "https://static.whatsapp.net/rsrc.php/v4/yj/r/1HP06z6wk3E.js"
-    },
-    {
       "sha256": "ff3e240cc2590fab7ec42c4e7d65fc404cef4ac49a24c813bbfbab5ef736ca8a",
       "size": 33605,
       "url": "https://static.whatsapp.net/rsrc.php/v4/yB/r/6YL_SrFJQJ6.js"
+    },
+    {
+      "sha256": "ffe69f61924eb23c1d65cb89a152e4ce35ee404bd52a7edcced9c037b236f490",
+      "size": 6114117,
+      "url": "https://static.whatsapp.net/rsrc.php/v4ivnB4/y9/l/en_US-j/6HMH98WWQuu.js"
     }
   ]
 }

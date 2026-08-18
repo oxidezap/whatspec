@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.0.0",
-  "waVersion": "2.3000.1044659339",
+  "waVersion": "2.3000.1045368834",
   "events": [
     {
       "name": "GroupCreateC",
@@ -546,6 +546,11 @@
           "name": "pttOggPageWriteBucketLt8msPct",
           "id": 43,
           "kind": "number"
+        },
+        {
+          "name": "pttOpenslPerformanceModeRequestStatus",
+          "id": 58,
+          "kind": "integer"
         },
         {
           "name": "pttOpusEncodeBucketGte10msPct",
@@ -1320,6 +1325,16 @@
           "kind": "integer"
         },
         {
+          "name": "audioCodecDecodedRedBitrate",
+          "id": 3114,
+          "kind": "number"
+        },
+        {
+          "name": "audioCodecDecodedRedBitrateDominantSpeaker",
+          "id": 3115,
+          "kind": "number"
+        },
+        {
           "name": "audioCodecEncodedFecFrames",
           "id": 751,
           "kind": "integer"
@@ -1447,6 +1462,16 @@
         {
           "name": "audioJbResetsPartial",
           "id": 1334,
+          "kind": "integer"
+        },
+        {
+          "name": "audioLazyCacheDropCount",
+          "id": 3112,
+          "kind": "integer"
+        },
+        {
+          "name": "audioLazyCacheDroppedMs",
+          "id": 3113,
           "kind": "integer"
         },
         {
@@ -1812,6 +1837,51 @@
         {
           "name": "automosSenderModelDownloadFailureCount",
           "id": 2876,
+          "kind": "integer"
+        },
+        {
+          "name": "auxVideoNackRtpRetransmitRecvdCount",
+          "id": 3094,
+          "kind": "integer"
+        },
+        {
+          "name": "auxVideoNackRtpRetransmitReqCount",
+          "id": 3095,
+          "kind": "integer"
+        },
+        {
+          "name": "auxVideoNackRtpRetransmitRetryCount",
+          "id": 3096,
+          "kind": "integer"
+        },
+        {
+          "name": "auxVideoRenderFreeze2xT",
+          "id": 3097,
+          "kind": "timer"
+        },
+        {
+          "name": "auxVideoRenderFreeze4xT",
+          "id": 3098,
+          "kind": "timer"
+        },
+        {
+          "name": "auxVideoRenderFreeze8xT",
+          "id": 3099,
+          "kind": "timer"
+        },
+        {
+          "name": "auxVideoRenderFreezeT",
+          "id": 3100,
+          "kind": "timer"
+        },
+        {
+          "name": "auxVideoRxFecBitrate",
+          "id": 3101,
+          "kind": "number"
+        },
+        {
+          "name": "auxVideoRxRtcpPli",
+          "id": 3102,
           "kind": "integer"
         },
         {
@@ -2306,6 +2376,31 @@
           "kind": "boolean"
         },
         {
+          "name": "ca2dAttemptCount",
+          "id": 3093,
+          "kind": "integer"
+        },
+        {
+          "name": "ca2dAvsyncAbsDeltaMsAvg",
+          "id": 3141,
+          "kind": "number"
+        },
+        {
+          "name": "ca2dAvsyncAbsDeltaMsP50",
+          "id": 3142,
+          "kind": "number"
+        },
+        {
+          "name": "ca2dAvsyncAbsDeltaMsP95",
+          "id": 3143,
+          "kind": "number"
+        },
+        {
+          "name": "ca2dAvsyncIn100msWindowPct",
+          "id": 3144,
+          "kind": "number"
+        },
+        {
           "name": "ca2dE2eNetworkDelayMs",
           "id": 3080,
           "kind": "number"
@@ -2371,6 +2466,66 @@
           "name": "ca2dSuccCount",
           "id": 3092,
           "kind": "integer"
+        },
+        {
+          "name": "ca2dVideoLagMsAvg",
+          "id": 3145,
+          "kind": "number"
+        },
+        {
+          "name": "ca2dVideoLagMsP50",
+          "id": 3146,
+          "kind": "number"
+        },
+        {
+          "name": "ca2dVideoLagMsP95",
+          "id": 3147,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodeEmitToWireAvg",
+          "id": 3118,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodeEmitToWireMax",
+          "id": 3119,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodeEmitToWireMin",
+          "id": 3120,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodeGenToWireE2eAvg",
+          "id": 3121,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodeGenToWireE2eMax",
+          "id": 3122,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodeGenToWireE2eMin",
+          "id": 3123,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodePlayoutDeficitAvg",
+          "id": 3124,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodePlayoutDeficitMax",
+          "id": 3125,
+          "kind": "number"
+        },
+        {
+          "name": "caCathodePlayoutDeficitMin",
+          "id": 3126,
+          "kind": "number"
         },
         {
           "name": "callAcceptFuncT",
@@ -4356,6 +4511,11 @@
           "kind": "boolean"
         },
         {
+          "name": "dualStreamCameraAutoOffReason",
+          "id": 3103,
+          "kind": "integer"
+        },
+        {
           "name": "durationInMcp",
           "id": 2190,
           "kind": "timer"
@@ -5750,6 +5910,26 @@
           "kind": "boolean"
         },
         {
+          "name": "isDualStreamBackwardRendering",
+          "id": 3104,
+          "kind": "boolean"
+        },
+        {
+          "name": "isDualStreamSs",
+          "id": 3105,
+          "kind": "boolean"
+        },
+        {
+          "name": "isDualStreamSsReceiver",
+          "id": 3127,
+          "kind": "boolean"
+        },
+        {
+          "name": "isDualStreamSsSharer",
+          "id": 3128,
+          "kind": "boolean"
+        },
+        {
           "name": "isEventsLink",
           "id": 1928,
           "kind": "boolean"
@@ -6215,6 +6395,26 @@
           "kind": "integer"
         },
         {
+          "name": "lastMinAuxVideoRenderFreeze2xT",
+          "id": 3106,
+          "kind": "timer"
+        },
+        {
+          "name": "lastMinAuxVideoRenderFreeze4xT",
+          "id": 3107,
+          "kind": "timer"
+        },
+        {
+          "name": "lastMinAuxVideoRenderFreeze8xT",
+          "id": 3108,
+          "kind": "timer"
+        },
+        {
+          "name": "lastMinAuxVideoRenderFreezeT",
+          "id": 3109,
+          "kind": "timer"
+        },
+        {
           "name": "lastMinJbAvgDelay",
           "id": 1607,
           "kind": "number"
@@ -6564,6 +6764,11 @@
           "name": "memoryAvailableMb",
           "id": 2744,
           "kind": "integer"
+        },
+        {
+          "name": "meteredWifiDetected",
+          "id": 3116,
+          "kind": "boolean"
         },
         {
           "name": "micAvgPower",
@@ -8276,6 +8481,11 @@
           "kind": "integer"
         },
         {
+          "name": "rbeFallbackRequestCount",
+          "id": 3117,
+          "kind": "integer"
+        },
+        {
           "name": "rbeGetIndexFromPlatformAndNetworkCount",
           "id": 2932,
           "kind": "integer"
@@ -9115,6 +9325,16 @@
           "name": "selfMuteSuccessCount",
           "id": 1175,
           "kind": "integer"
+        },
+        {
+          "name": "selfPreviewResized",
+          "id": 3139,
+          "kind": "boolean"
+        },
+        {
+          "name": "selfPreviewSize",
+          "id": 3140,
+          "kind": "string"
         },
         {
           "name": "selfUnmuteAfterMuteReqCount",
@@ -13025,6 +13245,11 @@
           "kind": "number"
         },
         {
+          "name": "videoRxBitrateCombined",
+          "id": 3110,
+          "kind": "number"
+        },
+        {
           "name": "videoRxBitrateDominantSpeaker",
           "id": 2187,
           "kind": "integer"
@@ -13147,6 +13372,11 @@
         {
           "name": "videoRxTotalBytes",
           "id": 168,
+          "kind": "number"
+        },
+        {
+          "name": "videoRxTotalBytesSs",
+          "id": 3111,
           "kind": "number"
         },
         {
@@ -14270,6 +14500,56 @@
           "kind": "integer"
         },
         {
+          "name": "winNpuName",
+          "id": 3129,
+          "kind": "string"
+        },
+        {
+          "name": "winNpuPresent",
+          "id": 3130,
+          "kind": "boolean"
+        },
+        {
+          "name": "winVsrButtonClicks",
+          "id": 3131,
+          "kind": "integer"
+        },
+        {
+          "name": "winVsrEnabled",
+          "id": 3132,
+          "kind": "boolean"
+        },
+        {
+          "name": "winVsrEpInitMs",
+          "id": 3133,
+          "kind": "integer"
+        },
+        {
+          "name": "winVsrFramesWith",
+          "id": 3134,
+          "kind": "integer"
+        },
+        {
+          "name": "winVsrFramesWithout",
+          "id": 3135,
+          "kind": "integer"
+        },
+        {
+          "name": "winVsrOnTimeSec",
+          "id": 3136,
+          "kind": "integer"
+        },
+        {
+          "name": "winVsrSupported",
+          "id": 3137,
+          "kind": "boolean"
+        },
+        {
+          "name": "winVsrVideoScalerInitMs",
+          "id": 3138,
+          "kind": "integer"
+        },
+        {
           "name": "windowDragged",
           "id": 2688,
           "kind": "boolean"
@@ -15081,7 +15361,6 @@
       "consumers": [
         "WAWebCrashlog",
         "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2586",
         "WAWebWindowsHybridBridgeWam.v2587",
         "WAWebWindowsHybridBridgeWam.v2589",
         "WAWebWindowsHybridBridgeWam.v2590",
@@ -15115,7 +15394,9 @@
         "WAWebWindowsHybridBridgeWam.v2628",
         "WAWebWindowsHybridBridgeWam.v2629",
         "WAWebWindowsHybridBridgeWam.v2630",
-        "WAWebWindowsHybridBridgeWam.v2631"
+        "WAWebWindowsHybridBridgeWam.v2631",
+        "WAWebWindowsHybridBridgeWam.v2632",
+        "WAWebWindowsHybridBridgeWam.v2633"
       ]
     },
     {
@@ -15821,6 +16102,12 @@
           "name": "participantCount",
           "id": 32,
           "kind": "integer"
+        },
+        {
+          "name": "peripheralDeviceOrigin",
+          "id": 96,
+          "kind": "enum",
+          "module": "WAWebWamEnumPeripheralDeviceType"
         },
         {
           "name": "privateAiFeatureName",
@@ -18614,7 +18901,9 @@
         "WAWebWindowsHybridBridgeWam.v2628",
         "WAWebWindowsHybridBridgeWam.v2629",
         "WAWebWindowsHybridBridgeWam.v2630",
-        "WAWebWindowsHybridBridgeWam.v2631"
+        "WAWebWindowsHybridBridgeWam.v2631",
+        "WAWebWindowsHybridBridgeWam.v2632",
+        "WAWebWindowsHybridBridgeWam.v2633"
       ]
     },
     {
@@ -23920,6 +24209,11 @@
           "module": "WAWebWamEnumCustomPaymentMethodsSyncStatus"
         },
         {
+          "name": "graphqlEndpointName",
+          "id": 49,
+          "kind": "string"
+        },
+        {
           "name": "merchantType",
           "id": 43,
           "kind": "enum",
@@ -24164,8 +24458,10 @@
       ],
       "consumers": [
         "WAWebConsumerPaymentsHomeLogger",
+        "WAWebCustomPaymentMethodsSyncLogger",
         "WAWebPaymentsUserActionLogging",
-        "WAWebPixWamLogger"
+        "WAWebPixWamLogger",
+        "WAWebUprSenderWamLogger"
       ]
     },
     {
@@ -28091,9 +28387,9 @@
         }
       ],
       "consumers": [
-        "PaymentLinkWamLogger",
         "WAWebGetBrazilnteractiveActions",
         "WAWebNativeFlowMessage",
+        "WAWebPaymentLinkWamLogger",
         "WAWebPaymentRequestWamLogger",
         "WAWebUprWamLogger"
       ]
@@ -29105,10 +29401,10 @@
         }
       ],
       "consumers": [
-        "PaymentLinkWamLogger",
         "WAWebGalaxyFlowWamLoggerUtils",
         "WAWebOrderDetailsReceivedWamLogger",
         "WAWebPaymentInfoReceivedWamLogger",
+        "WAWebPaymentLinkWamLogger",
         "WAWebPaymentRequestWamLogger",
         "WAWebUprReceivedWamLogger"
       ]
@@ -36032,7 +36328,7 @@
         }
       ],
       "consumers": [
-        "PaymentLinkWamLogger"
+        "WAWebPaymentLinkWamLogger"
       ]
     },
     {
@@ -40421,6 +40717,21 @@
           "kind": "integer"
         },
         {
+          "name": "numberOfPnOnlyGroupsNotMemberAllMapped",
+          "id": 21,
+          "kind": "integer"
+        },
+        {
+          "name": "numberOfPnOnlyGroupsNotMemberUnmappedContacts",
+          "id": 22,
+          "kind": "integer"
+        },
+        {
+          "name": "numberOfPnOnlyGroupsNotMemberUnmappedOutContacts",
+          "id": 23,
+          "kind": "integer"
+        },
+        {
           "name": "numberOfPnhCtwaThreadsKnownMapping",
           "id": 2,
           "kind": "integer"
@@ -42362,12 +42673,6 @@
           "module": "WAWebWamEnumMediaType"
         },
         {
-          "name": "statusPlaceholderType",
-          "id": 56,
-          "kind": "enum",
-          "module": "WAWebWamEnumStatusPlaceholderType"
-        },
-        {
           "name": "statusPogIndex",
           "id": 15,
           "kind": "integer"
@@ -43847,6 +44152,36 @@
           "kind": "integer"
         },
         {
+          "name": "viewOnceAudioMessagesOpened",
+          "id": 150,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceAudioMessagesReceived",
+          "id": 151,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceAudioMessagesSent",
+          "id": 152,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceImageMessagesOpened",
+          "id": 153,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceImageMessagesReceived",
+          "id": 154,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceImageMessagesSent",
+          "id": 155,
+          "kind": "integer"
+        },
+        {
           "name": "viewOnceMessagesOpened",
           "id": 104,
           "kind": "integer"
@@ -43859,6 +44194,36 @@
         {
           "name": "viewOnceMessagesSent",
           "id": 106,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceTextMessagesOpened",
+          "id": 147,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceTextMessagesReceived",
+          "id": 148,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceTextMessagesSent",
+          "id": 149,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceVideoMessagesOpened",
+          "id": 156,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceVideoMessagesReceived",
+          "id": 157,
+          "kind": "integer"
+        },
+        {
+          "name": "viewOnceVideoMessagesSent",
+          "id": 158,
           "kind": "integer"
         }
       ],
@@ -44482,6 +44847,11 @@
           "module": "WAWebWamEnumContactSearchEntrypoint"
         },
         {
+          "name": "isSearchTargetBusiness",
+          "id": 6,
+          "kind": "boolean"
+        },
+        {
           "name": "isUsernameSearch",
           "id": 1,
           "kind": "boolean"
@@ -44588,11 +44958,6 @@
       ],
       "fields": [
         {
-          "name": "actionIndex",
-          "id": 8,
-          "kind": "integer"
-        },
-        {
           "name": "attributionType",
           "id": 1,
           "kind": "enum",
@@ -44608,16 +44973,6 @@
           "id": 5,
           "kind": "enum",
           "module": "WAWebWamEnumInlineVideoType"
-        },
-        {
-          "name": "linkLoadTime",
-          "id": 9,
-          "kind": "integer"
-        },
-        {
-          "name": "linkOpenResult",
-          "id": 10,
-          "kind": "string"
         },
         {
           "name": "psaCampaignId",
@@ -45250,6 +45605,17 @@
           "id": 7,
           "kind": "enum",
           "module": "WAWebWamEnumAboutRequestType"
+        },
+        {
+          "name": "aboutSaveErrorCode",
+          "id": 10,
+          "kind": "integer"
+        },
+        {
+          "name": "aboutSaveOutcome",
+          "id": 11,
+          "kind": "enum",
+          "module": "WAWebWamEnumAboutSaveOutcome"
         },
         {
           "name": "preset",
@@ -47027,8 +47393,8 @@
         }
       ],
       "consumers": [
-        "PaymentLinkWamLogger",
         "WAWebBuyerEventLogger",
+        "WAWebPaymentLinkWamLogger",
         "WAWebPaymentRequestWamLogger"
       ]
     },
@@ -47074,10 +47440,10 @@
         }
       ],
       "consumers": [
-        "PaymentLinkWamLogger",
         "WAWebGalaxyFlowWamLoggerUtils",
         "WAWebOrderDetailsReceivedWamLogger",
         "WAWebPaymentInfoReceivedWamLogger",
+        "WAWebPaymentLinkWamLogger",
         "WAWebPaymentRequestWamLogger",
         "WAWebUprReceivedWamLogger"
       ]
@@ -47831,8 +48197,29 @@
           "kind": "boolean"
         },
         {
+          "name": "hitlLegalLink",
+          "id": 7,
+          "kind": "enum",
+          "module": "WAWebWamEnumHitlLegalLinkType"
+        },
+        {
+          "name": "hitlTypes",
+          "id": 8,
+          "kind": "string"
+        },
+        {
           "name": "rawBotEntryPoint",
           "id": 5,
+          "kind": "string"
+        },
+        {
+          "name": "rawHitlAlwaysScope",
+          "id": 9,
+          "kind": "string"
+        },
+        {
+          "name": "rawHitlDecisionKind",
+          "id": 10,
           "kind": "string"
         },
         {
@@ -49026,6 +49413,28 @@
         {
           "key": "CLEAR_EXISTING",
           "value": 3
+        }
+      ]
+    },
+    {
+      "name": "ABOUT_SAVE_OUTCOME",
+      "module": "WAWebWamEnumAboutSaveOutcome",
+      "variants": [
+        {
+          "key": "SUCCESS",
+          "value": 1
+        },
+        {
+          "key": "SERVER_REJECTED",
+          "value": 2
+        },
+        {
+          "key": "TRANSPORT_ERROR",
+          "value": 3
+        },
+        {
+          "key": "UNKNOWN_RESPONSE",
+          "value": 4
         }
       ]
     },
@@ -51226,6 +51635,10 @@
         {
           "key": "BACKUPS_AUTH_ERROR",
           "value": 123
+        },
+        {
+          "key": "META_AI_THREADING_WIND_DOWN",
+          "value": 124
         }
       ]
     },
@@ -52100,6 +52513,10 @@
         {
           "key": "MANUS",
           "value": 8
+        },
+        {
+          "key": "BOT_3P_AGENT",
+          "value": 9
         }
       ]
     },
@@ -52796,6 +53213,10 @@
         {
           "key": "FIRST_FRAME_TIMEOUT",
           "value": 6
+        },
+        {
+          "key": "CONNECTING_TIMEOUT",
+          "value": 7
         }
       ]
     },
@@ -55498,6 +55919,10 @@
         {
           "key": "ARCHIVED_CHATS",
           "value": 28
+        },
+        {
+          "key": "NEWSLETTER_CREATION_CHAT_LIST",
+          "value": 29
         }
       ]
     },
@@ -55534,6 +55959,10 @@
         {
           "key": "POST_TOOLTIP",
           "value": 4
+        },
+        {
+          "key": "CHANNEL_INFO_SHEET",
+          "value": 5
         }
       ]
     },
@@ -55572,6 +56001,10 @@
         {
           "key": "CHANNEL_DIRECTORY_CATEGORIES_SEARCH",
           "value": 8
+        },
+        {
+          "key": "CHANNEL_INFO_SHEET",
+          "value": 9
         }
       ]
     },
@@ -55730,6 +56163,10 @@
         {
           "key": "CHANNEL_ADMIN_ONBOARDING",
           "value": 6
+        },
+        {
+          "key": "CHANNEL_INFO_SHEET",
+          "value": 7
         }
       ]
     },
@@ -55760,6 +56197,10 @@
         {
           "key": "QR_CODE_SCREEN",
           "value": 6
+        },
+        {
+          "key": "CHANNEL_INFO_SHEET",
+          "value": 7
         }
       ]
     },
@@ -57168,6 +57609,26 @@
         {
           "key": "MODE_SELECTION_BUTTON_IMPRESSION",
           "value": 279
+        },
+        {
+          "key": "AGENT_CREATE_START",
+          "value": 280
+        },
+        {
+          "key": "AGENT_CREATE_COMPLETE",
+          "value": 281
+        },
+        {
+          "key": "AGENT_CREATE_FAIL",
+          "value": 282
+        },
+        {
+          "key": "AGENT_PROFILE_VIEW",
+          "value": 283
+        },
+        {
+          "key": "AGENT_REMOVE",
+          "value": 284
         }
       ]
     },
@@ -65312,16 +65773,32 @@
           "value": 8
         },
         {
-          "key": "HITL_ALLOW_ONCE_TAP",
-          "value": 9
+          "key": "HITL_DECISION_TAP",
+          "value": 12
         },
         {
-          "key": "HITL_ALWAYS_ALLOW_TAP",
-          "value": 10
+          "key": "HITL_CART_DETAILS_IMPRESSION",
+          "value": 13
         },
         {
-          "key": "HITL_DENY_TAP",
-          "value": 11
+          "key": "HITL_PAYMENT_DETAILS_IMPRESSION",
+          "value": 14
+        },
+        {
+          "key": "HITL_ORDER_SUMMARY_IMPRESSION",
+          "value": 15
+        },
+        {
+          "key": "HITL_WALLET_PICKER_IMPRESSION",
+          "value": 16
+        },
+        {
+          "key": "HITL_WALLET_CARD_SELECTED",
+          "value": 17
+        },
+        {
+          "key": "HITL_LEGAL_LINK_TAP",
+          "value": 18
         }
       ]
     },
@@ -65386,6 +65863,32 @@
         {
           "key": "MORE",
           "value": 6
+        }
+      ]
+    },
+    {
+      "name": "HITL_LEGAL_LINK_TYPE",
+      "module": "WAWebWamEnumHitlLegalLinkType",
+      "variants": [
+        {
+          "key": "UNKNOWN",
+          "value": 0
+        },
+        {
+          "key": "META_PAY",
+          "value": 1
+        },
+        {
+          "key": "LINK",
+          "value": 2
+        },
+        {
+          "key": "STRIPE",
+          "value": 3
+        },
+        {
+          "key": "MERCHANT_PROVIDED",
+          "value": 4
         }
       ]
     },
@@ -66962,6 +67465,10 @@
         {
           "key": "COPY_PIX_IMPRESSION",
           "value": 104
+        },
+        {
+          "key": "PIX_INVITE_SHARE_KEY",
+          "value": 105
         }
       ]
     },
@@ -69154,6 +69661,18 @@
         {
           "key": "SMB_STATUS_RECOMMENDATION_FETCH",
           "value": 114
+        },
+        {
+          "key": "SMB_FAB",
+          "value": 115
+        },
+        {
+          "key": "SMB_FB_LINKING_UPSELL",
+          "value": 116
+        },
+        {
+          "key": "SMB_IG_LINKING_UPSELL",
+          "value": 117
         }
       ]
     },
@@ -71322,6 +71841,14 @@
         {
           "key": "LWI_ACTION_WINBACK_THRESHOLD_SCALE_CLICK",
           "value": 540
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_RECREATE_FLOW_STARTED",
+          "value": 541
+        },
+        {
+          "key": "LWI_ACTION_LINKING_UPSELL_CHOOSE_OTHER_MEDIA_TAPPED",
+          "value": 542
         }
       ]
     },
@@ -71788,6 +72315,14 @@
         {
           "key": "LWI_SCREEN_NATIVE_PAST_ADS_NUDGE",
           "value": 115
+        },
+        {
+          "key": "LWI_SCREEN_FB_LINKING_UPSELL",
+          "value": 116
+        },
+        {
+          "key": "LWI_SCREEN_IG_LINKING_UPSELL",
+          "value": 117
         }
       ]
     },
@@ -73510,6 +74045,10 @@
         {
           "key": "CONTACTS_TAB",
           "value": 132
+        },
+        {
+          "key": "GROUP_STATUS_REPLY_WITH_STATUS",
+          "value": 133
         }
       ]
     },
@@ -73888,6 +74427,10 @@
         {
           "key": "STICKER_REACTION",
           "value": 79
+        },
+        {
+          "key": "MUSIC",
+          "value": 80
         }
       ]
     },
@@ -74430,6 +74973,14 @@
         {
           "key": "REMOVE_TRANSLATION",
           "value": 38
+        },
+        {
+          "key": "SELECT_TEXT",
+          "value": 39
+        },
+        {
+          "key": "COPY_SELECTION",
+          "value": 40
         }
       ]
     },
@@ -76392,6 +76943,10 @@
         {
           "key": "MANAGE_MESSAGES",
           "value": 14
+        },
+        {
+          "key": "REPORT",
+          "value": 15
         }
       ]
     },
@@ -76750,6 +77305,10 @@
         {
           "key": "VIEW_MANAGE_CONTACTS_FROM_COMPANION_NATIVE_CONTACTS_SETTING_OFF",
           "value": 3
+        },
+        {
+          "key": "SKIP_NATIVE_CONTACTS_NUX_AUTO_ACCEPTED",
+          "value": 4
         }
       ]
     },
@@ -76926,6 +77485,10 @@
         {
           "key": "VOIP_PUSH_TRIGGERED",
           "value": 4
+        },
+        {
+          "key": "MAIN_APP_FOREGROUND",
+          "value": 5
         }
       ]
     },
@@ -77212,6 +77775,10 @@
         {
           "key": "EVENT_V2_SUSPENDED",
           "value": 71
+        },
+        {
+          "key": "STATUS_GROUP_STATUS_REPLY",
+          "value": 72
         }
       ]
     },
@@ -79956,8 +80523,24 @@
           "value": 373
         },
         {
-          "key": "PAYMENTS_HOME_MANAGE_PIX_KEYS",
+          "key": "MANAGE_PIX_KEYS",
           "value": 374
+        },
+        {
+          "key": "SHARE_YOUR_PIX",
+          "value": 375
+        },
+        {
+          "key": "PIX_INVITE_ASK_TO_SHARE_PIX_KEY",
+          "value": 376
+        },
+        {
+          "key": "PIX_INVITE_REQUEST_PAYMENT",
+          "value": 377
+        },
+        {
+          "key": "PIX_INVITE_GO_TO_PAYMENTS",
+          "value": 378
         }
       ]
     },
@@ -80330,6 +80913,10 @@
         {
           "key": "GET_UPI_LITE_DETAILS",
           "value": 67
+        },
+        {
+          "key": "GET_SMS_CONTENT_AND_VMN",
+          "value": 68
         }
       ]
     },
@@ -82736,6 +83323,10 @@
         {
           "key": "AI_HATCH",
           "value": 63
+        },
+        {
+          "key": "EVENT_V2",
+          "value": 64
         }
       ]
     },
@@ -85096,6 +85687,10 @@
         {
           "key": "CLICK_ON_NON_CONTACT_WITH_EXISTING_CHAT",
           "value": 10
+        },
+        {
+          "key": "VIEW_NON_CONTACT",
+          "value": 11
         }
       ]
     },
@@ -88500,28 +89095,6 @@
       ]
     },
     {
-      "name": "STATUS_PLACEHOLDER_TYPE",
-      "module": "WAWebWamEnumStatusPlaceholderType",
-      "variants": [
-        {
-          "key": "NONE",
-          "value": 1
-        },
-        {
-          "key": "PLACEHOLDER",
-          "value": 2
-        },
-        {
-          "key": "NOT_VIEWABLE",
-          "value": 3
-        },
-        {
-          "key": "FUTUREPROOF",
-          "value": 4
-        }
-      ]
-    },
-    {
       "name": "STATUS_POST_FAILURE_STAGE",
       "module": "WAWebWamEnumStatusPostFailureStage",
       "variants": [
@@ -88802,6 +89375,14 @@
         {
           "key": "GROUP_CHAT_ATTACHMENT_TRAY",
           "value": 61
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CHATS_TAB",
+          "value": 62
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CALLS_TAB",
+          "value": 63
         }
       ]
     },
@@ -89636,6 +90217,10 @@
         {
           "key": "ME_TAB",
           "value": 40
+        },
+        {
+          "key": "CHANNEL_INFO_SHEET",
+          "value": 41
         }
       ]
     },
@@ -92532,6 +93117,10 @@
         {
           "key": "USERNAME_STATUS",
           "value": 19
+        },
+        {
+          "key": "AI_CONTENT",
+          "value": 20
         }
       ]
     },
@@ -93688,6 +94277,30 @@
         {
           "key": "MERCHANT_APP_STORE",
           "value": 261
+        },
+        {
+          "key": "CHANNEL_INFO_SHEET",
+          "value": 262
+        },
+        {
+          "key": "EVENT_V2_HOME",
+          "value": 263
+        },
+        {
+          "key": "EVENT_V2_CREATION_UPDATE",
+          "value": 264
+        },
+        {
+          "key": "EVENT_V2_DETAILS",
+          "value": 265
+        },
+        {
+          "key": "EVENT_V2_CONTACT_PICKER",
+          "value": 266
+        },
+        {
+          "key": "EVENT_V2_GUEST_LIST",
+          "value": 267
         }
       ]
     },
@@ -93944,6 +94557,86 @@
         {
           "key": "NAVIGATE_TO_QUOTED_ITEM_LATENCY",
           "value": 45
+        },
+        {
+          "key": "MENU_OPENED",
+          "value": 46
+        },
+        {
+          "key": "MENU_PROFILE",
+          "value": 47
+        },
+        {
+          "key": "MENU_OPEN_ON_PHONE",
+          "value": 48
+        },
+        {
+          "key": "MENU_LOGOUT",
+          "value": 49
+        },
+        {
+          "key": "NEW_CHAT_TAPPED",
+          "value": 50
+        },
+        {
+          "key": "CONTACT_SELECTED_SEARCH",
+          "value": 51
+        },
+        {
+          "key": "CONTACT_SELECTED_BROWSE",
+          "value": 52
+        },
+        {
+          "key": "CHAT_SWIPE_MARK_READ",
+          "value": 53
+        },
+        {
+          "key": "CHAT_SWIPE_MARK_UNREAD",
+          "value": 54
+        },
+        {
+          "key": "CHAT_ACTIONS_MENU_OPENED",
+          "value": 55
+        },
+        {
+          "key": "CHAT_PIN",
+          "value": 56
+        },
+        {
+          "key": "CHAT_UNPIN",
+          "value": 57
+        },
+        {
+          "key": "CHAT_ARCHIVE",
+          "value": 58
+        },
+        {
+          "key": "CHAT_UNARCHIVE",
+          "value": 59
+        },
+        {
+          "key": "CHAT_MUTE",
+          "value": 60
+        },
+        {
+          "key": "CHAT_UNMUTE",
+          "value": 61
+        },
+        {
+          "key": "SCROLL_TO_TOP_TAPPED",
+          "value": 62
+        },
+        {
+          "key": "ARCHIVED_OPENED_MENU_ROW",
+          "value": 63
+        },
+        {
+          "key": "ARCHIVED_OPENED_CHAT_LIST_CHIP",
+          "value": 64
+        },
+        {
+          "key": "EXTENDED_EMOJI_OPENED",
+          "value": 65
         }
       ]
     },
@@ -94452,6 +95145,10 @@
         {
           "key": "INLINE_VIDEO_CTA",
           "value": 6
+        },
+        {
+          "key": "PSA_CTA",
+          "value": 7
         }
       ]
     },
@@ -95178,6 +95875,10 @@
         {
           "key": "ACTIVATION_REQUEST_JITTERED",
           "value": 92
+        },
+        {
+          "key": "CLICK_NOT_YOU",
+          "value": 93
         }
       ]
     },
@@ -95260,6 +95961,10 @@
         {
           "key": "USERNAME_PIN_GENERATOR",
           "value": 19
+        },
+        {
+          "key": "IG_LINK_AND_RESERVE_USERNAME",
+          "value": 21
         }
       ]
     },
@@ -95708,6 +96413,30 @@
         {
           "key": "ACTION_LOAD",
           "value": 21
+        },
+        {
+          "key": "ACTION_CLICK_PROFILE_PHOTO",
+          "value": 22
+        },
+        {
+          "key": "ACTION_CLICK_ABOUT",
+          "value": 23
+        },
+        {
+          "key": "ACTION_CLICK_USER_CONTROLS",
+          "value": 24
+        },
+        {
+          "key": "ACTION_CLICK_REPORT",
+          "value": 25
+        },
+        {
+          "key": "ACTION_CLICK_COVER_PHOTO",
+          "value": 26
+        },
+        {
+          "key": "ACTION_CLICK_OFFERINGS",
+          "value": 27
         }
       ]
     },
