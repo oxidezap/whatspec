@@ -154,7 +154,32 @@ pub enum Scalar {
 /// [`repeat_max`]: crate::WapChildNode::repeat_max
 /// [`WapAttrDef::value`]: crate::WapAttrDef::value
 /// [`WapAttrKind::Const`]: crate::WapAttrKind::Const
-pub const SCHEMA_VERSION: &str = "4.0.0";
+/// # 4.1.0 — the WAM buffer, and where an event is emitted
+///
+/// A minor, and deliberately so: every addition is a new optional property or a new
+/// top-level list that a 4.0 consumer skips, and the committed `wam/index.json`
+/// validates clean against the 4.0 schema. The IR gained the three modules beside the
+/// event catalog — [`WamGlobal`]s with the channels each is legal on,
+/// [`WamPrivateStatsId`]s (the table an event's `privateStatsId` resolves against) and
+/// [`WamConstant`]s — plus [`WamEvent::call_sites`], the places a construction of an
+/// event was actually found.
+///
+/// One existing field changed meaning without changing shape, and it is worth reading
+/// before trusting it: [`WamEvent::consumers`] was documented as the modules that
+/// construct and commit the event, while carrying the dependency graph, which states no
+/// such thing — a module that only imports the type is in it, and the worker's router is in
+/// nearly all of them. The doc now says what the field is. Migration is not mechanical
+/// but it is small: a consumer using `consumers` as an emission list should read
+/// `call_sites` instead, and one using it to find modules to read can keep it. The name
+/// stayed because it is accurate for what the field holds; renaming it would have cost
+/// every domain a major for a field whose data never changed.
+///
+/// [`WamGlobal`]: crate::WamGlobal
+/// [`WamPrivateStatsId`]: crate::WamPrivateStatsId
+/// [`WamConstant`]: crate::WamConstant
+/// [`WamEvent::call_sites`]: crate::WamEvent::call_sites
+/// [`WamEvent::consumers`]: crate::WamEvent::consumers
+pub const SCHEMA_VERSION: &str = "4.1.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

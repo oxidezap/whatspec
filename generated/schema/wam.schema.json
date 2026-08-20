@@ -4,6 +4,13 @@
   "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
   "type": "object",
   "properties": {
+    "constants": {
+      "description": "The buffer constants, sorted by name.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WamConstant"
+      }
+    },
     "enums": {
       "type": "array",
       "items": {
@@ -14,6 +21,20 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/WamEvent"
+      }
+    },
+    "globals": {
+      "description": "Buffer globals, sorted by name. Their enum types resolve against\n[`enums`](Self::enums) exactly as an event field's does.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WamGlobal"
+      }
+    },
+    "privateStatsIds": {
+      "description": "The private-stats rotation groups, sorted by id.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WamPrivateStatsId"
       }
     },
     "schemaVersion": {
@@ -31,6 +52,163 @@
     "enums"
   ],
   "$defs": {
+    "WamCallSite": {
+      "description": "One place in WA Web that constructs this event — `new (o(\"<module>\").<Export>)(…)` —\nand the fields it is seen writing there.\n\nThis is *where* and *with which fields*, recovered from the construction and from\nlater writes to the value it is bound to. It is deliberately not *when*: the guard\nthe site sits under is control flow, which this repository does not extract, so a\ncall site is a place the client can emit the event, never a promise that it does.",
+      "type": "object",
+      "properties": {
+        "fields": {
+          "description": "Fields the site writes, sorted by name. Empty with `partial: false` means the\nsite constructs the event with no fields at all, which is a fact about it; empty\nwith `partial: true` means the scan could read none of them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WamCallSiteField"
+          }
+        },
+        "module": {
+          "description": "The module the construction is written in.",
+          "type": "string"
+        },
+        "partial": {
+          "description": "`true` when the site also writes fields the scan could not read — the argument\nwas a variable, or an object merged from one. `fields` is then a lower bound on\nwhat the site writes, never the full set, and a consumer checking its own emitter\nfor parity must not treat this site as an exhaustive list.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "module"
+      ]
+    },
+    "WamCallSiteField": {
+      "description": "One field a call site writes.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The field's name in the event — guaranteed to be one of [`WamEvent::fields`],\nsince a written key that names no field of the event is counted as unresolved\ninstead of published. Unique within a call site: a site that writes one field\ntwice yields one entry, the constructor write if there is one.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value, when it is a literal or a named enum member and the site writes only\nthat one. A field written twice at the same site — constructed `true`, reassigned\n`false` on an error path — carries no value here, because which one goes out is\nthe branch's answer, not the site's.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WamCallSiteValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "write": {
+          "description": "How the site writes it.",
+          "$ref": "#/$defs/WamFieldWrite"
+        }
+      },
+      "required": [
+        "name",
+        "write"
+      ]
+    },
+    "WamCallSiteValue": {
+      "description": "A value a call site writes into an event field, when the scan can read it.\n\nOnly the forms whose meaning is fixed at extraction time. Anything computed at\nruntime — a function call, a variable, a conditional — has no value here at all,\nwhich is why [`WamCallSiteField::value`] is optional rather than a \"?\" placeholder.",
+      "oneOf": [
+        {
+          "description": "A boolean literal (minified as `!0`/`!1`).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "bool"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "description": "An integer literal. A non-integral number is left unresolved rather than\nrounded.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "int"
+            },
+            "value": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "description": "A string literal.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "str"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "description": "A member of a WAM enum, named rather than resolved to its integer, so it stays\nreadable against [`WamIr::enums`] when WA renumbers.",
+          "type": "object",
+          "properties": {
+            "key": {
+              "description": "The variant's key (e.g. `REGULAR_MESSAGE`).",
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "enumMember"
+            },
+            "module": {
+              "description": "The defining `WAWebWamEnum…` module — the key into [`WamIr::enums`].",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "module",
+            "key"
+          ]
+        }
+      ]
+    },
+    "WamConstant": {
+      "description": "One WAM buffer constant: a literal the client reads from `WAWebWamConstants`.\n\nThese govern the buffer's protocol version and its size/flush policy — not the\nschema of any event. They are here because the alternative is every consumer\nhardcoding them (this repository's own reference codec did, with `5` and no\nprovenance) and no consumer noticing when WA changes one.\n\nThe line drawn: only the literals `WAWebWamConstants` exports, a module whose whole\nbody is that export list. A number that lives inside a function — the 1 % beaconing\nroll in `WAWebWamBeaconing`, say — is a step of an algorithm, and extracting it\nwithout the algorithm would publish a number no consumer can act on.",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "The defining module.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The exported name, as WA spells it (e.g. `WAM_PROTOCOL_VERSION`).",
+          "type": "string"
+        },
+        "value": {
+          "description": "The literal value.",
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "module"
+      ]
+    },
     "WamEnum": {
       "description": "A WAM enum (`WAWebWamEnum…` module, `Object.freeze({KEY: int})`) referenced as a\nfield type.",
       "type": "object",
@@ -78,6 +256,13 @@
       "description": "One WAM event definition.",
       "type": "object",
       "properties": {
+        "callSites": {
+          "description": "Places a construction of this event was seen, sorted by module. A module may\nappear more than once when it constructs the event at several sites.\n\nAbsent means no construction was recovered — which is not the same as \"never\nemitted\": the count of constructions the scan could not attribute is published\nin `manifest.diagnostics.wam`, so the two never look alike.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WamCallSite"
+          }
+        },
         "channel": {
           "description": "Sampling channel / `wamChannel` (e.g. `regular`, `realtime`, `private`).",
           "type": "string"
@@ -89,7 +274,7 @@
           "minimum": 0
         },
         "consumers": {
-          "description": "WA Web modules that construct + `.commit()` this event — a hint for consumers\nabout where/when each metric is emitted. Sorted, deduped.",
+          "description": "Modules that declare a dependency on this event's module — the bundle's dep\ngraph, nothing more. Sorted, deduped.\n\nA module lands here for importing the event's module, whatever it does with it:\n`WAWebWamProcessWorkerData` is on nearly every event because it routes the\nworker's data, and a module that only reads the type is indistinguishable from\none that emits. It is a starting point for reading the bundle, not evidence of\nemission — [`call_sites`](Self::call_sites) is where a construction was actually\nseen.",
           "type": "array",
           "items": {
             "type": "string"
@@ -111,7 +296,7 @@
           "type": "string"
         },
         "privateStatsId": {
-          "description": "`privateStatsIdInt` when set (the JS sentinel `-1` is normalized to `None`).",
+          "description": "`privateStatsIdInt` when set (the JS sentinel `-1` is normalized to `None`).\nA foreign key into [`WamIr::private_stats_ids`]: it names the rotation group\nwhose anonymous id a `private` buffer carrying this event writes. Every\n`private`-channel event has one and every non-`private` event has none.",
           "type": [
             "integer",
             "null"
@@ -119,7 +304,7 @@
           "format": "int64"
         },
         "weights": {
-          "description": "Sampling weights `[default, ring1, ring2]` (a ring is chosen by gating).",
+          "description": "Sampling weights as `defineEvents` lists them, in source order. WA picks one by\ngating — a gate selects entry 1 or 2, and with neither gate on the client uses a\nliteral `1` rather than entry 0 — and the buffer writer then lets a runtime\nsampling lookup override whatever was picked. So these are the catalog's\ndeclared weights, not the weight a given buffer carries.",
           "type": "array",
           "items": {
             "type": "integer",
@@ -232,6 +417,158 @@
       "required": [
         "name",
         "id"
+      ]
+    },
+    "WamFieldWrite": {
+      "description": "How a call site writes one field.",
+      "oneOf": [
+        {
+          "description": "A key of the object handed to the event's constructor. Written whenever the\nsite runs.",
+          "type": "string",
+          "const": "constructor"
+        },
+        {
+          "description": "A later `event.field = …` or `event.set({field: …})` on the constructed value.\nWA writes many of these under a condition, and this IR does not model\nconditions, so it means \"the site may write this field\", not \"does\".",
+          "type": "string",
+          "const": "assigned"
+        }
+      ]
+    },
+    "WamGlobal": {
+      "description": "One buffer-level global: a value the client writes once per buffer (or per event)\nunder its own wire `id`, ahead of the events it applies to.\n\nDeclared by `WAWebWamGlobals` as `defineGlobal({name: [id, type, channels]})` — the\nsame `id`/type vocabulary an event field uses, plus the one axis an event field does\nnot have: the channels the global may legally be written on.\n\nA separate record from [`WamField`] rather than a `WamField` with a channel list,\nbecause the list is not a property an event field has at all: giving every field an\nempty `channels` would invite reading an event field as channel-scoped.",
+      "type": "object",
+      "properties": {
+        "channels": {
+          "description": "Channels this global may be written on, in source order (`regular`, `realtime`,\n`private`). WA's own writer skips a global whose list does not contain the\nbuffer's channel, mapping `realtime` onto `regular` first, so a buffer that\ncarries one anyway is one no client sends. `defineGlobal` defaults an omitted\nlist to `[\"regular\"]`; that default is resolved here, so the list is never empty.\n\nIt does not say the client *will* write the global on those channels — only that\nwriting it elsewhere is illegal. What supplies each value is runtime state this\nIR does not model.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "Wire id, in the same id space the buffer writes event fields in.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "name": {
+          "description": "The `defineGlobal` key (e.g. `psId`).",
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "boolean"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "number"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "timer"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A field typed by a WAM enum; `module` is the defining `WAWebWamEnum…` module\n(the unambiguous key into [`WamIr::enums`]).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "enum"
+            },
+            "module": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "module"
+          ]
+        }
+      ],
+      "required": [
+        "name",
+        "id",
+        "channels"
+      ]
+    },
+    "WamPrivateStatsId": {
+      "description": "One entry of the private-stats id table: the rotation group a `private`-channel\nevent's [`WamEvent::private_stats_id`] names.\n\nA `private` buffer carries one anonymous id (the `psId` global) shared by every event\nin it; which id depends on the event's group, and each group rotates on its own\nperiod. Without the table an event's `privateStatsId` is an integer that resolves\nagainst nothing.\n\nIt does not carry the id *value*: that is a random per-install secret the client\ngenerates, persists and rotates — never a constant, and not something to extract.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "`keyHashInt` — the integer an event's `privateStatsId` names.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "key": {
+          "description": "The group's key (e.g. `IdTtlDaily`).",
+          "type": "string"
+        },
+        "module": {
+          "description": "The module the entry was read from. `WAWebWamGlobals` for the published table;\nthe `none` group (id `0`, the one 21 events name) is contributed by\n`WAWebWamPrivateStats` on top of it, so its provenance is a different module and\nsays so here.",
+          "type": "string"
+        },
+        "rotationPeriodDays": {
+          "description": "Days between rotations of this group's id. `-1` is WA's sentinel for \"never\nrotates\" and is kept as written rather than normalized away, because `0` would\nbe a different statement and `null` would lose that the client asked for it.",
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "key",
+        "id",
+        "rotationPeriodDays",
+        "module"
       ]
     }
   }

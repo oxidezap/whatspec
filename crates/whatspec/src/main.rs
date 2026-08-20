@@ -762,6 +762,10 @@ struct Counts {
     abprops_configs: usize,
     enum_defs: usize,
     wam_events: usize,
+    wam_globals: usize,
+    wam_private_stats_ids: usize,
+    wam_constants: usize,
+    wam_call_sites: usize,
     /// Number of `<notification type="…">` kinds in the dispatch catalog.
     notif_types: usize,
     /// Of those, how many recovered a typed content shape (the rest are degraded).
@@ -1998,7 +2002,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (appstate_arts, appstate_count) = appstate.expect(checked);
     let (abprops_arts, abprops_count) = abprops.expect(checked);
     let mut enums_ir = enums.expect(checked);
-    let (wam_arts, wam_count) = wam.expect(checked);
+    let (wam_arts, (wam_count, wam_diag)) = wam.expect(checked);
     let (notif_arts, notif_counts) = notif.expect(checked);
     let NotifCounts {
         types: notif_count,
@@ -2109,6 +2113,10 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         abprops_configs: abprops_count,
         enum_defs: enums_count,
         wam_events: wam_count,
+        wam_globals: wam_diag.globals,
+        wam_private_stats_ids: wam_diag.private_stats_ids,
+        wam_constants: wam_diag.constants,
+        wam_call_sites: wam_diag.call_sites,
         notif_types: notif_count,
         notif_typed_content: notif_typed,
         notif_stanza_tags: notif_tags,
@@ -2257,6 +2265,23 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "actionShapes": counts.notif_action_shapes,
                 "dropsByReason": notif_drops,
             },
+            // The wam domain reported nothing at all until it carried more than the
+            // event catalog. Its numbers are of two kinds: what the buffer's own modules
+            // yielded, and how much of the emission surface the scan could attribute —
+            // the latter with its residue, so "no call site" and "a call site we could
+            // not read" stay distinguishable.
+            "wam": {
+                "events": counts.wam_events,
+                "globals": wam_diag.globals,
+                "privateStatsIds": wam_diag.private_stats_ids,
+                "constants": wam_diag.constants,
+                "constructions": wam_diag.constructions,
+                "callSites": wam_diag.call_sites,
+                "partialCallSites": wam_diag.partial_call_sites,
+                "callSiteFields": wam_diag.call_site_fields,
+                "callSiteFieldValues": wam_diag.call_site_field_values,
+                "dropsByReason": wam_diag.drops_by_reason,
+            },
             // These two domains run the same legacy parser as IQ and had no diagnostics
             // block at all, so a constraint they saw and could not recover was reported
             // nowhere — the one case the pending marker cannot distinguish on its own.
@@ -2313,6 +2338,26 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
             && (new as u64) < prev
         {
             regressions.push(format!("{key}: {prev} → {new}"));
+        }
+    }
+    // The WAM surface beyond the event count. Each of these is a construct WA declares
+    // in one place, so a fall means the extractor stopped seeing it rather than that WA
+    // shipped fewer: 46 globals do not become 12 in a rollout. `callSites` is guarded
+    // the same way and for the same reason, even though individual sites do come and go
+    // with the code that emits them — a collapse is the signal, and `--allow-shrink` is
+    // there for the day a genuine one is real.
+    if let Some(wam) = prior.get("diagnostics").and_then(|d| d.get("wam")) {
+        for (key, new) in [
+            ("globals", counts.wam_globals),
+            ("privateStatsIds", counts.wam_private_stats_ids),
+            ("constants", counts.wam_constants),
+            ("callSites", counts.wam_call_sites),
+        ] {
+            if let Some(prev) = wam.get(key).and_then(serde_json::Value::as_u64)
+                && (new as u64) < prev
+            {
+                regressions.push(format!("wam.{key}: {prev} → {new}"));
+            }
         }
     }
     // Stanza-level IQ coverage — the sensitive signal the guard's doc promises:
@@ -3097,10 +3142,24 @@ fn push_wam(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<usize> {
-    let ir = wa_wam::extract_wam_from_modules(source, module_defs, wa_version);
+) -> Result<(usize, wa_wam::WamDiagnostics)> {
+    let (ir, diag) = wa_wam::extract_wam_from_modules(source, module_defs, wa_version);
     let count = ir.events.len();
-    eprintln!("wam: {count} events, {} enums", ir.enums.len());
+    eprintln!(
+        "wam: {count} events, {} enums, {} globals, {} private-stats ids, {} constants",
+        ir.enums.len(),
+        ir.globals.len(),
+        ir.private_stats_ids.len(),
+        ir.constants.len()
+    );
+    eprintln!(
+        "wam: {} call site(s) from {} construction(s), {} field(s) ({} with a value), {} partial",
+        diag.call_sites,
+        diag.constructions,
+        diag.call_site_fields,
+        diag.call_site_field_values,
+        diag.partial_call_sites
+    );
     artifacts.push(Artifact {
         rel_path: PathBuf::from("wam/index.json"),
         content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
@@ -3110,7 +3169,7 @@ fn push_wam(
         rel_path: PathBuf::from("wam/wam.rs"),
         content: wa_codegen::generate_wam(&ir),
     });
-    Ok(count)
+    Ok((count, diag))
 }
 
 /// `(single-byte entries, total double-byte entries)` for the binary-token tables.

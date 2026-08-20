@@ -12,6 +12,7 @@ description = "Native tooling: oxc AST extraction of WhatsApp Web's WAM (analyti
 oxc_allocator = { workspace = true }
 oxc_ast = { workspace = true }
 oxc_ast_visit = { workspace = true }
+oxc_syntax = { workspace = true }
 wa-ir = { workspace = true }
 wa-oxc = { workspace = true }
 wa-transform = { workspace = true }

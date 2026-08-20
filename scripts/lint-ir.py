@@ -79,6 +79,18 @@ BASELINE = {
     # if a smax request starts hiding its `to`, which is the case worth catching, since
     # `target` alone tells a consumer that a value is required without telling it where.
     "iq request with a runtime addressee and no argument path": 2,
+    # WAM constructions the scan saw and could not turn into a field set, read from
+    # `manifest.diagnostics.wam.dropsByReason`. The point of pinning them is that they
+    # are the denominator's residue: `callSites` is floor-guarded against falling, and
+    # without these a construction that stops being readable would move from the first
+    # number to nowhere. The unread arguments are constructions handed a variable built
+    # earlier, which is the shape that resists static reading; the uncataloged ones are
+    # all `RawWamEvent`, the generic envelope whose schema is supplied at runtime by
+    # design. The third is held at zero: a written key that names no field of the event
+    # means a write was attributed to the wrong construction, and none currently is.
+    "wam construction with an unread argument": 114,
+    "wam construction of an event with no catalog entry": 41,
+    "wam written key naming no field of the event": 0,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -126,6 +138,12 @@ WIDTH_BEARING = {"contentUint"}
 # `WamChannel`. Anything else is mapped to `Regular` by the reference generator rather
 # than preserved, so an unknown value loses the channel silently instead of failing.
 WAM_CHANNELS = {"regular", "realtime", "private"}
+
+# The expression forms a WAM construction's argument can take that the scan does not
+# read — an identifier it was built into, a property of one, a call that returns it.
+# Summed into one baseline because they are one gap seen from three angles; kept apart
+# in the manifest because the angle says whether closing it is worth the pass.
+WAM_UNREAD_ARGUMENT_FORMS = {"identifier", "member", "call", "conditional", "logical", "other"}
 
 # What each accessor may decode to. Deliberately a SET per accessor, not one type: an
 # `attrInt` legitimately backs `integer`, `timestamp` and `timestamp_millis`, and a
@@ -1000,6 +1018,140 @@ def check_event_codes(data, domain, errors):
             )
 
 
+def check_wam_buffer(data, domain, errors):
+    """The WAM document's cross-references: global channels, the private-stats table,
+    and the field a call site claims to write.
+
+    Three invariants the JSON Schema cannot state, each of which turns a usable document
+    into one that quietly misleads:
+
+    * a global with no channels is a value with nowhere legal to write it, and WA's own
+      writer skips it — the IR would be saying "this exists" and nothing more;
+    * an event's `privateStatsId` is a foreign key. If it resolves to no entry, a
+      `private` buffer's anonymous id cannot be chosen, and the event's whole channel is
+      unusable;
+    * a call site names fields of ITS event. A name that is not one is a write
+      attributed to the wrong construction, which is worse than a missing site: it reads
+      as evidence.
+    """
+    if domain != "wam":
+        return
+    globals_ = data.get("globals")
+    if isinstance(globals_, list):
+        by_id = {}
+        for g in globals_:
+            if not isinstance(g, dict):
+                continue
+            name = g.get("name")
+            channels = g.get("channels")
+            if not isinstance(channels, list) or not channels:
+                errors.append(
+                    f"{domain}: global {name!r} lists no channel, so there is nowhere "
+                    f"it may legally be written"
+                )
+            else:
+                unknown = sorted(c for c in channels if c not in WAM_CHANNELS)
+                if unknown:
+                    errors.append(
+                        f"{domain}: global {name!r} names channel(s) {unknown}, "
+                        f"not among {sorted(WAM_CHANNELS)}"
+                    )
+            gid = g.get("id")
+            if isinstance(gid, int) and not 0 <= gid <= 0xFFFF:
+                errors.append(
+                    f"{domain}: global {name!r} has id {gid}, which does not fit the "
+                    f"16-bit wire field"
+                )
+            if gid in by_id:
+                errors.append(
+                    f"{domain}: globals {by_id[gid]!r} and {name!r} share id {gid}"
+                )
+            else:
+                by_id[gid] = name
+
+    groups = data.get("privateStatsIds")
+    known_groups = set()
+    if isinstance(groups, list):
+        for g in groups:
+            if not isinstance(g, dict):
+                continue
+            gid = g.get("id")
+            if gid in known_groups:
+                errors.append(
+                    f"{domain}: private-stats id {gid} is defined more than once, so an "
+                    f"event naming it selects no one group"
+                )
+            known_groups.add(gid)
+            days = g.get("rotationPeriodDays")
+            # `-1` is the never-rotates sentinel; `0` would mean "rotate every zero
+            # days", which is not a period a client can act on.
+            if isinstance(days, int) and days != -1 and days <= 0:
+                errors.append(
+                    f"{domain}: private-stats group {g.get('key')!r} rotates every "
+                    f"{days} days, which is neither a period nor the -1 sentinel"
+                )
+
+    for e in data.get("events") or []:
+        if not isinstance(e, dict):
+            continue
+        psid = e.get("privateStatsId")
+        if psid is not None and known_groups and psid not in known_groups:
+            errors.append(
+                f"{domain}: event {e.get('name')!r} names private-stats id {psid}, "
+                f"which resolves against no entry in the table"
+            )
+        field_names = {
+            f.get("name")
+            for f in e.get("fields") or []
+            if isinstance(f, dict)
+        }
+        for site in e.get("callSites") or []:
+            if not isinstance(site, dict):
+                continue
+            for f in site.get("fields") or []:
+                if isinstance(f, dict) and f.get("name") not in field_names:
+                    errors.append(
+                        f"{domain}: call site {site.get('module')!r} of event "
+                        f"{e.get('name')!r} writes {f.get('name')!r}, which is not a "
+                        f"field of that event"
+                    )
+
+
+def count_wam_construction_gaps(root, counts, errors):
+    """The constructions the WAM scan could not read, from the manifest.
+
+    They live in the manifest rather than in the document because they are about what is
+    NOT in it — a construction that yielded no call site leaves no node to hang a count
+    on. Read here so the same ratchet that guards every other unresolved state guards
+    this one: `diagnostics.wam.callSites` is floor-guarded against falling, and these
+    against rising, so a construction cannot quietly move from readable to invisible.
+    """
+    path = root / "manifest.json"
+    try:
+        manifest = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        errors.append(f"{path}: cannot be read as JSON ({e})")
+        return
+    drops = (
+        manifest.get("diagnostics", {}).get("wam", {}).get("dropsByReason", {})
+        if isinstance(manifest, dict)
+        else {}
+    )
+    if not isinstance(drops, dict):
+        errors.append(f"{path}: diagnostics.wam.dropsByReason is not an object")
+        return
+    # The argument forms are reported one per form, since which form resisted is what
+    # says whether the gap is worth closing; the baseline is on their sum.
+    counts["wam construction with an unread argument"] = sum(
+        v for k, v in drops.items() if k in WAM_UNREAD_ARGUMENT_FORMS
+    )
+    for key in (
+        "construction of an event with no catalog entry",
+        "written key naming no field of the event",
+    ):
+        counts[f"wam {key}"] = drops.get(key, 0)
+
+
 def check_action_keys(node, path, errors, flattened):
     """`fields`, `constantFields` and `children` are three representations of ONE object
     key namespace, so a name may appear in only one of them.
@@ -1651,6 +1803,7 @@ def main() -> int:
         # different subtrees.
         check_enum_catalog_refs(data, domain, errors)
         check_event_codes(data, domain, errors)
+        check_wam_buffer(data, domain, errors)
         check_abprops(data, domain, errors)
         check_appstate_collections(
             data, domain, errors, proto_enums, proto_messages, sync_fields
@@ -1662,6 +1815,8 @@ def main() -> int:
         count_builder_gaps(data, domain, counts)
         count_unaddressed_targets(data, domain, counts)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
+
+    count_wam_construction_gaps(root, counts, errors)
 
     ok = True
     # Set difference in BOTH directions, plus the multiplicities. A gain that offsets a
