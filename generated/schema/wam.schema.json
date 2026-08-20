@@ -274,7 +274,7 @@
           "minimum": 0
         },
         "consumers": {
-          "description": "Modules that declare a dependency on this event's module — the bundle's dep\ngraph, nothing more. Sorted, deduped.\n\nA module lands here for importing the event's module, whatever it does with it:\n`WAWebWamProcessWorkerData` is on nearly every event because it routes the\nworker's data, and a module that only reads the type is indistinguishable from\none that emits. It is a starting point for reading the bundle, not evidence of\nemission — [`call_sites`](Self::call_sites) is where a construction was actually\nseen.",
+          "description": "Modules that declare a dependency on this event's module — the bundle's dep\ngraph, nothing more. Sorted, deduped.\n\nA module lands here for importing the event's module, whatever it does with it:\na module that only reads the type is indistinguishable from one that emits, and\nthe worker's router is listed on the 63 events it forwards without sending any\nof them. It is a starting point for reading the bundle, not evidence of emission\n— [`call_sites`](Self::call_sites) is where a construction was actually seen.",
           "type": "array",
           "items": {
             "type": "string"

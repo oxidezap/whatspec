@@ -118,7 +118,11 @@ pub fn extract_wam_from_modules(
             parsed.push((export, ev));
         }
     }
-    parsed.sort_by(|a, b| a.1.code.cmp(&b.1.code).then_with(|| a.1.name.cmp(&b.1.name)));
+    parsed.sort_by(|a, b| {
+        a.1.code
+            .cmp(&b.1.code)
+            .then_with(|| a.1.name.cmp(&b.1.name))
+    });
     parsed.dedup_by(|a, b| a.1.code == b.1.code && a.1.name == b.1.name);
 
     // (event module, export) → index, for attributing constructions.

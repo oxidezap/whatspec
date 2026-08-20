@@ -86,11 +86,10 @@ pub struct WamEvent {
     /// graph, nothing more. Sorted, deduped.
     ///
     /// A module lands here for importing the event's module, whatever it does with it:
-    /// `WAWebWamProcessWorkerData` is on nearly every event because it routes the
-    /// worker's data, and a module that only reads the type is indistinguishable from
-    /// one that emits. It is a starting point for reading the bundle, not evidence of
-    /// emission — [`call_sites`](Self::call_sites) is where a construction was actually
-    /// seen.
+    /// a module that only reads the type is indistinguishable from one that emits, and
+    /// the worker's router is listed on the 63 events it forwards without sending any
+    /// of them. It is a starting point for reading the bundle, not evidence of emission
+    /// — [`call_sites`](Self::call_sites) is where a construction was actually seen.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub consumers: Vec<String>,
     /// Places a construction of this event was seen, sorted by module. A module may
