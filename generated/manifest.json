@@ -79,7 +79,7 @@
         "call": 1,
         "call site overriding the catalog sampling weight": 4,
         "construction of an event with no catalog entry": 41,
-        "identifier": 110,
+        "identifier": 100,
         "member": 3
       },
       "events": 436,

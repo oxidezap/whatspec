@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{ArrayExpression, Expression, ObjectExpression, Statement};
+use oxc_span::GetSpan;
 use wa_ir::{
     WamCallSite, WamCallSiteField, WamConstant, WamEnum, WamEnumVariant, WamEvent, WamField,
     WamFieldType, WamFieldWrite, WamGlobal, WamIr, WamPrivateStatsId,
@@ -247,13 +248,19 @@ fn collect_call_sites(
         if !m.deps.iter().any(|d| d.ends_with("WamEvent")) {
             continue;
         }
-        for raw in callsites::scan_module(&source[m.start..m.end], &mut diag.drops_by_reason) {
+        for raw in callsites::scan_module(&source[m.start..m.end]) {
             // The same module can be defined by more than one bundle file; a second copy
             // is the same source, not a second site.
             if !seen.insert((m.name.clone(), raw.event_module.clone(), raw.start)) {
                 continue;
             }
             diag.constructions += 1;
+            // Counted here rather than during the scan: 2648 module names are defined by
+            // more than one bundle file, so a residue counted per copy would report one
+            // construction as several and could trip the lint baseline on a duplicate.
+            if let Some(form) = raw.unread_argument {
+                *diag.drops_by_reason.entry(form.to_string()).or_default() += 1;
+            }
             let index = exports
                 .get(&(raw.event_module.clone(), raw.export.clone()))
                 .copied()
@@ -371,21 +378,33 @@ fn parse_globals(slice: &str) -> Vec<WamGlobal> {
                     continue;
                 };
                 let (Some(id), Some(field_type)) = (
-                    arr_elem(arr, 0).and_then(as_int),
+                    // `try_from`, not `as`: a negative or oversized literal is a global
+                    // we misread, and wrapping it into range would publish a plausible
+                    // id the linter's range check then waves through.
+                    arr_elem(arr, 0)
+                        .and_then(as_int)
+                        .and_then(|v| u32::try_from(v).ok()),
                     arr_elem(arr, 1).and_then(|e| parse_field_type(e, &aliases)),
                 ) else {
                     continue;
                 };
-                let channels = match arr_elem(arr, 2) {
+                let mut channels: Vec<String> = match arr_elem(arr, 2) {
                     Some(Expression::ArrayExpression(ch)) => (0..ch.elements.len())
                         .filter_map(|i| arr_elem(ch, i).and_then(as_string_lit))
                         .map(str::to_string)
                         .collect(),
-                    _ => vec!["regular".to_string()],
+                    _ => Vec::new(),
                 };
+                // `defineGlobal` defaults an omitted list to `["regular"]`. A list that
+                // is present but unreadable defaults the same way rather than leaving the
+                // global with nowhere legal to write it — a state the type promises never
+                // to be in and the linter rejects.
+                if channels.is_empty() {
+                    channels.push("regular".to_string());
+                }
                 out.push(WamGlobal {
                     name: name.to_string(),
-                    id: id as u32,
+                    id,
                     field_type,
                     channels,
                 });
@@ -590,7 +609,7 @@ fn parse_events(slice: &str, module: &str) -> Vec<(Option<String>, WamEvent)> {
     struct V<'m> {
         module: &'m str,
         /// Locals standing for a `o("Module")` require.
-        aliases: &'m BTreeMap<String, String>,
+        aliases: &'m RequireAliases,
         /// Events, tagged with the span of the `defineEvents` call that made them.
         out: Vec<(u32, WamEvent)>,
         /// Local name → span of the `defineEvents` call it holds.
@@ -671,7 +690,7 @@ fn parse_event(
     name: &str,
     value: &Expression,
     module: &str,
-    aliases: &BTreeMap<String, String>,
+    aliases: &RequireAliases,
 ) -> Option<WamEvent> {
     let Expression::ArrayExpression(arr) = value else {
         return None;
@@ -714,7 +733,7 @@ fn parse_event(
 
 /// Parse `{fieldName: [fieldId, type], …}` into ordered fields (skips entries whose
 /// type isn't a recognized base type or enum ref).
-fn parse_fields(obj: &ObjectExpression, aliases: &BTreeMap<String, String>) -> Vec<WamField> {
+fn parse_fields(obj: &ObjectExpression, aliases: &RequireAliases) -> Vec<WamField> {
     let mut fields = Vec::new();
     for (name, value) in wa_oxc::obj_props(obj) {
         let Expression::ArrayExpression(arr) = value else {
@@ -742,7 +761,8 @@ fn parse_fields(obj: &ObjectExpression, aliases: &BTreeMap<String, String>) -> V
 /// next — so `aliases` carries what each local was bound to. Without it those fields
 /// resolve to no type and drop out of the event, which is how an event with five enum
 /// fields came to publish one.
-fn parse_field_type(e: &Expression, aliases: &BTreeMap<String, String>) -> Option<WamFieldType> {
+fn parse_field_type(e: &Expression, aliases: &RequireAliases) -> Option<WamFieldType> {
+    let at = e.span().start;
     let (obj, prop) = as_member(e)?;
     let obj = unwrap_binding(obj);
     // Base type: the member chain `<x>.TYPES.<NAME>`.
@@ -754,8 +774,8 @@ fn parse_field_type(e: &Expression, aliases: &BTreeMap<String, String>) -> Optio
     // Enum ref: the require call itself, or a local standing for it.
     let module = as_call(obj)
         .and_then(first_string_arg)
-        .map(str::to_string)
-        .or_else(|| wa_oxc::as_identifier(obj).and_then(|id| aliases.get(id).cloned()))?;
+        .or_else(|| wa_oxc::as_identifier(obj).and_then(|id| aliases.module_at(id, at)))?
+        .to_string();
     module
         .starts_with("WAWebWamEnum")
         .then_some(WamFieldType::Enum { module })
@@ -774,19 +794,39 @@ fn unwrap_binding<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
     }
 }
 
-/// Locals bound to a `o("Module")` require, so a field type written through one still
-/// names its module.
-fn require_aliases(program: &oxc_ast::ast::Program) -> BTreeMap<String, String> {
+/// Locals bound to a `o("Module")` require, each with the position it was bound at.
+///
+/// Position matters: one minified local can stand for two different modules in one
+/// file, rebound between uses. Resolving by name alone would give every earlier use the
+/// later module — a field silently typed as the wrong enum, which is worse than a field
+/// with no type at all.
+#[derive(Default)]
+pub(crate) struct RequireAliases(Vec<(String, u32, String)>);
+
+impl RequireAliases {
+    /// The module a local stood for at `at`: the last binding before that point.
+    pub(crate) fn module_at(&self, name: &str, at: u32) -> Option<&str> {
+        self.0
+            .iter()
+            .rfind(|(n, pos, _)| n == name && *pos <= at)
+            .map(|(_, _, module)| module.as_str())
+    }
+}
+
+/// Locals bound to a `o("Module")` require, so a field type or a call-site value written
+/// through one still names its module.
+pub(crate) fn require_aliases(program: &oxc_ast::ast::Program) -> RequireAliases {
     use oxc_ast_visit::{Visit, walk};
     struct V {
-        out: BTreeMap<String, String>,
+        out: Vec<(String, u32, String)>,
     }
     impl<'a> Visit<'a> for V {
         fn visit_variable_declarator(&mut self, d: &oxc_ast::ast::VariableDeclarator<'a>) {
             if let Some(name) = d.id.get_identifier_name()
                 && let Some(module) = d.init.as_ref().and_then(required_module)
             {
-                self.out.insert(name.to_string(), module.to_string());
+                self.out
+                    .push((name.to_string(), d.span.start, module.to_string()));
             }
             walk::walk_variable_declarator(self, d);
         }
@@ -794,18 +834,18 @@ fn require_aliases(program: &oxc_ast::ast::Program) -> BTreeMap<String, String> 
             if let Some(name) = wa_oxc::assignment_target_name(&a.left)
                 && let Some(module) = required_module(&a.right)
             {
-                self.out.insert(name.to_string(), module.to_string());
+                self.out
+                    .push((name.to_string(), a.span.start, module.to_string()));
             }
             walk::walk_assignment_expression(self, a);
         }
     }
-    let mut v = V {
-        out: BTreeMap::new(),
-    };
+    let mut v = V { out: Vec::new() };
     for stmt in &program.body {
         v.visit_statement(stmt);
     }
-    v.out
+    v.out.sort_by_key(|(_, pos, _)| *pos);
+    RequireAliases(v.out)
 }
 
 /// The module name of a `<require>("Module")` call.

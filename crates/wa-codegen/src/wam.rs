@@ -117,6 +117,15 @@ fn emit_buffer(out: &mut String, ir: &WamIr) {
             c.name, c.module, c.name, c.value
         ));
     }
+    // The header's version byte is read from the IR, so a document that does not carry
+    // it cannot produce a buffer. Refusing at compile time is the only honest answer:
+    // inventing a `5` here is what this whole change set out to stop.
+    if !ir.constants.iter().any(|c| c.name == PROTOCOL_VERSION) {
+        out.push_str(&format!(
+            "compile_error!(\"the WAM IR carries no {PROTOCOL_VERSION}: the buffer header \
+             cannot be written without it\");\n"
+        ));
+    }
     out.push('\n');
     out.push_str(GLOBALS_PRELUDE);
     out.push_str("pub const GLOBALS: &[WamGlobalDef] = &[\n");
@@ -127,19 +136,22 @@ fn emit_buffer(out: &mut String, ir: &WamIr) {
             .map(|c| format!("WamChannel::{}", channel_variant(c)))
             .collect();
         out.push_str(&format!(
-            "    WamGlobalDef {{ name: {:?}, id: {}, channels: &[{}] }},\n",
+            "    WamGlobalDef {{ name: {:?}, id: {}, ty: {}, channels: &[{}] }},\n",
             g.name,
             g.id,
+            global_type(&g.field_type),
             channels.join(", ")
         ));
     }
     out.push_str("];\n\n");
+    // The id and the method that writes it are emitted together, so a document without
+    // the global simply has no way to write it rather than a codec that will not build.
     if let Some(ps) = ir.globals.iter().find(|g| g.name == PRIVATE_STATS_GLOBAL) {
         out.push_str(&format!(
             "impl WamBuffer {{\n    /// Field id of the private-stats-id global \
              (the `{}` global, `private` channel only).\n    \
-             pub const PRIVATE_STATS_FIELD: u16 = {};\n}}\n\n",
-            ps.name, ps.id
+             pub const PRIVATE_STATS_FIELD: u16 = {};\n\n{}}}\n\n",
+            ps.name, ps.id, PRIVATE_STATS_WRITER
         ));
     }
     out.push_str("pub const PRIVATE_STATS_GROUPS: &[WamPrivateStatsGroup] = &[\n");
@@ -155,6 +167,16 @@ fn emit_buffer(out: &mut String, ir: &WamIr) {
 /// The global carrying a `private` buffer's rotating anonymous id.
 const PRIVATE_STATS_GLOBAL: &str = "psId";
 
+/// The constant that fixes the buffer header's version byte.
+const PROTOCOL_VERSION: &str = "WAM_PROTOCOL_VERSION";
+
+/// Emitted beside `PRIVATE_STATS_FIELD`, because it is the only thing that reads it.
+const PRIVATE_STATS_WRITER: &str = r##"    /// Set the private-stats-id global (written as a string, `private` channel only).
+    pub fn write_private_stats_id(&mut self, id: &str) {
+        self.write_global_attribute(Self::PRIVATE_STATS_FIELD, &WamWire::Str(id.to_string()));
+    }
+"##;
+
 /// Declarations the generated globals/private-stats tables are written against.
 const GLOBALS_PRELUDE: &str = r##"/// One buffer-level global: a value written under its own id ahead of the events it
 /// applies to. `channels` is the set the client may write it on — WA's own writer maps
@@ -162,8 +184,27 @@ const GLOBALS_PRELUDE: &str = r##"/// One buffer-level global: a value written u
 pub struct WamGlobalDef {
     pub name: &'static str,
     pub id: u16,
+    /// The declared type, which fixes how a value is encoded — the same mapping the
+    /// event fields use (boolean → 0/1 int, integer/timer → int, number → int or f64,
+    /// string → length-prefixed UTF-8, enum → its integer value).
+    pub ty: WamGlobalType,
     pub channels: &'static [WamChannel],
 }
+
+/// A global's declared type. `Enum` keeps the defining `WAWebWamEnum…` module rather
+/// than a generated Rust type: the value comes from host state and goes through the
+/// untyped `write_global_attribute`, so the module is what lets a consumer resolve the
+/// legal values in the enum catalog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WamGlobalType {
+    Boolean,
+    Integer,
+    Number,
+    Str,
+    Timer,
+    Enum(&'static str),
+}
+
 
 impl WamGlobalDef {
     /// Whether this global may be written on `channel`, applying WA's own mapping of
@@ -196,6 +237,21 @@ pub fn wam_private_stats_group(id: i64) -> Option<&'static WamPrivateStatsGroup>
 }
 
 "##;
+
+/// The `WamGlobalType` expression for a global's declared type. An enum keeps its
+/// defining module rather than resolving to the generated Rust enum: a global is set
+/// from host state through the untyped `write_global_attribute`, so what a consumer
+/// needs is the wire mapping plus a key back into the enum catalog.
+fn global_type(ty: &WamFieldType) -> String {
+    match ty {
+        WamFieldType::Boolean => "WamGlobalType::Boolean".into(),
+        WamFieldType::Integer => "WamGlobalType::Integer".into(),
+        WamFieldType::Number => "WamGlobalType::Number".into(),
+        WamFieldType::String => "WamGlobalType::Str".into(),
+        WamFieldType::Timer => "WamGlobalType::Timer".into(),
+        WamFieldType::Enum { module } => format!("WamGlobalType::Enum({module:?})"),
+    }
+}
 
 /// The `WamChannel` variant a channel name maps to. An unknown name reads as
 /// `Regular`, the same fallback the event side uses.
@@ -254,8 +310,16 @@ fn emit_event(
         "/// WAM event `{}` (code {}).\n",
         ev.name, ev.code
     ));
-    let mut sites: Vec<&str> = ev.call_sites.iter().map(|c| c.module.as_str()).collect();
-    sites.dedup();
+    // By identity, not by adjacency: the IR does not promise call sites are grouped by
+    // module, and `dedup()` on an ungrouped list names a module twice and miscounts the
+    // overflow.
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let sites: Vec<&str> = ev
+        .call_sites
+        .iter()
+        .map(|c| c.module.as_str())
+        .filter(|m| seen.insert(m))
+        .collect();
     if !sites.is_empty() {
         let shown: Vec<&str> = sites.iter().take(4).copied().collect();
         let extra = sites.len().saturating_sub(shown.len());
@@ -505,11 +569,6 @@ impl WamBuffer {
         self.write_global_attribute(Self::SEQUENCE_FIELD, &WamWire::Int(seq));
     }
 
-    /// Set the private-stats-id global (written as a string, `private` channel only).
-    pub fn write_private_stats_id(&mut self, id: &str) {
-        self.write_global_attribute(Self::PRIVATE_STATS_FIELD, &WamWire::Str(id.to_string()));
-    }
-
     /// Begin an event record: its code + `weight` (callers pass the negated sample
     /// weight, as WA Web does). `has_fields` clears the terminal bit so fields follow.
     pub fn write_event(&mut self, code: u16, weight: i64, has_fields: bool) {
@@ -670,8 +729,11 @@ mod tests {
         // The buffer's numbers come from the IR rather than from a literal in the codec.
         assert!(code.contains("pub const WAM_PROTOCOL_VERSION: i64 = 5;"));
         assert!(code.contains("pub const PRIVATE_STATS_FIELD: u16 = 6005;"));
+        // The global's declared type travels with it: without it the table cannot say
+        // whether a value is written as a string or an int.
         assert!(code.contains(
-            "WamGlobalDef { name: \"psId\", id: 6005, channels: &[WamChannel::Private] }"
+            "WamGlobalDef { name: \"psId\", id: 6005, ty: WamGlobalType::Str, \
+             channels: &[WamChannel::Private] }"
         ));
         assert!(code.contains("impl WamEventDef for ProbeEvent"));
     }

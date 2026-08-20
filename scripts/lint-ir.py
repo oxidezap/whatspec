@@ -80,15 +80,16 @@ BASELINE = {
     # `target` alone tells a consumer that a value is required without telling it where.
     "iq request with a runtime addressee and no argument path": 2,
     # WAM constructions the scan saw and could not turn into a field set, read from
-    # `manifest.diagnostics.wam.dropsByReason`. The point of pinning them is that they
-    # are the denominator's residue: `callSites` is floor-guarded against falling, and
+    # `manifest.diagnostics.wam.dropsByReason`, and counted once per construction rather
+    # than once per copy of a module (2648 module names are defined by more than one
+    # bundle file). The point of pinning them is that they are the denominator's residue: `callSites` is floor-guarded against falling, and
     # without these a construction that stops being readable would move from the first
     # number to nowhere. The unread arguments are constructions handed a variable built
     # earlier, which is the shape that resists static reading; the uncataloged ones are
     # all `RawWamEvent`, the generic envelope whose schema is supplied at runtime by
     # design. The third is held at zero: a written key that names no field of the event
     # means a write was attributed to the wrong construction, and none currently is.
-    "wam construction with an unread argument": 114,
+    "wam construction with an unread argument": 104,
     "wam construction of an event with no catalog entry": 41,
     "wam written key naming no field of the event": 0,
 }
@@ -1057,7 +1058,13 @@ def check_wam_buffer(data, domain, errors):
                         f"not among {sorted(WAM_CHANNELS)}"
                     )
             gid = g.get("id")
-            if isinstance(gid, int) and not 0 <= gid <= 0xFFFF:
+            # Before it is used as a key: a list or a dict here raises `TypeError` and
+            # takes the whole run down, which is the one thing a linter must not do with
+            # the malformed input it exists to report.
+            if not isinstance(gid, int) or isinstance(gid, bool):
+                errors.append(f"{domain}: global {name!r} has id {gid!r}, which is not an integer")
+                continue
+            if not 0 <= gid <= 0xFFFF:
                 errors.append(
                     f"{domain}: global {name!r} has id {gid}, which does not fit the "
                     f"16-bit wire field"
@@ -1076,6 +1083,12 @@ def check_wam_buffer(data, domain, errors):
             if not isinstance(g, dict):
                 continue
             gid = g.get("id")
+            if not isinstance(gid, int) or isinstance(gid, bool):
+                errors.append(
+                    f"{domain}: private-stats group {g.get('key')!r} has id {gid!r}, "
+                    f"which is not an integer"
+                )
+                continue
             if gid in known_groups:
                 errors.append(
                     f"{domain}: private-stats id {gid} is defined more than once, so an "
@@ -1095,7 +1108,10 @@ def check_wam_buffer(data, domain, errors):
         if not isinstance(e, dict):
             continue
         psid = e.get("privateStatsId")
-        if psid is not None and known_groups and psid not in known_groups:
+        # No "unless the table is empty" escape: a missing table is the worst case, not
+        # the exempt one — it leaves every `private` event naming a group that resolves
+        # to nothing, which is exactly what this check exists to catch.
+        if psid is not None and psid not in known_groups:
             errors.append(
                 f"{domain}: event {e.get('name')!r} names private-stats id {psid}, "
                 f"which resolves against no entry in the table"
@@ -1132,14 +1148,25 @@ def count_wam_construction_gaps(root, counts, errors):
     except (OSError, json.JSONDecodeError) as e:
         errors.append(f"{path}: cannot be read as JSON ({e})")
         return
-    drops = (
-        manifest.get("diagnostics", {}).get("wam", {}).get("dropsByReason", {})
-        if isinstance(manifest, dict)
-        else {}
-    )
+    node = manifest
+    for key in ("diagnostics", "wam", "dropsByReason"):
+        if not isinstance(node, dict):
+            errors.append(f"{path}: diagnostics.wam.dropsByReason is not an object")
+            return
+        node = node.get(key, {})
+    drops = node
     if not isinstance(drops, dict):
         errors.append(f"{path}: diagnostics.wam.dropsByReason is not an object")
         return
+    # Each count feeds arithmetic and then a baseline comparison, so a string or a
+    # negative here would either raise or quietly satisfy a ratchet.
+    for reason, count in drops.items():
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            errors.append(
+                f"{path}: diagnostics.wam.dropsByReason[{reason!r}] is {count!r}, "
+                f"not a non-negative integer"
+            )
+            return
     # The argument forms are reported one per form, since which form resisted is what
     # says whether the gap is worth closing; the baseline is on their sum.
     counts["wam construction with an unread argument"] = sum(

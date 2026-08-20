@@ -18,8 +18,11 @@ use oxc_ast::ast::{
     UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 use oxc_syntax::scope::ScopeFlags;
 use wa_ir::{WamCallSiteValue, WamFieldWrite};
+
+use crate::RequireAliases;
 use wa_oxc::{as_call, as_int, as_member, as_object, as_string_lit, first_string_arg, parse_cjs};
 
 /// A construction found in one module, before it is matched against the catalog.
@@ -33,6 +36,11 @@ pub(crate) struct RawSite {
     pub fields: Vec<(String, WamFieldWrite, Option<WamCallSiteValue>)>,
     /// The constructor argument also carries values the scan could not read.
     pub partial: bool,
+    /// The expression form of a constructor argument the scan could not read at all,
+    /// carried rather than counted here: the same module is defined by several bundle
+    /// files, so a residue counted during the scan would count one construction as
+    /// many. The caller counts it once, after deduplication.
+    pub unread_argument: Option<&'static str>,
     /// Position, so later writes can be attached to the nearest construction before them.
     pub start: u32,
     /// What the value is bound to, when it is bound at all.
@@ -47,37 +55,35 @@ pub(crate) enum Binding {
     /// inside the function that declared it — where the name cannot mean anything else.
     Local { name: String, function: u32 },
     /// An instance property (`this.$2`). Its writes are spread across the methods of
-    /// the class that holds it, so the function boundary is exactly what must not be
-    /// applied here.
-    Instance { name: String },
+    /// the class that holds it, so the immediate function boundary is exactly what must
+    /// not be applied — `owner` is the outermost function inside the module factory,
+    /// which is the class the minifier emits as one IIFE. Two classes in one module
+    /// reusing the same slot therefore stay apart.
+    Instance { name: String, owner: u32 },
 }
 
-/// A `<binding>.<field> = …` or `<binding>.set({…})` write.
+/// A `<binding>.<field> = …` or `<binding>.set({…})` write. `field` is `None` when the
+/// write's key is not readable — a spread or a computed name inside a `set({…})` — which
+/// writes fields the published list cannot name and so makes its site partial.
 struct RawWrite {
     binding: Binding,
-    field: String,
+    field: Option<String>,
     value: Option<WamCallSiteValue>,
     start: u32,
 }
 
 /// Every construction in one module slice, with the post-construction writes already
 /// attached to the site each belongs to.
-///
-/// `unresolved_args` counts constructions whose argument said nothing readable, keyed by
-/// the expression form that resisted (`identifier`, `call`, …) so the reason survives
-/// into the manifest instead of turning into a bare total.
-pub(crate) fn scan_module(
-    slice: &str,
-    unresolved_args: &mut BTreeMap<String, usize>,
-) -> Vec<RawSite> {
+pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
     let alloc = Allocator::default();
     let ret = parse_cjs(&alloc, slice);
+    let aliases = crate::require_aliases(&ret.program);
     let mut v = SiteVisitor {
         bindings: BTreeMap::new(),
         sites: Vec::new(),
         writes: Vec::new(),
-        function: 0,
-        unresolved_args,
+        functions: Vec::new(),
+        aliases: &aliases,
     };
     for stmt in &ret.program.body {
         v.visit_statement(stmt);
@@ -98,8 +104,12 @@ pub(crate) fn scan_module(
         else {
             continue;
         };
-        site.fields
-            .push((w.field, WamFieldWrite::Assigned, w.value));
+        match w.field {
+            Some(field) => site.fields.push((field, WamFieldWrite::Assigned, w.value)),
+            // A key the scan could not read still writes a field, so the site's list
+            // stops being the whole of what it writes.
+            None => site.partial = true,
+        }
     }
     sites
 }
@@ -109,22 +119,42 @@ struct SiteVisitor<'m> {
     bindings: BTreeMap<u32, Binding>,
     sites: Vec<RawSite>,
     writes: Vec<RawWrite>,
-    /// Span start of the function being visited; `0` at module top level.
-    function: u32,
-    unresolved_args: &'m mut BTreeMap<String, usize>,
+    /// Span starts of the functions being visited, outermost first. The first is the
+    /// module factory, so the second is the class or top-level function that owns an
+    /// instance property.
+    functions: Vec<u32>,
+    /// Locals standing for a `o("Module")` require, so an enum member written through
+    /// one resolves the same way a field type written through one does.
+    aliases: &'m RequireAliases,
+}
+
+impl SiteVisitor<'_> {
+    /// The function a local is declared in. `0` at module top level.
+    fn function(&self) -> u32 {
+        self.functions.last().copied().unwrap_or(0)
+    }
+
+    /// The function that owns `this` here: the outermost one inside the module factory,
+    /// which is the unit the minifier emits a class as.
+    fn owner(&self) -> u32 {
+        self.functions
+            .get(1)
+            .copied()
+            .unwrap_or_else(|| self.function())
+    }
 }
 
 impl<'a> Visit<'a> for SiteVisitor<'_> {
     fn visit_function(&mut self, f: &oxc_ast::ast::Function<'a>, flags: ScopeFlags) {
-        let outer = std::mem::replace(&mut self.function, f.span.start);
+        self.functions.push(f.span.start);
         walk::walk_function(self, f, flags);
-        self.function = outer;
+        self.functions.pop();
     }
 
     fn visit_arrow_function_expression(&mut self, f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
-        let outer = std::mem::replace(&mut self.function, f.span.start);
+        self.functions.push(f.span.start);
         walk::walk_arrow_function_expression(self, f);
-        self.function = outer;
+        self.functions.pop();
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -135,7 +165,7 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                 n.span.start,
                 Binding::Local {
                     name: name.to_string(),
-                    function: self.function,
+                    function: self.function(),
                 },
             );
         }
@@ -143,18 +173,18 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
     }
 
     fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
-        if let Some(target) = binding_key(&a.left, self.function) {
+        if let Some(target) = binding_key(&a.left, self.function(), self.owner()) {
             if let Expression::NewExpression(n) = &a.right {
                 self.bindings.insert(n.span.start, target);
             }
         } else if let Some(m) = a.left.as_member_expression()
             && let Some(field) = m.static_property_name()
-            && let Some(base) = binding_key_expr(m.object(), self.function)
+            && let Some(base) = binding_key_expr(m.object(), self.function(), self.owner())
         {
             self.writes.push(RawWrite {
                 binding: base,
-                field: field.to_string(),
-                value: literal_value(&a.right),
+                field: Some(field.to_string()),
+                value: literal_value(&a.right, self.aliases),
                 start: a.span.start,
             });
         }
@@ -165,8 +195,8 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
         // `event.set({field: …})` — the same write the constructor performs, spelled as
         // a method.
         if wa_oxc::callee_method(call) == Some("set")
-            && let Some(base) =
-                wa_oxc::callee_object(call).and_then(|e| binding_key_expr(e, self.function))
+            && let Some(base) = wa_oxc::callee_object(call)
+                .and_then(|e| binding_key_expr(e, self.function(), self.owner()))
             && let Some(obj) = call
                 .arguments
                 .first()
@@ -174,17 +204,25 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                 .and_then(as_object)
         {
             for prop in &obj.properties {
-                let ObjectPropertyKind::ObjectProperty(p) = prop else {
-                    continue;
+                // A spread merges keys from elsewhere and a computed key names a field
+                // at runtime; both write fields this cannot name, so they are recorded
+                // as unnamed writes rather than skipped.
+                let field = match prop {
+                    ObjectPropertyKind::ObjectProperty(p) => {
+                        wa_oxc::property_key_name(&p.key).map(str::to_string)
+                    }
+                    ObjectPropertyKind::SpreadProperty(_) => None,
                 };
-                if let Some(name) = wa_oxc::property_key_name(&p.key) {
-                    self.writes.push(RawWrite {
-                        binding: base.clone(),
-                        field: name.to_string(),
-                        value: literal_value(&p.value),
-                        start: call.span.start,
-                    });
-                }
+                let value = match prop {
+                    ObjectPropertyKind::ObjectProperty(p) => literal_value(&p.value, self.aliases),
+                    ObjectPropertyKind::SpreadProperty(_) => None,
+                };
+                self.writes.push(RawWrite {
+                    binding: base.clone(),
+                    field,
+                    value,
+                    start: call.span.start,
+                });
             }
         }
         walk::walk_call_expression(self, call);
@@ -194,16 +232,24 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
         if let Some((module, export)) = wam_event_callee(&n.callee) {
             let mut fields = Vec::new();
             let mut partial = false;
+            let mut unread_argument = None;
             match n.arguments.first().and_then(wa_oxc::arg_expr) {
                 // `new (…)(…)` with no argument: a real, complete field set of zero.
                 None => {}
-                Some(arg) => read_argument(arg, &mut fields, &mut partial, self.unresolved_args),
+                Some(arg) => read_argument(
+                    arg,
+                    &mut fields,
+                    &mut partial,
+                    &mut unread_argument,
+                    self.aliases,
+                ),
             }
             self.sites.push(RawSite {
                 event_module: module.to_string(),
                 export: export.to_string(),
                 fields,
                 partial,
+                unread_argument,
                 start: n.span.start,
                 binding: self.bindings.get(&n.span.start).cloned(),
             });
@@ -219,7 +265,8 @@ fn read_argument(
     arg: &Expression,
     fields: &mut Vec<(String, WamFieldWrite, Option<WamCallSiteValue>)>,
     partial: &mut bool,
-    unresolved: &mut BTreeMap<String, usize>,
+    unread: &mut Option<&'static str>,
+    aliases: &RequireAliases,
 ) {
     if let Some(obj) = as_object(arg) {
         for prop in &obj.properties {
@@ -229,7 +276,7 @@ fn read_argument(
                         Some(name) => fields.push((
                             name.to_string(),
                             WamFieldWrite::Constructor,
-                            literal_value(&p.value),
+                            literal_value(&p.value, aliases),
                         )),
                         // A computed key writes a field whose name is a runtime value.
                         None => *partial = true,
@@ -246,16 +293,16 @@ fn read_argument(
     {
         for a in &call.arguments {
             match a.as_expression() {
-                Some(e) if as_object(e).is_some() => read_argument(e, fields, partial, unresolved),
+                Some(e) if as_object(e).is_some() => {
+                    read_argument(e, fields, partial, unread, aliases)
+                }
                 _ => *partial = true,
             }
         }
         return;
     }
     *partial = true;
-    *unresolved
-        .entry(expression_form(arg).to_string())
-        .or_default() += 1;
+    *unread = Some(expression_form(arg));
 }
 
 /// `babelHelpers.extends(a, b, …)` — the transpiler's object spread, and the only
@@ -298,7 +345,11 @@ fn unparen<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
 }
 
 /// The binding an assignment target names, for `x = …` and `this.$2 = …`.
-fn binding_key(target: &oxc_ast::ast::AssignmentTarget, function: u32) -> Option<Binding> {
+fn binding_key(
+    target: &oxc_ast::ast::AssignmentTarget,
+    function: u32,
+    owner: u32,
+) -> Option<Binding> {
     if let Some(name) = wa_oxc::assignment_target_name(target) {
         return Some(Binding::Local {
             name: name.to_string(),
@@ -308,11 +359,12 @@ fn binding_key(target: &oxc_ast::ast::AssignmentTarget, function: u32) -> Option
     let m = target.as_member_expression()?;
     this_property(m).map(|p| Binding::Instance {
         name: p.to_string(),
+        owner,
     })
 }
 
 /// The same binding, read off an expression (the base of a `<base>.<field>` write).
-fn binding_key_expr(e: &Expression, function: u32) -> Option<Binding> {
+fn binding_key_expr(e: &Expression, function: u32, owner: u32) -> Option<Binding> {
     if let Some(name) = wa_oxc::as_identifier(e) {
         return Some(Binding::Local {
             name: name.to_string(),
@@ -322,6 +374,7 @@ fn binding_key_expr(e: &Expression, function: u32) -> Option<Binding> {
     let m = e.as_member_expression()?;
     this_property(m).map(|p| Binding::Instance {
         name: p.to_string(),
+        owner,
     })
 }
 
@@ -335,7 +388,7 @@ fn this_property<'b, 'a>(m: &'b oxc_ast::ast::MemberExpression<'a>) -> Option<&'
 /// The value a site writes, when it is fixed at extraction time. A runtime expression
 /// yields `None` rather than a slice of source: a consumer must not have to parse
 /// JavaScript to read this IR.
-fn literal_value(e: &Expression) -> Option<WamCallSiteValue> {
+fn literal_value(e: &Expression, aliases: &RequireAliases) -> Option<WamCallSiteValue> {
     let e = unparen(e);
     match e {
         Expression::BooleanLiteral(b) => return Some(WamCallSiteValue::Bool { value: b.value }),
@@ -358,8 +411,15 @@ fn literal_value(e: &Expression) -> Option<WamCallSiteValue> {
     // `o("WAWebWamEnum…").ENUM_NAME.MEMBER` — named, not resolved to its integer, so it
     // still reads against the enum catalog after WA renumbers.
     if let Some((enum_obj, key)) = as_member(e)
-        && let Some((module_call, _)) = as_member(enum_obj)
-        && let Some(module) = as_call(module_call).and_then(first_string_arg)
+        && let Some((holder, _)) = as_member(enum_obj)
+        && let Some(module) = as_call(unparen(holder))
+            .and_then(first_string_arg)
+            // The minifier reads a repeatedly used enum module off a local, exactly as
+            // it does in the event modules; resolve it at the position of this use.
+            .or_else(|| {
+                wa_oxc::as_identifier(holder)
+                    .and_then(|id| aliases.module_at(id, holder.span().start))
+            })
         && module.starts_with("WAWebWamEnum")
     {
         return Some(WamCallSiteValue::EnumMember {

@@ -412,3 +412,117 @@ __d("WAWebSendReporter",["WAWebSendWamEvent"],(function(t,n,r,o,a,i,l){
     let tries = site.fields.iter().find(|f| f.name == "tries").unwrap();
     assert_eq!(tries.value, Some(WamCallSiteValue::Int { value: 0 }));
 }
+
+#[test]
+fn two_writes_of_one_field_with_the_same_value_keep_it() {
+    // The value is dropped because the branches disagree, not because the field was
+    // written twice — an agreeing pair still says what the site sends.
+    let src = r#"
+__d("WAWebSameWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.SameWamEvent=e.defineEvents({Same:[11,{ok:[1,e.TYPES.BOOLEAN]},[1,1,1]]},{Same:[]})
+}),1);
+__d("WAWebSameReporter",["WAWebSameWamEvent"],(function(t,n,r,o,a,i,l){
+  function f(y){var x=new(o("WAWebSameWamEvent")).SameWamEvent({ok:!0});y||(x.ok=!0);x.commit()}
+}),2);
+"#;
+    let ir = run(src);
+    let site = &ir.events[0].call_sites[0];
+    assert_eq!(site.fields.len(), 1);
+    assert_eq!(site.fields[0].write, WamFieldWrite::Constructor);
+    assert_eq!(
+        site.fields[0].value,
+        Some(WamCallSiteValue::Bool { value: true })
+    );
+}
+
+#[test]
+fn a_set_call_the_scan_cannot_read_makes_its_site_partial() {
+    // `set({…})` is the constructor's object spelled as a method, so a key it cannot
+    // read has to say so the same way — otherwise the published list reads as the whole
+    // of what the site writes.
+    let src = r#"
+__d("WAWebSetWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.SetWamEvent=e.defineEvents({Set:[12,{ok:[1,e.TYPES.BOOLEAN],n:[2,e.TYPES.INTEGER]},[1,1,1]]},{Set:[]})
+}),1);
+__d("WAWebSetReporter",["WAWebSetWamEvent"],(function(t,n,r,o,a,i,l){
+  function f(rest){var x=new(o("WAWebSetWamEvent")).SetWamEvent();x.set(babelHelpers.extends({ok:!0},rest));x.set({n:1,...rest});x.commit()}
+}),2);
+"#;
+    let ir = run(src);
+    let site = &ir.events[0].call_sites[0];
+    assert!(
+        site.fields.iter().any(|f| f.name == "n"),
+        "the keys it could read are still published"
+    );
+    assert!(
+        site.partial,
+        "a spread inside set() writes fields the list cannot name"
+    );
+}
+
+#[test]
+fn two_classes_in_one_module_do_not_share_an_instance_slot() {
+    // Both classes hold their event in `this.$1`. The write in the second belongs to the
+    // second event, and `deviceCount` is not a field of the first, so a shared binding
+    // would have dropped it rather than published it here.
+    let src = r#"
+__d("WAWebAWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.AWamEvent=e.defineEvents({A:[21,{count:[1,e.TYPES.INTEGER]},[1,1,1]]},{A:[]})
+}),1);
+__d("WAWebBWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.BWamEvent=e.defineEvents({B:[22,{count:[1,e.TYPES.INTEGER]},[1,1,1]]},{B:[]})
+}),2);
+__d("WAWebTwoReporters",["WAWebAWamEvent","WAWebBWamEvent"],(function(t,n,r,o,a,i,l){
+  var p=(function(){function t(){this.$1=new(o("WAWebAWamEvent")).AWamEvent({})}return t})();
+  var q=(function(){function t(){this.$1=new(o("WAWebBWamEvent")).BWamEvent({})}
+    var n=t.prototype;n.bump=function(v){this.$1.count=v};return t})();
+  l.p=p,l.q=q
+}),3);
+"#;
+    let ir = run(src);
+    let a = ir.events.iter().find(|e| e.name == "A").unwrap();
+    let b = ir.events.iter().find(|e| e.name == "B").unwrap();
+    assert!(
+        a.call_sites[0].fields.is_empty(),
+        "the write belongs to the class that declared the slot, not to the earlier one"
+    );
+    assert_eq!(b.call_sites[0].fields.len(), 1);
+    assert_eq!(b.call_sites[0].fields[0].name, "count");
+    assert_eq!(b.call_sites[0].fields[0].write, WamFieldWrite::Assigned);
+}
+
+#[test]
+fn a_local_rebound_to_a_second_enum_module_types_each_field_by_position() {
+    // One minified local, two enum modules, rebound between the fields that read it.
+    // Resolving by name alone types the middle field with the later module — a field
+    // silently given the wrong enum, which is worse than one with no type at all.
+    let src = r#"
+__d("WAWebWamEnumFirst",[],(function(t,n,r,o,a,i){i.FIRST=Object.freeze({A:1})}),1);
+__d("WAWebWamEnumSecond",[],(function(t,n,r,o,a,i){i.SECOND=Object.freeze({B:2})}),2);
+__d("WAWebTwoEnumsWamEvent",["WAWebWamCodegenUtils","WAWebWamEnumFirst","WAWebWamEnumSecond"],(function(t,n,r,o,a,i,l){
+  var e,s=o("WAWebWamCodegenUtils").defineEvents({TwoEnums:[31,{
+    one:[1,(e=o("WAWebWamEnumFirst")).FIRST],
+    two:[2,e.FIRST],
+    three:[3,(e=o("WAWebWamEnumSecond")).SECOND]
+  },[1,1,1]]},{TwoEnums:[]});l.TwoEnumsWamEvent=s
+}),3);
+"#;
+    let ir = run(src);
+    let ev = &ir.events[0];
+    let f = |n: &str| ev.fields.iter().find(|f| f.name == n).unwrap();
+    let first = WamFieldType::Enum {
+        module: "WAWebWamEnumFirst".into(),
+    };
+    assert_eq!(f("one").field_type, first);
+    assert_eq!(f("two").field_type, first);
+    assert_eq!(
+        f("three").field_type,
+        WamFieldType::Enum {
+            module: "WAWebWamEnumSecond".into()
+        }
+    );
+}
