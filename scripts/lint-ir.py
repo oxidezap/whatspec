@@ -92,6 +92,11 @@ BASELINE = {
     "wam construction with an unread argument": 104,
     "wam construction of an event with no catalog entry": 41,
     "wam written key naming no field of the event": 0,
+    # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
+    # because the alternative to dropping it is publishing `["regular"]` over a policy WA
+    # stated and we failed to read — so a rise here is a channel rule going missing, not
+    # a global going missing.
+    "wam global with an unreadable channel list": 0,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -1105,8 +1110,17 @@ def check_wam_buffer(data, domain, errors):
                     f"{days} days, which is neither a period nor the -1 sentinel"
                 )
 
-    enum_modules = {
-        en.get("module") for en in data.get("enums") or [] if isinstance(en, dict)
+    # Module → the variant keys it defines. A value naming a module that exists but a key
+    # it does not define is as dangling as one naming no module at all, and reads worse:
+    # the reference looks resolvable right up to the point a consumer tries it.
+    enum_keys = {
+        en["module"]: {
+            v.get("key")
+            for v in en.get("variants") or []
+            if isinstance(v, dict)
+        }
+        for en in data.get("enums") or []
+        if isinstance(en, dict) and isinstance(en.get("module"), str)
     }
     for e in data.get("events") or []:
         if not isinstance(e, dict):
@@ -1149,16 +1163,20 @@ def check_wam_buffer(data, domain, errors):
                 # reference in an IR that claims to be self-contained. The generic
                 # enum-reference walker keys on `kind: "enum"` and does not see these.
                 value = f.get("value")
-                if (
-                    isinstance(value, dict)
-                    and value.get("kind") == "enumMember"
-                    and value.get("module") not in enum_modules
-                ):
-                    errors.append(
-                        f"{domain}: call site {site.get('module')!r} of event "
-                        f"{e.get('name')!r} writes {f.get('name')!r} as a member of "
-                        f"{value.get('module')!r}, which is in no enum of this document"
-                    )
+                if isinstance(value, dict) and value.get("kind") == "enumMember":
+                    module, key = value.get("module"), value.get("key")
+                    if module not in enum_keys:
+                        errors.append(
+                            f"{domain}: call site {site.get('module')!r} of event "
+                            f"{e.get('name')!r} writes {f.get('name')!r} as a member of "
+                            f"{module!r}, which is in no enum of this document"
+                        )
+                    elif key not in enum_keys[module]:
+                        errors.append(
+                            f"{domain}: call site {site.get('module')!r} of event "
+                            f"{e.get('name')!r} writes {f.get('name')!r} as "
+                            f"{module}.{key}, which that enum does not define"
+                        )
 
 
 def count_wam_construction_gaps(root, counts, errors):
@@ -1203,6 +1221,7 @@ def count_wam_construction_gaps(root, counts, errors):
     for key in (
         "construction of an event with no catalog entry",
         "written key naming no field of the event",
+        "global with an unreadable channel list",
     ):
         counts[f"wam {key}"] = drops.get(key, 0)
 

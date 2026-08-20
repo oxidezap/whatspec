@@ -157,8 +157,21 @@ pub fn extract_wam_from_modules(
     }
     let mut events: Vec<WamEvent> = parsed.into_iter().map(|(_, ev)| ev).collect();
 
-    let (globals, private_stats_ids, constants) =
-        parse_buffer_modules(source, module_defs, &mut enum_modules);
+    let mut unreadable_channels = Vec::new();
+    let (globals, private_stats_ids, constants) = parse_buffer_modules(
+        source,
+        module_defs,
+        &mut enum_modules,
+        &mut unreadable_channels,
+    );
+    unreadable_channels.sort();
+    unreadable_channels.dedup();
+    if !unreadable_channels.is_empty() {
+        *diag
+            .drops_by_reason
+            .entry("global with an unreadable channel list".to_string())
+            .or_default() += unreadable_channels.len();
+    }
     diag.globals = globals.len();
     diag.private_stats_ids = private_stats_ids.len();
     diag.constants = constants.len();
@@ -209,6 +222,7 @@ fn parse_buffer_modules(
     source: &str,
     module_defs: &[ModuleDefinition],
     enum_modules: &mut BTreeSet<String>,
+    unreadable_channels: &mut Vec<String>,
 ) -> (Vec<WamGlobal>, Vec<WamPrivateStatsId>, Vec<WamConstant>) {
     let mut globals: Vec<WamGlobal> = Vec::new();
     let mut ps_ids: Vec<WamPrivateStatsId> = Vec::new();
@@ -217,7 +231,7 @@ fn parse_buffer_modules(
     for m in module_defs {
         let slice = &source[m.start..m.end];
         if m.deps.iter().any(|d| d == CODEGEN_DEP) && slice.contains("defineGlobal") {
-            globals.extend(parse_globals(slice));
+            globals.extend(parse_globals(slice, unreadable_channels));
             let table = parse_private_stats_table(slice, &m.name);
             if !table.is_empty() {
                 table_module = Some(m.name.clone());
@@ -280,6 +294,9 @@ fn collect_call_sites(
         *defined.entry(ev.module.as_str()).or_default() += 1;
         sole.insert(ev.module.as_str(), i);
     }
+    // Modules whose event does carry a recovered export name; for those, a construction
+    // naming a different export is not that event.
+    let exported: BTreeSet<&str> = exports.keys().map(|(m, _)| m.as_str()).collect();
     let mut sites: BTreeMap<usize, Vec<WamCallSite>> = BTreeMap::new();
     let mut seen: BTreeSet<(String, String, u32)> = BTreeSet::new();
     for m in module_defs {
@@ -305,9 +322,19 @@ fn collect_call_sites(
             let index = exports
                 .get(&(raw.event_module.clone(), raw.export.clone()))
                 .copied()
-                .or_else(|| match defined.get(raw.event_module.as_str()) {
-                    Some(1) => sole.get(raw.event_module.as_str()).copied(),
-                    _ => None,
+                // The fallback stands in for an export name the catalog could not
+                // recover — not for one that disagrees. A module whose single event IS
+                // exported under a known name and is constructed under a different one
+                // is constructing something else, and attributing it here would publish
+                // that something else's fields on the catalog's event.
+                .or_else(|| {
+                    match (
+                        defined.get(raw.event_module.as_str()),
+                        !exported.contains(raw.event_module.as_str()),
+                    ) {
+                        (Some(1), true) => sole.get(raw.event_module.as_str()).copied(),
+                        _ => None,
+                    }
                 });
             let Some(index) = index else {
                 // `WAWebWamCodegenWamEvent`'s `RawWamEvent` is the generic envelope: a
@@ -412,12 +439,13 @@ fn field_names(s: &WamCallSite) -> Vec<&str> {
 
 /// Parse `defineGlobal({name: [id, type, channels?]})`. An omitted channel list means
 /// `["regular"]`, exactly as the runtime defaults it.
-fn parse_globals(slice: &str) -> Vec<WamGlobal> {
+fn parse_globals(slice: &str, unreadable_channels: &mut Vec<String>) -> Vec<WamGlobal> {
     let alloc = Allocator::default();
     let ret = parse_cjs(&alloc, slice);
     let aliases = require_aliases(&ret.program);
     let mut out = Vec::new();
     for stmt in &ret.program.body {
+        let unreadable_channels = &mut *unreadable_channels;
         walk_call(stmt, "defineGlobal", &mut |call| {
             let Some(obj) = call
                 .arguments
@@ -442,20 +470,25 @@ fn parse_globals(slice: &str) -> Vec<WamGlobal> {
                 ) else {
                     continue;
                 };
-                let mut channels: Vec<String> = match arr_elem(arr, 2) {
-                    Some(Expression::ArrayExpression(ch)) => (0..ch.elements.len())
-                        .filter_map(|i| arr_elem(ch, i).and_then(as_string_lit))
-                        .map(str::to_string)
-                        .collect(),
-                    _ => Vec::new(),
+                let channels: Vec<String> = match arr_elem(arr, 2) {
+                    Some(Expression::ArrayExpression(ch)) => {
+                        let read: Vec<String> = (0..ch.elements.len())
+                            .filter_map(|i| arr_elem(ch, i).and_then(as_string_lit))
+                            .map(str::to_string)
+                            .collect();
+                        // Only an OMITTED list takes the runtime's `["regular"]`. A list
+                        // that is written and cannot be read says something this scan
+                        // failed to catch, and answering it with the default would
+                        // publish a channel policy WA never stated — the one thing this
+                        // field exists to get right. Drop the global and count it.
+                        if read.len() != ch.elements.len() || read.is_empty() {
+                            unreadable_channels.push(name.to_string());
+                            continue;
+                        }
+                        read
+                    }
+                    _ => vec!["regular".to_string()],
                 };
-                // `defineGlobal` defaults an omitted list to `["regular"]`. A list that
-                // is present but unreadable defaults the same way rather than leaving the
-                // global with nowhere legal to write it — a state the type promises never
-                // to be in and the linter rejects.
-                if channels.is_empty() {
-                    channels.push("regular".to_string());
-                }
                 out.push(WamGlobal {
                     name: name.to_string(),
                     id,
@@ -837,7 +870,7 @@ fn parse_field_type(e: &Expression, aliases: &RequireAliases) -> Option<WamField
 
 /// Strip the parentheses and the inline assignment the minifier wraps a first use in:
 /// `(e = o("M"))` → `o("M")`.
-fn unwrap_binding<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
+pub(crate) fn unwrap_binding<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
     let mut cur = e;
     loop {
         cur = match cur {

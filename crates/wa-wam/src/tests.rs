@@ -627,3 +627,108 @@ __d("WAWebOpaqueReporter",["WAWebOpaqueWamEvent"],(function(t,n,r,o,a,i,l){
         "the merge's other operand writes fields this list cannot name"
     );
 }
+
+#[test]
+fn a_parameter_shadowing_an_event_local_is_not_that_event() {
+    // `var x = new …` and then a callback whose own parameter is also `x`. The write is
+    // to the parameter; matching on the name and the scope chain alone publishes it on
+    // the event whenever the field name happens to fit.
+    let src = r#"
+__d("WAWebShadowWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.ShadowWamEvent=e.defineEvents({Shadow:[71,{count:[1,e.TYPES.INTEGER]},[1,1,1]]},{Shadow:[]})
+}),1);
+__d("WAWebShadowReporter",["WAWebShadowWamEvent"],(function(t,n,r,o,a,i,l){
+  function f(items){var x=new(o("WAWebShadowWamEvent")).ShadowWamEvent({});
+    items.forEach(function(x){x.count=99});x.commit()}
+}),2);
+"#;
+    let ir = run(src);
+    let site = &ir.events[0].call_sites[0];
+    assert!(
+        site.fields.is_empty(),
+        "the write is to the callback's parameter, not to the event"
+    );
+}
+
+#[test]
+fn a_compound_assignment_writes_the_field_without_fixing_its_value() {
+    // `count += 1` writes the field, but `1` is not what goes out — what does depends on
+    // what was there. Publishing the operand would state a value the site never sends.
+    let src = r#"
+__d("WAWebSumWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.SumWamEvent=e.defineEvents({Sum:[81,{total:[1,e.TYPES.INTEGER],seen:[2,e.TYPES.INTEGER]},[1,1,1]]},{Sum:[]})
+}),1);
+__d("WAWebSumReporter",["WAWebSumWamEvent"],(function(t,n,r,o,a,i,l){
+  function f(n){var x=new(o("WAWebSumWamEvent")).SumWamEvent({});x.total+=1;x.seen=7;x.commit()}
+}),2);
+"#;
+    let ir = run(src);
+    let site = &ir.events[0].call_sites[0];
+    let f = |n: &str| site.fields.iter().find(|f| f.name == n).unwrap();
+    assert_eq!(f("total").write, WamFieldWrite::Assigned);
+    assert_eq!(f("total").value, None, "the operand is not the final value");
+    // A plain assignment beside it still carries its value.
+    assert_eq!(f("seen").value, Some(WamCallSiteValue::Int { value: 7 }));
+}
+
+#[test]
+fn a_construction_through_a_cached_require_is_still_a_call_site() {
+    // A reporter that emits several events requires the module once and constructs off
+    // the local. Reading only the inline form loses the site from the published list and
+    // from the `constructions` denominator, so the loss would not even read as a gap.
+    let src = r#"
+__d("WAWebCachedWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.CachedWamEvent=e.defineEvents({Cached:[91,{n:[1,e.TYPES.INTEGER]},[1,1,1]]},{Cached:[]})
+}),1);
+__d("WAWebCachedReporter",["WAWebCachedWamEvent"],(function(t,n,r,o,a,i,l){
+  var E=o("WAWebCachedWamEvent");
+  function f(){new E.CachedWamEvent({n:5}).commit()}
+}),2);
+"#;
+    let (ir, diag) = run_full(src);
+    assert_eq!(diag.constructions, 1);
+    let site = &ir.events[0].call_sites[0];
+    assert_eq!(site.module, "WAWebCachedReporter");
+    assert_eq!(site.fields[0].name, "n");
+    assert_eq!(
+        site.fields[0].value,
+        Some(WamCallSiteValue::Int { value: 5 })
+    );
+}
+
+#[test]
+fn a_global_whose_channel_list_cannot_be_read_is_dropped_not_defaulted() {
+    // Only an omitted list takes the runtime's `["regular"]`. One that is written and
+    // unreadable is a channel policy the scan failed to catch, and answering it with the
+    // default publishes a rule WA never stated.
+    let src = r#"
+__d("WAWebWamGlobals",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.Global=e.defineGlobal({
+    plain:[1,e.TYPES.STRING,["private"]],
+    omitted:[2,e.TYPES.STRING],
+    computed:[3,e.TYPES.STRING,[CHANNEL]],
+    empty:[4,e.TYPES.STRING,[]]
+  })
+}),98);
+"#;
+    let (ir, diag) = run_full(src);
+    let names: Vec<&str> = ir.globals.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(names, vec!["omitted", "plain"]);
+    assert_eq!(
+        ir.globals
+            .iter()
+            .find(|g| g.name == "omitted")
+            .unwrap()
+            .channels,
+        vec!["regular".to_string()]
+    );
+    assert_eq!(
+        diag.drops_by_reason
+            .get("global with an unreadable channel list"),
+        Some(&2)
+    );
+}

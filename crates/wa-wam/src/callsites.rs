@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    AssignmentExpression, CallExpression, Expression, NewExpression, ObjectPropertyKind,
-    UnaryOperator, VariableDeclarator,
+    AssignmentExpression, AssignmentOperator, CallExpression, Expression, NewExpression,
+    ObjectPropertyKind, UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
@@ -72,10 +72,12 @@ struct RawWrite {
     field: Option<String>,
     value: Option<WamCallSiteValue>,
     start: u32,
-    /// The functions enclosing the write, outermost first. A local binding matches when
-    /// its declaring function is one of these: the write is then either in that function
-    /// or in a closure inside it, and in both it names the same variable.
+    /// The functions enclosing the write, outermost first.
     scope: Vec<u32>,
+    /// The scope the write's own name resolves to: the innermost enclosing function that
+    /// declares it as a parameter or a local. `None` when nothing visible declares it,
+    /// which is where the scope chain above is all there is to go on.
+    declared_in: Option<u32>,
 }
 
 /// Every construction in one module slice, with the post-construction writes already
@@ -88,7 +90,10 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
         bindings: BTreeMap::new(),
         sites: Vec::new(),
         writes: Vec::new(),
-        functions: Vec::new(),
+        scopes: vec![Scope {
+            span: 0,
+            names: std::collections::BTreeSet::new(),
+        }],
         aliases: &aliases,
     };
     for stmt in &ret.program.body {
@@ -121,10 +126,21 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
 }
 
 /// Whether a construction's binding is the one a write names.
+///
+/// For a local, the name has to resolve to the scope that declared the construction:
+/// `var x = new …; f(function (x) { x.count = 1 })` writes the parameter, not the event,
+/// and matching on the name plus the scope chain alone would publish it on the event
+/// whenever the field name happens to fit. When nothing visible declares the name — WA
+/// also writes `x = new …` with no declaration — the chain is all there is, so it stays
+/// the fallback rather than dropping the write.
 fn binds(binding: Option<&Binding>, w: &RawWrite) -> bool {
     match (binding, &w.binding) {
         (Some(Binding::Local { name, function }), Binding::Local { name: n, .. }) => {
-            name == n && w.scope.contains(function)
+            name == n
+                && match w.declared_in {
+                    Some(scope) => scope == *function,
+                    None => w.scope.contains(function),
+                }
         }
         (Some(b), other) => b == other,
         (None, _) => false,
@@ -136,45 +152,86 @@ struct SiteVisitor<'m> {
     bindings: BTreeMap<u32, Binding>,
     sites: Vec<RawSite>,
     writes: Vec<RawWrite>,
-    /// Span starts of the functions being visited, outermost first. The first is the
-    /// module factory, so the second is the class or top-level function that owns an
+    /// The scopes being visited, outermost first, each with the names it declares as a
+    /// parameter or a local. The first is the module itself; the next is the module
+    /// factory, so the one after that is the class or top-level function that owns an
     /// instance property.
-    functions: Vec<u32>,
+    scopes: Vec<Scope>,
     /// Locals standing for a `o("Module")` require, so an enum member written through
     /// one resolves the same way a field type written through one does.
     aliases: &'m RequireAliases,
 }
 
+/// One scope and the names it introduces.
+struct Scope {
+    span: u32,
+    names: std::collections::BTreeSet<String>,
+}
+
 impl SiteVisitor<'_> {
-    /// The function a local is declared in. `0` at module top level.
+    /// The scope a local declared here belongs to. `0` at module top level.
     fn function(&self) -> u32 {
-        self.functions.last().copied().unwrap_or(0)
+        self.scopes.last().map(|s| s.span).unwrap_or(0)
     }
 
     /// The function that owns `this` here: the outermost one inside the module factory,
     /// which is the unit the minifier emits a class as.
     fn owner(&self) -> u32 {
-        self.functions
-            .get(1)
-            .copied()
+        self.scopes
+            .get(2)
+            .map(|s| s.span)
             .unwrap_or_else(|| self.function())
+    }
+
+    /// The enclosing scope spans, outermost first.
+    fn scope_chain(&self) -> Vec<u32> {
+        self.scopes.iter().map(|s| s.span).collect()
+    }
+
+    /// The innermost enclosing scope that declares `name`.
+    fn resolve(&self, name: &str) -> Option<u32> {
+        self.scopes
+            .iter()
+            .rfind(|s| s.names.contains(name))
+            .map(|s| s.span)
+    }
+
+    /// Record a name the current scope declares.
+    fn declare(&mut self, name: &str) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.names.insert(name.to_string());
+        }
+    }
+
+    /// Enter a function scope, with its parameters already declared in it.
+    fn enter(&mut self, span: u32, params: &oxc_ast::ast::FormalParameters) {
+        let names = params
+            .items
+            .iter()
+            .filter_map(|p| p.pattern.get_identifier_name())
+            .map(|n| n.to_string())
+            .collect();
+        self.scopes.push(Scope { span, names });
     }
 }
 
 impl<'a> Visit<'a> for SiteVisitor<'_> {
     fn visit_function(&mut self, f: &oxc_ast::ast::Function<'a>, flags: ScopeFlags) {
-        self.functions.push(f.span.start);
+        self.enter(f.span.start, &f.params);
         walk::walk_function(self, f, flags);
-        self.functions.pop();
+        self.scopes.pop();
     }
 
     fn visit_arrow_function_expression(&mut self, f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
-        self.functions.push(f.span.start);
+        self.enter(f.span.start, &f.params);
         walk::walk_arrow_function_expression(self, f);
-        self.functions.pop();
+        self.scopes.pop();
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        if let Some(name) = d.id.get_identifier_name() {
+            self.declare(&name);
+        }
         if let Some(Expression::NewExpression(n)) = d.init.as_ref()
             && let Some(name) = d.id.get_identifier_name()
         {
@@ -198,12 +255,20 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
             && let Some(field) = m.static_property_name()
             && let Some(base) = binding_key_expr(m.object(), self.function(), self.owner())
         {
+            // `count += 1` writes the field, but `1` is not what goes out — the value
+            // depends on what was there. The write is recorded; its value is not.
+            let value = match a.operator {
+                AssignmentOperator::Assign => literal_value(&a.right, self.aliases),
+                _ => None,
+            };
+            let declared_in = binding_name(&base).and_then(|n| self.resolve(n));
             self.writes.push(RawWrite {
                 binding: base,
                 field: Some(field.to_string()),
-                value: literal_value(&a.right, self.aliases),
+                value,
                 start: a.span.start,
-                scope: self.functions.clone(),
+                scope: self.scope_chain(),
+                declared_in,
             });
         }
         walk::walk_assignment_expression(self, a);
@@ -223,13 +288,15 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
             let mut partial = false;
             let mut unread = None;
             read_argument(arg, &mut fields, &mut partial, &mut unread, self.aliases);
+            let declared_in = binding_name(&base).and_then(|n| self.resolve(n));
             for (field, _, value) in fields {
                 self.writes.push(RawWrite {
                     binding: base.clone(),
                     field: Some(field),
                     value,
                     start: call.span.start,
-                    scope: self.functions.clone(),
+                    scope: self.scope_chain(),
+                    declared_in,
                 });
             }
             // One unnamed write stands for everything the argument writes and the scan
@@ -241,7 +308,8 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                     field: None,
                     value: None,
                     start: call.span.start,
-                    scope: self.functions.clone(),
+                    scope: self.scope_chain(),
+                    declared_in,
                 });
             }
         }
@@ -249,7 +317,7 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
     }
 
     fn visit_new_expression(&mut self, n: &NewExpression<'a>) {
-        if let Some((module, export)) = wam_event_callee(&n.callee) {
+        if let Some((module, export)) = wam_event_callee(&n.callee, self.aliases) {
             let mut fields = Vec::new();
             let mut partial = false;
             let mut unread_argument = None;
@@ -347,10 +415,32 @@ fn expression_form(e: &Expression) -> &'static str {
 }
 
 /// `new (o("WAWeb…WamEvent").<Export>)(…)` → `(module, export)`.
-fn wam_event_callee<'b, 'a>(callee: &'b Expression<'a>) -> Option<(&'b str, &'b str)> {
+///
+/// The module is usually required inline, but a reporter that emits several events
+/// caches it first (`var E = o("WAWeb…WamEvent"); new E.FooWamEvent(…)`). Reading only
+/// the inline form would lose those sites from the published list *and* from the
+/// `constructions` denominator, so the loss would not even show up as a gap.
+fn wam_event_callee<'b, 'a>(
+    callee: &'b Expression<'a>,
+    aliases: &'b RequireAliases,
+) -> Option<(&'b str, &'b str)> {
     let (obj, export) = as_member(callee)?;
-    let module = first_string_arg(as_call(unparen(obj))?)?;
+    let obj = unparen(obj);
+    let module = match as_call(obj).and_then(first_string_arg) {
+        Some(module) => module,
+        None => {
+            wa_oxc::as_identifier(obj).and_then(|id| aliases.module_at(id, obj.span().start))?
+        }
+    };
     module.ends_with("WamEvent").then_some((module, export))
+}
+
+/// The name a local binding carries, for resolving it against the enclosing scopes.
+fn binding_name(binding: &Binding) -> Option<&str> {
+    match binding {
+        Binding::Local { name, .. } => Some(name),
+        Binding::Instance { .. } => None,
+    }
 }
 
 /// The expression inside any number of parentheses. The construction is minified as
@@ -432,7 +522,10 @@ fn literal_value(e: &Expression, aliases: &RequireAliases) -> Option<WamCallSite
     // still reads against the enum catalog after WA renumbers.
     if let Some((enum_obj, key)) = as_member(e)
         && let Some((holder, _)) = as_member(enum_obj)
-        && let Some(module) = as_call(unparen(holder))
+        // `(e = o("WAWebWamEnum…")).TYPE.MEMBER` is the minifier's first use of a module
+        // it reads more than once; every use after it is the bare local.
+        && let holder = crate::unwrap_binding(holder)
+        && let Some(module) = as_call(holder)
             .and_then(first_string_arg)
             // The minifier reads a repeatedly used enum module off a local, exactly as
             // it does in the event modules; resolve it at the position of this use.
