@@ -15662,8 +15662,7 @@
               "name": "typeOfGroup",
               "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         },
         {
           "module": "WAWebPostE2eMessageSendMetric",
@@ -16510,7 +16509,14 @@
       ],
       "callSites": [
         {
-          "module": "WAWebWamPageLoadReporter"
+          "module": "WAWebWamPageLoadReporter",
+          "fields": [
+            {
+              "name": "webcInitialPanel",
+              "write": "assigned"
+            }
+          ],
+          "partial": true
         }
       ]
     },
@@ -17324,8 +17330,7 @@
               "name": "typeOfGroup",
               "write": "assigned"
             }
-          ],
-          "partial": true
+          ]
         }
       ]
     },
@@ -19728,7 +19733,8 @@
       ],
       "callSites": [
         {
-          "module": "WAWebTasksDailyStatsTask"
+          "module": "WAWebTasksDailyStatsTask",
+          "partial": true
         }
       ]
     },
@@ -20594,7 +20600,13 @@
       ],
       "callSites": [
         {
-          "module": "WAWebMediaLoad"
+          "module": "WAWebMediaLoad",
+          "fields": [
+            {
+              "name": "webcMediaLoadResult",
+              "write": "assigned"
+            }
+          ]
         },
         {
           "module": "WAWebMediaLoad",
@@ -22882,6 +22894,10 @@
               }
             },
             {
+              "name": "finalizeHttpCode",
+              "write": "assigned"
+            },
+            {
               "name": "isViewOnce",
               "write": "constructor"
             },
@@ -22903,8 +22919,28 @@
               "write": "constructor"
             },
             {
+              "name": "overallConnectionClass",
+              "write": "assigned"
+            },
+            {
+              "name": "overallDomain",
+              "write": "assigned"
+            },
+            {
+              "name": "overallIsFinal",
+              "write": "assigned",
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
               "name": "overallIsForward",
               "write": "constructor"
+            },
+            {
+              "name": "overallMediaSize",
+              "write": "assigned"
             },
             {
               "name": "overallMediaType",
@@ -22919,12 +22955,24 @@
               }
             },
             {
+              "name": "overallRetryCount",
+              "write": "assigned"
+            },
+            {
+              "name": "overallT",
+              "write": "assigned"
+            },
+            {
               "name": "overallUploadMode",
               "write": "constructor"
             },
             {
               "name": "overallUploadOrigin",
               "write": "constructor"
+            },
+            {
+              "name": "overallUploadResult",
+              "write": "assigned"
             },
             {
               "name": "overallUserVisibleT",
@@ -22937,6 +22985,26 @@
             {
               "name": "photoQualitySetting",
               "write": "assigned"
+            },
+            {
+              "name": "resumeHttpCode",
+              "write": "assigned"
+            },
+            {
+              "name": "uploadBytesTransferred",
+              "write": "assigned"
+            },
+            {
+              "name": "uploadHttpCode",
+              "write": "assigned"
+            },
+            {
+              "name": "uploadIsStreaming",
+              "write": "assigned",
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
             },
             {
               "name": "uploadSource",
@@ -23360,6 +23428,10 @@
               "write": "assigned"
             },
             {
+              "name": "downloadHttpCode",
+              "write": "assigned"
+            },
+            {
               "name": "isViewOnce",
               "write": "constructor"
             },
@@ -23385,6 +23457,14 @@
               "write": "constructor"
             },
             {
+              "name": "overallConnectionClass",
+              "write": "assigned"
+            },
+            {
+              "name": "overallDomain",
+              "write": "assigned"
+            },
+            {
               "name": "overallDownloadMode",
               "write": "constructor"
             },
@@ -23393,8 +23473,20 @@
               "write": "constructor"
             },
             {
+              "name": "overallDownloadResult",
+              "write": "assigned"
+            },
+            {
               "name": "overallIsEncrypted",
               "write": "constructor"
+            },
+            {
+              "name": "overallIsFinal",
+              "write": "assigned"
+            },
+            {
+              "name": "overallMediaSize",
+              "write": "assigned"
             },
             {
               "name": "overallMediaType",
@@ -23407,8 +23499,17 @@
                 "kind": "int",
                 "value": 4
               }
+            },
+            {
+              "name": "overallRetryCount",
+              "write": "assigned"
+            },
+            {
+              "name": "overallT",
+              "write": "assigned"
             }
-          ]
+          ],
+          "partial": true
         },
         {
           "module": "WAWebCreateMediaDownloadMetrics",
@@ -27717,6 +27818,10 @@
               "write": "assigned"
             },
             {
+              "name": "webcChatType",
+              "write": "assigned"
+            },
+            {
               "name": "webcMediaRmrError",
               "write": "assigned",
               "value": {
@@ -27730,6 +27835,10 @@
             },
             {
               "name": "webcMediaSize",
+              "write": "assigned"
+            },
+            {
+              "name": "webcMessageT",
               "write": "assigned"
             },
             {
@@ -29653,11 +29762,7 @@
           "fields": [
             {
               "name": "webcFirstRenderScans",
-              "write": "constructor",
-              "value": {
-                "kind": "int",
-                "value": 0
-              }
+              "write": "constructor"
             }
           ]
         }
@@ -31647,6 +31752,14 @@
           "module": "WAWebCreateReceiptStanzaReceiveMetric",
           "fields": [
             {
+              "name": "messageType",
+              "write": "assigned"
+            },
+            {
+              "name": "receiptStanzaOfflineCount",
+              "write": "assigned"
+            },
+            {
               "name": "receiptStanzaStage",
               "write": "constructor",
               "value": {
@@ -31657,11 +31770,11 @@
             },
             {
               "name": "receiptStanzaTotalCount",
-              "write": "constructor",
-              "value": {
-                "kind": "int",
-                "value": 1
-              }
+              "write": "constructor"
+            },
+            {
+              "name": "receiptStanzaType",
+              "write": "assigned"
             }
           ]
         }
@@ -32137,7 +32250,8 @@
       ],
       "callSites": [
         {
-          "module": "WAWebVoipHandleNativeCallEventFieldstatsHandlers"
+          "module": "WAWebVoipHandleNativeCallEventFieldstatsHandlers",
+          "partial": true
         },
         {
           "module": "WAWebVoipInit"
@@ -35312,8 +35426,7 @@
               "name": "webcJobStartedT",
               "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         }
       ]
     },
@@ -36123,8 +36236,7 @@
               "name": "sessionScope",
               "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         }
       ]
     },
@@ -36776,6 +36888,14 @@
             {
               "name": "graphqlCatalogEndpoint",
               "write": "constructor"
+            },
+            {
+              "name": "graphqlErrorCode",
+              "write": "assigned"
+            },
+            {
+              "name": "graphqlRequestResult",
+              "write": "assigned"
             }
           ]
         }
@@ -38908,6 +39028,10 @@
             {
               "name": "messagesInFolder",
               "write": "constructor"
+            },
+            {
+              "name": "threadId",
+              "write": "assigned"
             }
           ]
         }
@@ -39047,6 +39171,10 @@
           "module": "WAWebEphemeralKicNux.react",
           "fields": [
             {
+              "name": "chatEphemeralityDuration",
+              "write": "assigned"
+            },
+            {
               "name": "kicNuxActionName",
               "write": "constructor",
               "value": {
@@ -39054,6 +39182,10 @@
                 "module": "WAWebWamEnumKicNuxActionNameType",
                 "key": "FIRST_DM_NUX_IMPRESSION"
               }
+            },
+            {
+              "name": "threadId",
+              "write": "assigned"
             },
             {
               "name": "trigger",
@@ -39065,9 +39197,6 @@
               }
             }
           ]
-        },
-        {
-          "module": "WAWebKicNux.react"
         },
         {
           "module": "WAWebKicNux.react",
@@ -39084,6 +39213,27 @@
                 "module": "WAWebWamEnumKicNuxActionNameType",
                 "key": "KIC_NUX_LEARN_MORE_TAP"
               }
+            },
+            {
+              "name": "threadId",
+              "write": "assigned"
+            },
+            {
+              "name": "trigger",
+              "write": "assigned"
+            }
+          ]
+        },
+        {
+          "module": "WAWebKicNux.react",
+          "fields": [
+            {
+              "name": "chatEphemeralityDuration",
+              "write": "assigned"
+            },
+            {
+              "name": "kicNuxActionName",
+              "write": "assigned"
             },
             {
               "name": "threadId",
@@ -50732,7 +50882,8 @@
       ],
       "callSites": [
         {
-          "module": "WAWebTasksDailyStatsTask"
+          "module": "WAWebTasksDailyStatsTask",
+          "partial": true
         }
       ]
     },

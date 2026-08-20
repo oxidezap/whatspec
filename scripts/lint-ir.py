@@ -143,8 +143,9 @@ WAM_CHANNELS = {"regular", "realtime", "private"}
 # The expression forms a WAM construction's argument can take that the scan does not
 # read — an identifier it was built into, a property of one, a call that returns it.
 # Summed into one baseline because they are one gap seen from three angles; kept apart
-# in the manifest because the angle says whether closing it is worth the pass.
-WAM_UNREAD_ARGUMENT_FORMS = {"identifier", "member", "call", "conditional", "logical", "other"}
+# in the manifest because the angle says whether closing it is worth the pass. Matched by
+# prefix, so the manifest can name the form without the key reading as a bare word.
+WAM_UNREAD_ARGUMENT_PREFIX = "unreadConstructionArgument."
 
 # What each accessor may decode to. Deliberately a SET per accessor, not one type: an
 # `attrInt` legitimately backs `integer`, `timestamp` and `timestamp_millis`, and a
@@ -1104,10 +1105,21 @@ def check_wam_buffer(data, domain, errors):
                     f"{days} days, which is neither a period nor the -1 sentinel"
                 )
 
+    enum_modules = {
+        en.get("module") for en in data.get("enums") or [] if isinstance(en, dict)
+    }
     for e in data.get("events") or []:
         if not isinstance(e, dict):
             continue
         psid = e.get("privateStatsId")
+        # The other direction of the same contract: a `private` event whose id went
+        # missing is unusable in a way nothing else reports — its buffer cannot choose an
+        # anonymous id at all — and a null reads as "no group" rather than as a loss.
+        if e.get("channel") == "private" and psid is None:
+            errors.append(
+                f"{domain}: event {e.get('name')!r} is on the private channel and names "
+                f"no private-stats group, so its buffer has no id to carry"
+            )
         # No "unless the table is empty" escape: a missing table is the worst case, not
         # the exempt one — it leaves every `private` event naming a group that resolves
         # to nothing, which is exactly what this check exists to catch.
@@ -1125,11 +1137,27 @@ def check_wam_buffer(data, domain, errors):
             if not isinstance(site, dict):
                 continue
             for f in site.get("fields") or []:
-                if isinstance(f, dict) and f.get("name") not in field_names:
+                if not isinstance(f, dict):
+                    continue
+                if f.get("name") not in field_names:
                     errors.append(
                         f"{domain}: call site {site.get('module')!r} of event "
                         f"{e.get('name')!r} writes {f.get('name')!r}, which is not a "
                         f"field of that event"
+                    )
+                # A value naming an enum the document does not carry is a dangling
+                # reference in an IR that claims to be self-contained. The generic
+                # enum-reference walker keys on `kind: "enum"` and does not see these.
+                value = f.get("value")
+                if (
+                    isinstance(value, dict)
+                    and value.get("kind") == "enumMember"
+                    and value.get("module") not in enum_modules
+                ):
+                    errors.append(
+                        f"{domain}: call site {site.get('module')!r} of event "
+                        f"{e.get('name')!r} writes {f.get('name')!r} as a member of "
+                        f"{value.get('module')!r}, which is in no enum of this document"
                     )
 
 
@@ -1170,7 +1198,7 @@ def count_wam_construction_gaps(root, counts, errors):
     # The argument forms are reported one per form, since which form resisted is what
     # says whether the gap is worth closing; the baseline is on their sum.
     counts["wam construction with an unread argument"] = sum(
-        v for k, v in drops.items() if k in WAM_UNREAD_ARGUMENT_FORMS
+        v for k, v in drops.items() if k.startswith(WAM_UNREAD_ARGUMENT_PREFIX)
     )
     for key in (
         "construction of an event with no catalog entry",

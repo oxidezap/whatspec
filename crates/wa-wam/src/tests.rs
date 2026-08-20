@@ -325,8 +325,13 @@ __d("WAWebProbeMerge",["WAWebProbeWamEvent"],(function(t,n,r,o,a,i,l){
 
     assert_eq!(diag.constructions, 3);
     assert_eq!(diag.partial_call_sites, 2);
-    // The unread argument is counted by the form that resisted, not swallowed.
-    assert_eq!(diag.drops_by_reason.get("identifier"), Some(&1));
+    // The unread argument is counted by the form that resisted, not swallowed — under a
+    // key that says what it is when read alone in the manifest.
+    assert_eq!(
+        diag.drops_by_reason
+            .get("unreadConstructionArgument.identifier"),
+        Some(&1)
+    );
 }
 
 #[test]
@@ -374,14 +379,58 @@ __d("WAWebProbeReporter",["WAWebProbeWamEvent"],(function(t,n,r,o,a,i,l){
         site.fields.iter().all(|f| f.name != "weight"),
         "the weight is not a field of the event"
     );
+    // NOT partial: the site writes every field this list names, and the weight it also
+    // writes is not one. Marking it partial would exclude the site from the parity check
+    // `partial: false` exists to enable — which is what it did to `MessageSend`, the one
+    // site of the busiest event in the catalog.
     assert!(
-        site.partial,
-        "the site writes more than the fields we publish"
+        !site.partial,
+        "an override of the sampling weight leaves no field unnamed"
     );
+    assert_eq!(site.fields.len(), 1);
+    // Counted as the finding it is, and nowhere near `dropsByReason`, which every domain
+    // uses for what the extraction could not recover.
+    assert_eq!(diag.sampling_weight_overrides, 1);
+    assert!(
+        !diag
+            .drops_by_reason
+            .keys()
+            .any(|k| k.contains("sampling weight")),
+        "a finding is not a drop"
+    );
+}
+
+#[test]
+fn identical_sites_are_published_once_and_the_difference_is_counted() {
+    // Two constructions that say exactly the same thing collapse into one published
+    // site. Nothing is lost — but `constructions` and `callSites` are published side by
+    // side, so the distance between them has to have a name.
+    let src = r#"
+__d("WAWebTwiceWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.TwiceWamEvent=e.defineEvents({Twice:[41,{n:[1,e.TYPES.INTEGER]},[1,1,1]]},{Twice:[]})
+}),1);
+__d("WAWebTwiceReporter",["WAWebTwiceWamEvent"],(function(t,n,r,o,a,i,l){
+  function f(){new(o("WAWebTwiceWamEvent")).TwiceWamEvent({n:1}).commit()}
+  function g(){new(o("WAWebTwiceWamEvent")).TwiceWamEvent({n:1}).commit()}
+}),2);
+"#;
+    let (ir, diag) = run_full(src);
+    assert_eq!(ir.events[0].call_sites.len(), 1);
+    assert_eq!(diag.constructions, 2);
+    assert_eq!(diag.duplicate_call_sites, 1);
+    // The identity the manifest block has to satisfy. Only one drop reason removes a
+    // construction: an export with no catalog entry has no event to hang a site on. A
+    // construction whose argument went unread is still published — as a partial site —
+    // so counting it here would double-subtract it.
+    let uncataloged = diag
+        .drops_by_reason
+        .get("construction of an event with no catalog entry")
+        .copied()
+        .unwrap_or(0);
     assert_eq!(
-        diag.drops_by_reason
-            .get("call site overriding the catalog sampling weight"),
-        Some(&1)
+        diag.constructions,
+        diag.call_sites + diag.duplicate_call_sites + uncataloged
     );
 }
 
@@ -524,5 +573,57 @@ __d("WAWebTwoEnumsWamEvent",["WAWebWamCodegenUtils","WAWebWamEnumFirst","WAWebWa
         WamFieldType::Enum {
             module: "WAWebWamEnumSecond".into()
         }
+    );
+}
+
+#[test]
+fn a_write_from_a_closure_reaches_the_local_it_closes_over() {
+    // `var x = new …` in one function, `x.count = …` in a callback inside it. The
+    // callback is a different function but the same variable, so the write belongs to
+    // that construction; scoping to the immediate function loses the field and — worse —
+    // leaves the site looking complete without it.
+    let src = r#"
+__d("WAWebLateWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.LateWamEvent=e.defineEvents({Late:[51,{count:[1,e.TYPES.INTEGER],ok:[2,e.TYPES.BOOLEAN]},[1,1,1]]},{Late:[]})
+}),1);
+__d("WAWebLateReporter",["WAWebLateWamEvent"],(function(t,n,r,o,a,i,l){
+  function f(){var x=new(o("WAWebLateWamEvent")).LateWamEvent({ok:!0});
+    setTimeout(function(){x.count=3;x.commit()},0)}
+}),2);
+"#;
+    let ir = run(src);
+    let site = &ir.events[0].call_sites[0];
+    let count = site.fields.iter().find(|f| f.name == "count").unwrap();
+    assert_eq!(count.write, WamFieldWrite::Assigned);
+    assert_eq!(count.value, Some(WamCallSiteValue::Int { value: 3 }));
+    assert!(!site.partial);
+}
+
+#[test]
+fn a_set_handed_an_object_from_elsewhere_states_nothing_and_says_so() {
+    // `set(values)` names no key at all, and `set(extends({known: 1}, rest))` names one
+    // of them. Both have to reach `partial`, or a consumer reads a short list as the
+    // whole of what the site writes.
+    let src = r#"
+__d("WAWebOpaqueWamEvent",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
+  var e=o("WAWebWamCodegenUtils");
+  l.OpaqueWamEvent=e.defineEvents({Opaque:[61,{known:[1,e.TYPES.INTEGER],other:[2,e.TYPES.INTEGER]},[1,1,1]]},{Opaque:[]})
+}),1);
+__d("WAWebOpaqueReporter",["WAWebOpaqueWamEvent"],(function(t,n,r,o,a,i,l){
+  function f(values){var x=new(o("WAWebOpaqueWamEvent")).OpaqueWamEvent();x.set(values);x.commit()}
+  function g(rest){var y=new(o("WAWebOpaqueWamEvent")).OpaqueWamEvent();y.set(babelHelpers.extends({known:1},rest));y.commit()}
+}),2);
+"#;
+    let ir = run(src);
+    let sites = &ir.events[0].call_sites;
+    assert_eq!(sites.len(), 2);
+    // Sorted by module then field names: the one that reads nothing comes first.
+    assert!(sites[0].fields.is_empty() && sites[0].partial);
+    assert_eq!(sites[1].fields.len(), 1);
+    assert_eq!(sites[1].fields[0].name, "known");
+    assert!(
+        sites[1].partial,
+        "the merge's other operand writes fields this list cannot name"
     );
 }

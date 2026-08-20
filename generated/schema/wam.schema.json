@@ -257,7 +257,7 @@
       "type": "object",
       "properties": {
         "callSites": {
-          "description": "Places a construction of this event was seen, sorted by module. A module may\nappear more than once when it constructs the event at several sites.\n\nAbsent means no construction was recovered — which is not the same as \"never\nemitted\": the count of constructions the scan could not attribute is published\nin `manifest.diagnostics.wam`, so the two never look alike.",
+          "description": "Places a construction of this event was seen, sorted by module. A module appears\nmore than once when it constructs the event with different field sets; two\nconstructions in one module that write exactly the same fields are published\nonce, since nothing here distinguishes them — the IR carries no source position,\nso the second entry would be a copy of the first. `manifest.diagnostics.wam`\ncounts how many were collapsed that way.\n\nAbsent means no construction was recovered — which is not the same as \"never\nemitted\": the count of constructions the scan could not attribute is published\nin `manifest.diagnostics.wam`, so the two never look alike.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/WamCallSite"

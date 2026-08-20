@@ -2278,8 +2278,13 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "constructions": wam_diag.constructions,
                 "callSites": wam_diag.call_sites,
                 "partialCallSites": wam_diag.partial_call_sites,
+                "duplicateCallSites": wam_diag.duplicate_call_sites,
                 "callSiteFields": wam_diag.call_site_fields,
                 "callSiteFieldValues": wam_diag.call_site_field_values,
+                // A finding, not a gap, so it sits beside the other observations rather
+                // than inside `dropsByReason` — which every domain uses for what the
+                // extraction could not recover, and which an audit reads as such.
+                "samplingWeightOverrides": wam_diag.sampling_weight_overrides,
                 "dropsByReason": wam_diag.drops_by_reason,
             },
             // These two domains run the same legacy parser as IQ and had no diagnostics

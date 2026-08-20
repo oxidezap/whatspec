@@ -92,8 +92,12 @@ pub struct WamEvent {
     /// — [`call_sites`](Self::call_sites) is where a construction was actually seen.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub consumers: Vec<String>,
-    /// Places a construction of this event was seen, sorted by module. A module may
-    /// appear more than once when it constructs the event at several sites.
+    /// Places a construction of this event was seen, sorted by module. A module appears
+    /// more than once when it constructs the event with different field sets; two
+    /// constructions in one module that write exactly the same fields are published
+    /// once, since nothing here distinguishes them — the IR carries no source position,
+    /// so the second entry would be a copy of the first. `manifest.diagnostics.wam`
+    /// counts how many were collapsed that way.
     ///
     /// Absent means no construction was recovered — which is not the same as "never
     /// emitted": the count of constructions the scan could not attribute is published

@@ -43,6 +43,17 @@ const PRIVATE_STATS_TABLE: &str = "PrivateStatsAllIds";
 /// The property that overrides an event's sampling weight at emission time.
 const SAMPLING_WEIGHT_PROPERTY: &str = "weight";
 
+/// Drop reason: a write naming no field of the event it was attributed to.
+const WRITTEN_KEY_NO_FIELD: &str = "written key naming no field of the event";
+
+/// Drop reason: a construction of an export the catalog has no entry for.
+const CONSTRUCTION_NO_CATALOG_ENTRY: &str = "construction of an event with no catalog entry";
+
+/// Drop-reason prefix for a constructor argument the scan could not read, so the raw
+/// expression form (`identifier`, `member`, …) reads as something in the manifest
+/// rather than as a bare word.
+const UNREAD_ARGUMENT_PREFIX: &str = "unreadConstructionArgument";
+
 /// What the scan recovered and, more importantly, what it did not.
 #[derive(Debug, Default, Clone)]
 pub struct WamDiagnostics {
@@ -63,6 +74,17 @@ pub struct WamDiagnostics {
     pub call_site_fields: usize,
     /// Of those, the ones carrying a value fixed at extraction time.
     pub call_site_field_values: usize,
+    /// Constructions dropped because an identical site in the same module was already
+    /// published. Not a loss — the two say the same thing — but it is the rest of the
+    /// distance between `constructions` and `call_sites`, so it is published rather than
+    /// left for a reader to derive.
+    pub duplicate_call_sites: usize,
+    /// Sites that assign `weight`, overriding the catalog's sampling weight at emission.
+    /// A finding rather than a gap: it is the evidence that [`WamEvent::weights`] is a
+    /// default. It does not make a site partial, since it names no field.
+    ///
+    /// [`WamEvent::weights`]: wa_ir::WamEvent::weights
+    pub sampling_weight_overrides: usize,
     /// What the scan could not turn into a field set, by reason — counted rather than
     /// omitted, so a construction that resisted reading and one that writes nothing
     /// never look alike.
@@ -142,6 +164,19 @@ pub fn extract_wam_from_modules(
     diag.constants = constants.len();
 
     collect_call_sites(source, module_defs, &mut events, &exports, &mut diag);
+    // A call site can name an enum no field of any event or global is typed by. The
+    // catalog is resolved after the sites for exactly this reason: an `enumMember` value
+    // pointing at a module the document does not carry would be a dangling reference in
+    // an IR that calls itself self-contained.
+    for ev in &events {
+        for site in &ev.call_sites {
+            for f in &site.fields {
+                if let Some(wa_ir::WamCallSiteValue::EnumMember { module, .. }) = &f.value {
+                    enum_modules.insert(module.clone());
+                }
+            }
+        }
+    }
 
     // Resolve the enum modules events and globals reference (self-contained IR).
     let mut enums: Vec<WamEnum> = Vec::new();
@@ -216,8 +251,11 @@ fn parse_buffer_modules(
     }
     globals.sort_by(|a, b| a.name.cmp(&b.name));
     globals.dedup_by(|a, b| a.name == b.name);
-    ps_ids.sort_by_key(|p| p.id);
-    ps_ids.dedup_by_key(|p| p.id);
+    ps_ids.sort_by(|a, b| a.id.cmp(&b.id).then_with(|| a.key.cmp(&b.key)));
+    // By VALUE, not by id: two copies of one row are the same row, but two different
+    // groups claiming one `keyHashInt` make the foreign key ambiguous, and collapsing
+    // them here would hide that from the linter that exists to catch it.
+    ps_ids.dedup_by(|a, b| a == b);
     constants.sort_by(|a, b| a.name.cmp(&b.name));
     constants.dedup_by(|a, b| a.name == b.name);
     (globals, ps_ids, constants)
@@ -259,7 +297,10 @@ fn collect_call_sites(
             // more than one bundle file, so a residue counted per copy would report one
             // construction as several and could trip the lint baseline on a duplicate.
             if let Some(form) = raw.unread_argument {
-                *diag.drops_by_reason.entry(form.to_string()).or_default() += 1;
+                *diag
+                    .drops_by_reason
+                    .entry(format!("{UNREAD_ARGUMENT_PREFIX}.{form}"))
+                    .or_default() += 1;
             }
             let index = exports
                 .get(&(raw.event_module.clone(), raw.export.clone()))
@@ -273,7 +314,7 @@ fn collect_call_sites(
                 // construction of a schema the catalog does not define, by design.
                 *diag
                     .drops_by_reason
-                    .entry("construction of an event with no catalog entry".to_string())
+                    .entry(CONSTRUCTION_NO_CATALOG_ENTRY.to_string())
                     .or_default() += 1;
                 continue;
             };
@@ -284,16 +325,23 @@ fn collect_call_sites(
                 if !ev.fields.iter().any(|f| f.name == name) {
                     // `weight` is not a field: it is the sampling weight on the event
                     // object, and writing it is the site overriding what the catalog
-                    // declares. Worth counting under its own name — it is the only
-                    // evidence in the IR that `weights` is a default.
-                    let reason = if name == SAMPLING_WEIGHT_PROPERTY {
-                        "call site overriding the catalog sampling weight"
-                    } else {
-                        // Anything else is a write we attributed wrongly, or a field the
-                        // catalog does not know. Either way it is not schema to publish.
-                        "written key naming no field of the event"
-                    };
-                    *diag.drops_by_reason.entry(reason.to_string()).or_default() += 1;
+                    // declares. It is evidence that `weights` is a default, not a field
+                    // we failed to read — so it is counted on its own and, crucially,
+                    // leaves `partial` alone. Marking the site partial for it would tell
+                    // a consumer its field list is incomplete when nothing is missing
+                    // from it, and `partial: false` is exactly what a parity check keys
+                    // on.
+                    if name == SAMPLING_WEIGHT_PROPERTY {
+                        diag.sampling_weight_overrides += 1;
+                        continue;
+                    }
+                    // Anything else is a write we attributed wrongly, or a field the
+                    // catalog does not know. Either way it is not schema to publish, and
+                    // the site does write something this list cannot name.
+                    *diag
+                        .drops_by_reason
+                        .entry(WRITTEN_KEY_NO_FIELD.to_string())
+                        .or_default() += 1;
                     partial = true;
                     continue;
                 }
@@ -316,7 +364,13 @@ fn collect_call_sites(
                     .then_with(|| a.partial.cmp(&b.partial))
             })
         });
+        let before = list.len();
         list.dedup_by(|a, b| a == b);
+        // The one remaining step between `constructions` and `call_sites`. Two identical
+        // sites in one module say nothing more than one does, so the second is dropped —
+        // but a reader subtracting the published numbers would otherwise find a gap with
+        // no name on it.
+        diag.duplicate_call_sites += before - list.len();
         for s in &list {
             diag.call_sites += 1;
             diag.partial_call_sites += usize::from(s.partial);

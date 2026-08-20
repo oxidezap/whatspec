@@ -120,10 +120,16 @@ fn emit_buffer(out: &mut String, ir: &WamIr) {
     // The header's version byte is read from the IR, so a document that does not carry
     // it cannot produce a buffer. Refusing at compile time is the only honest answer:
     // inventing a `5` here is what this whole change set out to stop.
-    if !ir.constants.iter().any(|c| c.name == PROTOCOL_VERSION) {
+    // Present but outside a byte is the same problem as absent, and worse in one way:
+    // `as u8` would truncate it into a codec that compiles and writes the wrong header.
+    if !ir
+        .constants
+        .iter()
+        .any(|c| c.name == PROTOCOL_VERSION && u8::try_from(c.value).is_ok())
+    {
         out.push_str(&format!(
-            "compile_error!(\"the WAM IR carries no {PROTOCOL_VERSION}: the buffer header \
-             cannot be written without it\");\n"
+            "compile_error!(\"the WAM IR carries no {PROTOCOL_VERSION} that fits the \
+             header's single byte: the buffer cannot be written without it\");\n"
         ));
     }
     out.push('\n');

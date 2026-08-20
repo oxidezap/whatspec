@@ -52,7 +52,9 @@ pub(crate) struct RawSite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Binding {
     /// A local. WA reuses one-letter names across a module, so a write only counts
-    /// inside the function that declared it — where the name cannot mean anything else.
+    /// where the name cannot mean anything else: inside the function that declared it,
+    /// or inside a function nested in that one, which closes over the same binding —
+    /// `var e = new …; setTimeout(function () { e.count = 1 })` writes the same event.
     Local { name: String, function: u32 },
     /// An instance property (`this.$2`). Its writes are spread across the methods of
     /// the class that holds it, so the immediate function boundary is exactly what must
@@ -63,13 +65,17 @@ pub(crate) enum Binding {
 }
 
 /// A `<binding>.<field> = …` or `<binding>.set({…})` write. `field` is `None` when the
-/// write's key is not readable — a spread or a computed name inside a `set({…})` — which
-/// writes fields the published list cannot name and so makes its site partial.
+/// write's key is not readable — a spread, a computed name, an object built elsewhere —
+/// which writes fields the published list cannot name and so makes its site partial.
 struct RawWrite {
     binding: Binding,
     field: Option<String>,
     value: Option<WamCallSiteValue>,
     start: u32,
+    /// The functions enclosing the write, outermost first. A local binding matches when
+    /// its declaring function is one of these: the write is then either in that function
+    /// or in a closure inside it, and in both it names the same variable.
+    scope: Vec<u32>,
 }
 
 /// Every construction in one module slice, with the post-construction writes already
@@ -100,7 +106,7 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
         // checks.
         let Some(site) = sites
             .iter_mut()
-            .rfind(|s| s.binding.as_ref() == Some(&w.binding) && s.start < w.start)
+            .rfind(|s| s.start < w.start && binds(s.binding.as_ref(), &w))
         else {
             continue;
         };
@@ -112,6 +118,17 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
         }
     }
     sites
+}
+
+/// Whether a construction's binding is the one a write names.
+fn binds(binding: Option<&Binding>, w: &RawWrite) -> bool {
+    match (binding, &w.binding) {
+        (Some(Binding::Local { name, function }), Binding::Local { name: n, .. }) => {
+            name == n && w.scope.contains(function)
+        }
+        (Some(b), other) => b == other,
+        (None, _) => false,
+    }
 }
 
 struct SiteVisitor<'m> {
@@ -186,42 +203,45 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                 field: Some(field.to_string()),
                 value: literal_value(&a.right, self.aliases),
                 start: a.span.start,
+                scope: self.functions.clone(),
             });
         }
         walk::walk_assignment_expression(self, a);
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        // `event.set({field: …})` — the same write the constructor performs, spelled as
-        // a method.
+        // `event.set(…)` — the same write the constructor performs, spelled as a method,
+        // so it is read by the same function: an object literal states its keys, a merge
+        // states the ones it can and marks the rest unread, and anything else names
+        // nothing and is a write this list cannot describe.
         if wa_oxc::callee_method(call) == Some("set")
             && let Some(base) = wa_oxc::callee_object(call)
                 .and_then(|e| binding_key_expr(e, self.function(), self.owner()))
-            && let Some(obj) = call
-                .arguments
-                .first()
-                .and_then(wa_oxc::arg_expr)
-                .and_then(as_object)
+            && let Some(arg) = call.arguments.first().and_then(wa_oxc::arg_expr)
         {
-            for prop in &obj.properties {
-                // A spread merges keys from elsewhere and a computed key names a field
-                // at runtime; both write fields this cannot name, so they are recorded
-                // as unnamed writes rather than skipped.
-                let field = match prop {
-                    ObjectPropertyKind::ObjectProperty(p) => {
-                        wa_oxc::property_key_name(&p.key).map(str::to_string)
-                    }
-                    ObjectPropertyKind::SpreadProperty(_) => None,
-                };
-                let value = match prop {
-                    ObjectPropertyKind::ObjectProperty(p) => literal_value(&p.value, self.aliases),
-                    ObjectPropertyKind::SpreadProperty(_) => None,
-                };
+            let mut fields = Vec::new();
+            let mut partial = false;
+            let mut unread = None;
+            read_argument(arg, &mut fields, &mut partial, &mut unread, self.aliases);
+            for (field, _, value) in fields {
                 self.writes.push(RawWrite {
                     binding: base.clone(),
-                    field,
+                    field: Some(field),
                     value,
                     start: call.span.start,
+                    scope: self.functions.clone(),
+                });
+            }
+            // One unnamed write stands for everything the argument writes and the scan
+            // could not name, whether that is a spread, a computed key, or an object
+            // assembled somewhere else entirely.
+            if partial || unread.is_some() {
+                self.writes.push(RawWrite {
+                    binding: base.clone(),
+                    field: None,
+                    value: None,
+                    start: call.span.start,
+                    scope: self.functions.clone(),
                 });
             }
         }
