@@ -68,43 +68,62 @@
       "stanzaTags": 13,
       "typedContent": 22,
       "types": 27
+    },
+    "wam": {
+      "callSiteFieldValues": 784,
+      "callSiteFields": 3293,
+      "callSites": 807,
+      "constants": 6,
+      "constructions": 883,
+      "dropsByReason": {
+        "construction of an event with no catalog entry": 41,
+        "unreadConstructionArgument.call": 1,
+        "unreadConstructionArgument.identifier": 100,
+        "unreadConstructionArgument.member": 3
+      },
+      "duplicateCallSites": 35,
+      "events": 436,
+      "globals": 46,
+      "partialCallSites": 121,
+      "privateStatsIds": 9,
+      "samplingWeightOverrides": 4
     }
   },
   "domains": {
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "616888631995690f6c476aa9c13544050d07889f3d3afd98c429805a8c7f084d"
+      "sha256": "5fb1f19c2547f8617f719268276016336aa04949fea91690773015a250a526f3"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "5d54aa53b653a015d43d8f5d334401348d16ca9e7418cbfc3c0f6b0677dfc166"
+      "sha256": "5c3b3881a6eb307436496236f981a466c195bd8f0a19a719eb6ed47eff0af2ed"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "253e9be951c270c1f29161610211ae5b86e07f6f116bdc97268cdd7da594e42f"
+      "sha256": "7eda6cfd16fd0e5b927e797b01d891ab2296cedd23e89635cb47877dffe84a21"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "aca77465db3abae1bcf9fba6401d1e0ec70fa6f52b52b9bb3f80de864739f0f0"
+      "sha256": "58d5ee0e3f2a03d828435bb49b71c00d72f3ea9c871d3722f2ecbe6a79114601"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "15c9d3f7e4b62f1f6549e335714dac757e878b690b1cbd4cfb47d7bbc3f99808"
+      "sha256": "b814494668a0bf36839679dff0cb9f263238391378b57b90ad8bfae7f70fcffa"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "84e2ea45b035e8425dd7c1cc2e2f371aab3c89cce6ed8d4fd0bda4d839b35b59"
+      "sha256": "2f94dad2691eb9036fea7a2685acf3340364ba2a333df88299145933847ddb4a"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "fade6781d9eb6cb4931bf1d967d9c00e8dd8e4a49b0ad9d6822cd815059d553e"
+      "sha256": "0002dd3f9e74a9ffcc37f0bca4772abcb9f6efdcdfcbceea80d245ca691729fa"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -113,27 +132,27 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "abedd4d0d6404bfa0bd6d11b821a9879a93364ebdd24c56c6403351a924b5e18"
+      "sha256": "d8eff4e11cdbb4d1f98daccde3bc90756ff0606853d2d547cde4d90742c0d544"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "cd588054d2b49acecd0d8afa753d1ff54954ad89961eba66931912ae2a020f25"
+      "sha256": "71bf4cf68551b9a70a9eca21e78ac33f02c13925a039769780f8da3bc6c016ab"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "c258bd0be728578cbf94a4b09014a997b8ce980d7334fdccd716ad5510c3eb99"
+      "sha256": "2c21ee752449f0d12d6ea3b10897597416013eb14e36e12bad815f266985c3c7"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "16678577c8c42760b5115a46d46ee1ad6cb051478973e1f9ddef3d68e56cdc5a"
+      "sha256": "39e3ffcac131264d99b368a951a94c1fc3ff44091f837250d70fa445c2948736"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "ae0d851f84a7c1fabf7d3388662839d78ebae4bb969c35a8bb1f29b47f06cf7b"
+      "sha256": "662451cea1460ddc5cc0164a9ba11a344240d4710de98cb36645bd0b2bf3e273"
     }
   },
   "enumDefs": 416,
@@ -143,7 +162,7 @@
   "mexOperations": 143,
   "notifTypes": 27,
   "protoEntities": 356,
-  "schemaVersion": "4.0.0",
+  "schemaVersion": "4.1.0",
   "serverRequestDefs": 23,
   "stanzaDefs": 198,
   "tokenDoubleByte": 1024,

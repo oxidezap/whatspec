@@ -2020,6 +2020,8 @@ dependencies = [
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
+ "oxc_span",
+ "oxc_syntax",
  "wa-ir",
  "wa-oxc",
  "wa-transform",
