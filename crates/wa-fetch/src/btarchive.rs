@@ -193,7 +193,8 @@ pub fn lookup_archive(revision: u64, app: ArchiveApp) -> Result<ArchiveLookup> {
 /// choosing. An authority carrying userinfo is refused for the same reason and one more:
 /// [`host_of`] reads the host correctly, but the URL is handed back to whatever fetches
 /// it, and `@`/`\` in an authority is exactly where URL parsers disagree about which
-/// half is the host. A signed archive URL has no userinfo, so the safe reading is that
+/// half is the host — a WHATWG parser reads `\` as a path separator, so
+/// `attacker.test\host.fbcdn.net` connects somewhere this check would otherwise admit. A signed archive URL has no userinfo, so the safe reading is that
 /// anything with one is not the redirect this asked for. Errors say which rule refused
 /// it — a host that shifts PoP is expected, a host that leaves the suffix is not.
 fn accept_payload_location(location: &str) -> Result<String, String> {
@@ -358,6 +359,9 @@ mod tests {
             // than handed on with credentials a parser might split differently.
             "https://user:pass@scontent-ord5-1.xx.fbcdn.net/m1/v/x",
             "https://attacker.test\\@scontent-ord5-1.xx.fbcdn.net/m1/v/x",
+            // A WHATWG parser reads `\` as a path separator and connects to
+            // attacker.test, while a naive suffix check sees an allowed host.
+            "https://attacker.test\\scontent-ord5-1.xx.fbcdn.net/m1/v/x",
             // Relative: refused, not resolved against www.facebook.com.
             "/m1/v/t0.50410-6/An9FE6",
             "//scontent-ord5-1.xx.fbcdn.net/m1/v/x",
