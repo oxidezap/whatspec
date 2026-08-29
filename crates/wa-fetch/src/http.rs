@@ -47,6 +47,18 @@ impl fmt::Display for FetchError {
 
 impl Error for FetchError {}
 
+/// A 3xx observed *without* following it: the status plus the raw `Location`
+/// header, exactly as the server sent it (absolute or relative, unvalidated).
+///
+/// A caller that treats `Location` as a fetchable URL is trusting remote input,
+/// so the value is handed over unparsed and the policy stays with the caller
+/// (see the `btarchive` module, which admits only one host suffix).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedirectResponse {
+    pub status: u16,
+    pub location: Option<String>,
+}
+
 /// A blocking HTTP GET. Implementors are the *adapters* (native `ureq` today,
 /// browser `fetch` tomorrow); everything else in this crate is the *port* that
 /// depends only on this trait.
@@ -65,4 +77,30 @@ pub trait HttpClient: Sync {
         headers: &[(&str, &str)],
         max_bytes: u64,
     ) -> Result<HttpResponse, FetchError>;
+
+    /// GET `url` **without following redirects**, reporting the status and the
+    /// `Location` header instead of fetching what it points at.
+    ///
+    /// This is an *optional* capability, defaulted to unsupported, because only an
+    /// adapter can decide who follows a redirect and no caller can retrofit it: by
+    /// the time a following adapter returns, the redirect target has already been
+    /// downloaded. Endpoints whose 302 target is the payload — a `btarchive` zip is
+    /// hundreds of megabytes — must be able to stop at the `Location` and hand the
+    /// URL to something that streams, rather than pull the body into a `Vec<u8>`
+    /// under a byte cap.
+    ///
+    /// The default returns [`FetchError`] so an adapter that cannot express this
+    /// (the browser `fetch` build) keeps compiling and says so at runtime, instead
+    /// of every adapter growing a method it has no use for.
+    fn get_redirect(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        max_bytes: u64,
+    ) -> Result<RedirectResponse, FetchError> {
+        let _ = (url, headers, max_bytes);
+        Err(FetchError::new(
+            "this HttpClient adapter does not support redirect inspection",
+        ))
+    }
 }
