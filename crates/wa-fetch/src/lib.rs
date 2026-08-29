@@ -17,6 +17,12 @@
 //!   API as a second adapter, reusing the discovery parser unchanged, and
 //!   download/persist by its own (async) means.
 //!
+//! The [`HttpClient`] port also carries one *optional* capability — a redirect probe
+//! that stops at a 3xx instead of following it — defaulted to unsupported, because only
+//! an adapter can decide who follows a redirect. The native adapter implements it; the
+//! `btarchive` module (native-only, since Meta's build archive requires fetch-metadata
+//! headers a browser will not let page JS set) is its only caller.
+//!
 //! `discover_bundle_urls_with` is the WASM-safe port-level entry point; the
 //! thread-based download loop and the argument-free [`discover_bundle_urls`] /
 //! [`download_bundles`] convenience wrappers live under the `native` feature.
@@ -27,6 +33,8 @@ mod download;
 mod http;
 mod util;
 
+#[cfg(feature = "native")]
+mod btarchive;
 #[cfg(feature = "native")]
 mod cache;
 #[cfg(feature = "native")]
@@ -41,10 +49,15 @@ pub use discover::{
     discover_from_html, is_wasm_url,
 };
 pub use download::{Bundle, DownloadFailure, DownloadOptions, DownloadOutcome, bundle_file_name};
-pub use http::{FetchError, HttpClient, HttpResponse};
+pub use http::{FetchError, HttpClient, HttpResponse, RedirectResponse};
 
 #[cfg(feature = "native")]
 pub use bootloader::resolve_wasm;
+#[cfg(feature = "native")]
+pub use btarchive::{
+    ArchiveApp, ArchiveLocation, ArchiveLookup, BTARCHIVE_ORIGIN, archive_url, lookup_archive,
+    lookup_archive_with,
+};
 #[cfg(feature = "native")]
 pub use cache::{BundleCache, BundleEntry, CacheManifest, CacheStatus};
 #[cfg(feature = "native")]

@@ -13,6 +13,20 @@ use std::sync::Arc;
 /// Routing keys on the **path only** — a request target's query string is ignored — so a
 /// route can serve an endpoint called with varying parameters (the bootloader endpoint).
 pub(crate) fn spawn_server(routes: HashMap<String, (u16, Vec<u8>)>) -> String {
+    spawn_server_with_headers(
+        routes
+            .into_iter()
+            .map(|(path, (status, body))| (path, (status, Vec::new(), body)))
+            .collect(),
+    )
+}
+
+/// One canned response: status, extra headers, body.
+pub(crate) type Canned = (u16, Vec<(String, String)>, Vec<u8>);
+
+/// [`spawn_server`] plus per-route extra response headers, for the cases where the
+/// header *is* the response (a `Location` on a 3xx).
+pub(crate) fn spawn_server_with_headers(routes: HashMap<String, Canned>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().unwrap();
     let routes = Arc::new(routes);
@@ -26,7 +40,7 @@ pub(crate) fn spawn_server(routes: HashMap<String, (u16, Vec<u8>)>) -> String {
     format!("http://{addr}")
 }
 
-fn handle(mut stream: TcpStream, routes: &HashMap<String, (u16, Vec<u8>)>) {
+fn handle(mut stream: TcpStream, routes: &HashMap<String, Canned>) {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1024];
     loop {
@@ -48,18 +62,24 @@ fn handle(mut stream: TcpStream, routes: &HashMap<String, (u16, Vec<u8>)>) {
         .and_then(|l| l.split_whitespace().nth(1))
         .unwrap_or("/");
     let path = target.split('?').next().unwrap_or(target).to_string();
-    let (status, body) = routes
-        .get(&path)
-        .cloned()
-        .unwrap_or((404, b"not found".to_vec()));
+    let (status, extra, body) =
+        routes
+            .get(&path)
+            .cloned()
+            .unwrap_or((404, Vec::new(), b"not found".to_vec()));
     let reason = match status {
         200 => "OK",
+        302 => "Found",
         404 => "Not Found",
         500 => "Internal Server Error",
         _ => "OK",
     };
+    let extra: String = extra
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect();
     let header = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(header.as_bytes());

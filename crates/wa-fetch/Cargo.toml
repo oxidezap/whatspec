@@ -33,3 +33,8 @@ wa-text = { workspace = true }
 name = "discover"
 path = "examples/discover.rs"
 required-features = ["native"]
+
+[[example]]
+name = "btarchive"
+path = "examples/btarchive.rs"
+required-features = ["native"]
