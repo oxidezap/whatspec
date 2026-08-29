@@ -184,18 +184,29 @@ pub fn lookup_archive(revision: u64, app: ArchiveApp) -> Result<ArchiveLookup> {
     lookup_archive_with(&crate::UreqClient::new(), revision, app)
 }
 
-/// Admit a `Location` only if it is an absolute `https` URL on the allowed CDN suffix.
+/// Admit a `Location` only if it is an absolute `https` URL on the allowed CDN suffix,
+/// with a bare authority.
 ///
 /// Relative targets are refused rather than resolved: the endpoint answers with an
 /// absolute signed URL, so a relative one is not the redirect this asked for, and
 /// resolving it would silently turn `www.facebook.com` into a fetch target of its own
-/// choosing. Errors say which rule refused it — a host that shifts PoP is expected, a
-/// host that leaves the suffix is not.
+/// choosing. An authority carrying userinfo is refused for the same reason and one more:
+/// [`host_of`] reads the host correctly, but the URL is handed back to whatever fetches
+/// it, and `@`/`\` in an authority is exactly where URL parsers disagree about which
+/// half is the host. A signed archive URL has no userinfo, so the safe reading is that
+/// anything with one is not the redirect this asked for. Errors say which rule refused
+/// it — a host that shifts PoP is expected, a host that leaves the suffix is not.
 fn accept_payload_location(location: &str) -> Result<String, String> {
     let location = location.trim();
-    if !location.starts_with("https://") {
+    let Some(rest) = location.strip_prefix("https://") else {
         return Err(format!(
             "redirect Location {location:?} is not an absolute https URL"
+        ));
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    if authority.contains('@') || authority.contains('\\') {
+        return Err(format!(
+            "redirect Location {location:?} carries userinfo in its authority"
         ));
     }
     let Some(host) = host_of(location) else {
@@ -341,8 +352,12 @@ mod tests {
             "https://notfbcdn.net/m1/v/x",
             // …and a suffix matched anywhere in the host would admit this one.
             "https://scontent.fbcdn.net.attacker.test/m1/v/x",
-            // Userinfo must not be read as the host (see `host_of`).
+            // Userinfo must not be read as the host (see `host_of`)…
             "https://scontent-ord5-1.xx.fbcdn.net@attacker.test/m1/v/x",
+            // …and even when the host after it *is* allowed, the URL is refused rather
+            // than handed on with credentials a parser might split differently.
+            "https://user:pass@scontent-ord5-1.xx.fbcdn.net/m1/v/x",
+            "https://attacker.test\\@scontent-ord5-1.xx.fbcdn.net/m1/v/x",
             // Relative: refused, not resolved against www.facebook.com.
             "/m1/v/t0.50410-6/An9FE6",
             "//scontent-ord5-1.xx.fbcdn.net/m1/v/x",
@@ -350,11 +365,11 @@ mod tests {
             "http://scontent-ord5-1.xx.fbcdn.net/m1/v/x",
         ] {
             let client = CannedRedirect::new(302, Some(bad));
-            let err = lookup_archive_with(&client, 1046341789, ArchiveApp::WhatsApp)
-                .expect_err("must refuse {bad}")
-                .to_string();
+            let Err(err) = lookup_archive_with(&client, 1046341789, ArchiveApp::WhatsApp) else {
+                panic!("must refuse {bad}");
+            };
             assert!(
-                err.contains("Location"),
+                err.to_string().contains("Location"),
                 "error should name the redirect target: {err}"
             );
         }
