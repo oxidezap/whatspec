@@ -500,7 +500,14 @@ fn classify_object_reporting(
                 };
                 match scopes.resolve(source, 0) {
                     Value::Object(inner) => {
-                        for (k, mut node) in classify_object(inner, scopes, diag, depth + 1) {
+                        // The nested object's own opacity travels outward: with
+                        // `var base = {...opts}; fetchQuery(op, {...base})` the
+                        // unreadable `opts` is inside `base`, and dropping the
+                        // flag here would let the outer site read as fully known.
+                        let (nested, nested_opaque) =
+                            classify_object_reporting(inner, scopes, diag, depth + 1);
+                        opaque |= nested_opaque;
+                        for (k, mut node) in nested {
                             node.presence = node.presence.weaker(floor);
                             // A later spread overwrites the keys it carries, the
                             // same order rule the explicit keys follow.
@@ -875,6 +882,21 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
         walk::walk_arrow_function_expression(self, func);
+        self.scopes.pop();
+    }
+
+    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+        // `catch (x)` binds `x` for the handler only, and the thrown value is
+        // whatever was thrown - nothing this pass can judge. Without the frame
+        // the name falls through to an enclosing binding of the same spelling.
+        self.scopes.push_block();
+        if let Some(param) = &clause.param {
+            for ident in param.pattern.get_binding_identifiers() {
+                self.scopes
+                    .bind(ident.name.as_str(), Value::MaybeUndefined, false);
+            }
+        }
+        walk::walk_catch_clause(self, clause);
         self.scopes.pop();
     }
 
@@ -1759,6 +1781,23 @@ mod tests {
             diag.operations_without_call_site, 0,
             "a call was found; it could not be read"
         );
+    }
+
+    #[test]
+    fn a_catch_parameter_shadows_an_outer_binding() {
+        let caller = r#"var x=!0;function f(){try{g()}catch(x){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn opacity_travels_out_of_a_spread_chain() {
+        // The unreadable spread is one level in, so the outer site is not fully
+        // known either: a declared key nothing wrote may still come from `opts`.
+        let caller = r#"function f(t){var base={...t.opts};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{...base})}"#;
+        let (tree, diag) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.unreadable_spreads, 1);
     }
 
     #[test]
