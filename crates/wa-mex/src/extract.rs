@@ -233,11 +233,6 @@ pub fn extract_mex_from_modules_with_diagnostics(
                 .get(name)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
-            // The shape pass reads one caller, as it always has: types merge, so a
-            // second site can only repeat what the first said, and feeding it more
-            // would change committed output for no gain.
-            let first_body = callers.first().map(|d| &source[d.start..d.end]);
-            raw.variables_shape = crate::shape::variables_shape(first_body, &raw.variables);
             let bodies: Vec<(&str, bool)> = callers
                 .iter()
                 .map(|d| {
@@ -249,6 +244,8 @@ pub fn extract_mex_from_modules_with_diagnostics(
                     (&source[d.start..d.end], sole)
                 })
                 .collect();
+            let shape_bodies: Vec<&str> = bodies.iter().map(|(src, _)| *src).collect();
+            raw.variables_shape = crate::shape::variables_shape(&shape_bodies, &raw.variables);
             // Counted per operation and folded in below, so the totals describe
             // the operations the IR publishes rather than the raw scan - the noise
             // filter drops a third of them, and a diagnostic that counted those
@@ -731,6 +728,57 @@ mod tests {
         assert_eq!(diag.presence_undetermined, 0);
         assert_eq!(diag.operations_with_variables, 1);
         assert_eq!(diag.operations_fully_determined, 0);
+    }
+
+    #[test]
+    fn two_callers_agree_on_shape_and_presence_keys() {
+        // Presence merges every caller, so the shape has to as well: a nested key
+        // only the second caller writes would otherwise carry a verdict the shape
+        // does not type, which `scripts/lint-ir.py` rejects outright - the
+        // operation would fail to publish rather than come out imprecise.
+        let m = r#"
+        __d("WAWebTwoQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"input"}],name:"WAWebTwoQuery"},operation:{argumentDefinitions:[],name:"WAWebTwoQuery"},params:{id:"5",name:"WAWebTwoQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebJobOne",["WAWebTwoQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebTwoQuery.graphql"),{input:{a:!0}})}
+            l.one=u
+        }),null);
+        __d("WAWebJobTwo",["WAWebTwoQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebTwoQuery.graphql"),{input:{a:!0,b:e.b}})}
+            l.two=u
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        let op = ir.operations.get("Two").expect("operation published");
+        let wa_ir::TypeNode::Object(shape) = &op.variables_shape["input"] else {
+            panic!("input shape is an object")
+        };
+        let presence = &op.variables_presence["input"];
+        assert!(
+            shape.contains_key("b") && presence.fields.contains_key("b"),
+            "the second caller's key is typed and answered, not one or the other"
+        );
+        assert_eq!(
+            presence.fields["a"].presence,
+            wa_ir::VariablePresence::Always,
+            "written by both callers"
+        );
+        assert_eq!(
+            presence.fields["b"].presence,
+            wa_ir::VariablePresence::Conditional,
+            "one caller's input object does not carry it"
+        );
+        // The invariant the linter enforces, asserted here so a regression fails
+        // in the crate rather than at publish time.
+        for key in shape.keys() {
+            assert!(
+                presence.fields.contains_key(key),
+                "{key} typed with no verdict"
+            );
+        }
+        for key in presence.fields.keys() {
+            assert!(shape.contains_key(key), "{key} answered but not typed");
+        }
     }
 
     #[test]

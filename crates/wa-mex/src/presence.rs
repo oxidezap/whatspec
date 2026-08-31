@@ -349,13 +349,25 @@ fn classify_object(
     diag: &mut PresenceDiagnostics,
     depth: usize,
 ) -> SiteTree {
+    classify_object_reporting(props, scopes, diag, depth).0
+}
+
+/// [`classify_object`], plus whether a spread this level could not enumerate may
+/// still be carrying keys into it.
+fn classify_object_reporting(
+    props: &[Prop],
+    scopes: &Scopes,
+    diag: &mut PresenceDiagnostics,
+    depth: usize,
+) -> (SiteTree, bool) {
+    let mut opaque = false;
     let mut out: SiteTree = BTreeMap::new();
     // A spread whose source resolves back through itself (`var e = {...e}`)
     // would otherwise descend forever, and an extractor that aborts publishes
     // nothing at all.
     if depth >= MAX_DEPTH {
         diag.unreadable_spreads += 1;
-        return out;
+        return (out, true);
     }
     for prop in props {
         match prop {
@@ -397,6 +409,7 @@ fn classify_object(
                     // standing that the client contradicts.
                     _ => {
                         diag.unreadable_spreads += 1;
+                        opaque = true;
                         for node in out.values_mut() {
                             withdraw(node);
                         }
@@ -405,7 +418,7 @@ fn classify_object(
             }
         }
     }
-    out
+    (out, opaque)
 }
 
 /// Reduce a verdict and everything under it to `undetermined`.
@@ -639,6 +652,9 @@ struct CallSiteCollector<'d> {
     sites: Vec<SiteTree>,
     /// Calls that send this operation whose variables object could not be read.
     unreadable_sites: usize,
+    /// Whether a recovered site carries a spread whose keys could not be listed,
+    /// so a declared key nothing wrote may still be reaching the wire.
+    opaque_keys: bool,
     diag: &'d mut PresenceDiagnostics,
 }
 
@@ -768,7 +784,15 @@ impl CallSiteCollector<'_> {
     /// to one.
     fn variables_object(&mut self, value: &Value) -> Option<SiteTree> {
         match self.scopes.resolve(value, 0) {
-            Value::Object(props) => Some(classify_object(props, &self.scopes, self.diag, 0)),
+            Value::Object(props) => {
+                let (tree, opaque) = classify_object_reporting(props, &self.scopes, self.diag, 0);
+                // A spread whose keys could not be enumerated may be supplying a
+                // declared key this site never writes explicitly. Falling through
+                // to the "no site wrote it" default would publish `conditional`,
+                // which claims the client omits it; nothing here establishes that.
+                self.opaque_keys |= opaque;
+                Some(tree)
+            }
             // `cond ? {…} : {…}` picks one object per call, so a key only one arm
             // writes is one the client can omit - which `merge_sites` says.
             Value::Either(a, b) => {
@@ -792,7 +816,11 @@ impl CallSiteCollector<'_> {
 
     fn branch_object(&mut self, value: &Value) -> Option<SiteTree> {
         match self.scopes.resolve(value, 0) {
-            Value::Object(props) => Some(classify_object(props, &self.scopes, self.diag, 0)),
+            Value::Object(props) => {
+                let (tree, opaque) = classify_object_reporting(props, &self.scopes, self.diag, 0);
+                self.opaque_keys |= opaque;
+                Some(tree)
+            }
             _ => None,
         }
     }
@@ -821,6 +849,7 @@ pub(crate) fn variables_presence(
     }
     let mut merged: Option<SiteTree> = None;
     let mut unreadable_sites = 0usize;
+    let mut opaque_keys = false;
     for (src, sole_operation) in callers {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
@@ -834,10 +863,12 @@ pub(crate) fn variables_presence(
             scopes,
             sites: Vec::new(),
             unreadable_sites: 0,
+            opaque_keys: false,
             diag,
         };
         collector.visit_program(&ret.program);
         unreadable_sites += collector.unreadable_sites;
+        opaque_keys |= collector.opaque_keys;
         // Every recovered site has to agree for a key to be `always`, so the sites
         // are folded rather than picked from - across callers as well as within one.
         for site in collector.sites {
@@ -865,9 +896,14 @@ pub(crate) fn variables_presence(
         .iter()
         .map(|name| {
             let mut node = merged.remove(name).unwrap_or_else(|| {
-                // Declared by the operation and written by no recovered site: the
-                // client does not send it, which is a form of "not always".
-                VariablePresenceNode::leaf(VariablePresence::Conditional)
+                // Declared by the operation and written by no recovered site. That
+                // is "not always" - unless a spread nobody could read might be
+                // supplying it, in which case nothing at all is established.
+                VariablePresenceNode::leaf(if opaque_keys {
+                    VariablePresence::Undetermined
+                } else {
+                    VariablePresence::Conditional
+                })
             });
             if unreadable_sites > 0 {
                 withdraw(&mut node);
@@ -1250,6 +1286,22 @@ mod tests {
             r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}var x=!0;"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_unreadable_spread_leaves_unwritten_keys_undetermined() {
+        // `fetchQuery(op, {...opts})`: nothing says whether `opts` supplies `a`
+        // always, sometimes or never, so `conditional` would be a claim the
+        // extractor cannot make. A key written explicitly is still definite.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{...t.opts,b:!0})}"#;
+        let (tree, diag) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(
+            at(&tree, "b"),
+            VariablePresence::Always,
+            "written after the spread, so the spread cannot reach it"
+        );
+        assert_eq!(diag.unreadable_spreads, 1);
     }
 
     #[test]

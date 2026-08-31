@@ -1025,10 +1025,20 @@ fn augment_with_arg_defs(
 /// Build the `variablesShape` for an operation from its caller module body +
 /// the authoritative argDef names.
 pub(crate) fn variables_shape(
-    caller_src: Option<&str>,
+    caller_srcs: &[&str],
     arg_def_names: &[String],
 ) -> BTreeMap<String, TypeNode> {
-    let raw = caller_src.and_then(|s| extract_vars_shape(s.as_bytes()));
+    // Every caller, folded, for the same reason the presence pass reads them all:
+    // two job modules can send the same operation with different nested input
+    // fields, and the two maps are published as siblings whose keys must agree.
+    // Deriving the shape from one caller while presence saw them all would let
+    // presence carry a nested key the shape does not, which `scripts/lint-ir.py`
+    // rejects outright - the operation would fail to publish rather than come
+    // out imprecise.
+    let raw = caller_srcs
+        .iter()
+        .filter_map(|s| extract_vars_shape(s.as_bytes()))
+        .fold(None, |acc, shape| merge_shapes(acc, Some(shape)));
     type_tree(augment_with_arg_defs(raw, arg_def_names), true)
 }
 
@@ -1273,10 +1283,7 @@ mod tests {
     fn variables_shape_from_caller_fetch_query() {
         // Caller invokes fetchQuery(id, {input:{group_jid,reason}, fetch_meta}).
         let caller = r#"function send(t){return o("RelayRuntime").fetchQuery(n,{input:{group_jid:t.jid,reason:t.why},fetch_meta:!0})}"#;
-        let vs = variables_shape(
-            Some(caller),
-            &["input".to_string(), "fetch_meta".to_string()],
-        );
+        let vs = variables_shape(&[caller], &["input".to_string(), "fetch_meta".to_string()]);
         let TypeNode::Object(input) = vs.get("input").unwrap() else {
             panic!("input object")
         };
@@ -1292,7 +1299,7 @@ mod tests {
         // (`pinNewsletterMessages(a, [String(n)])`). Plural `_ids` ⇒ list of strings.
         let caller = r#"function s(t,r){return o("WAWebMexClient").fetchQuery(i,{newsletter_id:t,input:{message_ids:r}})}"#;
         let vs = variables_shape(
-            Some(caller),
+            &[caller],
             &["newsletter_id".to_string(), "input".to_string()],
         );
         assert_eq!(leaf(vs.get("newsletter_id").unwrap()), "string");
@@ -1306,7 +1313,7 @@ mod tests {
 
         // `_jids` suffix takes the same branch.
         let caller_jids = r#"function s(t,r){return o("WAWebMexClient").fetchQuery(i,{input:{participant_jids:r}})}"#;
-        let vs_jids = variables_shape(Some(caller_jids), &["input".to_string()]);
+        let vs_jids = variables_shape(&[caller_jids], &["input".to_string()]);
         let TypeNode::Object(input_jids) = vs_jids.get("input").unwrap() else {
             panic!("input object")
         };
@@ -1322,7 +1329,7 @@ mod tests {
         // extractor yields `Array([Leaf(unknown)])`. The heuristic must not fire on
         // the array *element* (inherited `_ids` key), else we'd get `[[string]]`.
         let caller = r#"function s(t,e){return o("WAWebMexClient").fetchQuery(i,{input:{message_ids:[e]}})}"#;
-        let vs = variables_shape(Some(caller), &["input".to_string()]);
+        let vs = variables_shape(&[caller], &["input".to_string()]);
         let TypeNode::Object(input) = vs.get("input").unwrap() else {
             panic!("input object")
         };
@@ -1340,7 +1347,7 @@ mod tests {
     #[test]
     fn variables_shape_argdefs_are_authoritative() {
         // No caller → every argDef becomes a typed leaf; sibling keys excluded.
-        let vs = variables_shape(None, &["newsletter_id".to_string()]);
+        let vs = variables_shape(&[], &["newsletter_id".to_string()]);
         assert_eq!(vs.len(), 1);
         assert!(vs.contains_key("newsletter_id"));
     }
@@ -1350,7 +1357,7 @@ mod tests {
         // Regression: `.map(e => ({ a:[{x}], b:1 }))` — the no-trace array parser
         // must stop at its matching `]`, not run to end and drop `b`.
         let caller = r#"function f(a){return o("R").commitMutation(n,{input:a.map(function(e){return{a:[{x:e.x}],b:e.y}})})}"#;
-        let vs = variables_shape(Some(caller), &["input".to_string()]);
+        let vs = variables_shape(&[caller], &["input".to_string()]);
         let TypeNode::Array(items) = vs.get("input").unwrap() else {
             panic!("input array")
         };
@@ -1372,7 +1379,7 @@ mod tests {
     fn variables_shape_map_callback_recovers_array_item() {
         // `.map(function(e){return {newsletter_id:..,capability:..}})` → array item shape.
         let caller = r#"function f(a){return o("R").commitMutation(n,{input:{exposures:a.map(function(e){return{newsletter_id:e.id,capability:e.cap}})}})}"#;
-        let vs = variables_shape(Some(caller), &["input".to_string()]);
+        let vs = variables_shape(&[caller], &["input".to_string()]);
         let TypeNode::Object(input) = vs.get("input").unwrap() else {
             panic!()
         };
