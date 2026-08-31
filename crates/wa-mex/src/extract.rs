@@ -371,9 +371,18 @@ fn align_with_shape(
 }
 
 fn align_node(shape: &wa_ir::TypeNode, presence: &mut wa_ir::VariablePresenceNode) {
+    // Each arm clears the children the shape does NOT have room for. The two
+    // passes read a call site differently, so presence can resolve an object
+    // where the shape emitted a leaf; keeping its fields there would publish
+    // nested verdicts on a variable that is not an object, which the linter
+    // rejects and which no consumer could generate against.
     match shape {
-        wa_ir::TypeNode::Object(fields) => align_with_shape(fields, &mut presence.fields),
+        wa_ir::TypeNode::Object(fields) => {
+            presence.items = None;
+            align_with_shape(fields, &mut presence.fields)
+        }
         wa_ir::TypeNode::Array(items) => {
+            presence.fields.clear();
             // Every layer, since a list of lists carries its keys one level
             // deeper (`[[{a}]]`) and stopping at the first would leave them with
             // no verdict at all rather than an undetermined one.
@@ -388,9 +397,14 @@ fn align_node(shape: &wa_ir::TypeNode, presence: &mut wa_ir::VariablePresenceNod
                     ))
                 });
                 align_node(element, item);
+            } else {
+                presence.items = None;
             }
         }
-        wa_ir::TypeNode::Leaf(_) => {}
+        wa_ir::TypeNode::Leaf(_) => {
+            presence.fields.clear();
+            presence.items = None;
+        }
     }
 }
 
@@ -412,10 +426,20 @@ fn count_presence(tree: &BTreeMap<String, wa_ir::VariablePresenceNode>, diag: &m
             wa_ir::VariablePresence::Conditional => diag.presence_conditional += 1,
             wa_ir::VariablePresence::Undetermined => diag.presence_undetermined += 1,
         }
-        count_presence(&node.fields, diag);
-        if let Some(items) = &node.items {
-            count_presence(&items.fields, diag);
-        }
+        count_keys_under(node, diag);
+    }
+}
+
+/// The keys nested under one node, at every layer.
+///
+/// A list element is not a key and carries no verdict of its own, so it is
+/// followed rather than counted - including through `items.items`, which a list
+/// of lists carries and which stopping at the first layer left out of the totals
+/// the floor guard reads.
+fn count_keys_under(node: &wa_ir::VariablePresenceNode, diag: &mut MexDiagnostics) {
+    count_presence(&node.fields, diag);
+    if let Some(items) = &node.items {
+        count_keys_under(items, diag);
     }
 }
 

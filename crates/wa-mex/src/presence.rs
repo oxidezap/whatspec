@@ -117,6 +117,10 @@ struct Scopes {
     /// enclosing binding. Consulted after the frames and before the module's own
     /// hoisted table, which is the shadowing order.
     frame_hoisted: Vec<HashMap<String, Value>>,
+    /// Whether each frame is a function's, as opposed to a block's. `let` and
+    /// `const` belong to the block that declares them and go out of scope with
+    /// it; `var` belongs to the enclosing function and outlives the block.
+    frame_is_function: Vec<bool>,
     /// Bindings the module declares at its own top level, collected before the
     /// walk. A closure resolves its free names when it RUNS, not where it sits,
     /// so `function f(){ …{a: x}… } var x = !0;` uses the defined `x`; walking in
@@ -130,12 +134,29 @@ struct Scopes {
 
 impl Scopes {
     fn push(&mut self, hoisted: HashMap<String, Value>) {
+        self.push_frame(hoisted, true);
+    }
+    /// A lexical block: `let`/`const` inside it disappear with it.
+    fn push_block(&mut self) {
+        self.push_frame(HashMap::new(), false);
+    }
+    fn push_frame(&mut self, hoisted: HashMap<String, Value>, is_function: bool) {
         self.frames.push(HashMap::new());
         self.frame_hoisted.push(hoisted);
+        self.frame_is_function.push(is_function);
     }
     fn pop(&mut self) {
         self.frames.pop();
         self.frame_hoisted.pop();
+        self.frame_is_function.pop();
+    }
+    /// The innermost frame a `var` or an assignment belongs to, skipping blocks.
+    fn function_frame(&mut self) -> Option<&mut HashMap<String, Value>> {
+        let idx = self
+            .frame_is_function
+            .iter()
+            .rposition(|is_function| *is_function)?;
+        self.frames.get_mut(idx)
     }
     /// Bind a name, joining any binding already in this frame when the write is
     /// one a branch can skip.
@@ -149,7 +170,20 @@ impl Scopes {
     /// time, and calling it `conditional` leaves a consumer with the optional
     /// field this whole dimension exists to remove.
     fn bind(&mut self, name: &str, value: Value, conditional: bool) {
-        if let Some(frame) = self.frames.last_mut() {
+        self.bind_in(name, value, conditional, false);
+    }
+    /// Bind in the enclosing FUNCTION scope rather than the current block, for a
+    /// `var` and for an assignment, neither of which a block contains.
+    fn bind_function_scoped(&mut self, name: &str, value: Value, conditional: bool) {
+        self.bind_in(name, value, conditional, true);
+    }
+    fn bind_in(&mut self, name: &str, value: Value, conditional: bool, function_scoped: bool) {
+        let frame = if function_scoped {
+            self.function_frame()
+        } else {
+            self.frames.last_mut()
+        };
+        if let Some(frame) = frame {
             match frame.remove(name) {
                 Some(prior) if conditional => frame.insert(
                     name.to_string(),
@@ -588,7 +622,14 @@ fn merge_nodes(a: VariablePresenceNode, b: VariablePresenceNode) -> VariablePres
     }
     let items = match (a.items, b.items) {
         (Some(x), Some(y)) => Some(Box::new(merge_nodes(*x, *y))),
-        (Some(x), None) | (None, Some(x)) => Some(x),
+        // One side described the element and the other did not. The keys the
+        // described side wrote are not established for the list as a whole - the
+        // other site's list may carry an element without them - so they are
+        // withdrawn while the container itself stays `always`.
+        (Some(mut x), None) | (None, Some(mut x)) => {
+            withdraw_children(&mut x);
+            Some(x)
+        }
         (None, None) => None,
     };
     VariablePresenceNode {
@@ -805,6 +846,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.pop();
     }
 
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        self.scopes.push_block();
+        walk::walk_block_statement(self, block);
+        self.scopes.pop();
+    }
+
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.branch_depth += 1;
         walk::walk_if_statement(self, stmt);
@@ -868,6 +915,18 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        // A destructured declaration binds names the same way, and an unbound one
+        // falls through to an enclosing scope: `let {x} = opts` beside an outer
+        // `x` would otherwise resolve to the outer value. What it extracts is not
+        // modelled, so those names are passthroughs.
+        if d.id.get_identifier_name().is_none() {
+            let conditional = self.branch_depth > 0;
+            for ident in d.id.get_binding_identifiers() {
+                self.scopes
+                    .bind(ident.name.as_str(), Value::MaybeUndefined, conditional);
+            }
+        }
+        let function_scoped = d.kind.is_var();
         if let Some(name) = d.id.get_identifier_name() {
             // An uninitialized declaration is still a binding: it shadows an
             // outer name of the same spelling, and until something writes it the
@@ -878,7 +937,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 None => Value::MaybeUndefined,
             };
             let conditional = self.branch_depth > 0;
-            self.scopes.bind(name.as_str(), value, conditional);
+            if function_scoped {
+                self.scopes
+                    .bind_function_scoped(name.as_str(), value, conditional);
+            } else {
+                self.scopes.bind(name.as_str(), value, conditional);
+            }
         }
         walk::walk_variable_declarator(self, d);
     }
@@ -889,7 +953,9 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         if let Some(name) = wa_oxc::assignment_target_name(&n.left) {
             let value = convert(&n.right, 0);
             let conditional = self.branch_depth > 0;
-            self.scopes.bind(name, value, conditional);
+            // An assignment writes the binding wherever it lives, and a block is
+            // not where it lives - the write outlives the block.
+            self.scopes.bind_function_scoped(name, value, conditional);
         }
         walk::walk_assignment_expression(self, n);
     }
@@ -1585,6 +1651,43 @@ mod tests {
             r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:new t.X})}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_block_scoped_binding_does_not_outlive_its_block() {
+        // `let` belongs to the block that declares it, so the call reads the
+        // outer `x`, which is `undefined`.
+        let caller = r#"function f(){let x;{let x=!0}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_var_and_an_assignment_inside_a_block_outlive_it() {
+        // `var` belongs to the function, and an assignment writes the binding
+        // wherever it lives - neither disappears with the block.
+        let caller =
+            r#"function f(){{var v={a:!0}}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_destructured_local_shadows_an_outer_binding() {
+        let caller = r#"var x=!0;function f(t){let{x}=t;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_site_with_no_item_shape_withdraws_the_other_sites_item_keys() {
+        // One call sends a list literal, the other hands over a value this pass
+        // cannot enumerate: the first cannot speak for the second's elements.
+        let caller = r#"function f(t){if(t)return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:[{a:!0}]});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:t.other})}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        let item = tree["input"].items.as_ref().expect("list element node");
+        assert_eq!(item.fields["a"].presence, VariablePresence::Undetermined);
+        assert_eq!(item.presence, VariablePresence::Always);
     }
 
     #[test]
