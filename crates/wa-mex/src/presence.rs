@@ -21,9 +21,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentExpression, AssignmentOperator, CallExpression,
-    Expression, LogicalOperator, ObjectExpression, ObjectPropertyKind, PropertyKey, UnaryOperator,
-    VariableDeclarator,
+    Argument, ArrayExpressionElement, AssignmentExpression, AssignmentOperator, BinaryOperator,
+    CallExpression, Expression, LogicalOperator, ObjectExpression, ObjectPropertyKind, PropertyKey,
+    UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::{VariablePresence, VariablePresenceNode};
@@ -141,6 +141,12 @@ struct Scopes {
     /// assignment still joins the prior one rather than replacing it - the rule
     /// that keeps a conditional rebinding conservative.
     hoisted: HashMap<String, Value>,
+    /// Module-level names a module-level statement writes again after they are
+    /// declared, with both values joined. A closure reads its free names when it
+    /// RUNS, and the module's own initialization has finished by then, so inside
+    /// a function these answer instead of the value standing at the point the
+    /// function was walked.
+    module_rewritten: HashMap<String, Value>,
     /// One log per branch being walked, innermost last. Each entry is a name the
     /// branch wrote and what it held when the branch began, which is what the
     /// path around the branch reaches.
@@ -157,6 +163,15 @@ struct BranchWrite {
     frame: usize,
     name: String,
     before: Option<Value>,
+}
+
+/// What one arm of an `if` left a name at, beside what it held before the
+/// statement.
+struct ArmExit {
+    frame: usize,
+    name: String,
+    before: Option<Value>,
+    after: Option<Value>,
 }
 
 impl Scopes {
@@ -257,6 +272,79 @@ impl Scopes {
         self.branches.push(Vec::new());
     }
 
+    /// End a branch WITHOUT joining: hand back what it wrote and put the values
+    /// from before it back, so a sibling arm starts where this one did.
+    fn take_branch(&mut self) -> Vec<ArmExit> {
+        let log = self.branches.pop().unwrap_or_default();
+        let mut exits = Vec::new();
+        for write in log {
+            if write.frame >= self.frames.len() {
+                continue;
+            }
+            let after = self.frames[write.frame].remove(&write.name);
+            if let Some(before) = &write.before {
+                self.frames[write.frame].insert(write.name.clone(), before.clone());
+            }
+            exits.push(ArmExit {
+                frame: write.frame,
+                name: write.name,
+                before: write.before,
+                after,
+            });
+        }
+        exits
+    }
+
+    /// Apply the two arms of an `if`: a name BOTH arms write reaches the code
+    /// after them as one of their two values and never as the one from before,
+    /// because no path gets past the statement without taking an arm.
+    fn join_arms(&mut self, first: Vec<ArmExit>, second: Vec<ArmExit>) {
+        let mut merged: Vec<ArmExit> = Vec::new();
+        for exit in first {
+            merged.push(exit);
+        }
+        for exit in second {
+            match merged
+                .iter_mut()
+                .find(|m| m.frame == exit.frame && m.name == exit.name)
+            {
+                Some(m) => {
+                    m.after = match (m.after.take(), exit.after) {
+                        (Some(a), Some(b)) => Some(Value::Either(Box::new(a), Box::new(b))),
+                        (a, b) => a.or(b),
+                    };
+                    // Written by both arms, so what came before it is unreachable.
+                    m.before = None;
+                }
+                None => merged.push(exit),
+            }
+        }
+        for exit in merged {
+            if exit.frame >= self.frames.len() {
+                continue;
+            }
+            let Some(after) = exit.after else {
+                continue;
+            };
+            let value = match &exit.before {
+                Some(before) => Value::Either(Box::new(before.clone()), Box::new(after)),
+                None => after,
+            };
+            self.frames[exit.frame].insert(exit.name.clone(), value);
+            if let Some(outer) = self.branches.last_mut()
+                && !outer
+                    .iter()
+                    .any(|w| w.frame == exit.frame && w.name == exit.name)
+            {
+                outer.push(BranchWrite {
+                    frame: exit.frame,
+                    name: exit.name,
+                    before: exit.before,
+                });
+            }
+        }
+    }
+
     /// End a branch, joining each name it wrote with the value the path around
     /// the branch carries. A frame pushed inside the branch is already gone with
     /// its bindings, so a write recorded against it needs no join.
@@ -299,6 +387,21 @@ impl Scopes {
     /// every frame first would resolve `var x` inside `f` against the module's
     /// `x` - the shadowing this table exists to provide.
     fn lookup(&self, name: &str) -> Option<&Value> {
+        // Inside a function, a name the module writes again after declaring it
+        // is whatever those writes leave: the code here runs after all of them,
+        // however early in the file it is written.
+        let inside_function = self.frames.len() > 1;
+        if inside_function
+            && let Some(rewritten) = self.module_rewritten.get(name)
+            && !self
+                .frames
+                .iter()
+                .skip(1)
+                .zip(self.frame_hoisted.iter().skip(1))
+                .any(|(bound, hoisted)| bound.contains_key(name) || hoisted.contains_key(name))
+        {
+            return Some(rewritten);
+        }
         self.frames
             .iter()
             .zip(&self.frame_hoisted)
@@ -819,6 +922,15 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
                     out.insert(id.name.as_str().to_string(), Value::MaybeUndefined);
                 }
             }
+            // A class binds its name for the block that declares it, and its
+            // value is a function - a key holding one does not reach the wire
+            // either. Collected with the `var`s because shadowing is the point:
+            // the outer name must not answer for the local one.
+            S::ClassDeclaration(c) => {
+                if let Some(id) = &c.id {
+                    out.insert(id.name.as_str().to_string(), Value::MaybeUndefined);
+                }
+            }
             S::BlockStatement(b) => collect_hoisted(&b.body, out),
             S::IfStatement(i) => {
                 collect_hoisted(std::slice::from_ref(&i.consequent), out);
@@ -891,9 +1003,13 @@ fn collect_hoisted_declaration(
 /// everywhere. Both shapes are read, the bare program body and the body of a
 /// `__d("Name", deps, factory)` factory, since a WA module is the latter and the
 /// unit tests exercise the former.
-fn hoist_module_bindings(program: &oxc_ast::ast::Program) -> HashMap<String, Value> {
+fn hoist_module_bindings(
+    program: &oxc_ast::ast::Program,
+) -> (HashMap<String, Value>, HashMap<String, Value>) {
     let mut out = HashMap::new();
+    let mut rewritten = HashMap::new();
     collect_declarations(&program.body, &mut out);
+    collect_module_writes(&program.body, &out, &mut rewritten);
     for stmt in &program.body {
         let oxc_ast::ast::Statement::ExpressionStatement(es) = stmt else {
             continue;
@@ -909,10 +1025,42 @@ fn hoist_module_bindings(program: &oxc_ast::ast::Program) -> HashMap<String, Val
                 && let Some(body) = &f.body
             {
                 collect_declarations(&body.statements, &mut out);
+                collect_module_writes(&body.statements, &out, &mut rewritten);
             }
         }
     }
-    out
+    (out, rewritten)
+}
+
+/// Module-level writes to those bindings, joined with what they were declared
+/// with.
+///
+/// A closure resolves its free names when it RUNS, and a module's own
+/// initialization runs first: `var x = !0; function f(){…x…} x = void 0;` calls
+/// `f` with `x` at `undefined`. Reading the declaration alone published the
+/// value the name never has by the time the call happens. Only statements of the
+/// module itself - a function body is a later call, not initialization.
+fn collect_module_writes(
+    statements: &[oxc_ast::ast::Statement],
+    declared: &HashMap<String, Value>,
+    out: &mut HashMap<String, Value>,
+) {
+    for stmt in statements {
+        let oxc_ast::ast::Statement::ExpressionStatement(es) = stmt else {
+            continue;
+        };
+        let Expression::AssignmentExpression(a) = &es.expression else {
+            continue;
+        };
+        let Some(name) = wa_oxc::assignment_target_name(&a.left) else {
+            continue;
+        };
+        let Some(prior) = out.get(name).or_else(|| declared.get(name)) else {
+            continue;
+        };
+        let joined = Value::Either(Box::new(prior.clone()), Box::new(assignment_value(a, 0)));
+        out.insert(name.to_string(), joined);
+    }
 }
 
 fn collect_declarations(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<String, Value>) {
@@ -1067,18 +1215,49 @@ fn assignment_value(a: &oxc_ast::ast::AssignmentExpression, depth: usize) -> Val
 /// The assigned side of a memoising ternary: one branch reads a binding, the
 /// other assigns it, so the whole expression evaluates to what is assigned.
 fn memoised<'a>(cond: &'a oxc_ast::ast::ConditionalExpression<'a>) -> Option<&'a Expression<'a>> {
-    let pair = |read: &Expression<'a>, write: &'a Expression<'a>| {
-        let Expression::Identifier(id) = read else {
-            return None;
-        };
-        let Expression::AssignmentExpression(a) = write else {
-            return None;
-        };
-        (a.operator == AssignmentOperator::Assign
-            && wa_oxc::assignment_target_name(&a.left) == Some(id.name.as_str()))
-        .then_some(&a.right)
+    // Which arm the test sends the already-written binding down. Without this
+    // the shape alone is not enough: `flag ? x : x = !0` also reads a binding on
+    // one side and writes it on the other, and on the `flag` path it is
+    // `undefined` - the opposite of what a memoised require guarantees.
+    let (guarded, read_arm_is_consequent) = nullish_guard(&cond.test)?;
+    let (read, write) = if read_arm_is_consequent {
+        (&cond.consequent, &cond.alternate)
+    } else {
+        (&cond.alternate, &cond.consequent)
     };
-    pair(&cond.consequent, &cond.alternate).or_else(|| pair(&cond.alternate, &cond.consequent))
+    let Expression::Identifier(id) = read else {
+        return None;
+    };
+    let Expression::AssignmentExpression(a) = write else {
+        return None;
+    };
+    (id.name.as_str() == guarded
+        && a.operator == AssignmentOperator::Assign
+        && wa_oxc::assignment_target_name(&a.left) == Some(guarded))
+    .then_some(&a.right)
+}
+
+/// A test that asks whether one binding is already there: the name it asks
+/// about, and whether the consequent is the arm on which it IS. `e !== void 0`
+/// and `e != null` put it in the consequent; `e === void 0` and `e == null` put
+/// it in the alternate.
+fn nullish_guard<'b, 'a>(test: &'b Expression<'a>) -> Option<(&'b str, bool)> {
+    let Expression::BinaryExpression(b) = test else {
+        return None;
+    };
+    let defined_in_consequent = match b.operator {
+        BinaryOperator::StrictInequality | BinaryOperator::Inequality => true,
+        BinaryOperator::StrictEquality | BinaryOperator::Equality => false,
+        _ => return None,
+    };
+    let name = |e: &'b Expression<'a>| match e {
+        Expression::Identifier(id) => Some(id.name.as_str()),
+        _ => None,
+    };
+    let named = name(&b.left)
+        .filter(|_| is_nullish_literal(&b.right))
+        .or_else(|| name(&b.right).filter(|_| is_nullish_literal(&b.left)))?;
+    Some((named, defined_in_consequent))
 }
 
 /// Whether a handle is pinned to a `.graphql` module on EVERY value it can take.
@@ -1094,12 +1273,10 @@ fn every_branch_names_a_module(value: &Value, scopes: &Scopes, depth: usize) -> 
     }
     let next = depth + 1;
     match value {
-        Value::Call(name, args) => {
-            name.as_deref().is_some_and(|n| n.ends_with(".graphql"))
-                || args
-                    .iter()
-                    .any(|a| every_branch_names_a_module(a, scopes, next))
-        }
+        // The require itself, not any call that happens to be handed one:
+        // `select(h, n("Other.graphql"))` may return `h`, and `h` may be this
+        // operation.
+        Value::Call(name, _) => name.as_deref().is_some_and(|n| n.ends_with(".graphql")),
         // Both branches, because one call takes one of them: a ternary between
         // another operation's module and something this pass cannot read is not
         // a handle it has read.
@@ -1233,10 +1410,20 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// reads, and neither is what follows the statement.
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
-        self.in_branch(|v| v.visit_statement(&stmt.consequent));
-        if let Some(alternate) = &stmt.alternate {
-            self.in_branch(|v| v.visit_statement(alternate));
-        }
+        let Some(alternate) = &stmt.alternate else {
+            self.in_branch(|v| v.visit_statement(&stmt.consequent));
+            return;
+        };
+        // Both arms start from the state before the statement, and the code
+        // after it sees their two exits: `var x; if (t) x = !0; else x = !1;`
+        // leaves no path on which `x` is still `undefined`.
+        self.scopes.enter_branch();
+        self.visit_statement(&stmt.consequent);
+        let first = self.scopes.take_branch();
+        self.scopes.enter_branch();
+        self.visit_statement(alternate);
+        let second = self.scopes.take_branch();
+        self.scopes.join_arms(first, second);
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
@@ -1518,8 +1705,10 @@ pub(crate) fn variables_presence(
     for (src, sole_operation) in callers {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
+        let (hoisted, module_rewritten) = hoist_module_bindings(&ret.program);
         let scopes = Scopes {
-            hoisted: hoist_module_bindings(&ret.program),
+            hoisted,
+            module_rewritten,
             ..Scopes::default()
         };
         let mut collector = CallSiteCollector {
@@ -2422,6 +2611,71 @@ mod tests {
             assert_eq!(at(&tree, "a"), VariablePresence::Undetermined, "{handle}");
             assert_eq!(diag.ambiguous_call_sites, 1, "{handle}");
         }
+    }
+
+    #[test]
+    fn both_arms_of_an_if_leave_no_path_around_them() {
+        // `var x; if (t) x = !0; else x = !1;` has no path on which `x` is still
+        // undefined below, so joining each arm with the pre-branch value in turn
+        // publishes an optional field for a key the client always sends.
+        let caller = r#"function f(t){var x;if(t){x=!0}else{x=!1}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And one arm alone still joins: the other path reaches the call.
+        let one = r#"function f(t){var x;if(t){x=!0}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(one, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_ternary_is_a_memo_only_when_its_test_asks_about_that_binding() {
+        // `flag ? x : x = !0` reads a binding on one side and writes it on the
+        // other, exactly like the memoised require - and sends `undefined` on
+        // the `flag` path, which the require never does.
+        let caller = r#"function f(t){var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:t?x:x=!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // The real shape, both spellings of the guard.
+        for memo in ["x!==void 0?x:x=!0", "x===void 0?x=!0:x"] {
+            let caller = format!(
+                r#"function f(){{var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{{a:{memo}}})}}"#
+            );
+            let (tree, _) = presence_of(&caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always, "{memo}");
+        }
+    }
+
+    #[test]
+    fn a_local_class_declaration_shadows_the_module() {
+        // Same as a local function: the name is a class where the call sits, and
+        // `JSON.stringify` drops a key whose value is one.
+        let caller = r#"var x=!0;function f(){class x{}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_closure_reads_what_the_module_leaves_behind() {
+        // The module finishes initializing before anything calls `f`, so the
+        // write below the function is the value the call sees - not the one
+        // standing where the function is written.
+        let caller = r#"var x=!0;function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}x=void 0;"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_call_that_is_handed_a_module_is_not_a_handle() {
+        // `select(h, n("Other.graphql"))` may return `h`, and `h` may be this
+        // operation: an unread call is unread whatever it is given.
+        let caller = r#"function f(t,h){o("C").fetchQuery(s(h,n("WAWebOtherQuery.graphql")),{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.ambiguous_call_sites, 1);
     }
 
     #[test]
