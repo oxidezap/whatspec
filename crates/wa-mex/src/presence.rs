@@ -1535,7 +1535,31 @@ fn references_module(value: &Value, module: &str, scopes: &Scopes, depth: usize)
     }
 }
 
-// ─── the caller-module scan ──────────────────────────────────────────────────
+/// Whether ANY value the handle can take names `module`. The mirror of
+/// [`references_module`], which asks whether every one of them does: between the
+/// two sits a handle that is sometimes this operation and sometimes not, which
+/// is a call this pass cannot read as either.
+fn may_reference_module(value: &Value, module: &str, scopes: &Scopes, depth: usize) -> bool {
+    if depth >= MAX_DEPTH {
+        return false;
+    }
+    let next = depth + 1;
+    match value {
+        Value::Call(name) => name.as_deref() == Some(module),
+        Value::Either(a, b) | Value::OrElse(a, b) => {
+            may_reference_module(a, module, scopes, next)
+                || may_reference_module(b, module, scopes, next)
+        }
+        Value::AndThen(_, rhs) => may_reference_module(rhs, module, scopes, next),
+        Value::Ref(name) => match scopes.lookup(name) {
+            Some(bound) => may_reference_module(bound, module, scopes, next),
+            None => false,
+        },
+        _ => false,
+    }
+}
+
+// ─── the caller-module scan ───// ─── the caller-module scan ──────────────────────────────────────────────────
 
 /// Collects the variables object of every Relay call in a caller module that
 /// sends this operation.
@@ -1984,10 +2008,18 @@ impl CallSiteCollector<'_> {
         if !FETCH_METHODS.contains(&method) || self.sole_operation {
             return false;
         }
-        match call.arguments.first().and_then(Argument::as_expression) {
-            Some(first) => !every_branch_names_a_module(&convert(first, 0), &self.scopes, 0),
-            None => false,
-        }
+        let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+            return false;
+        };
+        let handle = convert(first, 0);
+        // Either the handle is not read whole, or one of the branches it CAN
+        // take is this operation while another is not: `cond ? n("Ours") :
+        // n("Other")` names a module on both sides and is still a call this
+        // operation may be making. Neither case is knowledge about which keys
+        // this operation sends, and `is_operation_call` has already said the
+        // handle is not certainly ours.
+        !every_branch_names_a_module(&handle, &self.scopes, 0)
+            || may_reference_module(&handle, &self.module, &self.scopes, 0)
     }
 
     /// The variables object of a matched call, if the argument is one or resolves
@@ -2790,6 +2822,25 @@ mod tests {
         // none of them, so it may be ours and may contradict the readable site.
         // Silently dropping it would let the readable one decide alone.
         let caller = r#"function f(t,h){o("C").fetchQuery(h,{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.ambiguous_call_sites, 1);
+    }
+
+    #[test]
+    fn a_handle_that_is_sometimes_ours_is_ambiguous() {
+        // `t ? n("Ours") : n("Other")` names a module on both sides, so it is
+        // read whole - and one of the two is this operation, so the call may be
+        // ours and may contradict the site that is.
+        let caller = r#"function f(t){o("C").fetchQuery(t?n("WAWebFooQuery.graphql"):n("WAWebOtherQuery.graphql"),{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
         let tree = variables_presence(
