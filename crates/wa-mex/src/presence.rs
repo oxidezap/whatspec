@@ -102,6 +102,17 @@ impl Definedness {
     }
 }
 
+/// Which frame a write lands in.
+#[derive(Debug, Clone, Copy)]
+enum Scope {
+    /// The block or function currently being visited: a `let` or a `const`.
+    Current,
+    /// The enclosing function: a `var`, which a block does not contain.
+    Function,
+    /// Wherever the name is already bound: an assignment updates that binding.
+    Assignment,
+}
+
 /// Local bindings, innermost frame last.
 ///
 /// The minifier reuses one-letter names across sibling functions, so a flat
@@ -150,13 +161,26 @@ impl Scopes {
         self.frame_hoisted.pop();
         self.frame_is_function.pop();
     }
-    /// The innermost frame a `var` or an assignment belongs to, skipping blocks.
+    /// The innermost frame a `var` belongs to, skipping blocks.
     fn function_frame(&mut self) -> Option<&mut HashMap<String, Value>> {
         let idx = self
             .frame_is_function
             .iter()
             .rposition(|is_function| *is_function)?;
         self.frames.get_mut(idx)
+    }
+
+    /// The frame an assignment writes: the innermost one already binding the
+    /// name, since that is the binding being updated, and the enclosing function
+    /// only when nothing binds it yet.
+    ///
+    /// Writing to the function frame unconditionally left a block's `let` visible
+    /// with its old value, because `lookup` reaches the block first.
+    fn assignment_frame(&mut self, name: &str) -> Option<&mut HashMap<String, Value>> {
+        match self.frames.iter().rposition(|f| f.contains_key(name)) {
+            Some(idx) => self.frames.get_mut(idx),
+            None => self.function_frame(),
+        }
     }
     /// Bind a name, joining any binding already in this frame when the write is
     /// one a branch can skip.
@@ -170,18 +194,22 @@ impl Scopes {
     /// time, and calling it `conditional` leaves a consumer with the optional
     /// field this whole dimension exists to remove.
     fn bind(&mut self, name: &str, value: Value, conditional: bool) {
-        self.bind_in(name, value, conditional, false);
+        self.bind_in(name, value, conditional, Scope::Current);
     }
     /// Bind in the enclosing FUNCTION scope rather than the current block, for a
-    /// `var` and for an assignment, neither of which a block contains.
+    /// `var`, which a block does not contain.
     fn bind_function_scoped(&mut self, name: &str, value: Value, conditional: bool) {
-        self.bind_in(name, value, conditional, true);
+        self.bind_in(name, value, conditional, Scope::Function);
     }
-    fn bind_in(&mut self, name: &str, value: Value, conditional: bool, function_scoped: bool) {
-        let frame = if function_scoped {
-            self.function_frame()
-        } else {
-            self.frames.last_mut()
+    /// Update the binding an assignment targets, wherever it lives.
+    fn bind_assignment(&mut self, name: &str, value: Value, conditional: bool) {
+        self.bind_in(name, value, conditional, Scope::Assignment);
+    }
+    fn bind_in(&mut self, name: &str, value: Value, conditional: bool, scope: Scope) {
+        let frame = match scope {
+            Scope::Function => self.function_frame(),
+            Scope::Assignment => self.assignment_frame(name),
+            Scope::Current => self.frames.last_mut(),
         };
         if let Some(frame) = frame {
             match frame.remove(name) {
@@ -333,6 +361,10 @@ fn convert(expr: &Expression, depth: usize) -> Value {
                 Value::Ref(id.name.as_str().to_string())
             }
         }
+
+        // `x++` / `++x` evaluate to a number: `NaN` when the operand was not one,
+        // which serializes as `null` with the key still there.
+        Expression::UpdateExpression(_) => Value::Defined,
 
         Expression::CallExpression(c) => Value::Call(
             wa_oxc::first_string_arg(c).map(str::to_string),
@@ -953,9 +985,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         if let Some(name) = wa_oxc::assignment_target_name(&n.left) {
             let value = convert(&n.right, 0);
             let conditional = self.branch_depth > 0;
-            // An assignment writes the binding wherever it lives, and a block is
-            // not where it lives - the write outlives the block.
-            self.scopes.bind_function_scoped(name, value, conditional);
+            self.scopes.bind_assignment(name, value, conditional);
         }
         walk::walk_assignment_expression(self, n);
     }
@@ -1132,7 +1162,14 @@ pub(crate) fn variables_presence(
     }
 
     let Some(mut merged) = merged else {
-        diag.operations_without_call_site += 1;
+        // Only when nothing matched at all. A call whose argument could not be
+        // read is a recovered call site, counted under its own reason: reporting
+        // both would collapse the split between "the scan found no call" and
+        // "the scan found one and could not read it", which is the whole point
+        // of naming them separately.
+        if unreadable_sites == 0 {
+            diag.operations_without_call_site += 1;
+        }
         return arg_def_names
             .iter()
             .map(|n| {
@@ -1688,6 +1725,40 @@ mod tests {
         let item = tree["input"].items.as_ref().expect("list element node");
         assert_eq!(item.fields["a"].presence, VariablePresence::Undetermined);
         assert_eq!(item.presence, VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_assignment_updates_the_binding_it_targets() {
+        // `x` lives in the block, so the write has to land there: putting it in
+        // the function frame left `lookup` reaching the block's older value.
+        let caller = r#"function f(t){{let x=!0;x=t.x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_update_expression_is_a_number() {
+        // `x++` never yields `undefined`; at worst it is `NaN`, which serializes
+        // as `null` with the key still on the wire.
+        let caller =
+            r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{count:t.n++})}"#;
+        let (tree, _) = presence_of(caller, &["count"]);
+        assert_eq!(at(&tree, "count"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_unreadable_call_is_not_a_missing_call_site() {
+        // The two drop reasons answer different questions, so an operation whose
+        // only call could not be read must not be reported as having none.
+        let caller =
+            r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),t.opts)}"#;
+        let (tree, diag) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.unreadable_call_arguments, 1);
+        assert_eq!(
+            diag.operations_without_call_site, 0,
+            "a call was found; it could not be read"
+        );
     }
 
     #[test]

@@ -767,6 +767,10 @@ struct Counts {
     /// the sibling relay-operation module). Floored so an id cannot start looking
     /// unchanged because nothing re-derived it.
     mex_doc_ids_extracted: usize,
+    /// Operations left with their own name in place of a persisted id. Guarded
+    /// UPWARD: it is the broken state, and the extracted total cannot see one
+    /// operation falling into it while another arrives with a real id.
+    mex_doc_ids_from_name: usize,
     appstate_actions: usize,
     abprops_configs: usize,
     enum_defs: usize,
@@ -2120,6 +2124,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         mex_ops: mex_count,
         mex_presence_always: mex_diag.presence_always,
         mex_doc_ids_extracted: mex_diag.doc_ids_inline + mex_diag.doc_ids_from_sibling,
+        mex_doc_ids_from_name: mex_diag.doc_ids_from_name,
         appstate_actions: appstate_count,
         abprops_configs: abprops_count,
         enum_defs: enums_count,
@@ -2426,6 +2431,21 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
             regressions.push(format!(
                 "mex.docIds(extracted): {prev_ids} → {}",
                 counts.mex_doc_ids_extracted
+            ));
+        }
+        // And the fallback on its own, because the sum cannot see a SWAP: one
+        // operation losing its id while a new operation arrives with one holds
+        // both totals steady and publishes a `docId` that is an operation name,
+        // which is not a persisted id and answers nothing. It is 0 today and a
+        // rise is the defect, so it is guarded upward rather than floored.
+        let prev_fallback = mex
+            .get("docIdsFromName")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        if (counts.mex_doc_ids_from_name as u64) > prev_fallback {
+            regressions.push(format!(
+                "mex.docIdsFromName: {prev_fallback} → {} (an operation name is not a persisted id)",
+                counts.mex_doc_ids_from_name
             ));
         }
     }
