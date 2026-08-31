@@ -1380,23 +1380,13 @@ def _check_presence_level(path, shape, presence, errors, counts):
                         f"{here}: list-element presence is {item.get('presence')!r}, not "
                         f"'always' - an element is not a key and cannot be omitted"
                     )
-                if isinstance(element, dict):
-                    _check_presence_level(here, element, item.get("fields") or {}, errors, counts)
-                else:
-                    inner = element[0] if element else None
-                    inner_item = item.get("items")
-                    if isinstance(inner, (dict, list)) and not isinstance(inner_item, dict):
-                        errors.append(
-                            f"{here}: a list of lists with no element verdicts one layer down"
-                        )
-                    elif isinstance(inner, (dict, list)):
-                        # One layer down on BOTH sides: the element of the inner list
-                        # is described by the element node's own `items`, and pairing
-                        # it with the outer node again reports the keys under
-                        # `[[{a}]]` as unanswered while they are answered.
-                        _check_presence_level(
-                            here, {"[]": inner}, {"[]": inner_item}, errors, counts
-                        )
+                # The element node itself, against the element shape, under a
+                # synthetic key: that is what checks its `fields` on an object,
+                # its `items` one layer down on a list of lists, and the absence
+                # of either on a shape with no room for them. Descending straight
+                # into `fields` or `items` left the node between them unread, so
+                # verdicts about keys the element does not have passed.
+                _check_presence_level(here, {"[]": element}, {"[]": item}, errors, counts)
         elif item is not None:
             errors.append(f"{here}: element verdicts on a variable that is not a list of objects")
 
