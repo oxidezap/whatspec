@@ -70,8 +70,10 @@ enum Value {
     /// `c ? a : b`.
     Either(Box<Value>, Box<Value>),
     /// A call, with the module name when it takes a single string literal -
-    /// which is how a Relay operation handle is written, `n("X.graphql")`.
-    Call(Option<String>, Vec<Value>),
+    /// which is how a Relay operation handle is written, `n("X.graphql")`. The
+    /// arguments are not kept: what a call was handed says nothing about what it
+    /// returns, and a handle is read from the require itself.
+    Call(Option<String>),
 }
 
 #[derive(Debug, Clone)]
@@ -568,14 +570,9 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         // which serializes as `null` with the key still there.
         Expression::UpdateExpression(_) => Value::Defined,
 
-        Expression::CallExpression(c) => Value::Call(
-            wa_oxc::first_string_arg(c).map(str::to_string),
-            c.arguments
-                .iter()
-                .filter_map(Argument::as_expression)
-                .map(|a| convert(a, next))
-                .collect(),
-        ),
+        Expression::CallExpression(c) => {
+            Value::Call(wa_oxc::first_string_arg(c).map(str::to_string))
+        }
 
         _ => Value::Unjudged,
     }
@@ -617,7 +614,7 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
     match value {
         Value::Defined | Value::Object(_) | Value::Array(_) => Definedness::Defined,
         Value::MaybeUndefined => Definedness::MaybeUndefined,
-        Value::Unjudged | Value::Call(..) => Definedness::Unjudged,
+        Value::Unjudged | Value::Call(_) => Definedness::Unjudged,
         Value::OrElse(_, rhs) => definedness(rhs, scopes, next),
         Value::AndThen(lhs, rhs) => {
             definedness(lhs, scopes, next).max(definedness(rhs, scopes, next))
@@ -1454,7 +1451,7 @@ fn every_branch_names_a_module(value: &Value, scopes: &Scopes, depth: usize) -> 
         // The require itself, not any call that happens to be handed one:
         // `select(h, n("Other.graphql"))` may return `h`, and `h` may be this
         // operation.
-        Value::Call(name, _) => name.as_deref().is_some_and(|n| n.ends_with(".graphql")),
+        Value::Call(name) => name.as_deref().is_some_and(|n| n.ends_with(".graphql")),
         // Both branches, because one call takes one of them: a ternary between
         // another operation's module and something this pass cannot read is not
         // a handle it has read.
@@ -1489,19 +1486,22 @@ fn references_module(value: &Value, module: &str, scopes: &Scopes, depth: usize)
     }
     let next = depth + 1;
     match value {
-        Value::Call(name, args) => {
-            name.as_deref() == Some(module)
-                || args
-                    .iter()
-                    .any(|a| references_module(a, module, scopes, next))
-        }
-        Value::Either(a, b) | Value::AndThen(a, b) => {
-            references_module(a, module, scopes, next) || references_module(b, module, scopes, next)
+        // The require itself. A call merely HANDED the module may return
+        // something else: `select(h, n("X.graphql"))` is not `n("X.graphql")`.
+        Value::Call(name) => name.as_deref() == Some(module),
+        // Every branch, because one call takes one of them. `h || n("X.graphql")`
+        // hands the call `h` whenever `h` is there, so reading it as this
+        // operation's would merge whatever `h` sends into this operation's
+        // evidence - and with one site, an unsupported `always`.
+        Value::Either(a, b) => {
+            references_module(a, module, scopes, next) && references_module(b, module, scopes, next)
         }
         Value::OrElse(lhs, rhs) => {
             references_module(lhs, module, scopes, next)
-                || references_module(rhs, module, scopes, next)
+                && references_module(rhs, module, scopes, next)
         }
+        // `a && b` hands the call `b`, or a falsy `a` that is no handle at all.
+        Value::AndThen(_, rhs) => references_module(rhs, module, scopes, next),
         Value::Ref(name) => match scopes.lookup(name) {
             Some(bound) => references_module(bound, module, scopes, next),
             None => false,
@@ -2952,6 +2952,35 @@ mod tests {
             "the spread may be supplying it"
         );
         assert_eq!(diag.unreadable_spreads, 1);
+    }
+
+    #[test]
+    fn a_fallback_handle_does_not_attribute_the_call_either() {
+        // `h || n("WAWebFooQuery.graphql")` hands the call `h` whenever `h` is
+        // there, so reading it as this operation's site would merge whatever `h`
+        // sends into this operation's evidence - and this is the only site, so
+        // its keys would come out `always`.
+        for handle in [
+            "h||n(\"WAWebFooQuery.graphql\")",
+            "h??n(\"WAWebFooQuery.graphql\")",
+            "h?n(\"WAWebFooQuery.graphql\"):h",
+            "s(h,n(\"WAWebFooQuery.graphql\"))",
+        ] {
+            let caller = format!(
+                r#"function f(t,h){{o("C").fetchQuery({handle},{{a:!0}});o("C").fetchQuery(n("WAWebOtherQuery.graphql"),{{a:t.x}})}}"#
+            );
+            let names = vec!["a".to_string()];
+            let mut diag = PresenceDiagnostics::default();
+            let tree = variables_presence(
+                &[(caller.as_str(), false)],
+                MODULE,
+                &names,
+                &mut diag,
+                &mut Vec::new(),
+            );
+            assert_eq!(at(&tree, "a"), VariablePresence::Undetermined, "{handle}");
+            assert_eq!(diag.ambiguous_call_sites, 1, "{handle}");
+        }
     }
 
     #[test]
