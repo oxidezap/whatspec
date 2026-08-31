@@ -182,14 +182,26 @@ pub fn extract_mex_from_modules_with_diagnostics(
     module_defs: &[ModuleDefinition],
     wa_version: &str,
 ) -> (MexIr, MexDiagnostics) {
-    // Map each `.graphql` module to its first caller (a module that depends on
-    // it) — the caller's body holds the `fetchQuery(id, <expr>)` whose 2nd arg
-    // reveals the input variable shape.
-    let mut caller_by_graphql: HashMap<&str, &ModuleDefinition> = HashMap::new();
+    // Map each `.graphql` module to the callers (modules that depend on it) whose
+    // bodies hold the `fetchQuery(id, <expr>)` the input variables are read from.
+    //
+    // All of them, not the first: presence only says `always` when every recovered
+    // call site agrees, so a second job module sending the same operation is
+    // evidence that has to reach the merge. No operation has two callers at the
+    // waVersion this was written against, which is exactly why the single-caller
+    // form looked sufficient and would have failed silently on the rollout that
+    // added one, in the direction that matters (a key claimed unconditional
+    // because the site contradicting it was never read).
+    //
+    // Deduplicated by module NAME, so the copies of one module that several
+    // bundle files define are not merged with themselves; first occurrence wins,
+    // the same rule the operation scan below follows.
+    let mut caller_by_graphql: HashMap<&str, Vec<&ModuleDefinition>> = HashMap::new();
+    let mut seen_callers: HashSet<(&str, &str)> = HashSet::new();
     for def in module_defs {
         for dep in &def.deps {
-            if dep.ends_with(MODULE_SUFFIX) {
-                caller_by_graphql.entry(dep.as_str()).or_insert(def);
+            if dep.ends_with(MODULE_SUFFIX) && seen_callers.insert((dep.as_str(), &def.name)) {
+                caller_by_graphql.entry(dep.as_str()).or_default().push(def);
             }
         }
     }
@@ -217,23 +229,33 @@ pub fn extract_mex_from_modules_with_diagnostics(
         collector.visit_program(&ret.program);
         if let Some(mut raw) = collector.raw {
             raw.response = crate::shape::response_from_module(slice);
-            let caller = caller_by_graphql.get(name);
-            let caller_body = caller.map(|d| &source[d.start..d.end]);
-            raw.variables_shape = crate::shape::variables_shape(caller_body, &raw.variables);
-            // A caller that depends on exactly one `.graphql` module cannot be
-            // sending another operation, so a call whose handle argument the scan
-            // cannot tie back to a module is still unambiguously this one's.
-            let sole = caller
-                .map(|d| d.deps.iter().filter(|x| x.ends_with(MODULE_SUFFIX)).count() == 1)
-                .unwrap_or(false);
+            let callers = caller_by_graphql
+                .get(name)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            // The shape pass reads one caller, as it always has: types merge, so a
+            // second site can only repeat what the first said, and feeding it more
+            // would change committed output for no gain.
+            let first_body = callers.first().map(|d| &source[d.start..d.end]);
+            raw.variables_shape = crate::shape::variables_shape(first_body, &raw.variables);
+            let bodies: Vec<(&str, bool)> = callers
+                .iter()
+                .map(|d| {
+                    // A caller that depends on exactly one `.graphql` module cannot
+                    // be sending another operation, so a call whose handle argument
+                    // the scan cannot tie back to a module is still unambiguously
+                    // this one's. Asked per caller, since they need not agree.
+                    let sole = d.deps.iter().filter(|x| x.ends_with(MODULE_SUFFIX)).count() == 1;
+                    (&source[d.start..d.end], sole)
+                })
+                .collect();
             // Counted per operation and folded in below, so the totals describe
             // the operations the IR publishes rather than the raw scan - the noise
             // filter drops a third of them, and a diagnostic that counted those
             // would not add up against the document a consumer reads.
             raw.variables_presence = crate::presence::variables_presence(
-                caller_body,
+                &bodies,
                 name,
-                sole,
                 &raw.variables,
                 &mut raw.presence,
             );

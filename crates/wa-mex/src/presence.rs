@@ -615,35 +615,46 @@ impl CallSiteCollector<'_> {
 
 /// Presence for every declared variable of one operation.
 ///
+/// `callers` is every module that depends on the operation, each with whether it
+/// is that module's only operation. All of them, because `always` means "no
+/// recovered call site contradicts this": a second job module sending the same
+/// operation is evidence, and reading only the first would let an unconditional
+/// claim stand on a partial view.
+///
 /// `arg_def_names` is authoritative for which keys exist - the same list
 /// `variables_shape` is filtered by - so a key a call site writes that the
 /// operation does not declare is not published, and a declared key no site
 /// writes is answered rather than omitted.
 pub(crate) fn variables_presence(
-    caller_src: Option<&str>,
+    callers: &[(&str, bool)],
     module: &str,
-    sole_operation: bool,
     arg_def_names: &[String],
     diag: &mut PresenceDiagnostics,
 ) -> BTreeMap<String, VariablePresenceNode> {
     if arg_def_names.is_empty() {
         return BTreeMap::new();
     }
-    let merged = caller_src.and_then(|src| {
+    let mut merged: Option<SiteTree> = None;
+    for (src, sole_operation) in callers {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
         let mut collector = CallSiteCollector {
             module: module.to_string(),
-            sole_operation,
+            sole_operation: *sole_operation,
             scopes: Scopes::default(),
             sites: Vec::new(),
             diag,
         };
         collector.visit_program(&ret.program);
-        // Every recovered site has to agree for a key to be `always`, so the
-        // sites are folded rather than picked from.
-        collector.sites.into_iter().reduce(merge_sites)
-    });
+        // Every recovered site has to agree for a key to be `always`, so the sites
+        // are folded rather than picked from - across callers as well as within one.
+        for site in collector.sites {
+            merged = Some(match merged {
+                Some(acc) => merge_sites(acc, site),
+                None => site,
+            });
+        }
+    }
 
     let Some(mut merged) = merged else {
         diag.operations_without_call_site += 1;
@@ -684,7 +695,7 @@ mod tests {
     ) -> (BTreeMap<String, VariablePresenceNode>, PresenceDiagnostics) {
         let names: Vec<String> = vars.iter().map(|s| s.to_string()).collect();
         let mut diag = PresenceDiagnostics::default();
-        let out = variables_presence(Some(caller), MODULE, false, &names, &mut diag);
+        let out = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
         (out, diag)
     }
 
@@ -854,6 +865,44 @@ mod tests {
         let (tree, _) = presence_of(caller, &["a", "unwritten"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
         assert_eq!(at(&tree, "unwritten"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_second_caller_module_can_weaken_the_first() {
+        // Two job modules sending one operation. Reading only the first would
+        // publish `b` as `always` on a partial view, and `always` is the verdict a
+        // consumer turns into a non-optional field.
+        let first =
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,b:!0})}"#;
+        let second = r#"function g(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!1})}"#;
+        let names = vec!["a".to_string(), "b".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(
+            &[(first, false), (second, false)],
+            MODULE,
+            &names,
+            &mut diag,
+        );
+        assert_eq!(at(&tree, "a"), VariablePresence::Always, "written by both");
+        assert_eq!(
+            at(&tree, "b"),
+            VariablePresence::Conditional,
+            "the second caller does not write it"
+        );
+        assert_eq!(diag.operations_without_call_site, 0);
+    }
+
+    #[test]
+    fn a_caller_with_no_site_does_not_hide_another_callers_evidence() {
+        // A dependent module that sends nothing is not a site, so it must neither
+        // weaken the verdict nor count as "no call site".
+        let quiet = "function f(){return 1}";
+        let live = r#"function g(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(quiet, false), (live, false)], MODULE, &names, &mut diag);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        assert_eq!(diag.operations_without_call_site, 0);
     }
 
     #[test]
