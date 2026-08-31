@@ -295,6 +295,11 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
 type SiteTree = BTreeMap<String, VariablePresenceNode>;
 
 /// Classify every key of a variables object.
+///
+/// In source order, because JS object construction is ordered: a spread
+/// overwrites the keys written before it and is overwritten by the keys written
+/// after. That is what makes a spread this pass cannot enumerate destructive
+/// rather than merely missing.
 fn classify_object(
     props: &[Prop],
     scopes: &Scopes,
@@ -302,6 +307,13 @@ fn classify_object(
     depth: usize,
 ) -> SiteTree {
     let mut out: SiteTree = BTreeMap::new();
+    // A spread whose source resolves back through itself (`var e = {...e}`)
+    // would otherwise descend forever, and an extractor that aborts publishes
+    // nothing at all.
+    if depth >= MAX_DEPTH {
+        diag.unreadable_spreads += 1;
+        return out;
+    }
     for prop in props {
         match prop {
             Prop::Unreadable => diag.unreadable_keys += 1,
@@ -322,20 +334,39 @@ fn classify_object(
                 };
                 match scopes.resolve(source, 0) {
                     Value::Object(inner) => {
-                        for (k, mut node) in classify_object(inner, scopes, diag, depth) {
+                        for (k, mut node) in classify_object(inner, scopes, diag, depth + 1) {
                             node.presence = node.presence.weaker(floor);
                             insert_weaker(&mut out, k, node);
                         }
                     }
-                    // A spread whose keys cannot be enumerated: it may carry
-                    // variables that would otherwise read as written by nobody,
-                    // so it is counted rather than passed over.
-                    _ => diag.unreadable_spreads += 1,
+                    // A spread whose keys cannot be enumerated writes an unknown
+                    // set of them, `undefined` included, over everything already
+                    // written. So it does not merely fail to add keys: it
+                    // withdraws what was established before it, which is the one
+                    // way an unread expression could otherwise leave an `always`
+                    // standing that the client contradicts.
+                    _ => {
+                        diag.unreadable_spreads += 1;
+                        for node in out.values_mut() {
+                            withdraw(node);
+                        }
+                    }
                 }
             }
         }
     }
     out
+}
+
+/// Reduce a verdict and everything under it to `undetermined`.
+fn withdraw(node: &mut VariablePresenceNode) {
+    node.presence = node.presence.weaker(VariablePresence::Undetermined);
+    for child in node.fields.values_mut() {
+        withdraw(child);
+    }
+    if let Some(items) = node.items.as_deref_mut() {
+        withdraw(items);
+    }
 }
 
 /// The object a spread copies from, and whether a condition gates it.
@@ -482,6 +513,8 @@ struct CallSiteCollector<'d> {
     sole_operation: bool,
     scopes: Scopes,
     sites: Vec<SiteTree>,
+    /// Calls that send this operation whose variables object could not be read.
+    unreadable_sites: usize,
     diag: &'d mut PresenceDiagnostics,
 }
 
@@ -540,7 +573,14 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             let value = convert(vars, 0);
             match self.variables_object(&value) {
                 Some(tree) => self.sites.push(tree),
-                None => self.diag.unreadable_call_arguments += 1,
+                // This call sends the operation and its variables object could
+                // not be read, so nothing is known about which keys it writes.
+                // `always` means no recovered site contradicts the key, and an
+                // unread site cannot be shown not to.
+                None => {
+                    self.diag.unreadable_call_arguments += 1;
+                    self.unreadable_sites += 1;
+                }
             }
         }
         walk::walk_call_expression(self, call);
@@ -635,6 +675,7 @@ pub(crate) fn variables_presence(
         return BTreeMap::new();
     }
     let mut merged: Option<SiteTree> = None;
+    let mut unreadable_sites = 0usize;
     for (src, sole_operation) in callers {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
@@ -643,9 +684,11 @@ pub(crate) fn variables_presence(
             sole_operation: *sole_operation,
             scopes: Scopes::default(),
             sites: Vec::new(),
+            unreadable_sites: 0,
             diag,
         };
         collector.visit_program(&ret.program);
+        unreadable_sites += collector.unreadable_sites;
         // Every recovered site has to agree for a key to be `always`, so the sites
         // are folded rather than picked from - across callers as well as within one.
         for site in collector.sites {
@@ -672,11 +715,14 @@ pub(crate) fn variables_presence(
     arg_def_names
         .iter()
         .map(|name| {
-            let node = merged.remove(name).unwrap_or_else(|| {
+            let mut node = merged.remove(name).unwrap_or_else(|| {
                 // Declared by the operation and written by no recovered site: the
                 // client does not send it, which is a form of "not always".
                 VariablePresenceNode::leaf(VariablePresence::Conditional)
             });
+            if unreadable_sites > 0 {
+                withdraw(&mut node);
+            }
             (name.clone(), node)
         })
         .collect()
@@ -913,11 +959,46 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_spread_is_counted_rather_than_passed_over() {
-        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...t.extra})}"#;
-        let (tree, diag) = presence_of(caller, &["a"]);
-        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    fn a_self_referential_spread_terminates() {
+        // `var e = {...e, a: !0}` resolves the spread back to the object being
+        // built. Descending without a depth bound overflowed the stack, and an
+        // extractor that aborts publishes nothing at all.
+        let caller = r#"function f(){var e={...e,a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),e)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert!(tree.contains_key("a"), "the operation is still published");
+    }
+
+    #[test]
+    fn an_unreadable_spread_withdraws_the_keys_before_it() {
+        // `{a: !0, ...t.extra}` is not `a` plus unknown extras: a later spread
+        // overwrites `a`, and it can overwrite it with `undefined`, which JSON
+        // drops. Publishing `always` there would be the exact overstatement the
+        // verdict must not make. A key written AFTER the spread wins, so it keeps
+        // its verdict.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...t.extra,b:!0})}"#;
+        let (tree, diag) = presence_of(caller, &["a", "b"]);
+        assert_eq!(
+            at(&tree, "a"),
+            VariablePresence::Undetermined,
+            "written before a spread that could overwrite it"
+        );
+        assert_eq!(
+            at(&tree, "b"),
+            VariablePresence::Always,
+            "written after the spread, so the spread cannot reach it"
+        );
         assert_eq!(diag.unreadable_spreads, 1);
+    }
+
+    #[test]
+    fn an_unreadable_call_argument_withdraws_the_operations_verdicts() {
+        // Two sites, one of them a variables object that does not resolve. The
+        // readable one alone cannot establish `always`: the other sends the same
+        // operation and nothing is known about which keys it writes.
+        let caller = r#"function f(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),t.opts);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, diag) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.unreadable_call_arguments, 1);
     }
 
     #[test]
