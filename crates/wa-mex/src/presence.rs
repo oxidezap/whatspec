@@ -716,13 +716,7 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
     use oxc_ast::ast::Statement as S;
     for stmt in statements {
         match stmt {
-            S::VariableDeclaration(decl) if decl.kind.is_var() => {
-                for d in &decl.declarations {
-                    for ident in d.id.get_binding_identifiers() {
-                        out.insert(ident.name.as_str().to_string(), Value::MaybeUndefined);
-                    }
-                }
-            }
+            S::VariableDeclaration(decl) => collect_hoisted_declaration(decl, out),
             S::BlockStatement(b) => collect_hoisted(&b.body, out),
             S::IfStatement(i) => {
                 collect_hoisted(std::slice::from_ref(&i.consequent), out);
@@ -730,9 +724,27 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
                     collect_hoisted(std::slice::from_ref(alt), out);
                 }
             }
-            S::ForStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
-            S::ForInStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
-            S::ForOfStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            // A loop header declares in the enclosing function, not in the loop:
+            // `for (var i ...)` hoists `i` exactly like a `var` on the line above,
+            // and missing it lets an outer binding of the same name answer for it.
+            S::ForStatement(f) => {
+                if let Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(decl)) = &f.init {
+                    collect_hoisted_declaration(decl, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
+            S::ForInStatement(f) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &f.left {
+                    collect_hoisted_declaration(decl, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
+            S::ForOfStatement(f) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &f.left {
+                    collect_hoisted_declaration(decl, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
             S::WhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
             S::DoWhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
             S::TryStatement(t) => {
@@ -751,6 +763,21 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
             }
             S::LabeledStatement(l) => collect_hoisted(std::slice::from_ref(&l.body), out),
             _ => {}
+        }
+    }
+}
+
+/// The names a single `var` declaration hoists, wherever it is written.
+fn collect_hoisted_declaration(
+    decl: &oxc_ast::ast::VariableDeclaration,
+    out: &mut HashMap<String, Value>,
+) {
+    if !decl.kind.is_var() {
+        return;
+    }
+    for d in &decl.declarations {
+        for ident in d.id.get_binding_identifiers() {
+            out.insert(ident.name.as_str().to_string(), Value::MaybeUndefined);
         }
     }
 }
@@ -1737,6 +1764,28 @@ mod tests {
             r#"var x=!0;function f(){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});var x}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_var_declared_in_a_loop_header_shadows_from_the_top_of_the_function() {
+        // The header is not the body: `for (var x ...)` hoists `x` into the
+        // function exactly like a line above the loop, and a call that runs
+        // before the loop must read that `undefined`, not the module's `x`.
+        for header in [
+            "for(var x=!0;;){}",
+            "for(var x in t){}",
+            "for(var x of t){}",
+        ] {
+            let caller = format!(
+                r#"var x=!0;function f(t){{o("C").fetchQuery(n("WAWebFooQuery.graphql"),{{a:x}});{header}}}"#
+            );
+            let (tree, _) = presence_of(&caller, &["a"]);
+            assert_eq!(
+                at(&tree, "a"),
+                VariablePresence::Conditional,
+                "{header} declares `x` in the function"
+            );
+        }
     }
 
     #[test]

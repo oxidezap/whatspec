@@ -324,7 +324,13 @@ pub fn extract_mex_from_modules_with_diagnostics(
         diag.presence.ambiguous_call_sites += p.ambiguous_call_sites;
         if !raw.variables.is_empty() {
             diag.operations_with_variables += 1;
-            if raw.variables_presence.values().all(all_always) {
+            // `all` on an empty map is `true`. Today every declared variable is
+            // typed by the shape and so carries a verdict, which keeps the map
+            // non-empty here, but that is the shape pass's invariant rather than
+            // this count's: an operation with no verdict at all has determined
+            // nothing, and must not read as the opposite.
+            if !raw.variables_presence.is_empty() && raw.variables_presence.values().all(all_always)
+            {
                 diag.operations_fully_determined += 1;
             }
         }
@@ -767,6 +773,24 @@ mod tests {
         assert_eq!(diag.presence_always, 1);
         assert_eq!(diag.presence_conditional, 1);
         assert_eq!(diag.presence_undetermined, 0);
+        assert_eq!(diag.operations_with_variables, 1);
+        assert_eq!(diag.operations_fully_determined, 0);
+    }
+
+    #[test]
+    fn an_operation_with_no_verdict_is_not_fully_determined() {
+        // Typed variables, no recovered call site, so nothing is known about any
+        // of them. That is the opposite of fully determined, and it is a plain
+        // `all` over an empty map - which answers `true` - that would say so.
+        let m = r#"__d("WAWebLoneQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"q"}],name:"WAWebLoneQuery"},operation:{argumentDefinitions:[],name:"WAWebLoneQuery"},params:{id:"3",name:"WAWebLoneQuery",operationKind:"query"}}
+        }),null);"#;
+        let (ir, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        let op = &ir.operations["Lone"];
+        assert_eq!(
+            op.variables_presence["q"].presence,
+            wa_ir::VariablePresence::Undetermined
+        );
         assert_eq!(diag.operations_with_variables, 1);
         assert_eq!(diag.operations_fully_determined, 0);
     }

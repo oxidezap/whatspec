@@ -3605,6 +3605,63 @@ mod tests {
     }
 
     #[test]
+    fn check_floor_sees_a_persisted_id_replaced_by_an_operation_name() {
+        let dir = std::env::temp_dir().join(format!("whatspec-floor-mex-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let prior = serde_json::json!({
+            "diagnostics": { "mex": {
+                "presenceAlways": 123, "docIdsInline": 110, "docIdsFromSibling": 33,
+                "docIdsFromName": 0,
+            } },
+        });
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_string_pretty(&prior).unwrap(),
+        )
+        .unwrap();
+        // One operation loses its id while another arrives with one: 143 extracted
+        // either way, so the floor on the sum sees nothing, and the document now
+        // publishes a `docId` that is an operation name. This is the one guard in
+        // the function that flags a RISE, and an inverted comparison would pass
+        // every other test in here.
+        let counts = Counts {
+            mex_presence_always: 123,
+            mex_doc_ids_extracted: 143,
+            mex_doc_ids_from_name: 1,
+            iq_targets: IqTargetCounts::default(),
+            ..Default::default()
+        };
+        let regressions = check_floor(&dir, &counts).unwrap();
+        assert!(
+            regressions.iter().any(|r| r.contains("mex.docIdsFromName")),
+            "a name in place of a persisted id must be named: {regressions:?}"
+        );
+        assert!(
+            !regressions
+                .iter()
+                .any(|r| r.contains("mex.docIds(extracted)")),
+            "and the sum is exactly what could not see it: {regressions:?}"
+        );
+        // The floors in the same block still point down.
+        let dropped = Counts {
+            mex_presence_always: 122,
+            mex_doc_ids_extracted: 142,
+            mex_doc_ids_from_name: 0,
+            iq_targets: IqTargetCounts::default(),
+            ..Default::default()
+        };
+        let regressions = check_floor(&dir, &dropped).unwrap();
+        assert!(regressions.iter().any(|r| r.contains("mex.presenceAlways")));
+        assert!(
+            regressions
+                .iter()
+                .any(|r| r.contains("mex.docIds(extracted)"))
+        );
+        assert!(!regressions.iter().any(|r| r.contains("mex.docIdsFromName")));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn check_floor_sees_one_addressee_class_trade_places_with_another() {
         let dir = std::env::temp_dir().join(format!("whatspec-floor-tgt-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
