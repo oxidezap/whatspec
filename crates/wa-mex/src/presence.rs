@@ -111,6 +111,12 @@ impl Definedness {
 #[derive(Default)]
 struct Scopes {
     frames: Vec<HashMap<String, Value>>,
+    /// Per frame, the names its function declares with `var` anywhere in its
+    /// body. JS hoists those to the top of the function as `undefined`, so a
+    /// call that precedes the declaration must not resolve the name against an
+    /// enclosing binding. Consulted after the frames and before the module's own
+    /// hoisted table, which is the shadowing order.
+    frame_hoisted: Vec<HashMap<String, Value>>,
     /// Bindings the module declares at its own top level, collected before the
     /// walk. A closure resolves its free names when it RUNS, not where it sits,
     /// so `function f(){ …{a: x}… } var x = !0;` uses the defined `x`; walking in
@@ -123,35 +129,49 @@ struct Scopes {
 }
 
 impl Scopes {
-    fn push(&mut self) {
+    fn push(&mut self, hoisted: HashMap<String, Value>) {
         self.frames.push(HashMap::new());
+        self.frame_hoisted.push(hoisted);
     }
     fn pop(&mut self) {
         self.frames.pop();
+        self.frame_hoisted.pop();
     }
-    /// Bind a name, keeping any binding already in this frame beside the new one.
+    /// Bind a name, joining any binding already in this frame when the write is
+    /// one a branch can skip.
     ///
-    /// The scan walks the AST in source order and has no control flow, so
-    /// `var v = {}; if (flag) v = {a: !0}; fetchQuery(op, v)` would otherwise
-    /// leave `v` at the conditional assignment and call `a` unconditional. Two
-    /// bindings for one name are two values that may reach the call, which is
-    /// what `Either` already means everywhere else in this pass.
-    fn bind(&mut self, name: &str, value: Value) {
+    /// The scan has no control flow, so `var v = {}; if (flag) v = {a: !0};`
+    /// would otherwise leave `v` at the conditional assignment and call `a`
+    /// unconditional: two values may reach the call, which is what `Either`
+    /// means everywhere else in this pass. A write at the straight-line level of
+    /// its function does reach the call, though, and joining there is the
+    /// opposite error - `v = {}; v = {a: !0}; fetchQuery(op, v)` sends `a` every
+    /// time, and calling it `conditional` leaves a consumer with the optional
+    /// field this whole dimension exists to remove.
+    fn bind(&mut self, name: &str, value: Value, conditional: bool) {
         if let Some(frame) = self.frames.last_mut() {
             match frame.remove(name) {
-                Some(prior) => frame.insert(
+                Some(prior) if conditional => frame.insert(
                     name.to_string(),
                     Value::Either(Box::new(prior), Box::new(value)),
                 ),
-                None => frame.insert(name.to_string(), value),
+                _ => frame.insert(name.to_string(), value),
             };
         }
     }
+    /// Innermost scope outward, and within each scope its bindings before its
+    /// hoisted names.
+    ///
+    /// Not all frames and then all hoisted tables: a name hoisted in the inner
+    /// function shadows an enclosing binding of the same spelling, and checking
+    /// every frame first would resolve `var x` inside `f` against the module's
+    /// `x` - the shadowing this table exists to provide.
     fn lookup(&self, name: &str) -> Option<&Value> {
         self.frames
             .iter()
+            .zip(&self.frame_hoisted)
             .rev()
-            .find_map(|f| f.get(name))
+            .find_map(|(bound, hoisted)| bound.get(name).or_else(|| hoisted.get(name)))
             .or_else(|| self.hoisted.get(name))
     }
     /// Follow an identifier to what it is bound to.
@@ -196,8 +216,6 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         | Expression::RegExpLiteral(_)
         | Expression::NullLiteral(_)
         | Expression::TemplateLiteral(_)
-        // `new X()` evaluates to an object, never to `undefined`.
-        | Expression::NewExpression(_)
         // Every binary operator (`===`, `!==`, `<`, `+`, `in`, `instanceof`, …)
         // yields a primitive. This is the arm that classifies WA's `x === !0`
         // coercion, which is the whole finding.
@@ -210,6 +228,12 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         Expression::FunctionExpression(_)
         | Expression::ArrowFunctionExpression(_)
         | Expression::ClassExpression(_) => Value::MaybeUndefined,
+
+        // `new X()` never evaluates to `undefined`, but the instance decides its
+        // own serialization: a `toJSON` returning `undefined` drops the key.
+        // Which class it is, and what it does there, is not something this pass
+        // establishes.
+        Expression::NewExpression(_) => Value::Unjudged,
 
         // `!x`, `!!x`, `typeof x`, `-x` yield primitives; `void x` IS `undefined`,
         // so it is the one unary that does not.
@@ -596,6 +620,61 @@ fn merge_sites(mut a: SiteTree, mut b: SiteTree) -> SiteTree {
     out
 }
 
+/// The names a function body declares with `var`, at any depth inside it.
+///
+/// JS hoists them to the top of the function with the value `undefined`, so a
+/// call that runs before the declaration sees `undefined` and not whatever an
+/// enclosing scope binds to the same spelling. Nested functions are not
+/// descended into: their `var`s belong to them.
+fn hoisted_vars(body: &oxc_ast::ast::FunctionBody) -> HashMap<String, Value> {
+    let mut out = HashMap::new();
+    collect_hoisted(&body.statements, &mut out);
+    out
+}
+
+fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<String, Value>) {
+    use oxc_ast::ast::Statement as S;
+    for stmt in statements {
+        match stmt {
+            S::VariableDeclaration(decl) if decl.kind.is_var() => {
+                for d in &decl.declarations {
+                    for ident in d.id.get_binding_identifiers() {
+                        out.insert(ident.name.as_str().to_string(), Value::MaybeUndefined);
+                    }
+                }
+            }
+            S::BlockStatement(b) => collect_hoisted(&b.body, out),
+            S::IfStatement(i) => {
+                collect_hoisted(std::slice::from_ref(&i.consequent), out);
+                if let Some(alt) = &i.alternate {
+                    collect_hoisted(std::slice::from_ref(alt), out);
+                }
+            }
+            S::ForStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            S::ForInStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            S::ForOfStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            S::WhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
+            S::DoWhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
+            S::TryStatement(t) => {
+                collect_hoisted(&t.block.body, out);
+                if let Some(h) = &t.handler {
+                    collect_hoisted(&h.body.body, out);
+                }
+                if let Some(f) = &t.finalizer {
+                    collect_hoisted(&f.body, out);
+                }
+            }
+            S::SwitchStatement(sw) => {
+                for case in &sw.cases {
+                    collect_hoisted(&case.consequent, out);
+                }
+            }
+            S::LabeledStatement(l) => collect_hoisted(std::slice::from_ref(&l.body), out),
+            _ => {}
+        }
+    }
+}
+
 /// The module's own top-level `var`/`let`/`const` bindings.
 ///
 /// Only that level: a name declared inside one function says nothing about the
@@ -691,12 +770,15 @@ struct CallSiteCollector<'d> {
     /// Whether a recovered site carries a spread whose keys could not be listed,
     /// so a declared key nothing wrote may still be reaching the wire.
     opaque_keys: bool,
+    /// How many branching statements enclose the node being visited. A write
+    /// inside one may not run before the call; a write at zero does.
+    branch_depth: usize,
     diag: &'d mut PresenceDiagnostics,
 }
 
 impl<'a> Visit<'a> for CallSiteCollector<'_> {
     fn visit_program(&mut self, program: &oxc_ast::ast::Program<'a>) {
-        self.scopes.push();
+        self.scopes.push(HashMap::new());
         walk::walk_program(self, program);
         self.scopes.pop();
     }
@@ -706,7 +788,8 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         func: &oxc_ast::ast::Function<'a>,
         flags: oxc_syntax::scope::ScopeFlags,
     ) {
-        self.scopes.push();
+        self.scopes
+            .push(func.body.as_deref().map(hoisted_vars).unwrap_or_default());
         self.bind_params(&func.params);
         walk::walk_function(self, func, flags);
         self.scopes.pop();
@@ -716,10 +799,72 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         &mut self,
         func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
     ) {
-        self.scopes.push();
+        self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
         walk::walk_arrow_function_expression(self, func);
         self.scopes.pop();
+    }
+
+    fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_if_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_for_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_for_in_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_for_of_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_while_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_do_while_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_switch_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
+        self.branch_depth += 1;
+        walk::walk_try_statement(self, stmt);
+        self.branch_depth -= 1;
+    }
+
+    /// A write inside a short-circuit or a ternary arm runs only when that arm
+    /// does, exactly like one inside an `if`.
+    fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
+        self.branch_depth += 1;
+        walk::walk_logical_expression(self, expr);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
+        self.branch_depth += 1;
+        walk::walk_conditional_expression(self, expr);
+        self.branch_depth -= 1;
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -732,7 +877,8 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 Some(init) => convert(init, 0),
                 None => Value::MaybeUndefined,
             };
-            self.scopes.bind(name.as_str(), value);
+            let conditional = self.branch_depth > 0;
+            self.scopes.bind(name.as_str(), value, conditional);
         }
         walk::walk_variable_declarator(self, d);
     }
@@ -742,7 +888,8 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // so the binding for the operation handle exists only as an assignment.
         if let Some(name) = wa_oxc::assignment_target_name(&n.left) {
             let value = convert(&n.right, 0);
-            self.scopes.bind(name, value);
+            let conditional = self.branch_depth > 0;
+            self.scopes.bind(name, value, conditional);
         }
         walk::walk_assignment_expression(self, n);
     }
@@ -790,12 +937,14 @@ impl CallSiteCollector<'_> {
         // value and call a passthrough unconditional.
         for item in &params.items {
             for ident in item.pattern.get_binding_identifiers() {
-                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
+                self.scopes
+                    .bind(ident.name.as_str(), Value::MaybeUndefined, false);
             }
         }
         if let Some(rest) = &params.rest {
             for ident in rest.rest.argument.get_binding_identifiers() {
-                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
+                self.scopes
+                    .bind(ident.name.as_str(), Value::MaybeUndefined, false);
             }
         }
     }
@@ -900,6 +1049,7 @@ pub(crate) fn variables_presence(
             sites: Vec::new(),
             unreadable_sites: 0,
             opaque_keys: false,
+            branch_depth: 0,
             diag,
         };
         collector.visit_program(&ret.program);
@@ -1405,6 +1555,36 @@ mod tests {
             VariablePresence::Conditional,
             "a plain `=` is its right side"
         );
+    }
+
+    #[test]
+    fn a_function_local_var_shadows_even_before_its_declaration() {
+        // JS hoists `var x` to the top of the function as `undefined`, so a call
+        // that runs before the declaration must not reach the module's `x`.
+        let caller =
+            r#"var x=!0;function f(){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});var x}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_straight_line_reassignment_replaces_rather_than_joins() {
+        // Every invocation sends `a`; joining the two writes would publish it as
+        // omissible and leave a consumer with the optional field this dimension
+        // exists to remove.
+        let caller = r#"function f(){var v={};v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_new_expression_is_not_evidence_the_key_survives() {
+        // A constructed value is never `undefined`, but its `toJSON` decides
+        // whether the key is serialized at all.
+        let caller =
+            r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:new t.X})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
     }
 
     #[test]
