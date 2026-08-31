@@ -21,8 +21,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentExpression, CallExpression, Expression,
-    LogicalOperator, ObjectExpression, ObjectPropertyKind, PropertyKey, UnaryOperator,
+    Argument, ArrayExpressionElement, AssignmentExpression, AssignmentOperator, CallExpression,
+    Expression, LogicalOperator, ObjectExpression, ObjectPropertyKind, PropertyKey, UnaryOperator,
     VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -222,7 +222,19 @@ fn convert(expr: &Expression, depth: usize) -> Value {
             None => Value::Unjudged,
         },
         Expression::ParenthesizedExpression(p) => convert(&p.expression, next),
-        Expression::AssignmentExpression(a) => convert(&a.right, next),
+        // A logical assignment can yield the LEFT side without ever evaluating
+        // the right: `x &&= !0` is `undefined` when `x` is. Only a plain `=`
+        // (or an arithmetic compound, which yields a primitive) is its right side.
+        Expression::AssignmentExpression(a) => match a.operator {
+            AssignmentOperator::LogicalAnd => Value::AndThen(
+                Box::new(Value::MaybeUndefined),
+                Box::new(convert(&a.right, next)),
+            ),
+            AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish => {
+                Value::OrElse(Box::new(convert(&a.right, next)))
+            }
+            _ => convert(&a.right, next),
+        },
 
         // A property read yields `undefined` for any key the object lacks, and an
         // optional chain yields it for a nullish base. Both are the plain
@@ -331,8 +343,13 @@ fn classify_object(
         match prop {
             Prop::Unreadable => diag.unreadable_keys += 1,
             Prop::Key(key, value) => {
+                // Replaces rather than merges: within one literal the last write
+                // to a key IS the value, so `{...base, a: !0}` is `a: !0` however
+                // `base` wrote it. Merging here would publish a key the client
+                // always sends as omissible, which is the defect this whole
+                // dimension exists to remove, only pointing the other way.
                 let node = classify_value(value, scopes, diag, depth, VariablePresence::Always);
-                insert_weaker(&mut out, key.clone(), node);
+                out.insert(key.clone(), node);
             }
             Prop::Spread(source) => {
                 // `...(cond ? {a: 1} : {})` and `...(cond && {a: 1})` are how WA
@@ -349,7 +366,9 @@ fn classify_object(
                     Value::Object(inner) => {
                         for (k, mut node) in classify_object(inner, scopes, diag, depth + 1) {
                             node.presence = node.presence.weaker(floor);
-                            insert_weaker(&mut out, k, node);
+                            // A later spread overwrites the keys it carries, the
+                            // same order rule the explicit keys follow.
+                            out.insert(k, node);
                         }
                     }
                     // A spread whose keys cannot be enumerated writes an unknown
@@ -420,24 +439,30 @@ fn classify_value(
             node.fields = classify_object(props, scopes, diag, depth + 1);
         }
         Value::Array(items) => {
-            // A list's element is not a key, so it gets no verdict of its own; it
-            // exists to carry the element's keys, which are.
-            if let Some(Value::Object(props)) = items.first().map(|v| scopes.resolve(v, 0)) {
+            // Every element, folded the way two call sites are: the item shape
+            // describes all of them, so a key `[{a: !0}, {}]` writes once is a
+            // key some element lacks. A list's element is not itself a key, so it
+            // gets no verdict of its own - it carries the element's keys.
+            let mut fields: Option<SiteTree> = None;
+            for element in items {
+                let Value::Object(props) = scopes.resolve(element, 0) else {
+                    continue;
+                };
+                let here = classify_object(props, scopes, diag, depth + 1);
+                fields = Some(match fields {
+                    Some(acc) => merge_sites(acc, here),
+                    None => here,
+                });
+            }
+            if let Some(fields) = fields {
                 let mut item = VariablePresenceNode::leaf(VariablePresence::Always);
-                item.fields = classify_object(props, scopes, diag, depth + 1);
+                item.fields = fields;
                 node.items = Some(Box::new(item));
             }
         }
         _ => {}
     }
     node
-}
-
-fn insert_weaker(out: &mut SiteTree, key: String, node: VariablePresenceNode) {
-    match out.remove(&key) {
-        Some(existing) => out.insert(key, merge_nodes(existing, node)),
-        None => out.insert(key, node),
-    };
 }
 
 /// Merge two verdicts about one key, keeping the weaker claim and the union of
@@ -580,10 +605,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
-        if let Some(name) = d.id.get_identifier_name()
-            && let Some(init) = d.init.as_ref()
-        {
-            let value = convert(init, 0);
+        if let Some(name) = d.id.get_identifier_name() {
+            // An uninitialized declaration is still a binding: it shadows an
+            // outer name of the same spelling, and until something writes it the
+            // value is `undefined`. Skipping it let `var x;` inside a module that
+            // also binds `x` resolve to the module's value.
+            let value = match d.init.as_ref() {
+                Some(init) => convert(init, 0),
+                None => Value::MaybeUndefined,
+            };
             self.scopes.bind(name.as_str(), value);
         }
         walk::walk_variable_declarator(self, d);
@@ -1047,6 +1077,73 @@ mod tests {
         let caller = r#"function f(){var a={...b},b={...a};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),a)}"#;
         let (tree, _) = presence_of(caller, &["k"]);
         assert!(tree.contains_key("k"), "the operation is still published");
+    }
+
+    #[test]
+    fn a_later_write_replaces_an_earlier_one() {
+        // JS object construction is ordered, so `{...base, a: !0}` is `a: !0`
+        // whatever `base` said. Merging the two would publish a key the client
+        // always sends as omissible, which is this dimension's own defect
+        // pointing the other way.
+        let caller = r#"function f(t){var base={a:t.maybe,b:t.maybe};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{...base,a:!0})}"#;
+        let (tree, _) = presence_of(caller, &["a", "b"]);
+        assert_eq!(
+            at(&tree, "a"),
+            VariablePresence::Always,
+            "the explicit write after the spread is the value"
+        );
+        assert_eq!(
+            at(&tree, "b"),
+            VariablePresence::Conditional,
+            "nothing overwrote what the spread said"
+        );
+    }
+
+    #[test]
+    fn a_logical_assignment_keeps_its_left_side_in_play() {
+        // `x &&= !0` yields `x` when `x` is falsy, `undefined` included, so it is
+        // not the same as assigning the literal.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:(t.x&&=!0),b:(t.y||=!0),c:(t.z=!0)})}"#;
+        let (tree, _) = presence_of(caller, &["a", "b", "c"]);
+        assert_eq!(
+            at(&tree, "a"),
+            VariablePresence::Conditional,
+            "&&= can yield the left side"
+        );
+        assert_eq!(
+            at(&tree, "b"),
+            VariablePresence::Always,
+            "||= yields the right side when the left is falsy"
+        );
+        assert_eq!(
+            at(&tree, "c"),
+            VariablePresence::Always,
+            "a plain assignment is its right side"
+        );
+    }
+
+    #[test]
+    fn an_uninitialized_declaration_shadows_an_outer_binding() {
+        // `var x` inside the function is a binding whose value is `undefined`,
+        // not a reason to fall through to the module's `x`.
+        let caller = r#"var x=!0;function f(){var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn every_array_element_contributes_to_the_item_shape() {
+        // The item node describes all elements, so a key only one of them writes
+        // is a key some element lacks.
+        let caller = r#"function f(t){return o("C").commitMutation(n("WAWebFooQuery.graphql"),{input:[{a:!0,b:!0},{a:!1}]})}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        let item = tree["input"].items.as_ref().expect("list element node");
+        assert_eq!(item.fields["a"].presence, VariablePresence::Always);
+        assert_eq!(
+            item.fields["b"].presence,
+            VariablePresence::Conditional,
+            "the second element omits it"
+        );
     }
 
     #[test]
