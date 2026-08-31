@@ -802,6 +802,33 @@ mod tests {
     }
 
     #[test]
+    fn a_shape_survives_an_operation_with_no_argument_definitions() {
+        // The presence pass reports where the calls write, and it has to do that
+        // even when the operation declares no variables to publish a verdict for
+        // - otherwise the shape loses the keys the call site does write.
+        let m = r#"
+        __d("WAWebBareQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[],name:"WAWebBareQuery"},operation:{argumentDefinitions:[],name:"WAWebBareQuery"},params:{id:"9",name:"WAWebBareQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebBareJob",["WAWebBareQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(){return o("WAWebMexClient").fetchQuery(n("WAWebBareQuery.graphql"),{a:!0})}
+            l.job=u
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        let op = ir.operations.get("Bare").expect("extracted");
+        assert!(
+            op.variables_shape.contains_key("a"),
+            "the call writes it: {:?}",
+            op.variables_shape
+        );
+        // And the verdict comes from the same call: the key is written outright.
+        assert_eq!(
+            op.variables_presence["a"].presence,
+            wa_ir::VariablePresence::Always
+        );
+    }
+
+    #[test]
     fn a_shape_is_read_from_this_operation_s_own_calls() {
         // `WAWebResolveAccountTypeAndAdPage` sends a query and a mutation from
         // one module, and only the query is given a variables object. Reading

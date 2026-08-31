@@ -1579,6 +1579,10 @@ struct CallSiteCollector<'d> {
     /// Paths whose keys a spread or a computed key may still be writing, from
     /// any recovered site. The empty path is the variables object itself.
     opaque_paths: Vec<Opaque>,
+    /// Whether this pass is a second reading of a body already walked - a loop
+    /// on its way round again. Its call sites are real and are kept; what it
+    /// could not read was already counted the first time.
+    replaying: bool,
     /// Where each matched call's variables argument starts in this caller. The
     /// shape pass reads the same text and needs the same calls: one that belongs
     /// to another operation of the same module is not this operation's shape
@@ -1698,23 +1702,55 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             if let Some(update) = &stmt.update {
                 v.visit_expression(update);
             }
+            // Round again: every iteration after the first reads what the update
+            // left behind, and a call in the body runs on those too. `for (; t;
+            // x = void 0) { fetchQuery(op, {a: x}) }` sends `a` once and omits
+            // it thereafter.
+            if stmt.update.is_some() {
+                let first_pass = !v.replaying;
+                v.replaying = true;
+                v.visit_statement(&stmt.body);
+                v.replaying = !first_pass;
+            }
         });
         self.scopes.pop();
     }
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
         // `for (let x …)` binds `x` for the loop and nothing after it, so the
-        // header needs a block of its own around header and body alike.
+        // header needs a block of its own around header and body alike. And a
+        // header that writes an EXISTING binding - `for (x of xs)` - rewrites it
+        // once per element, with whatever the list holds.
         self.scopes.push_block();
-        self.in_branch(|v| walk::walk_for_in_statement(v, stmt));
+        self.in_branch(|v| {
+            if let Some(target) = stmt.left.as_assignment_target() {
+                let mut names = Vec::new();
+                collect_assignment_target_names(target, &mut names);
+                for name in names {
+                    v.scopes.bind_assignment(&name, Value::MaybeUndefined);
+                }
+            }
+            walk::walk_for_in_statement(v, stmt);
+        });
         self.scopes.pop();
     }
 
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
         // `for (let x …)` binds `x` for the loop and nothing after it, so the
-        // header needs a block of its own around header and body alike.
+        // header needs a block of its own around header and body alike. And a
+        // header that writes an EXISTING binding - `for (x of xs)` - rewrites it
+        // once per element, with whatever the list holds.
         self.scopes.push_block();
-        self.in_branch(|v| walk::walk_for_of_statement(v, stmt));
+        self.in_branch(|v| {
+            if let Some(target) = stmt.left.as_assignment_target() {
+                let mut names = Vec::new();
+                collect_assignment_target_names(target, &mut names);
+                for name in names {
+                    v.scopes.bind_assignment(&name, Value::MaybeUndefined);
+                }
+            }
+            walk::walk_for_of_statement(v, stmt);
+        });
         self.scopes.pop();
     }
 
@@ -1885,7 +1921,9 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // dropping it silently would let another caller's site decide a key
             // this one might contradict. Counted, and treated as a site nothing
             // is known about.
-            self.diag.ambiguous_call_sites += 1;
+            if !self.replaying {
+                self.diag.ambiguous_call_sites += 1;
+            }
             self.unreadable_sites += 1;
         }
         if self.is_operation_call(call) {
@@ -1918,13 +1956,35 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 // `always` means no recovered site contradicts the key, and an
                 // unread site cannot be shown not to.
                 None => {
-                    self.diag.unreadable_call_arguments += 1;
+                    if !self.replaying {
+                        self.diag.unreadable_call_arguments += 1;
+                    }
                     self.unreadable_sites += 1;
                 }
             }
         }
         for argument in call.arguments.iter().skip(2) {
             self.visit_argument(argument);
+        }
+        // A helper handed a recovered object can do anything to it - delete a
+        // key, overwrite one with `undefined` - and this pass reads no function
+        // body it did not have to. The object stops being evidence. Relay's own
+        // methods are the exception: their argument IS the request, read at the
+        // point it is passed.
+        if !wa_oxc::callee_method(call).is_some_and(|m| FETCH_METHODS.contains(&m)) {
+            for argument in call.arguments.iter().filter_map(Argument::as_expression) {
+                let Expression::Identifier(id) = argument else {
+                    continue;
+                };
+                let owner = self.scopes.alias_target(id.name.as_str(), 0);
+                let carries_keys = matches!(
+                    self.scopes.resolve(&Value::Ref(owner.clone()), 0),
+                    Value::Object(_) | Value::Array(_)
+                );
+                if carries_keys {
+                    self.scopes.bind_assignment(&owner, Value::Unjudged);
+                }
+            }
         }
     }
 }
@@ -2087,9 +2147,11 @@ pub(crate) fn variables_presence(
     diag: &mut PresenceDiagnostics,
     variable_arguments: &mut Vec<(usize, u32)>,
 ) -> BTreeMap<String, VariablePresenceNode> {
-    if arg_def_names.is_empty() {
-        return BTreeMap::new();
-    }
+    // Not an early return: an operation whose `argumentDefinitions` this pass
+    // could not read still has call sites, and the shape pass reads their
+    // variables objects through the offsets collected below. There is simply no
+    // name to publish a verdict for.
+    let publish = !arg_def_names.is_empty();
     let mut merged: Option<SiteTree> = None;
     let mut unreadable_sites = 0usize;
     let mut opaque_paths: Vec<Opaque> = Vec::new();
@@ -2109,6 +2171,7 @@ pub(crate) fn variables_presence(
             sites: Vec::new(),
             unreadable_sites: 0,
             opaque_paths: Vec::new(),
+            replaying: false,
             variable_arguments: Vec::new(),
             diag,
         };
@@ -2124,6 +2187,20 @@ pub(crate) fn variables_presence(
                 None => site,
             });
         }
+    }
+
+    if !publish {
+        // No declared name to answer for, so the keys the sites wrote are the
+        // whole answer - `align_with_shape` publishes exactly the ones the shape
+        // recovered from those same calls. The no-call-site diagnostic stays out
+        // of it: an operation with no variables has nothing to be silent about.
+        let mut written = merged.unwrap_or_default();
+        if unreadable_sites > 0 {
+            for node in written.values_mut() {
+                withdraw(node);
+            }
+        }
+        return written;
     }
 
     let Some(mut merged) = merged else {
@@ -3385,6 +3462,37 @@ mod tests {
         let plain =
             r#"function f(t=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:t})}"#;
         let (tree, _) = presence_of(plain, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_loop_body_runs_again_with_what_the_update_left() {
+        // The first iteration sends `a`; every one after it does not.
+        let caller = r#"function f(t){var x=!0;for(;t;x=void 0){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_for_of_header_rewrites_the_binding_it_names() {
+        // `for (x of xs)` writes `x` once per element, and what the list holds
+        // is not something this pass reads.
+        let caller = r#"function f(t){var x=!0;for(x of t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_object_handed_to_a_helper_stops_being_evidence() {
+        // `clear(v)` can delete a key or overwrite it with `undefined`, and this
+        // pass reads no function body it did not have to.
+        let caller = r#"function f(t){var v={a:!0};t.clear(v);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+
+        // Relay's own method is not a helper: its argument IS the request.
+        let sent = r#"function f(){var v={a:!0};o("C").fetchQuery(n("WAWebFooQuery.graphql"),v);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(sent, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
