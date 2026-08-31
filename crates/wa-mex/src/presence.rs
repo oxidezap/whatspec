@@ -251,7 +251,13 @@ fn convert(expr: &Expression, depth: usize) -> Value {
             AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish => {
                 Value::OrElse(Box::new(convert(&a.right, next)))
             }
-            _ => convert(&a.right, next),
+            // A plain `=` evaluates to its right side. An arithmetic or bitwise
+            // compound assignment evaluates to the computed primitive instead,
+            // which is defined whatever the operand was - `x += y` is a number
+            // or a string even when `y` is `undefined` (`NaN` serializes as
+            // `null`, with the key still there).
+            AssignmentOperator::Assign => convert(&a.right, next),
+            _ => Value::Defined,
         },
 
         // A property read yields `undefined` for any key the object lacks, and an
@@ -371,7 +377,17 @@ fn classify_object_reporting(
     }
     for prop in props {
         match prop {
-            Prop::Unreadable => diag.unreadable_keys += 1,
+            Prop::Unreadable => {
+                // A computed key names something this pass cannot read, and that
+                // something may be a key already written: `{a: !0, [k]: void 0}`
+                // drops `a` when `k` is `"a"`. Same rule as an unreadable spread,
+                // and a later explicit write still restores the key.
+                diag.unreadable_keys += 1;
+                opaque = true;
+                for node in out.values_mut() {
+                    withdraw(node);
+                }
+            }
             Prop::Key(key, value) => {
                 // Replaces rather than merges: within one literal the last write
                 // to a key IS the value, so `{...base, a: !0}` is `a: !0` however
@@ -424,11 +440,22 @@ fn classify_object_reporting(
 /// Reduce a verdict and everything under it to `undetermined`.
 fn withdraw(node: &mut VariablePresenceNode) {
     node.presence = node.presence.weaker(VariablePresence::Undetermined);
+    withdraw_children(node);
+}
+
+/// Withdraw everything under a node without touching the node's own verdict.
+///
+/// A list element is not a key, so `VariablePresenceNode::items` fixes its
+/// presence at `always` by construction and `scripts/lint-ir.py` rejects any
+/// other value. Recursing into it with the full withdrawal would move it to
+/// `undetermined` and make the document unpublishable - the keys under it are
+/// what the uncertainty applies to.
+fn withdraw_children(node: &mut VariablePresenceNode) {
     for child in node.fields.values_mut() {
         withdraw(child);
     }
     if let Some(items) = node.items.as_deref_mut() {
-        withdraw(items);
+        withdraw_children(items);
     }
 }
 
@@ -475,8 +502,14 @@ fn classify_value(
             // key some element lacks. A list's element is not itself a key, so it
             // gets no verdict of its own - it carries the element's keys.
             let mut fields: Option<SiteTree> = None;
+            // An element this pass cannot enumerate may omit any key its readable
+            // siblings write, so it withdraws the item verdicts rather than
+            // letting them be decided without it. Same rule as an unreadable
+            // spread and an unreadable ternary arm.
+            let mut unreadable_element = false;
             for element in items {
                 let Value::Object(props) = scopes.resolve(element, 0) else {
+                    unreadable_element = true;
                     continue;
                 };
                 let here = classify_object(props, scopes, diag, depth + 1);
@@ -488,6 +521,9 @@ fn classify_value(
             if let Some(fields) = fields {
                 let mut item = VariablePresenceNode::leaf(VariablePresence::Always);
                 item.fields = fields;
+                if unreadable_element {
+                    withdraw_children(&mut item);
+                }
                 node.items = Some(Box::new(item));
             }
         }
@@ -1302,6 +1338,73 @@ mod tests {
             "written after the spread, so the spread cannot reach it"
         );
         assert_eq!(diag.unreadable_spreads, 1);
+    }
+
+    #[test]
+    fn a_computed_key_withdraws_what_came_before_it() {
+        // `{a: !0, [k]: void 0}` drops `a` when `k` is `"a"`, so a key this pass
+        // cannot read is not merely a key it fails to add.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,[t.k]:t.v,b:!0})}"#;
+        let (tree, diag) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(
+            at(&tree, "b"),
+            VariablePresence::Always,
+            "written after it, so out of its reach"
+        );
+        assert_eq!(diag.unreadable_keys, 1);
+    }
+
+    #[test]
+    fn an_unreadable_array_element_withdraws_the_item_keys() {
+        // A mixed array: the readable element cannot speak for the one this pass
+        // has no way to enumerate.
+        for caller in [
+            r#"function f(t){return o("C").commitMutation(n("WAWebFooQuery.graphql"),{input:[{a:!0},t.other]})}"#,
+            r#"function f(t){return o("C").commitMutation(n("WAWebFooQuery.graphql"),{input:[...t.extra,{a:!0}]})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["input"]);
+            let item = tree["input"].items.as_ref().expect("list element node");
+            assert_eq!(
+                item.fields["a"].presence,
+                VariablePresence::Undetermined,
+                "{caller}"
+            );
+            assert_eq!(
+                item.presence,
+                VariablePresence::Always,
+                "the element container is not a key and stays `always`"
+            );
+        }
+    }
+
+    #[test]
+    fn withdrawing_keeps_a_list_element_container_always() {
+        // `VariablePresenceNode::items` is `always` by construction and the linter
+        // rejects anything else, so a withdrawal has to reach the element's KEYS
+        // without moving the container itself.
+        let caller = r#"function f(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),t.opaque);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:[{a:!0}]})}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        let item = tree["input"].items.as_ref().expect("list element node");
+        assert_eq!(
+            item.presence,
+            VariablePresence::Always,
+            "an unreadable sibling site must not make the document unpublishable"
+        );
+        assert_eq!(item.fields["a"].presence, VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_compound_assignment_yields_a_primitive() {
+        // `x += y` is a number or a string whatever `y` was, so the key is there.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{count:(t.x+=t.step),plain:(t.y=t.z)})}"#;
+        let (tree, _) = presence_of(caller, &["count", "plain"]);
+        assert_eq!(at(&tree, "count"), VariablePresence::Always);
+        assert_eq!(
+            at(&tree, "plain"),
+            VariablePresence::Conditional,
+            "a plain `=` is its right side"
+        );
     }
 
     #[test]

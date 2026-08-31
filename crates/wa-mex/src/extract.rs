@@ -346,11 +346,22 @@ pub fn extract_mex_from_modules_with_diagnostics(
     )
 }
 
-/// Give every key of the shape tree a verdict, defaulting to `undetermined`.
+/// Publish a verdict for exactly the keys the shape types.
+///
+/// The two maps are siblings a consumer reads together, and `scripts/lint-ir.py`
+/// rejects a document where one names a key the other does not - so this is what
+/// makes that check unfailable rather than a hazard. A shape key the presence
+/// scan never reached gets `undetermined`, because an absent key and "we could
+/// not tell" must not look alike. A presence key the shape does not type is
+/// dropped: the two passes read the call site differently (the shape's tracer
+/// resolves a binding backwards from the call, presence also sees the module's
+/// own later declarations), and a verdict for a key no consumer can generate a
+/// field for is not worth an unpublishable document.
 fn align_with_shape(
     shape: &BTreeMap<String, wa_ir::TypeNode>,
     presence: &mut BTreeMap<String, wa_ir::VariablePresenceNode>,
 ) {
+    presence.retain(|key, _| shape.contains_key(key));
     for (key, node) in shape {
         let entry = presence.entry(key.clone()).or_insert_with(|| {
             wa_ir::VariablePresenceNode::leaf(wa_ir::VariablePresence::Undetermined)
