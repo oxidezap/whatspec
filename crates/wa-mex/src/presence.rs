@@ -120,9 +120,22 @@ impl Scopes {
     fn pop(&mut self) {
         self.frames.pop();
     }
+    /// Bind a name, keeping any binding already in this frame beside the new one.
+    ///
+    /// The scan walks the AST in source order and has no control flow, so
+    /// `var v = {}; if (flag) v = {a: !0}; fetchQuery(op, v)` would otherwise
+    /// leave `v` at the conditional assignment and call `a` unconditional. Two
+    /// bindings for one name are two values that may reach the call, which is
+    /// what `Either` already means everywhere else in this pass.
     fn bind(&mut self, name: &str, value: Value) {
         if let Some(frame) = self.frames.last_mut() {
-            frame.insert(name.to_string(), value);
+            match frame.remove(name) {
+                Some(prior) => frame.insert(
+                    name.to_string(),
+                    Value::Either(Box::new(prior), Box::new(value)),
+                ),
+                None => frame.insert(name.to_string(), value),
+            };
         }
     }
     fn lookup(&self, name: &str) -> Option<&Value> {
@@ -430,12 +443,32 @@ fn insert_weaker(out: &mut SiteTree, key: String, node: VariablePresenceNode) {
 /// Merge two verdicts about one key, keeping the weaker claim and the union of
 /// the nested keys.
 fn merge_nodes(a: VariablePresenceNode, b: VariablePresenceNode) -> VariablePresenceNode {
+    // A key one side carries and the other does not is a key that can be absent,
+    // at every level and not only at the top: merging `{input:{a}}` with
+    // `{input:{}}` has to leave `input.a` conditional, or the nested field is
+    // published as unconditional on the evidence of one writer.
     let mut fields = a.fields;
+    let only_in_b: Vec<String> = b
+        .fields
+        .keys()
+        .filter(|k| !fields.contains_key(*k))
+        .cloned()
+        .collect();
+    let only_in_a: Vec<String> = fields
+        .keys()
+        .filter(|k| !b.fields.contains_key(*k))
+        .cloned()
+        .collect();
     for (k, v) in b.fields {
         match fields.remove(&k) {
             Some(existing) => fields.insert(k, merge_nodes(existing, v)),
             None => fields.insert(k, v),
         };
+    }
+    for k in only_in_a.into_iter().chain(only_in_b) {
+        if let Some(node) = fields.get_mut(&k) {
+            node.presence = node.presence.weaker(VariablePresence::Conditional);
+        }
     }
     let items = match (a.items, b.items) {
         (Some(x), Some(y)) => Some(Box::new(merge_nodes(*x, *y))),
@@ -596,12 +629,19 @@ impl CallSiteCollector<'_> {
     /// function's parameter `e` too - so without this the inner `e` resolves to the
     /// outer `require` call and a plain passthrough reads as unjudged.
     fn bind_params(&mut self, params: &oxc_ast::ast::FormalParameters) {
-        // Destructured and rest parameters bind no single name and are left
-        // alone: an unbound name already resolves to `MaybeUndefined`, so the
-        // verdict is the same one binding them would give.
+        // Every name the pattern introduces, destructured and rest included.
+        // Leaving those unbound is not the same as binding them: an unbound name
+        // falls through to the enclosing frames, so `function f({x})` inside a
+        // module that also binds `x` would resolve the parameter to the module's
+        // value and call a passthrough unconditional.
         for item in &params.items {
-            if let Some(name) = item.pattern.get_identifier_name() {
-                self.scopes.bind(&name, Value::MaybeUndefined);
+            for ident in item.pattern.get_binding_identifiers() {
+                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
+            }
+        }
+        if let Some(rest) = &params.rest {
+            for ident in rest.rest.argument.get_binding_identifiers() {
+                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
             }
         }
     }
@@ -637,8 +677,11 @@ impl CallSiteCollector<'_> {
                 let right = self.branch_object(&b);
                 match (left, right) {
                     (Some(l), Some(r)) => Some(merge_sites(l, r)),
-                    (Some(x), None) | (None, Some(x)) => Some(x),
-                    (None, None) => None,
+                    // One arm is an object and the other could not be read, so
+                    // what the call sends on that path is unknown. Publishing the
+                    // readable arm alone would let it decide the operation by
+                    // itself, which is the whole failure mode this guards.
+                    _ => None,
                 }
             }
             _ => None,
@@ -949,6 +992,61 @@ mod tests {
         let tree = variables_presence(&[(quiet, false), (live, false)], MODULE, &names, &mut diag);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
         assert_eq!(diag.operations_without_call_site, 0);
+    }
+
+    #[test]
+    fn a_nested_key_only_one_site_writes_is_conditional() {
+        // Absence is a verdict at every level, not only at the top: one site
+        // writes `input.b`, the other writes `input` without it.
+        let caller = r#"function f(t){if(t)return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0,b:!0}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!1}})}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        let input = &tree["input"];
+        assert_eq!(input.presence, VariablePresence::Always);
+        assert_eq!(input.fields["a"].presence, VariablePresence::Always);
+        assert_eq!(
+            input.fields["b"].presence,
+            VariablePresence::Conditional,
+            "written by one site's input object and not the other's"
+        );
+    }
+
+    #[test]
+    fn a_conditionally_reassigned_binding_is_not_read_as_the_last_write() {
+        // The scan has no control flow, so the assignment inside the branch would
+        // otherwise stand as the value reaching the call.
+        let caller = r#"function f(t){var v={};if(t){v={a:!0}}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(
+            at(&tree, "a"),
+            VariablePresence::Conditional,
+            "one of the two values reaching the call does not write it"
+        );
+    }
+
+    #[test]
+    fn a_destructured_parameter_shadows_an_outer_binding() {
+        // `x` is bound at module level AND destructured out of the parameter. The
+        // parameter wins, and a parameter is a passthrough.
+        let caller = r#"var x=!0;function f({x}){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_ternary_with_one_unreadable_arm_does_not_decide_alone() {
+        // `cond ? {a: !0} : somethingUnreadable`: the readable arm cannot speak
+        // for the call, because the other path may send something else entirely.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),t.flag?{a:!0}:t.other)}"#;
+        let (tree, diag) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.unreadable_call_arguments, 1);
+    }
+
+    #[test]
+    fn mutually_recursive_spreads_terminate() {
+        let caller = r#"function f(){var a={...b},b={...a};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),a)}"#;
+        let (tree, _) = presence_of(caller, &["k"]);
+        assert!(tree.contains_key("k"), "the operation is still published");
     }
 
     #[test]

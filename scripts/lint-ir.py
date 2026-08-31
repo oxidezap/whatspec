@@ -101,7 +101,14 @@ BASELINE = {
     # unseen. Collapsing these into `conditional` would be the one outcome that defeats
     # the whole dimension: "the official client sometimes omits this" is a claim, and an
     # unread expression has not earned it.
-    "mex variable with an undetermined presence": 102,
+    #
+    # Rose from 102 to 106 with the review pass that made a partially readable call site
+    # withdraw rather than decide. `WAWebMexSetUsernameJob` sends
+    # `isStringNullOrEmpty(t.input) ? {} : t`: one arm is an empty object and the other
+    # hands over the whole parameter, so its four variables were published as
+    # `conditional` on the empty arm alone. Nothing was known about them, and that is
+    # what this number is for.
+    "mex variable with an undetermined presence": 106,
     # Operations where the verdict is `undetermined` for EVERY variable - no call site
     # was recovered, or the one that was writes nothing this classifier reads. Pinned
     # beside the per-key count because a single key regaining a verdict moves that number
@@ -109,7 +116,7 @@ BASELINE = {
     # failure from an operation with one unreadable field, and only this sees it.
     # `manifest.diagnostics.mex.dropsByReason` splits the two causes; from the document
     # alone they are indistinguishable, so the name says what is actually measured.
-    "mex operation with no established variable presence": 12,
+    "mex operation with no established variable presence": 13,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
     # because the alternative to dropping it is publishing `["regular"]` over a policy WA
     # stated and we failed to read — so a rise here is a channel rule going missing, not
@@ -1357,11 +1364,30 @@ def _check_presence_level(path, shape, presence, errors, counts):
             errors.append(f"{here}: nested field verdicts on a variable that is not an object")
         element = typed[0] if isinstance(typed, list) and typed else None
         item = node.get("items")
-        if isinstance(element, dict):
+        # A list of lists carries its keys one layer deeper, so the element node is
+        # followed through every layer; stopping at the first would let the keys
+        # under `[[{a}]]` carry no verdict and still pass this parity check.
+        if isinstance(element, (dict, list)):
             if not isinstance(item, dict):
                 errors.append(f"{here}: a list of objects with no element verdicts")
             else:
-                _check_presence_level(here, element, item.get("fields") or {}, errors, counts)
+                # An element is not a key, so it is not a thing that can be absent:
+                # `VariablePresenceNode::items` fixes its verdict at `always` by
+                # construction, and anything else is a claim about a key that does
+                # not exist.
+                if item.get("presence") != "always":
+                    errors.append(
+                        f"{here}: list-element presence is {item.get('presence')!r}, not "
+                        f"'always' - an element is not a key and cannot be omitted"
+                    )
+                if isinstance(element, dict):
+                    _check_presence_level(here, element, item.get("fields") or {}, errors, counts)
+                else:
+                    inner = element[0] if element else None
+                    if isinstance(inner, (dict, list)):
+                        _check_presence_level(
+                            here, {"[]": inner}, {"[]": item}, errors, counts
+                        )
         elif item is not None:
             errors.append(f"{here}: element verdicts on a variable that is not a list of objects")
 

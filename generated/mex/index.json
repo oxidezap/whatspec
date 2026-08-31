@@ -727,7 +727,7 @@
               "presence": "always",
               "fields": {
                 "direct_connection_encrypted_info": {
-                  "presence": "always"
+                  "presence": "conditional"
                 },
                 "id": {
                   "presence": "conditional"
@@ -6237,16 +6237,16 @@
       },
       "variablesPresence": {
         "input": {
-          "presence": "conditional"
+          "presence": "undetermined"
         },
         "reserved": {
-          "presence": "conditional"
+          "presence": "undetermined"
         },
         "session_id": {
-          "presence": "conditional"
+          "presence": "undetermined"
         },
         "source": {
-          "presence": "conditional"
+          "presence": "undetermined"
         }
       },
       "response": {

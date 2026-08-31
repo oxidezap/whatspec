@@ -60,17 +60,17 @@
       "docIdsFromSibling": 33,
       "docIdsInline": 110,
       "dropsByReason": {
-        "operationWithNoCallSite": 6,
-        "unreadableCallArgument": 1,
+        "operationWithNoCallSite": 7,
+        "unreadableCallArgument": 2,
         "unreadableKey": 0,
         "unreadableSpread": 0
       },
       "operations": 143,
       "operationsFullyDetermined": 7,
       "operationsWithVariables": 128,
-      "presenceAlways": 124,
-      "presenceConditional": 187,
-      "presenceUndetermined": 102
+      "presenceAlways": 123,
+      "presenceConditional": 184,
+      "presenceUndetermined": 106
     },
     "notif": {
       "actionShapes": 184,
@@ -135,7 +135,7 @@
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "4bfffebc8ddd170e943a385613c138a573a8e22a1fa597fe0fdf95c79dc0c999"
+      "sha256": "56d71add2482f7bbeb148e4c1974c7aa9118c0d31d2f78ef9c4555941f479f02"
     },
     "notif": {
       "file": "notif/index.json",

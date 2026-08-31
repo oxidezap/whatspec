@@ -286,23 +286,17 @@ pub fn extract_mex_from_modules_with_diagnostics(
         let Some(kind) = raw.operation_kind else {
             continue;
         };
-        // Split by origin as the id is resolved, so the manifest can say that
-        // every published `docId` was read out of THIS bundle set rather than
-        // looking unchanged because nothing re-derived it.
-        let doc_id = match raw.doc_id {
-            Some(id) => {
-                diag.doc_ids_inline += 1;
-                id
-            }
+        // Split by origin so the manifest can say that every published `docId`
+        // was read out of THIS bundle set rather than looking unchanged because
+        // nothing re-derived it. Resolved here and counted below, after the
+        // collision filter: an operation the filter drops is not published, and
+        // counting it would report more ids than there are operations to carry
+        // them.
+        let (doc_id, origin) = match raw.doc_id {
+            Some(id) => (id, DocIdOrigin::Inline),
             None => match raw.doc_id_ref.and_then(|m| exported_ids.get(&m).cloned()) {
-                Some(id) => {
-                    diag.doc_ids_from_sibling += 1;
-                    id
-                }
-                None => {
-                    diag.doc_ids_from_name += 1;
-                    raw.original_name.clone()
-                }
+                Some(id) => (id, DocIdOrigin::Sibling),
+                None => (raw.original_name.clone(), DocIdOrigin::Name),
             },
         };
 
@@ -313,6 +307,11 @@ pub fn extract_mex_from_modules_with_diagnostics(
                 continue;
             }
             key = alt;
+        }
+        match origin {
+            DocIdOrigin::Inline => diag.doc_ids_inline += 1,
+            DocIdOrigin::Sibling => diag.doc_ids_from_sibling += 1,
+            DocIdOrigin::Name => diag.doc_ids_from_name += 1,
         }
         count_presence(&raw.variables_presence, &mut diag);
         let p = &raw.presence;
@@ -367,19 +366,33 @@ fn align_node(shape: &wa_ir::TypeNode, presence: &mut wa_ir::VariablePresenceNod
     match shape {
         wa_ir::TypeNode::Object(fields) => align_with_shape(fields, &mut presence.fields),
         wa_ir::TypeNode::Array(items) => {
-            if let Some(wa_ir::TypeNode::Object(fields)) = items.first() {
-                // A list element is not a key, so it carries no verdict of its own
-                // - see `VariablePresenceNode::items`.
+            // Every layer, since a list of lists carries its keys one level
+            // deeper (`[[{a}]]`) and stopping at the first would leave them with
+            // no verdict at all rather than an undetermined one.
+            if let Some(element @ (wa_ir::TypeNode::Object(_) | wa_ir::TypeNode::Array(_))) =
+                items.first()
+            {
+                // A list element is not a key, so it carries no verdict of
+                // its own - see `VariablePresenceNode::items`.
                 let item = presence.items.get_or_insert_with(|| {
                     Box::new(wa_ir::VariablePresenceNode::leaf(
                         wa_ir::VariablePresence::Always,
                     ))
                 });
-                align_with_shape(fields, &mut item.fields);
+                align_node(element, item);
             }
         }
         wa_ir::TypeNode::Leaf(_) => {}
     }
+}
+
+/// Where a resolved `docId` was read from, carried between resolution and the
+/// collision filter so only a published operation is counted.
+#[derive(Debug, Clone, Copy)]
+enum DocIdOrigin {
+    Inline,
+    Sibling,
+    Name,
 }
 
 /// Tally every key of a presence tree, nested keys included: the question is
