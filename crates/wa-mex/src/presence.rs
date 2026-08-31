@@ -316,10 +316,20 @@ fn convert(expr: &Expression, depth: usize) -> Value {
 
         // `t == null ? void 0 : t.x` is how the minifier writes an optional
         // chain, and its `void 0` arm is what makes that form conditional.
-        Expression::ConditionalExpression(c) => Value::Either(
-            Box::new(convert(&c.consequent, next)),
-            Box::new(convert(&c.alternate, next)),
-        ),
+        Expression::ConditionalExpression(c) => match memoised(c) {
+            // `e !== void 0 ? e : e = n("X.graphql")` is the memoising require:
+            // one branch reads the binding the other writes, so both arms are
+            // the assigned value and the ternary is not a choice between two
+            // things. Kept as that value, because the alternative is resolving
+            // `e` later, in whatever scope the read happens to sit in - and the
+            // job functions around these handles reuse the same letters for
+            // their own parameters.
+            Some(memo) => convert(memo, next),
+            None => Value::Either(
+                Box::new(convert(&c.consequent, next)),
+                Box::new(convert(&c.alternate, next)),
+            ),
+        },
 
         Expression::SequenceExpression(s) => match s.expressions.last() {
             Some(last) => convert(last, next),
@@ -830,8 +840,31 @@ fn collect_declarations(statements: &[oxc_ast::ast::Statement], out: &mut HashMa
     }
 }
 
-/// Whether a value reaches ANY `require`-style call naming a `.graphql` module.
-fn names_any_module(value: &Value, scopes: &Scopes, depth: usize) -> bool {
+/// The assigned side of a memoising ternary: one branch reads a binding, the
+/// other assigns it, so the whole expression evaluates to what is assigned.
+fn memoised<'a>(cond: &'a oxc_ast::ast::ConditionalExpression<'a>) -> Option<&'a Expression<'a>> {
+    let pair = |read: &Expression<'a>, write: &'a Expression<'a>| {
+        let Expression::Identifier(id) = read else {
+            return None;
+        };
+        let Expression::AssignmentExpression(a) = write else {
+            return None;
+        };
+        (a.operator == AssignmentOperator::Assign
+            && wa_oxc::assignment_target_name(&a.left) == Some(id.name.as_str()))
+        .then_some(&a.right)
+    };
+    pair(&cond.consequent, &cond.alternate).or_else(|| pair(&cond.alternate, &cond.consequent))
+}
+
+/// Whether a handle is pinned to a `.graphql` module on EVERY value it can take.
+///
+/// This is what tells "resolvable and not ours" from "we could not tell". A
+/// ternary is one branch per call, so a handle whose other branch is a bare
+/// parameter is only half read: the branch that names another operation says
+/// nothing about the branch that might name this one, and answering `true` here
+/// would drop the site instead of withdrawing what it might contradict.
+fn every_branch_names_a_module(value: &Value, scopes: &Scopes, depth: usize) -> bool {
     if depth >= MAX_DEPTH {
         return false;
     }
@@ -839,14 +872,23 @@ fn names_any_module(value: &Value, scopes: &Scopes, depth: usize) -> bool {
     match value {
         Value::Call(name, args) => {
             name.as_deref().is_some_and(|n| n.ends_with(".graphql"))
-                || args.iter().any(|a| names_any_module(a, scopes, next))
+                || args
+                    .iter()
+                    .any(|a| every_branch_names_a_module(a, scopes, next))
         }
-        Value::Either(a, b) | Value::AndThen(a, b) => {
-            names_any_module(a, scopes, next) || names_any_module(b, scopes, next)
+        // Both branches, because one call takes one of them: a ternary between
+        // another operation's module and something this pass cannot read is not
+        // a handle it has read.
+        Value::Either(a, b) => {
+            every_branch_names_a_module(a, scopes, next)
+                && every_branch_names_a_module(b, scopes, next)
         }
-        Value::OrElse(rhs) => names_any_module(rhs, scopes, next),
+        // `a && b` hands the call `b`, or a falsy `a` that is no handle at all.
+        Value::AndThen(_, rhs) | Value::OrElse(rhs) => {
+            every_branch_names_a_module(rhs, scopes, next)
+        }
         Value::Ref(name) => match scopes.lookup(name) {
-            Some(bound) => names_any_module(bound, scopes, next),
+            Some(bound) => every_branch_names_a_module(bound, scopes, next),
             None => false,
         },
         _ => false,
@@ -1152,7 +1194,7 @@ impl CallSiteCollector<'_> {
             return false;
         }
         match call.arguments.first().and_then(Argument::as_expression) {
-            Some(first) => !names_any_module(&convert(first, 0), &self.scopes, 0),
+            Some(first) => !every_branch_names_a_module(&convert(first, 0), &self.scopes, 0),
             None => false,
         }
     }
@@ -1914,6 +1956,35 @@ mod tests {
         // Resolvable and not ours: that is knowledge, not ambiguity, so it must
         // not withdraw anything.
         let caller = r#"function f(t){o("C").fetchQuery(n("WAWebOtherQuery.graphql"),{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        assert_eq!(diag.ambiguous_call_sites, 0);
+    }
+
+    #[test]
+    fn a_handle_naming_another_operation_on_only_one_branch_is_ambiguous() {
+        // `h ? n("Other.graphql") : h` is one branch per call: the branch that
+        // names another operation says nothing about the branch that does not,
+        // and that one may be ours. Reading the resolved half as the whole
+        // handle would drop this site and let the readable one answer alone.
+        let caller = r#"function f(t,h){o("C").fetchQuery(h?n("WAWebOtherQuery.graphql"):h,{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.ambiguous_call_sites, 1);
+    }
+
+    #[test]
+    fn a_memoised_handle_for_another_operation_is_still_skipped() {
+        // WA's own memoising shape, and the letter it memoises into is reused as
+        // a parameter of the very function that reads it - the arrangement of
+        // `WAWebACSServerProvider`. The ternary reads the binding its own other
+        // branch writes, so it is that module however the letter resolves
+        // later: known, not ours, and it withdraws nothing.
+        let caller = r#"var e,s,u=e!==void 0?e:e=n("WAWebOtherQuery.graphql"),c=s!==void 0?s:s=n("WAWebFooQuery.graphql");function f(e,t){o("C").fetchQuery(u,{a:e.x});return o("C").commitMutation(c,{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
         let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
