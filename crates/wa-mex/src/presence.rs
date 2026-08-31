@@ -1284,7 +1284,32 @@ fn is_nullish_literal(expr: &Expression) -> bool {
     }
 }
 
-/// The static property path a member assignment writes, from the binding
+/// The binding a member expression reads through and the static path from it:
+/// `v.order.jid` gives `("v", ["order", "jid"])`. `None` for a computed key or
+/// anything but a plain binding at the root.
+fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>)> {
+    let Expression::StaticMemberExpression(member) = expr else {
+        return None;
+    };
+    let mut path = vec![member.property.name.as_str().to_string()];
+    let mut current = &member.object;
+    loop {
+        match current {
+            Expression::Identifier(id) => {
+                path.reverse();
+                return Some((id.name.as_str(), path));
+            }
+            Expression::StaticMemberExpression(m) => {
+                path.push(m.property.name.as_str().to_string());
+                current = &m.object;
+            }
+            Expression::ParenthesizedExpression(p) => current = &p.expression,
+            _ => return None,
+        }
+    }
+}
+
+/// The static property path a member assignment writes/// The static property path a member assignment writes, from the binding
 /// outward: `v.order.jid = x` gives `["order", "jid"]`. `None` for a computed
 /// key, which names nothing this pass can publish.
 fn static_path(target: &oxc_ast::ast::AssignmentTarget) -> Option<Vec<String>> {
@@ -1800,6 +1825,27 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
     }
 
+    fn visit_unary_expression(&mut self, expr: &oxc_ast::ast::UnaryExpression<'a>) {
+        // `delete v.a` takes the key off the object both this binding and any
+        // alias hold, and the expression itself is only the boolean that says it
+        // worked. A key that is gone is a key `JSON.stringify` cannot write.
+        if expr.operator == UnaryOperator::Delete
+            && let Some((base, path)) = member_path(&expr.argument)
+        {
+            let owner = self.scopes.alias_target(base, 0);
+            let updated = self
+                .scopes
+                .lookup(&owner)
+                .cloned()
+                .and_then(|current| {
+                    write_key(&current, &path, Value::MaybeUndefined, &self.scopes, 0)
+                })
+                .unwrap_or(Value::Unjudged);
+            self.scopes.bind_assignment(&owner, updated);
+        }
+        walk::walk_unary_expression(self, expr);
+    }
+
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         // In evaluation order: the callee, then the handle, then the variables
         // object - which is read where it is built, because an argument after it
@@ -1886,8 +1932,18 @@ impl CallSiteCollector<'_> {
         for item in &params.items {
             // `function f(x = !0)` substitutes the default whenever the argument
             // is missing or `undefined`, so the binding is the default and not a
-            // passthrough. Only a plain `x` is the value the caller passes.
-            let default = item.initializer.as_ref().map(|d| convert(d, 0));
+            // passthrough. Only for a plain `x`: with `function f({x} = {})` the
+            // default is the object destructured, and what it yields for `x` is
+            // another matter.
+            let plain = matches!(
+                &item.pattern,
+                oxc_ast::ast::BindingPattern::BindingIdentifier(_)
+            );
+            let default = item
+                .initializer
+                .as_ref()
+                .filter(|_| plain)
+                .map(|d| convert(d, 0));
             for ident in item.pattern.get_binding_identifiers() {
                 let value = default.clone().unwrap_or(Value::MaybeUndefined);
                 self.scopes.bind(ident.name.as_str(), value);
@@ -3254,6 +3310,31 @@ mod tests {
         let caller = r#"function f(){var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x},x=!0)}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_deleted_key_is_not_a_key() {
+        // `delete v.a` takes it off the object, and the expression itself is
+        // only the boolean saying so.
+        let caller = r#"function f(){var v={a:!0};delete v.a;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_default_belongs_to_the_pattern_it_is_written_on() {
+        // `function f({x} = {})` defaults the object, not `x`: called with no
+        // argument, `x` is `undefined`.
+        let caller =
+            r#"function f({x}={}){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // A plain parameter still takes its own default.
+        let plain =
+            r#"function f(t=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:t})}"#;
+        let (tree, _) = presence_of(plain, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
