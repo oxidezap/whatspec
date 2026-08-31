@@ -2326,6 +2326,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                     "unreadableCallArgument": mex_diag.presence.unreadable_call_arguments,
                     "unreadableSpread": mex_diag.presence.unreadable_spreads,
                     "unreadableKey": mex_diag.presence.unreadable_keys,
+                    "ambiguousCallSite": mex_diag.presence.ambiguous_call_sites,
                 },
             },
             // These two domains run the same legacy parser as IQ and had no diagnostics

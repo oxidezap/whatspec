@@ -60,6 +60,7 @@
       "docIdsFromSibling": 33,
       "docIdsInline": 110,
       "dropsByReason": {
+        "ambiguousCallSite": 0,
         "operationWithNoCallSite": 5,
         "unreadableCallArgument": 2,
         "unreadableKey": 0,

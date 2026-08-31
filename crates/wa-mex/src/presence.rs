@@ -803,6 +803,29 @@ fn collect_declarations(statements: &[oxc_ast::ast::Statement], out: &mut HashMa
     }
 }
 
+/// Whether a value reaches ANY `require`-style call naming a `.graphql` module.
+fn names_any_module(value: &Value, scopes: &Scopes, depth: usize) -> bool {
+    if depth >= MAX_DEPTH {
+        return false;
+    }
+    let next = depth + 1;
+    match value {
+        Value::Call(name, args) => {
+            name.as_deref().is_some_and(|n| n.ends_with(".graphql"))
+                || args.iter().any(|a| names_any_module(a, scopes, next))
+        }
+        Value::Either(a, b) | Value::AndThen(a, b) => {
+            names_any_module(a, scopes, next) || names_any_module(b, scopes, next)
+        }
+        Value::OrElse(rhs) => names_any_module(rhs, scopes, next),
+        Value::Ref(name) => match scopes.lookup(name) {
+            Some(bound) => names_any_module(bound, scopes, next),
+            None => false,
+        },
+        _ => false,
+    }
+}
+
 /// Whether a value is (or reaches) a `require`-style call naming `module`.
 ///
 /// The handle a Relay call is given is `n("X.graphql")`, usually behind the
@@ -1013,6 +1036,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        if !self.is_operation_call(call) && self.is_ambiguous_call(call) {
+            // A Relay call in a module that sends several operations, whose
+            // handle names no module at all. It may be this operation's, and
+            // dropping it silently would let another caller's site decide a key
+            // this one might contradict. Counted, and treated as a site nothing
+            // is known about.
+            self.diag.ambiguous_call_sites += 1;
+            self.unreadable_sites += 1;
+        }
         if self.is_operation_call(call) {
             let Some(vars) = call.arguments.get(1).and_then(Argument::as_expression) else {
                 // The operation is sent with no variables argument at all. That is
@@ -1081,6 +1113,21 @@ impl CallSiteCollector<'_> {
             return false;
         };
         references_module(&convert(first, 0), &self.module, &self.scopes, 0) || self.sole_operation
+    }
+
+    /// A Relay call in a module that sends more than one operation whose handle
+    /// this pass could not tie to any module: it may or may not be ours.
+    fn is_ambiguous_call(&self, call: &CallExpression) -> bool {
+        let Some(method) = wa_oxc::callee_method(call) else {
+            return false;
+        };
+        if !FETCH_METHODS.contains(&method) || self.sole_operation {
+            return false;
+        }
+        match call.arguments.first().and_then(Argument::as_expression) {
+            Some(first) => !names_any_module(&convert(first, 0), &self.scopes, 0),
+            None => false,
+        }
     }
 
     /// The variables object of a matched call, if the argument is one or resolves
@@ -1798,6 +1845,31 @@ mod tests {
         let (tree, diag) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
         assert_eq!(diag.unreadable_spreads, 1);
+    }
+
+    #[test]
+    fn an_unresolvable_handle_in_a_multi_operation_module_is_not_ignored() {
+        // The module sends more than one operation and this call's handle names
+        // none of them, so it may be ours and may contradict the readable site.
+        // Silently dropping it would let the readable one decide alone.
+        let caller = r#"function f(t,h){o("C").fetchQuery(h,{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.ambiguous_call_sites, 1);
+    }
+
+    #[test]
+    fn a_handle_naming_another_operation_is_still_skipped() {
+        // Resolvable and not ours: that is knowledge, not ambiguity, so it must
+        // not withdraw anything.
+        let caller = r#"function f(t){o("C").fetchQuery(n("WAWebOtherQuery.graphql"),{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        assert_eq!(diag.ambiguous_call_sites, 0);
     }
 
     #[test]

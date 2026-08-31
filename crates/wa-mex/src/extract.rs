@@ -149,6 +149,11 @@ pub struct PresenceDiagnostics {
     pub unreadable_spreads: usize,
     /// A computed property key, which names no publishable variable.
     pub unreadable_keys: usize,
+    /// Relay calls in a module that sends several operations whose handle names
+    /// no module, so whether they belong to this operation is unknown. Kept
+    /// apart from `unreadable_call_arguments`: there the call is known to be
+    /// ours and its argument unreadable, here it is the other way round.
+    pub ambiguous_call_sites: usize,
 }
 
 /// Extract all persisted Mex operations from a bundle's source.
@@ -316,6 +321,7 @@ pub fn extract_mex_from_modules_with_diagnostics(
         diag.presence.unreadable_call_arguments += p.unreadable_call_arguments;
         diag.presence.unreadable_spreads += p.unreadable_spreads;
         diag.presence.unreadable_keys += p.unreadable_keys;
+        diag.presence.ambiguous_call_sites += p.ambiguous_call_sites;
         if !raw.variables.is_empty() {
             diag.operations_with_variables += 1;
             if raw.variables_presence.values().all(all_always) {
