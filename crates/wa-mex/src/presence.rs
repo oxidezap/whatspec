@@ -409,6 +409,20 @@ impl Scopes {
             .find_map(|(bound, hoisted)| bound.get(name).or_else(|| hoisted.get(name)))
             .or_else(|| self.hoisted.get(name))
     }
+    /// The name that owns what `name` refers to: `var w = v` makes `w` another
+    /// way of saying `v`, and a write through either reaches one object.
+    fn alias_target(&self, name: &str, depth: usize) -> String {
+        if depth >= MAX_DEPTH {
+            return name.to_string();
+        }
+        match self.lookup(name) {
+            Some(Value::Ref(target)) => {
+                let target = target.clone();
+                self.alias_target(&target, depth + 1)
+            }
+            _ => name.to_string(),
+        }
+    }
     /// Follow an identifier to what it is bound to.
     fn resolve<'v>(&'v self, value: &'v Value, depth: usize) -> &'v Value {
         match value {
@@ -478,12 +492,16 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         },
 
         Expression::LogicalExpression(l) => match l.operator {
-            LogicalOperator::Coalesce | LogicalOperator::Or => {
-                Value::OrElse(
-                    Box::new(convert(&l.left, next)),
-                    Box::new(convert(&l.right, next)),
-                )
+            // A function or a class on the left is selected - it is neither
+            // nullish nor falsy - and `JSON.stringify` drops a key holding one,
+            // so the right side never speaks for the expression there.
+            LogicalOperator::Coalesce | LogicalOperator::Or if is_function_literal(&l.left) => {
+                Value::MaybeUndefined
             }
+            LogicalOperator::Coalesce | LogicalOperator::Or => Value::OrElse(
+                Box::new(convert(&l.left, next)),
+                Box::new(convert(&l.right, next)),
+            ),
             LogicalOperator::And => Value::AndThen(
                 Box::new(convert(&l.left, next)),
                 Box::new(convert(&l.right, next)),
@@ -604,21 +622,6 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
 /// One call site's answer for the whole variables object.
 type SiteTree = BTreeMap<String, VariablePresenceNode>;
 
-/// Classify every key of a variables object.
-///
-/// In source order, because JS object construction is ordered: a spread
-/// overwrites the keys written before it and is overwritten by the keys written
-/// after. That is what makes a spread this pass cannot enumerate destructive
-/// rather than merely missing.
-fn classify_object(
-    props: &[Prop],
-    scopes: &Scopes,
-    diag: &mut PresenceDiagnostics,
-    depth: usize,
-) -> SiteTree {
-    classify_object_reporting(props, scopes, diag, depth).0
-}
-
 /// [`classify_object`], plus the paths under it whose keys are not fully known:
 /// each names an object a spread or a computed key may still be writing into,
 /// the empty path being this object itself. A sibling site must not answer for
@@ -628,15 +631,15 @@ fn classify_object_reporting(
     scopes: &Scopes,
     diag: &mut PresenceDiagnostics,
     depth: usize,
-) -> (SiteTree, Vec<Vec<String>>) {
-    let mut opaque: Vec<Vec<String>> = Vec::new();
+) -> (SiteTree, Vec<Opaque>) {
+    let mut opaque: Vec<Opaque> = Vec::new();
     let mut out: SiteTree = BTreeMap::new();
     // A spread whose source resolves back through itself (`var e = {...e}`)
     // would otherwise descend forever, and an extractor that aborts publishes
     // nothing at all.
     if depth >= MAX_DEPTH {
         diag.unreadable_spreads += 1;
-        return (out, vec![Vec::new()]);
+        return (out, vec![Opaque::here()]);
     }
     for prop in props {
         match prop {
@@ -646,7 +649,7 @@ fn classify_object_reporting(
                 // drops `a` when `k` is `"a"`. Same rule as an unreadable spread,
                 // and a later explicit write still restores the key.
                 diag.unreadable_keys += 1;
-                opaque.push(Vec::new());
+                opaque.push(Opaque::here());
                 for node in out.values_mut() {
                     withdraw(node);
                 }
@@ -659,9 +662,9 @@ fn classify_object_reporting(
                 // dimension exists to remove, only pointing the other way.
                 let (node, nested) =
                     classify_value_reporting(value, scopes, diag, depth, VariablePresence::Always);
-                for mut path in nested {
-                    path.insert(0, key.clone());
-                    opaque.push(path);
+                for mut nested in nested {
+                    nested.path.insert(0, Step::Field(key.clone()));
+                    opaque.push(nested);
                 }
                 out.insert(key.clone(), node);
             }
@@ -702,7 +705,7 @@ fn classify_object_reporting(
                     // standing that the client contradicts.
                     _ => {
                         diag.unreadable_spreads += 1;
-                        opaque.push(Vec::new());
+                        opaque.push(Opaque::here());
                         for node in out.values_mut() {
                             withdraw(node);
                         }
@@ -711,7 +714,39 @@ fn classify_object_reporting(
             }
         }
     }
+    // Every key this object ends up carrying is one the site itself wrote, at a
+    // value it read: `{...opts, a: !0}` writes `a` after the spread whatever
+    // `opts` holds. Only the keys it does NOT carry are the ones an unreadable
+    // spread might be supplying, and only those are withdrawn once the sites are
+    // merged.
+    for record in &mut opaque {
+        if record.path.is_empty() {
+            record.written = out.keys().cloned().collect();
+        }
+    }
     (out, opaque)
+}
+
+/// An object whose keys are not fully known, by the path that reaches it, with
+/// the keys the site did write there.
+struct Opaque {
+    path: Vec<Step>,
+    written: Vec<String>,
+}
+
+impl Opaque {
+    fn here() -> Self {
+        Opaque {
+            path: Vec::new(),
+            written: Vec::new(),
+        }
+    }
+}
+
+/// One step of a path into a presence tree.
+enum Step {
+    Field(String),
+    Item,
 }
 
 /// Reduce a verdict and everything under it to `undetermined`.
@@ -764,10 +799,10 @@ fn classify_value_reporting(
     diag: &mut PresenceDiagnostics,
     depth: usize,
     floor: VariablePresence,
-) -> (VariablePresenceNode, Vec<Vec<String>>) {
+) -> (VariablePresenceNode, Vec<Opaque>) {
     let presence = definedness(value, scopes, 0).presence().weaker(floor);
     let mut node = VariablePresenceNode::leaf(presence);
-    let mut opaque: Vec<Vec<String>> = Vec::new();
+    let mut opaque: Vec<Opaque> = Vec::new();
     if depth >= MAX_DEPTH {
         return (node, opaque);
     }
@@ -793,7 +828,13 @@ fn classify_value_reporting(
                     unreadable_element = true;
                     continue;
                 };
-                let here = classify_object(props, scopes, diag, depth + 1);
+                let (here, nested) = classify_object_reporting(props, scopes, diag, depth + 1);
+                // An element's own unknowns belong to the element node, which is
+                // one step further down the path than this key.
+                for mut record in nested {
+                    record.path.insert(0, Step::Item);
+                    opaque.push(record);
+                }
                 fields = Some(match fields {
                     Some(acc) => merge_sites(acc, here),
                     None => here,
@@ -1080,7 +1121,69 @@ fn collect_declarations(statements: &[oxc_ast::ast::Statement], out: &mut HashMa
     }
 }
 
-/// The name a member assignment writes through: `v.a.b = x` is a write to `v`.
+/// Every name an object or array assignment pattern writes: `({x} = opts)`,
+/// `[a, b] = pair`. `None` when the target is not a pattern.
+fn destructured_assignment_names(target: &oxc_ast::ast::AssignmentTarget) -> Option<Vec<String>> {
+    use oxc_ast::ast::AssignmentTarget as T;
+    let pattern = match target {
+        T::ObjectAssignmentTarget(_) | T::ArrayAssignmentTarget(_) => target,
+        _ => return None,
+    };
+    let mut names = Vec::new();
+    collect_assignment_target_names(pattern, &mut names);
+    Some(names)
+}
+
+fn collect_assignment_target_names(target: &oxc_ast::ast::AssignmentTarget, out: &mut Vec<String>) {
+    use oxc_ast::ast::{
+        AssignmentTarget as T, AssignmentTargetMaybeDefault as D, AssignmentTargetProperty as P,
+    };
+    match target {
+        T::AssignmentTargetIdentifier(id) => out.push(id.name.as_str().to_string()),
+        T::ObjectAssignmentTarget(o) => {
+            for property in &o.properties {
+                match property {
+                    P::AssignmentTargetPropertyIdentifier(id) => {
+                        out.push(id.binding.name.as_str().to_string());
+                    }
+                    P::AssignmentTargetPropertyProperty(p) => match &p.binding {
+                        D::AssignmentTargetWithDefault(d) => {
+                            collect_assignment_target_names(&d.binding, out);
+                        }
+                        other => {
+                            if let Some(target) = other.as_assignment_target() {
+                                collect_assignment_target_names(target, out);
+                            }
+                        }
+                    },
+                }
+            }
+            if let Some(rest) = &o.rest {
+                collect_assignment_target_names(&rest.target, out);
+            }
+        }
+        T::ArrayAssignmentTarget(a) => {
+            for element in a.elements.iter().flatten() {
+                match element {
+                    D::AssignmentTargetWithDefault(d) => {
+                        collect_assignment_target_names(&d.binding, out);
+                    }
+                    other => {
+                        if let Some(target) = other.as_assignment_target() {
+                            collect_assignment_target_names(target, out);
+                        }
+                    }
+                }
+            }
+            if let Some(rest) = &a.rest {
+                collect_assignment_target_names(&rest.target, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The name a member assignment writes through/// The name a member assignment writes through: `v.a.b = x` is a write to `v`.
 fn member_assignment_base<'b, 'a>(
     target: &'b oxc_ast::ast::AssignmentTarget<'a>,
 ) -> Option<&'b str> {
@@ -1100,6 +1203,18 @@ fn member_assignment_base<'b, 'a>(
             E::ParenthesizedExpression(p) => expr = &p.expression,
             _ => return None,
         }
+    }
+}
+
+/// Whether an expression is a function or a class written out: those are
+/// selected by `||` and `??`, and are not keys on the wire.
+fn is_function_literal(expr: &Expression) -> bool {
+    match expr {
+        Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_)
+        | Expression::ClassExpression(_) => true,
+        Expression::ParenthesizedExpression(p) => is_function_literal(&p.expression),
+        _ => false,
     }
 }
 
@@ -1254,9 +1369,16 @@ fn nullish_guard<'b, 'a>(test: &'b Expression<'a>) -> Option<(&'b str, bool)> {
         Expression::Identifier(id) => Some(id.name.as_str()),
         _ => None,
     };
+    // `void 0` and `null` only: the name `undefined` can be bound to anything,
+    // and a guard that is not a guard would collapse a ternary that is not a
+    // memo.
+    let intrinsic = |e: &Expression| {
+        matches!(e, Expression::NullLiteral(_))
+            || matches!(e, Expression::UnaryExpression(u) if u.operator == UnaryOperator::Void)
+    };
     let named = name(&b.left)
-        .filter(|_| is_nullish_literal(&b.right))
-        .or_else(|| name(&b.right).filter(|_| is_nullish_literal(&b.left)))?;
+        .filter(|_| intrinsic(&b.right))
+        .or_else(|| name(&b.right).filter(|_| intrinsic(&b.left)))?;
     Some((named, defined_in_consequent))
 }
 
@@ -1351,7 +1473,7 @@ struct CallSiteCollector<'d> {
     /// so a declared key nothing wrote may still be reaching the wire.
     /// Paths whose keys a spread or a computed key may still be writing, from
     /// any recovered site. The empty path is the variables object itself.
-    opaque_paths: Vec<Vec<String>>,
+    opaque_paths: Vec<Opaque>,
     /// How many branching statements enclose the node being visited. A write
     /// inside one may not run before the call; a write at zero does.
     diag: &'d mut PresenceDiagnostics,
@@ -1371,8 +1493,19 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     ) {
         self.scopes
             .push(func.body.as_deref().map(hoisted_vars).unwrap_or_default());
+        // `var f = function x(){…x…}` sees its own name throughout its body, and
+        // that name is the function - a key holding one is dropped by
+        // `JSON.stringify`, so an outer `x` must not answer for it.
+        if let Some(id) = &func.id {
+            self.scopes.bind(id.name.as_str(), Value::MaybeUndefined);
+        }
         self.bind_params(&func.params);
-        walk::walk_function(self, func, flags);
+        // A function body is a branch of its own: whether it ever runs is not
+        // this pass's to say, so what it writes to an enclosing binding reaches
+        // the code inside it and joins with the old value for everything else.
+        // `function init(){x = !0}` beside `function send(){…x…}` is the case -
+        // `send` may be called without `init` ever having been.
+        self.in_branch(|v| walk::walk_function(v, func, flags));
         self.scopes.pop();
     }
 
@@ -1382,7 +1515,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     ) {
         self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
-        walk::walk_arrow_function_expression(self, func);
+        self.in_branch(|v| walk::walk_arrow_function_expression(v, func));
         self.scopes.pop();
     }
 
@@ -1427,15 +1560,27 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        // `for (let x …)` binds `x` for the loop and nothing after it, so the
+        // header needs a block of its own around header and body alike.
+        self.scopes.push_block();
         self.in_branch(|v| walk::walk_for_statement(v, stmt));
+        self.scopes.pop();
     }
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
+        // `for (let x …)` binds `x` for the loop and nothing after it, so the
+        // header needs a block of its own around header and body alike.
+        self.scopes.push_block();
         self.in_branch(|v| walk::walk_for_in_statement(v, stmt));
+        self.scopes.pop();
     }
 
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        // `for (let x …)` binds `x` for the loop and nothing after it, so the
+        // header needs a block of its own around header and body alike.
+        self.scopes.push_block();
         self.in_branch(|v| walk::walk_for_of_statement(v, stmt));
+        self.scopes.pop();
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
@@ -1461,10 +1606,18 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.in_branch(|v| v.visit_expression(&expr.right));
     }
 
+    /// Both arms from the state before the ternary, the same as an `if`: only
+    /// one of them runs, so a call in the second must not read what the first
+    /// wrote.
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
-        self.in_branch(|v| v.visit_expression(&expr.consequent));
-        self.in_branch(|v| v.visit_expression(&expr.alternate));
+        self.scopes.enter_branch();
+        self.visit_expression(&expr.consequent);
+        let first = self.scopes.take_branch();
+        self.scopes.enter_branch();
+        self.visit_expression(&expr.alternate);
+        let second = self.scopes.take_branch();
+        self.scopes.join_arms(first, second);
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -1507,6 +1660,13 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // Not the right side: `x &&= v` leaves `x` alone when it is falsy,
             // so the binding afterwards is what the whole expression yields.
             self.scopes.bind_assignment(name, assignment_value(n, 0));
+        } else if let Some(idents) = destructured_assignment_names(&n.left) {
+            // `({x} = opts)` writes `x` with something this pass does not model,
+            // and leaving it bound to what it held before publishes that older
+            // value for a name the statement has replaced.
+            for name in idents {
+                self.scopes.bind_assignment(&name, Value::MaybeUndefined);
+            }
         } else if let Some(base) = member_assignment_base(&n.left) {
             // `v.a = …` writes a key of an object this pass recovered, which the
             // literal alone does not show: WA builds a variables object and then
@@ -1515,16 +1675,23 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // the recovered object - and where it cannot (a computed key, a
             // deeper path, a binding that is not an object), the object stops
             // being evidence rather than answering for a shape it no longer has.
+            // `var w = v; w.a = …` mutates the one object both names hold, so
+            // the write follows the alias to the binding that owns it.
+            let owner = self.scopes.alias_target(base, 0);
             let updated = static_path(&n.left).and_then(|path| {
-                let current = self.scopes.lookup(base)?.clone();
+                let current = self.scopes.lookup(&owner)?.clone();
                 write_key(&current, &path, assignment_value(n, 0), &self.scopes, 0)
             });
             self.scopes
-                .bind_assignment(base, updated.unwrap_or(Value::Unjudged));
+                .bind_assignment(&owner, updated.unwrap_or(Value::Unjudged));
         }
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // The arguments run before the call does, and one of them can write a
+        // binding another reads: `{a: (x = void 0, !0), b: x}` sends no `b`.
+        // Walking them first also settles the handle a memoising ternary writes.
+        walk::walk_call_expression(self, call);
         if !self.is_operation_call(call) && self.is_ambiguous_call(call) {
             // A Relay call in a module that sends several operations, whose
             // handle names no module at all. It may be this operation's, and
@@ -1536,13 +1703,21 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
         if self.is_operation_call(call) {
             let vars = call.arguments.get(1).and_then(Argument::as_expression);
+            // `undefined` is a name like any other: a parameter or a local can
+            // hold a whole variables object under it, and that is a site this
+            // pass cannot read rather than one that writes nothing.
+            let nullish = |v: &&Expression<'a>| match v {
+                Expression::Identifier(id) if id.name.as_str() == "undefined" => {
+                    self.scopes.lookup("undefined").is_none()
+                }
+                other => is_nullish_literal(other),
+            };
             // No variables argument at all, or one written `null` / `undefined` /
             // `void 0`: either way the call sends an object carrying no key. That
             // is a site, and one that writes nothing - skipping it would let a
             // sibling call's object speak for an invocation that sends no key.
-            let Some(vars) = vars.filter(|v| !is_nullish_literal(v)) else {
+            let Some(vars) = vars.filter(|v| !nullish(v)) else {
                 self.sites.push(SiteTree::new());
-                walk::walk_call_expression(self, call);
                 return;
             };
             let value = convert(vars, 0);
@@ -1558,7 +1733,6 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 }
             }
         }
-        walk::walk_call_expression(self, call);
     }
 }
 
@@ -1587,8 +1761,13 @@ impl CallSiteCollector<'_> {
         // module that also binds `x` would resolve the parameter to the module's
         // value and call a passthrough unconditional.
         for item in &params.items {
+            // `function f(x = !0)` substitutes the default whenever the argument
+            // is missing or `undefined`, so the binding is the default and not a
+            // passthrough. Only a plain `x` is the value the caller passes.
+            let default = item.initializer.as_ref().map(|d| convert(d, 0));
             for ident in item.pattern.get_binding_identifiers() {
-                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
+                let value = default.clone().unwrap_or(Value::MaybeUndefined);
+                self.scopes.bind(ident.name.as_str(), value);
             }
         }
         if let Some(rest) = &params.rest {
@@ -1701,7 +1880,7 @@ pub(crate) fn variables_presence(
     }
     let mut merged: Option<SiteTree> = None;
     let mut unreadable_sites = 0usize;
-    let mut opaque_paths: Vec<Vec<String>> = Vec::new();
+    let mut opaque_paths: Vec<Opaque> = Vec::new();
     for (src, sole_operation) in callers {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
@@ -1756,15 +1935,14 @@ pub(crate) fn variables_presence(
     // A key under a path nothing could enumerate is a key no sibling site gets to
     // answer for: `{input: {...opts}}` beside `{input: {a: !0}}` says nothing
     // about whether `opts` carries `a`, and merging alone would call it omitted.
-    for path in &opaque_paths {
-        let mut node = None;
-        for key in path {
-            node = match node {
-                None => merged.get_mut(key),
-                Some(parent) => {
-                    let parent: &mut VariablePresenceNode = parent;
-                    parent.fields.get_mut(key)
-                }
+    for record in &opaque_paths {
+        let mut node: Option<&mut VariablePresenceNode> = None;
+        for step in &record.path {
+            node = match (node, step) {
+                (None, Step::Field(key)) => merged.get_mut(key),
+                (Some(parent), Step::Field(key)) => parent.fields.get_mut(key),
+                (Some(parent), Step::Item) => parent.items.as_deref_mut(),
+                (None, Step::Item) => None,
             };
             if node.is_none() {
                 break;
@@ -1773,10 +1951,24 @@ pub(crate) fn variables_presence(
         // An empty path is the variables object itself, whose unwritten declared
         // keys are handled below rather than here.
         if let Some(node) = node {
-            withdraw_children(node);
+            for (key, child) in node.fields.iter_mut() {
+                if !record.written.contains(key) {
+                    withdraw(child);
+                }
+            }
+            if let Some(items) = node.items.as_deref_mut() {
+                withdraw_children(items);
+            }
         }
     }
-    let opaque_keys = opaque_paths.iter().any(Vec::is_empty);
+    // The keys of the variables object itself that no site wrote, same rule one
+    // level up: a spread nobody could read may be supplying them.
+    let opaque_keys: Vec<&str> = opaque_paths
+        .iter()
+        .filter(|record| record.path.is_empty())
+        .flat_map(|record| record.written.iter().map(String::as_str))
+        .collect();
+    let opaque_top = opaque_paths.iter().any(|record| record.path.is_empty());
 
     arg_def_names
         .iter()
@@ -1785,7 +1977,7 @@ pub(crate) fn variables_presence(
                 // Declared by the operation and written by no recovered site. That
                 // is "not always" - unless a spread nobody could read might be
                 // supplying it, in which case nothing at all is established.
-                VariablePresenceNode::leaf(if opaque_keys {
+                VariablePresenceNode::leaf(if opaque_top && !opaque_keys.contains(&name.as_str()) {
                     VariablePresence::Undetermined
                 } else {
                     VariablePresence::Conditional
@@ -2676,6 +2868,124 @@ mod tests {
         let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
         assert_eq!(diag.ambiguous_call_sites, 1);
+    }
+
+    #[test]
+    fn a_write_through_an_alias_reaches_the_object_itself() {
+        // `var w = v` is another name for one object, and the write goes through
+        // to it: reading `v` afterwards has to see what `w` did.
+        let caller = r#"function f(){var v={a:!0},w=v;w.a=void 0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_key_written_after_an_opaque_spread_is_still_written() {
+        // `{...opts, a: !0}` writes `a` whatever `opts` holds. Only the keys the
+        // site does NOT write are the ones the spread might be supplying.
+        let caller = r#"function f(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{...t.opts,a:!0}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0,b:!0}})}"#;
+        let names = vec!["input".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let input = &tree["input"];
+        assert_eq!(
+            input.fields["a"].presence,
+            VariablePresence::Always,
+            "written explicitly by both sites, after the spread"
+        );
+        assert_eq!(
+            input.fields["b"].presence,
+            VariablePresence::Undetermined,
+            "the first site may be supplying it through `opts`"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_spread_inside_a_list_element_withdraws_the_element() {
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:[{...t.opts},{a:!0}]})}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        let item = tree["input"].items.as_deref().expect("list element");
+        assert_eq!(item.fields["a"].presence, VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn both_arms_of_a_ternary_start_where_it_did() {
+        // Only the alternate reaches the call, and on that path `x` is untouched.
+        let caller = r#"function f(t){var x=!0;return t?x=void 0:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn what_one_function_writes_is_not_what_another_reads() {
+        // `send` can be called without `init` ever having run, so walking `init`
+        // must not leave its write standing for the call in `send`.
+        let caller = r#"var x;function g(){x=!0}function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_destructuring_assignment_writes_the_names_it_names() {
+        let caller = r#"function f(t){var x=!0;({x}=t);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_argument_runs_before_the_call_it_belongs_to() {
+        // `{a: (x = void 0, !0), b: x}` evaluates `a` first, and `b` is the `x`
+        // it left behind.
+        let caller = r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:(x=void 0,!0),b:x})}"#;
+        let (tree, _) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        assert_eq!(at(&tree, "b"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_function_on_the_left_of_a_fallback_is_the_value() {
+        // It is neither nullish nor falsy, so the right side never runs - and
+        // `JSON.stringify` drops a key holding a function.
+        let caller = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:(function(){})||!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_lexical_loop_header_does_not_outlive_the_loop() {
+        // `for (let x …)` binds `x` for the loop only: the call below reads the
+        // outer one.
+        let caller = r#"function f(){var x=!0;for(let x;!1;){}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_bound_undefined_is_a_name_like_any_other() {
+        // `function f(undefined)` can be handed a whole variables object, so the
+        // call is one this pass cannot read - not one that writes nothing.
+        let caller = r#"function f(undefined){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),undefined)}"#;
+        let (tree, diag) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.unreadable_call_arguments, 1);
+    }
+
+    #[test]
+    fn a_parameter_with_a_default_is_the_default() {
+        // JS substitutes it for a missing argument and for an explicit
+        // `undefined` alike, so every call that gets here writes the key.
+        let caller =
+            r#"function f(t=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:t})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_named_function_expression_binds_its_own_name() {
+        // Inside the body `x` is the function, not the module's boolean.
+        let caller = r#"var x=!0;var f=function x(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
