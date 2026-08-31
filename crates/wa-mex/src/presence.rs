@@ -63,7 +63,7 @@ enum Value {
     Array(Vec<Value>),
     /// `a ?? b` / `a || b`: the result is `a` only when `a` is non-nullish /
     /// truthy, so it is defined exactly when `b` is.
-    OrElse(Box<Value>),
+    OrElse(Box<Value>, Box<Value>),
     /// `a && b`: can yield a falsy `a`, `undefined` included.
     AndThen(Box<Value>, Box<Value>),
     /// `c ? a : b`.
@@ -376,7 +376,10 @@ fn convert(expr: &Expression, depth: usize) -> Value {
 
         Expression::LogicalExpression(l) => match l.operator {
             LogicalOperator::Coalesce | LogicalOperator::Or => {
-                Value::OrElse(Box::new(convert(&l.right, next)))
+                Value::OrElse(
+                    Box::new(convert(&l.left, next)),
+                    Box::new(convert(&l.right, next)),
+                )
             }
             LogicalOperator::And => Value::AndThen(
                 Box::new(convert(&l.left, next)),
@@ -481,7 +484,7 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
         Value::Defined | Value::Object(_) | Value::Array(_) => Definedness::Defined,
         Value::MaybeUndefined => Definedness::MaybeUndefined,
         Value::Unjudged | Value::Call(..) => Definedness::Unjudged,
-        Value::OrElse(rhs) => definedness(rhs, scopes, next),
+        Value::OrElse(_, rhs) => definedness(rhs, scopes, next),
         Value::AndThen(lhs, rhs) => {
             definedness(lhs, scopes, next).max(definedness(rhs, scopes, next))
         }
@@ -1047,9 +1050,10 @@ fn assignment_value(a: &oxc_ast::ast::AssignmentExpression, depth: usize) -> Val
             Box::new(Value::MaybeUndefined),
             Box::new(convert(&a.right, depth)),
         ),
-        AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish => {
-            Value::OrElse(Box::new(convert(&a.right, depth)))
-        }
+        AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish => Value::OrElse(
+            Box::new(Value::MaybeUndefined),
+            Box::new(convert(&a.right, depth)),
+        ),
         // A plain `=` evaluates to its right side. An arithmetic or bitwise
         // compound assignment evaluates to the computed primitive instead,
         // which is defined whatever the operand was - `x += y` is a number
@@ -1104,8 +1108,12 @@ fn every_branch_names_a_module(value: &Value, scopes: &Scopes, depth: usize) -> 
                 && every_branch_names_a_module(b, scopes, next)
         }
         // `a && b` hands the call `b`, or a falsy `a` that is no handle at all.
-        Value::AndThen(_, rhs) | Value::OrElse(rhs) => {
-            every_branch_names_a_module(rhs, scopes, next)
+        Value::AndThen(_, rhs) => every_branch_names_a_module(rhs, scopes, next),
+        // `a || b` and `a ?? b` DO hand the call `a` when it is there, so the
+        // fallback naming a module says nothing about what `a` is.
+        Value::OrElse(lhs, rhs) => {
+            every_branch_names_a_module(lhs, scopes, next)
+                && every_branch_names_a_module(rhs, scopes, next)
         }
         Value::Ref(name) => match scopes.lookup(name) {
             Some(bound) => every_branch_names_a_module(bound, scopes, next),
@@ -1135,7 +1143,10 @@ fn references_module(value: &Value, module: &str, scopes: &Scopes, depth: usize)
         Value::Either(a, b) | Value::AndThen(a, b) => {
             references_module(a, module, scopes, next) || references_module(b, module, scopes, next)
         }
-        Value::OrElse(rhs) => references_module(rhs, module, scopes, next),
+        Value::OrElse(lhs, rhs) => {
+            references_module(lhs, module, scopes, next)
+                || references_module(rhs, module, scopes, next)
+        }
         Value::Ref(name) => match scopes.lookup(name) {
             Some(bound) => references_module(bound, module, scopes, next),
             None => false,
@@ -2391,6 +2402,26 @@ mod tests {
             "the spread may be supplying it"
         );
         assert_eq!(diag.unreadable_spreads, 1);
+    }
+
+    #[test]
+    fn a_fallback_handle_is_read_on_both_sides() {
+        // `h || n("Other.graphql")` hands the call `h` whenever it is there, so
+        // the branch naming another operation says nothing about the branch that
+        // may be naming this one.
+        for handle in [
+            "h||n(\"WAWebOtherQuery.graphql\")",
+            "h??n(\"WAWebOtherQuery.graphql\")",
+        ] {
+            let caller = format!(
+                r#"function f(t,h){{o("C").fetchQuery({handle},{{a:t.x}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{{a:!0}})}}"#
+            );
+            let names = vec!["a".to_string()];
+            let mut diag = PresenceDiagnostics::default();
+            let tree = variables_presence(&[(caller.as_str(), false)], MODULE, &names, &mut diag);
+            assert_eq!(at(&tree, "a"), VariablePresence::Undetermined, "{handle}");
+            assert_eq!(diag.ambiguous_call_sites, 1, "{handle}");
+        }
     }
 
     #[test]
