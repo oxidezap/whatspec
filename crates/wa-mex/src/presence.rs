@@ -517,10 +517,17 @@ fn convert(expr: &Expression, depth: usize) -> Value {
                 Box::new(convert(&l.left, next)),
                 Box::new(convert(&l.right, next)),
             ),
-            LogicalOperator::And => Value::AndThen(
-                Box::new(convert(&l.left, next)),
-                Box::new(convert(&l.right, next)),
-            ),
+            // `false && x` never evaluates `x`: the expression IS the left side,
+            // and a literal there settles it either way. Only an operand this
+            // pass cannot decide leaves both in play.
+            LogicalOperator::And => match falsy_literal(&l.left) {
+                Some(true) => convert(&l.left, next),
+                Some(false) => convert(&l.right, next),
+                None => Value::AndThen(
+                    Box::new(convert(&l.left, next)),
+                    Box::new(convert(&l.right, next)),
+                ),
+            },
         },
 
         // `t == null ? void 0 : t.x` is how the minifier writes an optional
@@ -1259,7 +1266,26 @@ fn member_assignment_base<'b, 'a>(
     }
 }
 
-/// Whether an expression is a function or a class written out: those are
+/// Whether a literal is falsy, when the expression IS a literal: `Some(true)`
+/// for `!1`, `0`, `""`, `null`, `void 0`, `Some(false)` for a literal that is
+/// not, and `None` for anything whose truthiness this pass does not decide.
+fn falsy_literal(expr: &Expression) -> Option<bool> {
+    match expr {
+        Expression::BooleanLiteral(b) => Some(!b.value),
+        Expression::NullLiteral(_) => Some(true),
+        Expression::NumericLiteral(n) => Some(n.value == 0.0),
+        Expression::StringLiteral(s) => Some(s.value.is_empty()),
+        Expression::ParenthesizedExpression(p) => falsy_literal(&p.expression),
+        // `!0` and `!1`, which is how the minifier writes the booleans.
+        Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => {
+            falsy_literal(&u.argument).map(|falsy| !falsy)
+        }
+        Expression::UnaryExpression(u) if u.operator == UnaryOperator::Void => Some(true),
+        _ => None,
+    }
+}
+
+/// Whether an expression is a function or a class written out/// Whether an expression is a function or a class written out: those are
 /// selected by `||` and `??`, and are not keys on the wire.
 fn is_function_literal(expr: &Expression) -> bool {
     match expr {
@@ -1618,8 +1644,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // this pass's to say, so what it writes to an enclosing binding reaches
         // the code inside it and joins with the old value for everything else.
         // `function init(){x = !0}` beside `function send(){…x…}` is the case -
-        // `send` may be called without `init` ever having been.
-        self.in_branch(|v| walk::walk_function(v, func, flags));
+        // `send` may be called without `init` ever having been. And it is walked
+        // twice for the same reason a loop body is: a function called again
+        // reads what its own last call left behind.
+        self.walked_twice(|v| walk::walk_function(v, func, flags));
         self.scopes.pop();
     }
 
@@ -1629,7 +1657,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     ) {
         self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
-        self.in_branch(|v| walk::walk_arrow_function_expression(v, func));
+        self.walked_twice(|v| walk::walk_arrow_function_expression(v, func));
         self.scopes.pop();
     }
 
@@ -1697,20 +1725,13 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         if let Some(test) = &stmt.test {
             self.visit_expression(test);
         }
-        self.in_branch(|v| {
+        // Round again: every iteration after the first reads what the body and
+        // the update left behind. `for (; t; x = void 0) { fetchQuery(op, {a:
+        // x}) }` sends `a` once and omits it thereafter.
+        self.walked_twice(|v| {
             v.visit_statement(&stmt.body);
             if let Some(update) = &stmt.update {
                 v.visit_expression(update);
-            }
-            // Round again: every iteration after the first reads what the update
-            // left behind, and a call in the body runs on those too. `for (; t;
-            // x = void 0) { fetchQuery(op, {a: x}) }` sends `a` once and omits
-            // it thereafter.
-            if stmt.update.is_some() {
-                let first_pass = !v.replaying;
-                v.replaying = true;
-                v.visit_statement(&stmt.body);
-                v.replaying = !first_pass;
             }
         });
         self.scopes.pop();
@@ -1722,7 +1743,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // header that writes an EXISTING binding - `for (x of xs)` - rewrites it
         // once per element, with whatever the list holds.
         self.scopes.push_block();
-        self.in_branch(|v| {
+        self.walked_twice(|v| {
             if let Some(target) = stmt.left.as_assignment_target() {
                 let mut names = Vec::new();
                 collect_assignment_target_names(target, &mut names);
@@ -1741,7 +1762,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // header that writes an EXISTING binding - `for (x of xs)` - rewrites it
         // once per element, with whatever the list holds.
         self.scopes.push_block();
-        self.in_branch(|v| {
+        self.walked_twice(|v| {
             if let Some(target) = stmt.left.as_assignment_target() {
                 let mut names = Vec::new();
                 collect_assignment_target_names(target, &mut names);
@@ -1755,11 +1776,11 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
-        self.in_branch(|v| walk::walk_while_statement(v, stmt));
+        self.walked_twice(|v| walk::walk_while_statement(v, stmt));
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
-        self.in_branch(|v| walk::walk_do_while_statement(v, stmt));
+        self.walked_twice(|v| walk::walk_do_while_statement(v, stmt));
     }
 
     /// Each case from the state before the statement: a `break` makes them
@@ -1997,6 +2018,22 @@ impl<'a> CallSiteCollector<'a> {
         walk_arm(self);
         self.scopes.leave_branch();
     }
+
+    /// Walk a body that runs more than once, then walk it again with what the
+    /// first pass left behind. The second reading is where a call after a write
+    /// meets the write: `while (t) { fetchQuery(op, {a: x}); x = void 0 }` sends
+    /// `a` on the first iteration and on no other. Its diagnostics are already
+    /// counted, and a replay does not start another.
+    fn walked_twice(&mut self, walk_body: impl Fn(&mut Self)) {
+        self.in_branch(|v| {
+            walk_body(v);
+            if !v.replaying {
+                v.replaying = true;
+                walk_body(v);
+                v.replaying = false;
+            }
+        });
+    }
 }
 
 impl CallSiteCollector<'_> {
@@ -2087,7 +2124,15 @@ impl CallSiteCollector<'_> {
     fn variables_object(&mut self, value: &Value) -> Option<SiteTree> {
         match self.scopes.resolve(value, 0) {
             Value::Object(props) => {
-                let (tree, opaque) = classify_object_reporting(props, &self.scopes, self.diag, 0);
+                // A replay reads the same object a second time, so its
+                // diagnostics go to a scratch that is thrown away: the first
+                // reading counted them.
+                let mut replayed = PresenceDiagnostics::default();
+                let (tree, opaque) = if self.replaying {
+                    classify_object_reporting(props, &self.scopes, &mut replayed, 0)
+                } else {
+                    classify_object_reporting(props, &self.scopes, self.diag, 0)
+                };
                 // A spread whose keys could not be enumerated may be supplying a
                 // declared key this site never writes explicitly. Falling through
                 // to the "no site wrote it" default would publish `conditional`,
@@ -2119,7 +2164,12 @@ impl CallSiteCollector<'_> {
     fn branch_object(&mut self, value: &Value) -> Option<SiteTree> {
         match self.scopes.resolve(value, 0) {
             Value::Object(props) => {
-                let (tree, opaque) = classify_object_reporting(props, &self.scopes, self.diag, 0);
+                let mut replayed = PresenceDiagnostics::default();
+                let (tree, opaque) = if self.replaying {
+                    classify_object_reporting(props, &self.scopes, &mut replayed, 0)
+                } else {
+                    classify_object_reporting(props, &self.scopes, self.diag, 0)
+                };
                 self.opaque_paths.extend(opaque);
                 Some(tree)
             }
@@ -3494,6 +3544,41 @@ mod tests {
         let sent = r#"function f(){var v={a:!0};o("C").fetchQuery(n("WAWebFooQuery.graphql"),v);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
         let (tree, _) = presence_of(sent, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_while_body_runs_again_with_what_it_wrote() {
+        // The first iteration sends `a`; the write at the bottom of the body is
+        // what every iteration after it reads.
+        for caller in [
+            r#"function f(t){var x=!0;while(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});x=void 0}}"#,
+            r#"function f(t){var x=!0;do{o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});x=void 0}while(t)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
+    }
+
+    #[test]
+    fn a_function_called_again_reads_what_it_left() {
+        // Same shape without the loop: the second invocation of `send` runs with
+        // the `x` the first one cleared.
+        let caller = r#"var x=!0;function f(){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});x=void 0}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_falsy_left_operand_of_and_is_the_value() {
+        // `!1 && x` never evaluates `x`, so the key is `false` on every call.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!1&&t.x,b:!0&&t.x})}"#;
+        let (tree, _) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        assert_eq!(
+            at(&tree, "b"),
+            VariablePresence::Conditional,
+            "a truthy left side hands the expression its right"
+        );
     }
 
     #[test]

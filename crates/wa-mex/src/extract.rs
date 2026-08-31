@@ -202,8 +202,18 @@ pub fn extract_mex_from_modules_with_diagnostics(
     // bundle files define are not merged with themselves; first occurrence wins,
     // the same rule the operation scan below follows.
     let mut caller_by_graphql: HashMap<&str, Vec<&ModuleDefinition>> = HashMap::new();
+    let mut seen_caller_modules: HashSet<&str> = HashSet::new();
     let mut seen_callers: HashSet<(&str, &str)> = HashSet::new();
     for def in module_defs {
+        // The NAME, before its dependencies are read: two definitions of one
+        // module in a concatenated bundle can list different operations, and
+        // only the first of them is the module the runtime keeps. Keying on
+        // (dependency, name) let the later copy in as another operation's
+        // caller, whose variables object would then answer for a call the live
+        // module never makes.
+        if !seen_caller_modules.insert(def.name.as_str()) {
+            continue;
+        }
         for dep in &def.deps {
             if dep.ends_with(MODULE_SUFFIX) && seen_callers.insert((dep.as_str(), &def.name)) {
                 caller_by_graphql.entry(dep.as_str()).or_default().push(def);
@@ -826,6 +836,32 @@ mod tests {
             op.variables_presence["a"].presence,
             wa_ir::VariablePresence::Always
         );
+    }
+
+    #[test]
+    fn only_the_first_definition_of_a_caller_module_is_read() {
+        // Concatenated bundles define one module more than once, and the runtime
+        // keeps the first. A later copy that depends on a different operation is
+        // not that operation's caller: reading it would let a call the live
+        // module never makes answer for the keys.
+        let m = r#"
+        __d("WAWebDupQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"a"}],name:"WAWebDupQuery"},operation:{argumentDefinitions:[],name:"WAWebDupQuery"},params:{id:"31",name:"WAWebDupQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebDupJob",["WAWebMexClient"],(function(t,n,r,o,a,i,l){l.job=function(){}}),null);
+        __d("WAWebDupJob",["WAWebDupQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(){return o("WAWebMexClient").fetchQuery(n("WAWebDupQuery.graphql"),{a:!0})}
+            l.job=u
+        }),null);"#;
+        let (ir, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        let op = ir.operations.get("Dup").expect("extracted");
+        assert_eq!(
+            op.variables_presence["a"].presence,
+            wa_ir::VariablePresence::Undetermined,
+            "the live module makes no call, so nothing is established: {:?}",
+            op.variables_presence
+        );
+        assert_eq!(diag.presence.operations_without_call_site, 1);
     }
 
     #[test]
