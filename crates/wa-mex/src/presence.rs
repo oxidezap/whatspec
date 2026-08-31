@@ -513,22 +513,24 @@ fn classify_object(
     classify_object_reporting(props, scopes, diag, depth).0
 }
 
-/// [`classify_object`], plus whether a spread this level could not enumerate may
-/// still be carrying keys into it.
+/// [`classify_object`], plus the paths under it whose keys are not fully known:
+/// each names an object a spread or a computed key may still be writing into,
+/// the empty path being this object itself. A sibling site must not answer for
+/// those keys, so they are withdrawn once every site has been merged.
 fn classify_object_reporting(
     props: &[Prop],
     scopes: &Scopes,
     diag: &mut PresenceDiagnostics,
     depth: usize,
-) -> (SiteTree, bool) {
-    let mut opaque = false;
+) -> (SiteTree, Vec<Vec<String>>) {
+    let mut opaque: Vec<Vec<String>> = Vec::new();
     let mut out: SiteTree = BTreeMap::new();
     // A spread whose source resolves back through itself (`var e = {...e}`)
     // would otherwise descend forever, and an extractor that aborts publishes
     // nothing at all.
     if depth >= MAX_DEPTH {
         diag.unreadable_spreads += 1;
-        return (out, true);
+        return (out, vec![Vec::new()]);
     }
     for prop in props {
         match prop {
@@ -538,7 +540,7 @@ fn classify_object_reporting(
                 // drops `a` when `k` is `"a"`. Same rule as an unreadable spread,
                 // and a later explicit write still restores the key.
                 diag.unreadable_keys += 1;
-                opaque = true;
+                opaque.push(Vec::new());
                 for node in out.values_mut() {
                     withdraw(node);
                 }
@@ -549,7 +551,12 @@ fn classify_object_reporting(
                 // `base` wrote it. Merging here would publish a key the client
                 // always sends as omissible, which is the defect this whole
                 // dimension exists to remove, only pointing the other way.
-                let node = classify_value(value, scopes, diag, depth, VariablePresence::Always);
+                let (node, nested) =
+                    classify_value_reporting(value, scopes, diag, depth, VariablePresence::Always);
+                for mut path in nested {
+                    path.insert(0, key.clone());
+                    opaque.push(path);
+                }
                 out.insert(key.clone(), node);
             }
             Prop::Spread(source) => {
@@ -571,7 +578,9 @@ fn classify_object_reporting(
                         // flag here would let the outer site read as fully known.
                         let (nested, nested_opaque) =
                             classify_object_reporting(inner, scopes, diag, depth + 1);
-                        opaque |= nested_opaque;
+                        // The spread's keys land in THIS object, so the paths it
+                        // could not read do too.
+                        opaque.extend(nested_opaque);
                         for (k, mut node) in nested {
                             node.presence = node.presence.weaker(floor);
                             // A later spread overwrites the keys it carries, the
@@ -587,7 +596,7 @@ fn classify_object_reporting(
                     // standing that the client contradicts.
                     _ => {
                         diag.unreadable_spreads += 1;
-                        opaque = true;
+                        opaque.push(Vec::new());
                         for node in out.values_mut() {
                             withdraw(node);
                         }
@@ -641,22 +650,26 @@ fn spread_source<'v>(value: &'v Value, scopes: &'v Scopes) -> (&'v Value, bool) 
 }
 
 /// Classify one property value, descending through object and array literals so
-/// a nested key is answered too.
-fn classify_value(
+/// a nested key is answered too, and reporting the paths under it whose keys are
+/// not fully known - see [`classify_object_reporting`].
+fn classify_value_reporting(
     value: &Value,
     scopes: &Scopes,
     diag: &mut PresenceDiagnostics,
     depth: usize,
     floor: VariablePresence,
-) -> VariablePresenceNode {
+) -> (VariablePresenceNode, Vec<Vec<String>>) {
     let presence = definedness(value, scopes, 0).presence().weaker(floor);
     let mut node = VariablePresenceNode::leaf(presence);
+    let mut opaque: Vec<Vec<String>> = Vec::new();
     if depth >= MAX_DEPTH {
-        return node;
+        return (node, opaque);
     }
     match scopes.resolve(value, 0) {
         Value::Object(props) => {
-            node.fields = classify_object(props, scopes, diag, depth + 1);
+            let (fields, nested) = classify_object_reporting(props, scopes, diag, depth + 1);
+            node.fields = fields;
+            opaque.extend(nested);
         }
         Value::Array(items) => {
             // Every element, folded the way two call sites are: the item shape
@@ -693,16 +706,17 @@ fn classify_value(
         // branch, or a ternary. Its nested keys are read the way two call sites
         // are: a key only one of them writes is a key the client can omit.
         Value::Either(a, b) => {
-            let merged = merge_nodes(
-                classify_value(a, scopes, diag, depth, floor),
-                classify_value(b, scopes, diag, depth, floor),
-            );
+            let (left, left_opaque) = classify_value_reporting(a, scopes, diag, depth, floor);
+            let (right, right_opaque) = classify_value_reporting(b, scopes, diag, depth, floor);
+            let merged = merge_nodes(left, right);
             node.fields = merged.fields;
             node.items = merged.items;
+            opaque.extend(left_opaque);
+            opaque.extend(right_opaque);
         }
         _ => {}
     }
-    node
+    (node, opaque)
 }
 
 /// Merge two verdicts about one key, keeping the weaker claim and the union of
@@ -938,6 +952,19 @@ fn member_assignment_base<'b, 'a>(
     }
 }
 
+/// Whether an expression IS `null`, `undefined` or `void 0`, spelled out at the
+/// call rather than reached through a binding. A property read that happens to
+/// be undefined at run time is not this: it is a value this pass cannot read.
+fn is_nullish_literal(expr: &Expression) -> bool {
+    match expr {
+        Expression::NullLiteral(_) => true,
+        Expression::Identifier(id) => id.name.as_str() == "undefined",
+        Expression::UnaryExpression(u) => u.operator == UnaryOperator::Void,
+        Expression::ParenthesizedExpression(p) => is_nullish_literal(&p.expression),
+        _ => false,
+    }
+}
+
 /// The static property path a member assignment writes, from the binding
 /// outward: `v.order.jid = x` gives `["order", "jid"]`. `None` for a computed
 /// key, which names nothing this pass can publish.
@@ -1134,7 +1161,9 @@ struct CallSiteCollector<'d> {
     unreadable_sites: usize,
     /// Whether a recovered site carries a spread whose keys could not be listed,
     /// so a declared key nothing wrote may still be reaching the wire.
-    opaque_keys: bool,
+    /// Paths whose keys a spread or a computed key may still be writing, from
+    /// any recovered site. The empty path is the variables object itself.
+    opaque_paths: Vec<Vec<String>>,
     /// How many branching statements enclose the node being visited. A write
     /// inside one may not run before the call; a write at zero does.
     diag: &'d mut PresenceDiagnostics,
@@ -1270,6 +1299,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_assignment_expression(&mut self, n: &AssignmentExpression<'a>) {
+        // The right side runs first: `x = fetchQuery(op, {a: x})` sends the `x`
+        // from before the assignment, so the call inside it has to be read
+        // against that binding rather than against the one this write installs.
+        walk::walk_assignment_expression(self, n);
         // The memoised require is written `e !== void 0 ? e : e = n("X.graphql")`,
         // so the binding for the operation handle exists only as an assignment.
         if let Some(name) = wa_oxc::assignment_target_name(&n.left) {
@@ -1291,7 +1324,6 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.scopes
                 .bind_assignment(base, updated.unwrap_or(Value::Unjudged));
         }
-        walk::walk_assignment_expression(self, n);
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
@@ -1305,10 +1337,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.unreadable_sites += 1;
         }
         if self.is_operation_call(call) {
-            let Some(vars) = call.arguments.get(1).and_then(Argument::as_expression) else {
-                // The operation is sent with no variables argument at all. That is
-                // a site, and one that writes nothing: skipping it would let a
-                // sibling call's object speak for an invocation that sends no key.
+            let vars = call.arguments.get(1).and_then(Argument::as_expression);
+            // No variables argument at all, or one written `null` / `undefined` /
+            // `void 0`: either way the call sends an object carrying no key. That
+            // is a site, and one that writes nothing - skipping it would let a
+            // sibling call's object speak for an invocation that sends no key.
+            let Some(vars) = vars.filter(|v| !is_nullish_literal(v)) else {
                 self.sites.push(SiteTree::new());
                 walk::walk_call_expression(self, call);
                 return;
@@ -1360,8 +1394,11 @@ impl CallSiteCollector<'_> {
             }
         }
         if let Some(rest) = &params.rest {
+            // `function f(...t)` binds `t` to an array on every call, the empty
+            // one included, so a key holding it is a key on the wire. What is in
+            // it is another matter, and no caller shows that here.
             for ident in rest.rest.argument.get_binding_identifiers() {
-                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
+                self.scopes.bind(ident.name.as_str(), Value::Defined);
             }
         }
     }
@@ -1407,7 +1444,7 @@ impl CallSiteCollector<'_> {
                 // declared key this site never writes explicitly. Falling through
                 // to the "no site wrote it" default would publish `conditional`,
                 // which claims the client omits it; nothing here establishes that.
-                self.opaque_keys |= opaque;
+                self.opaque_paths.extend(opaque);
                 Some(tree)
             }
             // `cond ? {…} : {…}` picks one object per call, so a key only one arm
@@ -1435,7 +1472,7 @@ impl CallSiteCollector<'_> {
         match self.scopes.resolve(value, 0) {
             Value::Object(props) => {
                 let (tree, opaque) = classify_object_reporting(props, &self.scopes, self.diag, 0);
-                self.opaque_keys |= opaque;
+                self.opaque_paths.extend(opaque);
                 Some(tree)
             }
             _ => None,
@@ -1466,7 +1503,7 @@ pub(crate) fn variables_presence(
     }
     let mut merged: Option<SiteTree> = None;
     let mut unreadable_sites = 0usize;
-    let mut opaque_keys = false;
+    let mut opaque_paths: Vec<Vec<String>> = Vec::new();
     for (src, sole_operation) in callers {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
@@ -1480,12 +1517,12 @@ pub(crate) fn variables_presence(
             scopes,
             sites: Vec::new(),
             unreadable_sites: 0,
-            opaque_keys: false,
+            opaque_paths: Vec::new(),
             diag,
         };
         collector.visit_program(&ret.program);
         unreadable_sites += collector.unreadable_sites;
-        opaque_keys |= collector.opaque_keys;
+        opaque_paths.extend(collector.opaque_paths);
         // Every recovered site has to agree for a key to be `always`, so the sites
         // are folded rather than picked from - across callers as well as within one.
         for site in collector.sites {
@@ -1515,6 +1552,31 @@ pub(crate) fn variables_presence(
             })
             .collect();
     };
+
+    // A key under a path nothing could enumerate is a key no sibling site gets to
+    // answer for: `{input: {...opts}}` beside `{input: {a: !0}}` says nothing
+    // about whether `opts` carries `a`, and merging alone would call it omitted.
+    for path in &opaque_paths {
+        let mut node = None;
+        for key in path {
+            node = match node {
+                None => merged.get_mut(key),
+                Some(parent) => {
+                    let parent: &mut VariablePresenceNode = parent;
+                    parent.fields.get_mut(key)
+                }
+            };
+            if node.is_none() {
+                break;
+            }
+        }
+        // An empty path is the variables object itself, whose unwritten declared
+        // keys are handled below rather than here.
+        if let Some(node) = node {
+            withdraw_children(node);
+        }
+    }
+    let opaque_keys = opaque_paths.iter().any(Vec::is_empty);
 
     arg_def_names
         .iter()
@@ -2268,6 +2330,67 @@ mod tests {
         let caller = r#"function f(t){var x;if(t){x=!0}else{o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn the_right_side_of_an_assignment_runs_before_the_write() {
+        // `x = fetchQuery(op, {a: x})` sends the `x` from before the assignment,
+        // so binding first would read the call against its own result.
+        let caller = r#"function f(){var x=!0;x=o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});return x}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_rest_parameter_is_an_array_on_every_call() {
+        // Including the call that passes nothing, where it is the empty array -
+        // never `undefined`, so the key is on the wire.
+        let caller =
+            r#"function f(...t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:t})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_explicitly_nullish_variables_argument_is_a_site_that_writes_nothing() {
+        // `fetchQuery(op, void 0)` carries no key, which is knowledge - not the
+        // same as an argument this pass could not read.
+        for caller in [
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),void 0)}"#,
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),null)}"#,
+        ] {
+            let (tree, diag) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+            assert_eq!(diag.unreadable_call_arguments, 0);
+        }
+        // And a value that merely might be undefined at run time is still unread.
+        let unread =
+            r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),t.vars)}"#;
+        let (tree, diag) = presence_of(unread, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.unreadable_call_arguments, 1);
+    }
+
+    #[test]
+    fn an_unreadable_spread_nested_in_a_key_withdraws_that_key_across_sites() {
+        // One site writes `{input: {...opts}}` and another `{input: {a: !0}}`.
+        // Nothing says whether `opts` carries `a`, so the readable site does not
+        // get to publish it as a key the client omits.
+        let caller = r#"function f(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{...t.opts}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0}})}"#;
+        let names = vec!["input".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        assert_eq!(
+            at(&tree, "input"),
+            VariablePresence::Always,
+            "the key itself is written by both"
+        );
+        assert_eq!(
+            tree["input"].fields["a"].presence,
+            VariablePresence::Undetermined,
+            "the spread may be supplying it"
+        );
+        assert_eq!(diag.unreadable_spreads, 1);
     }
 
     #[test]

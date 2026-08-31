@@ -1384,9 +1384,18 @@ def _check_presence_level(path, shape, presence, errors, counts):
                     _check_presence_level(here, element, item.get("fields") or {}, errors, counts)
                 else:
                     inner = element[0] if element else None
-                    if isinstance(inner, (dict, list)):
+                    inner_item = item.get("items")
+                    if isinstance(inner, (dict, list)) and not isinstance(inner_item, dict):
+                        errors.append(
+                            f"{here}: a list of lists with no element verdicts one layer down"
+                        )
+                    elif isinstance(inner, (dict, list)):
+                        # One layer down on BOTH sides: the element of the inner list
+                        # is described by the element node's own `items`, and pairing
+                        # it with the outer node again reports the keys under
+                        # `[[{a}]]` as unanswered while they are answered.
                         _check_presence_level(
-                            here, {"[]": inner}, {"[]": item}, errors, counts
+                            here, {"[]": inner}, {"[]": inner_item}, errors, counts
                         )
         elif item is not None:
             errors.append(f"{here}: element verdicts on a variable that is not a list of objects")
@@ -1959,7 +1968,16 @@ def main() -> int:
             continue
         domain = doc.parent.name
 
+        # `variablesShape`, `variablesPresence` and `response` are keyed by GraphQL
+        # names the bundle chooses, so their nodes are data rather than IR nodes: a
+        # variable called `enumRef` or `kind` puts a value under that key and the
+        # generic checks below would read it as the node they are named for.
+        # `check_mex` validates these trees against each other instead.
+        mex_data = ("variablesShape", "variablesPresence", "response")
+
         def visit(node, path, domain=domain):
+            if domain == "mex" and any(seg in mex_data for seg in path.split("/")):
+                return
             # A field is anything with a KNOWN type, or anything carrying a key only a
             # response field has. The first clause reaches the appstate fields, which
             # carry no `method`/`wireName`; the second is what makes an unrecognized type
