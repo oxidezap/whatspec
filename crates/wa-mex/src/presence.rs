@@ -111,6 +111,15 @@ impl Definedness {
 #[derive(Default)]
 struct Scopes {
     frames: Vec<HashMap<String, Value>>,
+    /// Bindings the module declares at its own top level, collected before the
+    /// walk. A closure resolves its free names when it RUNS, not where it sits,
+    /// so `function f(){ …{a: x}… } var x = !0;` uses the defined `x`; walking in
+    /// source order alone would classify `a` against a name not yet seen.
+    ///
+    /// Consulted only after the frames, so a real binding still wins and a later
+    /// assignment still joins the prior one rather than replacing it - the rule
+    /// that keeps a conditional rebinding conservative.
+    hoisted: HashMap<String, Value>,
 }
 
 impl Scopes {
@@ -139,7 +148,11 @@ impl Scopes {
         }
     }
     fn lookup(&self, name: &str) -> Option<&Value> {
-        self.frames.iter().rev().find_map(|f| f.get(name))
+        self.frames
+            .iter()
+            .rev()
+            .find_map(|f| f.get(name))
+            .or_else(|| self.hoisted.get(name))
     }
     /// Follow an identifier to what it is bound to.
     fn resolve<'v>(&'v self, value: &'v Value, depth: usize) -> &'v Value {
@@ -183,15 +196,20 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         | Expression::RegExpLiteral(_)
         | Expression::NullLiteral(_)
         | Expression::TemplateLiteral(_)
-        | Expression::FunctionExpression(_)
-        | Expression::ArrowFunctionExpression(_)
-        | Expression::ClassExpression(_)
         // `new X()` evaluates to an object, never to `undefined`.
         | Expression::NewExpression(_)
         // Every binary operator (`===`, `!==`, `<`, `+`, `in`, `instanceof`, …)
         // yields a primitive. This is the arm that classifies WA's `x === !0`
         // coercion, which is the whole finding.
         | Expression::BinaryExpression(_) => Value::Defined,
+
+        // A defined value is not the same as a value that survives the wire.
+        // `JSON.stringify` drops a property whose value is a function, so
+        // `{a: () => !0}` serializes to `{}` and the key is never sent. Being
+        // defined is the test for `undefined`, not proof the key arrives.
+        Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_)
+        | Expression::ClassExpression(_) => Value::MaybeUndefined,
 
         // `!x`, `!!x`, `typeof x`, `-x` yield primitives; `void x` IS `undefined`,
         // so it is the one unary that does not.
@@ -529,6 +547,54 @@ fn merge_sites(mut a: SiteTree, mut b: SiteTree) -> SiteTree {
     out
 }
 
+/// The module's own top-level `var`/`let`/`const` bindings.
+///
+/// Only that level: a name declared inside one function says nothing about the
+/// same spelling inside another, and the minifier reuses single letters
+/// everywhere. Both shapes are read, the bare program body and the body of a
+/// `__d("Name", deps, factory)` factory, since a WA module is the latter and the
+/// unit tests exercise the former.
+fn hoist_module_bindings(program: &oxc_ast::ast::Program) -> HashMap<String, Value> {
+    let mut out = HashMap::new();
+    collect_declarations(&program.body, &mut out);
+    for stmt in &program.body {
+        let oxc_ast::ast::Statement::ExpressionStatement(es) = stmt else {
+            continue;
+        };
+        let Some(call) = wa_oxc::as_call(&es.expression) else {
+            continue;
+        };
+        if wa_oxc::as_identifier(&call.callee) != Some(wa_oxc::DEFINE_FN) {
+            continue;
+        }
+        for arg in &call.arguments {
+            if let Some(Expression::FunctionExpression(f)) = arg.as_expression()
+                && let Some(body) = &f.body
+            {
+                collect_declarations(&body.statements, &mut out);
+            }
+        }
+    }
+    out
+}
+
+fn collect_declarations(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<String, Value>) {
+    for stmt in statements {
+        let oxc_ast::ast::Statement::VariableDeclaration(decl) = stmt else {
+            continue;
+        };
+        for d in &decl.declarations {
+            if let Some(name) = d.id.get_identifier_name() {
+                let value = match d.init.as_ref() {
+                    Some(init) => convert(init, 0),
+                    None => Value::MaybeUndefined,
+                };
+                out.insert(name.as_str().to_string(), value);
+            }
+        }
+    }
+}
+
 /// Whether a value is (or reaches) a `require`-style call naming `module`.
 ///
 /// The handle a Relay call is given is `n("X.graphql")`, usually behind the
@@ -630,9 +696,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        if self.is_operation_call(call)
-            && let Some(vars) = call.arguments.get(1).and_then(Argument::as_expression)
-        {
+        if self.is_operation_call(call) {
+            let Some(vars) = call.arguments.get(1).and_then(Argument::as_expression) else {
+                // The operation is sent with no variables argument at all. That is
+                // a site, and one that writes nothing: skipping it would let a
+                // sibling call's object speak for an invocation that sends no key.
+                self.sites.push(SiteTree::new());
+                walk::walk_call_expression(self, call);
+                return;
+            };
             let value = convert(vars, 0);
             match self.variables_object(&value) {
                 Some(tree) => self.sites.push(tree),
@@ -752,10 +824,14 @@ pub(crate) fn variables_presence(
     for (src, sole_operation) in callers {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
+        let scopes = Scopes {
+            hoisted: hoist_module_bindings(&ret.program),
+            ..Scopes::default()
+        };
         let mut collector = CallSiteCollector {
             module: module.to_string(),
             sole_operation: *sole_operation,
-            scopes: Scopes::default(),
+            scopes,
             sites: Vec::new(),
             unreadable_sites: 0,
             diag,
@@ -1144,6 +1220,36 @@ mod tests {
             VariablePresence::Conditional,
             "the second element omits it"
         );
+    }
+
+    #[test]
+    fn a_function_valued_property_is_not_on_the_wire() {
+        // `JSON.stringify({a: () => !0})` is `{}`. A defined value is not the
+        // same as a value that reaches the server.
+        let caller = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:function(){return!0},b:()=>!0,c:!0})}"#;
+        let (tree, _) = presence_of(caller, &["a", "b", "c"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        assert_eq!(at(&tree, "b"), VariablePresence::Conditional);
+        assert_eq!(at(&tree, "c"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_call_with_no_variables_argument_is_a_site_that_writes_nothing() {
+        // Skipping it would let the sibling call's object speak for an
+        // invocation that sends no key at all.
+        let caller = r#"function f(t){if(t)return o("C").fetchQuery(n("WAWebFooQuery.graphql"));return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_module_binding_declared_after_the_closure_still_resolves() {
+        // A closure resolves its free names when it runs, so the declaration
+        // order in the source does not decide the verdict.
+        let caller =
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}var x=!0;"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
