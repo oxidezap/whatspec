@@ -1791,11 +1791,9 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
-        // `for (let x …)` binds `x` for the loop and nothing after it, so the
-        // header needs a block of its own around header and body alike. The
-        // thing iterated is evaluated ONCE, before any of it - only the binding
-        // and the body go round - and a header that writes an EXISTING binding
-        // rewrites it per element, with whatever the list holds.
+        // Same shape as `for of`, with one difference: what a `for in` writes is
+        // a property NAME, which is a string on every iteration - never
+        // `undefined`, however little this pass knows about the object.
         self.scopes.push_block();
         self.visit_expression(&stmt.right);
         self.walked_twice(|v| {
@@ -1803,8 +1801,14 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 Some(target) => {
                     let mut names = Vec::new();
                     collect_assignment_target_names(target, &mut names);
+                    let key = match target {
+                        oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(_) => {
+                            Value::Defined
+                        }
+                        _ => Value::MaybeUndefined,
+                    };
                     for name in names {
-                        v.scopes.bind_assignment(&name, Value::MaybeUndefined);
+                        v.scopes.bind_assignment(&name, key.clone());
                     }
                 }
                 None => {
@@ -1921,13 +1925,29 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             }
         }
         let function_scoped = d.kind.is_var();
+        // The initializer runs before the name holds anything: a call inside it
+        // sees the binding as it was, which for a `var` is the hoisted
+        // `undefined`. Walking it after the bind let `var x = (fetchQuery(op,
+        // {a: x}), !0)` read the value the statement was about to install.
+        walk::walk_variable_declarator(self, d);
         if let Some(name) = d.id.get_identifier_name() {
             // An uninitialized declaration is still a binding: it shadows an
             // outer name of the same spelling, and until something writes it the
             // value is `undefined`. Skipping it let `var x;` inside a module that
             // also binds `x` resolve to the module's value.
+            //
+            // Settled, not left as a reference: `var y = x; x = !0` copies what
+            // `x` held, and following the name afterwards would hand `y` a value
+            // it never had. An object keeps its reference, because a write
+            // through either name reaches the one object.
             let value = match d.init.as_ref() {
-                Some(init) => convert(init, 0),
+                Some(init) => {
+                    let value = convert(init, 0);
+                    match self.scopes.resolve(&value, 0) {
+                        Value::Object(_) | Value::Array(_) => value,
+                        _ => settle(&value, &self.scopes, 0),
+                    }
+                }
                 None => Value::MaybeUndefined,
             };
             if function_scoped {
@@ -1936,7 +1956,6 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 self.scopes.bind(name.as_str(), value);
             }
         }
-        walk::walk_variable_declarator(self, d);
     }
 
     fn visit_assignment_expression(&mut self, n: &AssignmentExpression<'a>) {
@@ -1975,6 +1994,18 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.scopes
                 .bind_assignment(&owner, updated.unwrap_or(Value::Unjudged));
         }
+    }
+
+    fn visit_update_expression(&mut self, expr: &oxc_ast::ast::UpdateExpression<'a>) {
+        // `x++` leaves a number behind - `NaN` when it was not one, which
+        // `JSON.stringify` writes as `null` with the key still there. Either way
+        // the binding is no longer whatever it was.
+        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = &expr.argument
+        {
+            self.scopes
+                .bind_assignment(id.name.as_str(), Value::Defined);
+        }
+        walk::walk_update_expression(self, expr);
     }
 
     fn visit_unary_expression(&mut self, expr: &oxc_ast::ast::UnaryExpression<'a>) {
@@ -2141,16 +2172,19 @@ impl CallSiteCollector<'_> {
                         PropertyKey::StringLiteral(lit) => Some(lit.value.as_str().to_string()),
                         _ => None,
                     };
-                    let value = self.settled(&p.value);
+                    // The property's own expression runs first, writes and all,
+                    // and what it leaves is the value stored: `{a: (x = void 0,
+                    // x)}` stores the `x` the assignment just cleared.
                     self.visit_expression(&p.value);
+                    let value = self.settled(&p.value);
                     props.push(match key {
                         Some(key) => Prop::Key(key, value),
                         None => Prop::Unreadable,
                     });
                 }
                 ObjectPropertyKind::SpreadProperty(spread) => {
-                    let value = self.settled(&spread.argument);
                     self.visit_expression(&spread.argument);
+                    let value = self.settled(&spread.argument);
                     props.push(Prop::Spread(value));
                 }
             }
@@ -3763,6 +3797,55 @@ mod tests {
         let loose = r#"function f(){var x,y=x!=null?x:x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}"#;
         let (tree, _) = presence_of(loose, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_for_in_key_is_a_string_on_every_iteration() {
+        // It is a property name, whatever this pass knows about the object.
+        let caller = r#"function f(t){var k;for(k in t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:k})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_update_expression_writes_its_operand() {
+        // `x++` leaves a number - `NaN` when it was not one, which serializes as
+        // `null` with the key still there.
+        let caller =
+            r#"function f(){var x;x++;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_copied_binding_keeps_the_value_it_copied() {
+        // `var y = x; x = !0` leaves `y` at what `x` held, not at what it holds.
+        let caller = r#"function f(){var x,y=x;x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // An object is not copied, though: both names hold the one object, and a
+        // write through either reaches it.
+        let shared = r#"function f(){var v={a:!0},w=v;w.a=void 0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(shared, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_property_runs_its_own_writes_before_it_is_read() {
+        // `{a: (x = void 0, x)}` stores the `x` the assignment just cleared.
+        let caller = r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:(x=void 0,x)})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_initializer_runs_before_the_name_holds_anything() {
+        // The call inside it sees the hoisted `undefined`, not the value the
+        // statement is about to install.
+        let caller = r#"function f(){var x=(o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x}),!0);return x}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
