@@ -58,6 +58,11 @@ enum Value {
     MaybeUndefined,
     /// A form this pass does not judge - a call's return value, an `await`.
     Unjudged,
+    /// Defined, truthy, and still not a key on the wire: `JSON.stringify` drops
+    /// a property whose value is a function or a class. Kept apart from
+    /// `MaybeUndefined` because the difference decides `a || b` - a function on
+    /// the left IS the value, where an undefined one hands over to `b`.
+    Dropped,
     /// An identifier, resolved against the enclosing bindings when read.
     Ref(String),
     Object(Vec<Prop>),
@@ -491,7 +496,7 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         // defined is the test for `undefined`, not proof the key arrives.
         Expression::FunctionExpression(_)
         | Expression::ArrowFunctionExpression(_)
-        | Expression::ClassExpression(_) => Value::MaybeUndefined,
+        | Expression::ClassExpression(_) => Value::Dropped,
 
         // `new X()` never evaluates to `undefined`, but the instance decides its
         // own serialization: a `toJSON` returning `undefined` drops the key.
@@ -507,12 +512,6 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         },
 
         Expression::LogicalExpression(l) => match l.operator {
-            // A function or a class on the left is selected - it is neither
-            // nullish nor falsy - and `JSON.stringify` drops a key holding one,
-            // so the right side never speaks for the expression there.
-            LogicalOperator::Coalesce | LogicalOperator::Or if is_function_literal(&l.left) => {
-                Value::MaybeUndefined
-            }
             LogicalOperator::Coalesce | LogicalOperator::Or => Value::OrElse(
                 Box::new(convert(&l.left, next)),
                 Box::new(convert(&l.right, next)),
@@ -620,12 +619,20 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
     let next = depth + 1;
     match value {
         Value::Defined | Value::Object(_) | Value::Array(_) => Definedness::Defined,
-        Value::MaybeUndefined => Definedness::MaybeUndefined,
+        Value::MaybeUndefined | Value::Dropped => Definedness::MaybeUndefined,
         Value::Unjudged | Value::Call(_) => Definedness::Unjudged,
-        Value::OrElse(_, rhs) => definedness(rhs, scopes, next),
-        Value::AndThen(lhs, rhs) => {
-            definedness(lhs, scopes, next).max(definedness(rhs, scopes, next))
-        }
+        // `a ?? b` and `a || b` are `b` only when `a` gives way. A function or a
+        // class does not: it is truthy and non-nullish, and it is the value -
+        // one `JSON.stringify` drops.
+        Value::OrElse(lhs, rhs) => match scopes.resolve(lhs, 0) {
+            Value::Dropped => Definedness::MaybeUndefined,
+            _ => definedness(rhs, scopes, next),
+        },
+        // `a && b` is `b` whenever `a` is truthy, and a function always is.
+        Value::AndThen(lhs, rhs) => match scopes.resolve(lhs, 0) {
+            Value::Dropped => definedness(rhs, scopes, next),
+            _ => definedness(lhs, scopes, next).max(definedness(rhs, scopes, next)),
+        },
         Value::Either(a, b) => definedness(a, scopes, next).max(definedness(b, scopes, next)),
         Value::Ref(name) => match scopes.lookup(name) {
             Some(bound) => definedness(bound, scopes, next),
@@ -1150,17 +1157,26 @@ fn collect_module_writes(
         let oxc_ast::ast::Statement::ExpressionStatement(es) = stmt else {
             continue;
         };
-        let Expression::AssignmentExpression(a) = &es.expression else {
-            continue;
+        // `x = void 0, e = f;` is one statement and two writes: the minifier
+        // writes initialization as a comma expression as readily as as a series
+        // of statements.
+        let expressions: Vec<&Expression> = match &es.expression {
+            Expression::SequenceExpression(seq) => seq.expressions.iter().collect(),
+            other => vec![other],
         };
-        let Some(name) = wa_oxc::assignment_target_name(&a.left) else {
-            continue;
-        };
-        let Some(prior) = out.get(name).or_else(|| declared.get(name)) else {
-            continue;
-        };
-        let joined = Value::Either(Box::new(prior.clone()), Box::new(assignment_value(a, 0)));
-        out.insert(name.to_string(), joined);
+        for expression in expressions {
+            let Expression::AssignmentExpression(a) = expression else {
+                continue;
+            };
+            let Some(name) = wa_oxc::assignment_target_name(&a.left) else {
+                continue;
+            };
+            let Some(prior) = out.get(name).or_else(|| declared.get(name)) else {
+                continue;
+            };
+            let joined = Value::Either(Box::new(prior.clone()), Box::new(assignment_value(a, 0)));
+            out.insert(name.to_string(), joined);
+        }
     }
 }
 
@@ -1266,7 +1282,51 @@ fn member_assignment_base<'b, 'a>(
     }
 }
 
-/// Whether a literal is falsy, when the expression IS a literal: `Some(true)`
+/// A value with its bindings read now rather than later: the same value, with
+/// every `Ref` replaced by what it holds at this point.
+fn settle(value: &Value, scopes: &Scopes, depth: usize) -> Value {
+    if depth >= MAX_DEPTH {
+        return value.clone();
+    }
+    let next = depth + 1;
+    match value {
+        Value::Ref(name) => match scopes.lookup(name) {
+            Some(bound) => settle(&bound.clone(), scopes, next),
+            None => value.clone(),
+        },
+        Value::Object(props) => Value::Object(
+            props
+                .iter()
+                .map(|prop| match prop {
+                    Prop::Key(key, inner) => Prop::Key(key.clone(), settle(inner, scopes, next)),
+                    Prop::Spread(inner) => Prop::Spread(settle(inner, scopes, next)),
+                    Prop::Unreadable => Prop::Unreadable,
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| settle(item, scopes, next))
+                .collect(),
+        ),
+        Value::OrElse(a, b) => Value::OrElse(
+            Box::new(settle(a, scopes, next)),
+            Box::new(settle(b, scopes, next)),
+        ),
+        Value::AndThen(a, b) => Value::AndThen(
+            Box::new(settle(a, scopes, next)),
+            Box::new(settle(b, scopes, next)),
+        ),
+        Value::Either(a, b) => Value::Either(
+            Box::new(settle(a, scopes, next)),
+            Box::new(settle(b, scopes, next)),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Whether a literal is falsy/// Whether a literal is falsy, when the expression IS a literal: `Some(true)`
 /// for `!1`, `0`, `""`, `null`, `void 0`, `Some(false)` for a literal that is
 /// not, and `None` for anything whose truthiness this pass does not decide.
 fn falsy_literal(expr: &Expression) -> Option<bool> {
@@ -1282,18 +1342,6 @@ fn falsy_literal(expr: &Expression) -> Option<bool> {
         }
         Expression::UnaryExpression(u) if u.operator == UnaryOperator::Void => Some(true),
         _ => None,
-    }
-}
-
-/// Whether an expression is a function or a class written out/// Whether an expression is a function or a class written out: those are
-/// selected by `||` and `??`, and are not keys on the wire.
-fn is_function_literal(expr: &Expression) -> bool {
-    match expr {
-        Expression::FunctionExpression(_)
-        | Expression::ArrowFunctionExpression(_)
-        | Expression::ClassExpression(_) => true,
-        Expression::ParenthesizedExpression(p) => is_function_literal(&p.expression),
-        _ => false,
     }
 }
 
@@ -1464,9 +1512,14 @@ fn nullish_guard<'b, 'a>(test: &'b Expression<'a>) -> Option<(&'b str, bool)> {
     let Expression::BinaryExpression(b) = test else {
         return None;
     };
-    let defined_in_consequent = match b.operator {
-        BinaryOperator::StrictInequality | BinaryOperator::Inequality => true,
-        BinaryOperator::StrictEquality | BinaryOperator::Equality => false,
+    // A strict comparison has to be against `void 0` itself: `undefined !== null`
+    // is true, so `x !== null` leaves `x` undefined on the branch the memo
+    // pattern promises is written. A loose one covers both nullish values.
+    let (defined_in_consequent, strict) = match b.operator {
+        BinaryOperator::StrictInequality => (true, true),
+        BinaryOperator::Inequality => (true, false),
+        BinaryOperator::StrictEquality => (false, true),
+        BinaryOperator::Equality => (false, false),
         _ => return None,
     };
     let name = |e: &'b Expression<'a>| match e {
@@ -1477,8 +1530,8 @@ fn nullish_guard<'b, 'a>(test: &'b Expression<'a>) -> Option<(&'b str, bool)> {
     // and a guard that is not a guard would collapse a ternary that is not a
     // memo.
     let intrinsic = |e: &Expression| {
-        matches!(e, Expression::NullLiteral(_))
-            || matches!(e, Expression::UnaryExpression(u) if u.operator == UnaryOperator::Void)
+        let void = matches!(e, Expression::UnaryExpression(u) if u.operator == UnaryOperator::Void);
+        void || (!strict && matches!(e, Expression::NullLiteral(_)))
     };
     let named = name(&b.left)
         .filter(|_| intrinsic(&b.right))
@@ -1739,38 +1792,56 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
         // `for (let x …)` binds `x` for the loop and nothing after it, so the
-        // header needs a block of its own around header and body alike. And a
-        // header that writes an EXISTING binding - `for (x of xs)` - rewrites it
-        // once per element, with whatever the list holds.
+        // header needs a block of its own around header and body alike. The
+        // thing iterated is evaluated ONCE, before any of it - only the binding
+        // and the body go round - and a header that writes an EXISTING binding
+        // rewrites it per element, with whatever the list holds.
         self.scopes.push_block();
+        self.visit_expression(&stmt.right);
         self.walked_twice(|v| {
-            if let Some(target) = stmt.left.as_assignment_target() {
-                let mut names = Vec::new();
-                collect_assignment_target_names(target, &mut names);
-                for name in names {
-                    v.scopes.bind_assignment(&name, Value::MaybeUndefined);
+            match stmt.left.as_assignment_target() {
+                Some(target) => {
+                    let mut names = Vec::new();
+                    collect_assignment_target_names(target, &mut names);
+                    for name in names {
+                        v.scopes.bind_assignment(&name, Value::MaybeUndefined);
+                    }
+                }
+                None => {
+                    if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &stmt.left {
+                        v.visit_variable_declaration(decl);
+                    }
                 }
             }
-            walk::walk_for_in_statement(v, stmt);
+            v.visit_statement(&stmt.body);
         });
         self.scopes.pop();
     }
 
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
         // `for (let x …)` binds `x` for the loop and nothing after it, so the
-        // header needs a block of its own around header and body alike. And a
-        // header that writes an EXISTING binding - `for (x of xs)` - rewrites it
-        // once per element, with whatever the list holds.
+        // header needs a block of its own around header and body alike. The
+        // thing iterated is evaluated ONCE, before any of it - only the binding
+        // and the body go round - and a header that writes an EXISTING binding
+        // rewrites it per element, with whatever the list holds.
         self.scopes.push_block();
+        self.visit_expression(&stmt.right);
         self.walked_twice(|v| {
-            if let Some(target) = stmt.left.as_assignment_target() {
-                let mut names = Vec::new();
-                collect_assignment_target_names(target, &mut names);
-                for name in names {
-                    v.scopes.bind_assignment(&name, Value::MaybeUndefined);
+            match stmt.left.as_assignment_target() {
+                Some(target) => {
+                    let mut names = Vec::new();
+                    collect_assignment_target_names(target, &mut names);
+                    for name in names {
+                        v.scopes.bind_assignment(&name, Value::MaybeUndefined);
+                    }
+                }
+                None => {
+                    if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &stmt.left {
+                        v.visit_variable_declaration(decl);
+                    }
                 }
             }
-            walk::walk_for_of_statement(v, stmt);
+            v.visit_statement(&stmt.body);
         });
         self.scopes.pop();
     }
@@ -1933,8 +2004,22 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // can write a binding it captured. `fetchQuery(op, {a: x}, x = !0)`
         // builds `{a: undefined}` first.
         self.visit_expression(&call.callee);
-        for argument in call.arguments.iter().take(2) {
-            self.visit_argument(argument);
+        if let Some(handle) = call.arguments.first() {
+            self.visit_argument(handle);
+        }
+        // The variables object is built property by property, and a later one
+        // can write a binding an earlier one read: `{a: x, b: (x = !0, !0)}`
+        // stores `undefined` in `a`. So each value is taken where it is written,
+        // and the writes it makes land before the next is read.
+        let snapshot = call
+            .arguments
+            .get(1)
+            .and_then(Argument::as_expression)
+            .and_then(|expression| self.snapshot_object(expression));
+        if let Some(second) = call.arguments.get(1)
+            && snapshot.is_none()
+        {
+            self.visit_argument(second);
         }
         if !self.is_operation_call(call) && self.is_ambiguous_call(call) {
             // A Relay call in a module that sends several operations, whose
@@ -1969,7 +2054,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 self.sites.push(SiteTree::new());
                 return;
             };
-            let value = convert(vars, 0);
+            let value = snapshot.unwrap_or_else(|| convert(vars, 0));
             match self.variables_object(&value) {
                 Some(tree) => self.sites.push(tree),
                 // This call sends the operation and its variables object could
@@ -2037,7 +2122,49 @@ impl<'a> CallSiteCollector<'a> {
 }
 
 impl CallSiteCollector<'_> {
-    /// Bind a function's parameters, so a name the caller passes in resolves to a
+    /// Read an object literal in source order, taking each value where it is
+    /// written and letting the writes inside it land before the next is read.
+    ///
+    /// `None` for anything but a literal: a binding is resolved at the call, and
+    /// there is nothing to interleave. The walk happens here rather than in the
+    /// caller, so a property's own side effects are applied exactly once.
+    fn snapshot_object(&mut self, expression: &Expression<'_>) -> Option<Value> {
+        let Expression::ObjectExpression(object) = expression else {
+            return None;
+        };
+        let mut props = Vec::with_capacity(object.properties.len());
+        for property in &object.properties {
+            match property {
+                ObjectPropertyKind::ObjectProperty(p) => {
+                    let key = match &p.key {
+                        PropertyKey::StaticIdentifier(id) => Some(id.name.as_str().to_string()),
+                        PropertyKey::StringLiteral(lit) => Some(lit.value.as_str().to_string()),
+                        _ => None,
+                    };
+                    let value = self.settled(&p.value);
+                    self.visit_expression(&p.value);
+                    props.push(match key {
+                        Some(key) => Prop::Key(key, value),
+                        None => Prop::Unreadable,
+                    });
+                }
+                ObjectPropertyKind::SpreadProperty(spread) => {
+                    let value = self.settled(&spread.argument);
+                    self.visit_expression(&spread.argument);
+                    props.push(Prop::Spread(value));
+                }
+            }
+        }
+        Some(Value::Object(props))
+    }
+
+    /// The value an expression has HERE, with every binding it names resolved,
+    /// so a write further along the object cannot reach back into it.
+    fn settled(&self, expression: &Expression<'_>) -> Value {
+        settle(&convert(expression, 0), &self.scopes, 0)
+    }
+
+    /// Bind a function's parameters, so a name the caller passes in resolves to a    /// Bind a function's parameters, so a name the caller passes in resolves to a
     /// passthrough rather than to whatever the enclosing module bound it to.
     ///
     /// The minifier reuses one letter for both - `WAWebMexFetchNewsletterAdminInfoJob`
@@ -3579,6 +3706,63 @@ mod tests {
             VariablePresence::Conditional,
             "a truthy left side hands the expression its right"
         );
+    }
+
+    #[test]
+    fn a_module_write_inside_a_comma_expression_still_counts() {
+        // The minifier writes initialization as one statement of many writes,
+        // and a closure reads what all of them left.
+        let caller = r#"var x=!0,e;function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}x=void 0,e=f;"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_function_reached_through_a_binding_is_still_the_value() {
+        // `g || !0` selects `g`, which is truthy and which `JSON.stringify`
+        // drops - the fallback never runs.
+        let caller = r#"function f(){var g=function(){return!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:g||!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_property_is_read_where_it_is_written() {
+        // `{a: x, b: (x = !0, !0)}` stores `undefined` in `a`: the write in `b`
+        // comes after it. And the reverse order still lets `b` see the write.
+        let caller = r#"function f(){var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x,b:(x=!0,!0)})}"#;
+        let (tree, _) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        assert_eq!(at(&tree, "b"), VariablePresence::Always);
+
+        let reversed = r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:(x=void 0,!0),b:x})}"#;
+        let (tree, _) = presence_of(reversed, &["a", "b"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        assert_eq!(at(&tree, "b"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn what_a_loop_iterates_is_evaluated_once() {
+        // `for (let y of (x = !0, xs))` writes `x` before the first iteration
+        // and never again, so the body's own write is what later iterations
+        // read - a replay that re-ran the header would undo it.
+        let caller = r#"function f(t){var x;for(let y of (x=!0,t)){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});x=void 0}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_strict_null_guard_is_not_a_memo() {
+        // `undefined !== null` is true, so `x !== null ? x : x = !0` hands the
+        // call an undefined `x` on the branch a memoised require never does.
+        let caller = r#"function f(){var x,y=x!==null?x:x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // The loose form covers both nullish values, and is a memo.
+        let loose = r#"function f(){var x,y=x!=null?x:x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}"#;
+        let (tree, _) = presence_of(loose, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
