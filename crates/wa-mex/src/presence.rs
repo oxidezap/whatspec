@@ -141,6 +141,22 @@ struct Scopes {
     /// assignment still joins the prior one rather than replacing it - the rule
     /// that keeps a conditional rebinding conservative.
     hoisted: HashMap<String, Value>,
+    /// One log per branch being walked, innermost last. Each entry is a name the
+    /// branch wrote and what it held when the branch began, which is what the
+    /// path around the branch reaches.
+    ///
+    /// The write itself lands in the frame, so a call INSIDE the branch reads
+    /// what the branch wrote - `if (t) { x = !0; fetchQuery(op, {a: x}) }` sends
+    /// `a` on the only path that calls at all. The join with the pre-branch value
+    /// happens on the way out, for the calls that follow.
+    branches: Vec<Vec<BranchWrite>>,
+}
+
+/// A name a branch wrote, with the value it had before the branch began.
+struct BranchWrite {
+    frame: usize,
+    name: String,
+    before: Option<Value>,
 }
 
 impl Scopes {
@@ -162,12 +178,10 @@ impl Scopes {
         self.frame_is_function.pop();
     }
     /// The innermost frame a `var` belongs to, skipping blocks.
-    fn function_frame(&mut self) -> Option<&mut HashMap<String, Value>> {
-        let idx = self
-            .frame_is_function
+    fn function_frame(&self) -> Option<usize> {
+        self.frame_is_function
             .iter()
-            .rposition(|is_function| *is_function)?;
-        self.frames.get_mut(idx)
+            .rposition(|is_function| *is_function)
     }
 
     /// The frame an assignment writes: the innermost one already binding the
@@ -176,9 +190,9 @@ impl Scopes {
     ///
     /// Writing to the function frame unconditionally left a block's `let` visible
     /// with its old value, because `lookup` reaches the block first.
-    fn assignment_frame(&mut self, name: &str) -> Option<&mut HashMap<String, Value>> {
+    fn assignment_frame(&self, name: &str) -> Option<usize> {
         match self.frames.iter().rposition(|f| f.contains_key(name)) {
-            Some(idx) => self.frames.get_mut(idx),
+            Some(idx) => Some(idx),
             None => self.function_frame(),
         }
     }
@@ -193,32 +207,88 @@ impl Scopes {
     /// opposite error - `v = {}; v = {a: !0}; fetchQuery(op, v)` sends `a` every
     /// time, and calling it `conditional` leaves a consumer with the optional
     /// field this whole dimension exists to remove.
-    fn bind(&mut self, name: &str, value: Value, conditional: bool) {
-        self.bind_in(name, value, conditional, Scope::Current);
+    fn bind(&mut self, name: &str, value: Value) {
+        self.bind_in(name, value, Scope::Current);
     }
     /// Bind in the enclosing FUNCTION scope rather than the current block, for a
     /// `var`, which a block does not contain.
-    fn bind_function_scoped(&mut self, name: &str, value: Value, conditional: bool) {
-        self.bind_in(name, value, conditional, Scope::Function);
+    fn bind_function_scoped(&mut self, name: &str, value: Value) {
+        self.bind_in(name, value, Scope::Function);
     }
     /// Update the binding an assignment targets, wherever it lives.
-    fn bind_assignment(&mut self, name: &str, value: Value, conditional: bool) {
-        self.bind_in(name, value, conditional, Scope::Assignment);
+    fn bind_assignment(&mut self, name: &str, value: Value) {
+        self.bind_in(name, value, Scope::Assignment);
     }
-    fn bind_in(&mut self, name: &str, value: Value, conditional: bool, scope: Scope) {
-        let frame = match scope {
+    fn bind_in(&mut self, name: &str, value: Value, scope: Scope) {
+        let index = match scope {
             Scope::Function => self.function_frame(),
             Scope::Assignment => self.assignment_frame(name),
-            Scope::Current => self.frames.last_mut(),
+            Scope::Current => self.frames.len().checked_sub(1),
         };
-        if let Some(frame) = frame {
-            match frame.remove(name) {
-                Some(prior) if conditional => frame.insert(
-                    name.to_string(),
-                    Value::Either(Box::new(prior), Box::new(value)),
-                ),
-                _ => frame.insert(name.to_string(), value),
+        let Some(index) = index else {
+            return;
+        };
+        if let Some(log) = self.branches.last()
+            && !log.iter().any(|w| w.frame == index && w.name == name)
+        {
+            // What the name held before this branch. A `var` whose first write is
+            // inside the branch has no entry in the frame yet, only the
+            // `undefined` the hoist put in this frame's table - and that
+            // `undefined` is what the path around the branch reaches.
+            let before = self.frames[index]
+                .get(name)
+                .or_else(|| self.frame_hoisted[index].get(name))
+                .cloned();
+            let write = BranchWrite {
+                frame: index,
+                name: name.to_string(),
+                before,
             };
+            self.branches
+                .last_mut()
+                .expect("a branch is open")
+                .push(write);
+        }
+        self.frames[index].insert(name.to_string(), value);
+    }
+
+    /// Start a branch: writes inside it are what the code inside it reads.
+    fn enter_branch(&mut self) {
+        self.branches.push(Vec::new());
+    }
+
+    /// End a branch, joining each name it wrote with the value the path around
+    /// the branch carries. A frame pushed inside the branch is already gone with
+    /// its bindings, so a write recorded against it needs no join.
+    fn leave_branch(&mut self) {
+        let Some(log) = self.branches.pop() else {
+            return;
+        };
+        for write in log {
+            if write.frame >= self.frames.len() {
+                continue;
+            }
+            if let Some(before) = write.before {
+                if let Some(after) = self.frames[write.frame].remove(&write.name) {
+                    self.frames[write.frame].insert(
+                        write.name.clone(),
+                        Value::Either(Box::new(before.clone()), Box::new(after)),
+                    );
+                }
+                // An enclosing branch joins against the value from before IT
+                // began, so it has to learn about this name too.
+                if let Some(outer) = self.branches.last_mut()
+                    && !outer
+                        .iter()
+                        .any(|w| w.frame == write.frame && w.name == write.name)
+                {
+                    outer.push(BranchWrite {
+                        frame: write.frame,
+                        name: write.name,
+                        before: Some(before),
+                    });
+                }
+            }
         }
     }
     /// Innermost scope outward, and within each scope its bindings before its
@@ -339,22 +409,7 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         // A logical assignment can yield the LEFT side without ever evaluating
         // the right: `x &&= !0` is `undefined` when `x` is. Only a plain `=`
         // (or an arithmetic compound, which yields a primitive) is its right side.
-        Expression::AssignmentExpression(a) => match a.operator {
-            AssignmentOperator::LogicalAnd => Value::AndThen(
-                Box::new(Value::MaybeUndefined),
-                Box::new(convert(&a.right, next)),
-            ),
-            AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish => {
-                Value::OrElse(Box::new(convert(&a.right, next)))
-            }
-            // A plain `=` evaluates to its right side. An arithmetic or bitwise
-            // compound assignment evaluates to the computed primitive instead,
-            // which is defined whatever the operand was - `x += y` is a number
-            // or a string even when `y` is `undefined` (`NaN` serializes as
-            // `null`, with the key still there).
-            AssignmentOperator::Assign => convert(&a.right, next),
-            _ => Value::Defined,
-        },
+        Expression::AssignmentExpression(a) => assignment_value(a, next),
 
         // A property read yields `undefined` for any key the object lacks, and an
         // optional chain yields it for a nullish base. Both are the plain
@@ -634,6 +689,17 @@ fn classify_value(
                 node.items = Some(Box::new(item));
             }
         }
+        // Two objects can reach this key, one per call - a binding written in a
+        // branch, or a ternary. Its nested keys are read the way two call sites
+        // are: a key only one of them writes is a key the client can omit.
+        Value::Either(a, b) => {
+            let merged = merge_nodes(
+                classify_value(a, scopes, diag, depth, floor),
+                classify_value(b, scopes, diag, depth, floor),
+            );
+            node.fields = merged.fields;
+            node.items = merged.items;
+        }
         _ => {}
     }
     node
@@ -727,6 +793,15 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
     for stmt in statements {
         match stmt {
             S::VariableDeclaration(decl) => collect_hoisted_declaration(decl, out),
+            // A function declaration binds its name for the whole function, and
+            // `JSON.stringify` drops a key whose value is a function - so a
+            // local `function x(){}` is both a shadow of an outer `x` and a key
+            // that does not reach the wire.
+            S::FunctionDeclaration(f) => {
+                if let Some(id) = &f.id {
+                    out.insert(id.name.as_str().to_string(), Value::MaybeUndefined);
+                }
+            }
             S::BlockStatement(b) => collect_hoisted(&b.body, out),
             S::IfStatement(i) => {
                 collect_hoisted(std::slice::from_ref(&i.consequent), out);
@@ -840,6 +915,124 @@ fn collect_declarations(statements: &[oxc_ast::ast::Statement], out: &mut HashMa
     }
 }
 
+/// The name a member assignment writes through: `v.a.b = x` is a write to `v`.
+fn member_assignment_base<'b, 'a>(
+    target: &'b oxc_ast::ast::AssignmentTarget<'a>,
+) -> Option<&'b str> {
+    use oxc_ast::ast::{AssignmentTarget as T, Expression as E};
+    let mut expr = match target {
+        T::StaticMemberExpression(m) => &m.object,
+        T::ComputedMemberExpression(m) => &m.object,
+        T::PrivateFieldExpression(m) => &m.object,
+        _ => return None,
+    };
+    loop {
+        match expr {
+            E::Identifier(id) => return Some(id.name.as_str()),
+            E::StaticMemberExpression(m) => expr = &m.object,
+            E::ComputedMemberExpression(m) => expr = &m.object,
+            E::PrivateFieldExpression(m) => expr = &m.object,
+            E::ParenthesizedExpression(p) => expr = &p.expression,
+            _ => return None,
+        }
+    }
+}
+
+/// The static property path a member assignment writes, from the binding
+/// outward: `v.order.jid = x` gives `["order", "jid"]`. `None` for a computed
+/// key, which names nothing this pass can publish.
+fn static_path(target: &oxc_ast::ast::AssignmentTarget) -> Option<Vec<String>> {
+    use oxc_ast::ast::{AssignmentTarget as T, Expression as E};
+    let T::StaticMemberExpression(member) = target else {
+        return None;
+    };
+    let mut path = vec![member.property.name.as_str().to_string()];
+    let mut expr = &member.object;
+    loop {
+        match expr {
+            E::Identifier(_) => {
+                path.reverse();
+                return Some(path);
+            }
+            E::StaticMemberExpression(m) => {
+                path.push(m.property.name.as_str().to_string());
+                expr = &m.object;
+            }
+            E::ParenthesizedExpression(p) => expr = &p.expression,
+            _ => return None,
+        }
+    }
+}
+
+/// The recovered object with `path` written to `written`, or `None` when the
+/// path does not run through objects this pass read - in which case the caller
+/// has to stop treating the binding as evidence.
+fn write_key(
+    value: &Value,
+    path: &[String],
+    written: Value,
+    scopes: &Scopes,
+    depth: usize,
+) -> Option<Value> {
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    let Value::Object(props) = scopes.resolve(value, 0) else {
+        return None;
+    };
+    let (key, rest) = path.split_first()?;
+    let mut out: Vec<Prop> = Vec::with_capacity(props.len() + 1);
+    let mut wrote = false;
+    for prop in props {
+        match prop {
+            Prop::Key(k, inner) if k == key => {
+                let value = if rest.is_empty() {
+                    written.clone()
+                } else {
+                    write_key(inner, rest, written.clone(), scopes, depth + 1)?
+                };
+                out.push(Prop::Key(k.clone(), value));
+                wrote = true;
+            }
+            other => out.push(other.clone()),
+        }
+    }
+    if !wrote {
+        // A key the literal never wrote, added here. Only the last step of the
+        // path can be one: a write through a key the object does not carry is a
+        // write to an object this pass never read.
+        if !rest.is_empty() {
+            return None;
+        }
+        out.push(Prop::Key(key.clone(), written));
+    }
+    Some(Value::Object(out))
+}
+
+/// What an assignment expression evaluates to, which is also what the name it
+/// writes holds afterwards.
+fn assignment_value(a: &oxc_ast::ast::AssignmentExpression, depth: usize) -> Value {
+    match a.operator {
+        // A logical assignment can yield the LEFT side without ever evaluating
+        // the right: `x &&= !0` is `undefined` when `x` is. Only a plain `=`
+        // (or an arithmetic compound, which yields a primitive) is its right side.
+        AssignmentOperator::LogicalAnd => Value::AndThen(
+            Box::new(Value::MaybeUndefined),
+            Box::new(convert(&a.right, depth)),
+        ),
+        AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish => {
+            Value::OrElse(Box::new(convert(&a.right, depth)))
+        }
+        // A plain `=` evaluates to its right side. An arithmetic or bitwise
+        // compound assignment evaluates to the computed primitive instead,
+        // which is defined whatever the operand was - `x += y` is a number
+        // or a string even when `y` is `undefined` (`NaN` serializes as
+        // `null`, with the key still there).
+        AssignmentOperator::Assign => convert(&a.right, depth),
+        _ => Value::Defined,
+    }
+}
+
 /// The assigned side of a memoising ternary: one branch reads a binding, the
 /// other assigns it, so the whole expression evaluates to what is assigned.
 fn memoised<'a>(cond: &'a oxc_ast::ast::ConditionalExpression<'a>) -> Option<&'a Expression<'a>> {
@@ -944,7 +1137,6 @@ struct CallSiteCollector<'d> {
     opaque_keys: bool,
     /// How many branching statements enclose the node being visited. A write
     /// inside one may not run before the call; a write at zero does.
-    branch_depth: usize,
     diag: &'d mut PresenceDiagnostics,
 }
 
@@ -984,8 +1176,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.push_block();
         if let Some(param) = &clause.param {
             for ident in param.pattern.get_binding_identifiers() {
-                self.scopes
-                    .bind(ident.name.as_str(), Value::MaybeUndefined, false);
+                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
             }
         }
         walk::walk_catch_clause(self, clause);
@@ -998,66 +1189,55 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.pop();
     }
 
+    /// Each arm is its own branch: what the `if` writes is not what the `else`
+    /// reads, and neither is what follows the statement.
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_if_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.visit_expression(&stmt.test);
+        self.in_branch(|v| v.visit_statement(&stmt.consequent));
+        if let Some(alternate) = &stmt.alternate {
+            self.in_branch(|v| v.visit_statement(alternate));
+        }
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_for_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.in_branch(|v| walk::walk_for_statement(v, stmt));
     }
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_for_in_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.in_branch(|v| walk::walk_for_in_statement(v, stmt));
     }
 
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_for_of_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.in_branch(|v| walk::walk_for_of_statement(v, stmt));
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_while_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.in_branch(|v| walk::walk_while_statement(v, stmt));
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_do_while_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.in_branch(|v| walk::walk_do_while_statement(v, stmt));
     }
 
     fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_switch_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.in_branch(|v| walk::walk_switch_statement(v, stmt));
     }
 
     fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
-        self.branch_depth += 1;
-        walk::walk_try_statement(self, stmt);
-        self.branch_depth -= 1;
+        self.in_branch(|v| walk::walk_try_statement(v, stmt));
     }
 
     /// A write inside a short-circuit or a ternary arm runs only when that arm
     /// does, exactly like one inside an `if`.
     fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
-        self.branch_depth += 1;
-        walk::walk_logical_expression(self, expr);
-        self.branch_depth -= 1;
+        self.visit_expression(&expr.left);
+        self.in_branch(|v| v.visit_expression(&expr.right));
     }
 
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
-        self.branch_depth += 1;
-        walk::walk_conditional_expression(self, expr);
-        self.branch_depth -= 1;
+        self.visit_expression(&expr.test);
+        self.in_branch(|v| v.visit_expression(&expr.consequent));
+        self.in_branch(|v| v.visit_expression(&expr.alternate));
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -1066,10 +1246,8 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `x` would otherwise resolve to the outer value. What it extracts is not
         // modelled, so those names are passthroughs.
         if d.id.get_identifier_name().is_none() {
-            let conditional = self.branch_depth > 0;
             for ident in d.id.get_binding_identifiers() {
-                self.scopes
-                    .bind(ident.name.as_str(), Value::MaybeUndefined, conditional);
+                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
             }
         }
         let function_scoped = d.kind.is_var();
@@ -1082,12 +1260,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 Some(init) => convert(init, 0),
                 None => Value::MaybeUndefined,
             };
-            let conditional = self.branch_depth > 0;
             if function_scoped {
-                self.scopes
-                    .bind_function_scoped(name.as_str(), value, conditional);
+                self.scopes.bind_function_scoped(name.as_str(), value);
             } else {
-                self.scopes.bind(name.as_str(), value, conditional);
+                self.scopes.bind(name.as_str(), value);
             }
         }
         walk::walk_variable_declarator(self, d);
@@ -1097,9 +1273,23 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // The memoised require is written `e !== void 0 ? e : e = n("X.graphql")`,
         // so the binding for the operation handle exists only as an assignment.
         if let Some(name) = wa_oxc::assignment_target_name(&n.left) {
-            let value = convert(&n.right, 0);
-            let conditional = self.branch_depth > 0;
-            self.scopes.bind_assignment(name, value, conditional);
+            // Not the right side: `x &&= v` leaves `x` alone when it is falsy,
+            // so the binding afterwards is what the whole expression yields.
+            self.scopes.bind_assignment(name, assignment_value(n, 0));
+        } else if let Some(base) = member_assignment_base(&n.left) {
+            // `v.a = …` writes a key of an object this pass recovered, which the
+            // literal alone does not show: WA builds a variables object and then
+            // adds a key to it under a gate. Reading only the literal would
+            // publish the keys it wrote and miss this one, so the write lands on
+            // the recovered object - and where it cannot (a computed key, a
+            // deeper path, a binding that is not an object), the object stops
+            // being evidence rather than answering for a shape it no longer has.
+            let updated = static_path(&n.left).and_then(|path| {
+                let current = self.scopes.lookup(base)?.clone();
+                write_key(&current, &path, assignment_value(n, 0), &self.scopes, 0)
+            });
+            self.scopes
+                .bind_assignment(base, updated.unwrap_or(Value::Unjudged));
         }
         walk::walk_assignment_expression(self, n);
     }
@@ -1140,6 +1330,16 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 }
 
+impl<'a> CallSiteCollector<'a> {
+    /// Walk something that runs only when its branch is taken, then join what it
+    /// wrote with the value the path around it carries.
+    fn in_branch(&mut self, walk_arm: impl FnOnce(&mut Self)) {
+        self.scopes.enter_branch();
+        walk_arm(self);
+        self.scopes.leave_branch();
+    }
+}
+
 impl CallSiteCollector<'_> {
     /// Bind a function's parameters, so a name the caller passes in resolves to a
     /// passthrough rather than to whatever the enclosing module bound it to.
@@ -1156,14 +1356,12 @@ impl CallSiteCollector<'_> {
         // value and call a passthrough unconditional.
         for item in &params.items {
             for ident in item.pattern.get_binding_identifiers() {
-                self.scopes
-                    .bind(ident.name.as_str(), Value::MaybeUndefined, false);
+                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
             }
         }
         if let Some(rest) = &params.rest {
             for ident in rest.rest.argument.get_binding_identifiers() {
-                self.scopes
-                    .bind(ident.name.as_str(), Value::MaybeUndefined, false);
+                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
             }
         }
     }
@@ -1283,7 +1481,6 @@ pub(crate) fn variables_presence(
             sites: Vec::new(),
             unreadable_sites: 0,
             opaque_keys: false,
-            branch_depth: 0,
             diag,
         };
         collector.visit_program(&ret.program);
@@ -1990,6 +2187,87 @@ mod tests {
         let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
         assert_eq!(diag.ambiguous_call_sites, 0);
+    }
+
+    #[test]
+    fn a_var_first_written_inside_a_branch_keeps_its_hoisted_undefined() {
+        // `var x` is `undefined` from the top of the function, and the write is
+        // in a branch the call can be reached without, so the path around it
+        // sends no key.
+        let caller = r#"function f(t){if(t)var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_logical_assignment_is_not_a_plain_one() {
+        // `x &&= !0` leaves `x` undefined when it is falsy, so the binding it
+        // writes is the whole expression, not its right side.
+        for caller in [
+            r#"function f(){var x;x&&=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+            r#"function f(t){var x;x||=t.y;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
+    }
+
+    #[test]
+    fn a_local_function_declaration_shadows_the_module() {
+        // The local `x` is a function wherever the call sits, and
+        // `JSON.stringify` drops a key whose value is one.
+        let caller = r#"var x=!0;function f(){function x(){}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_write_through_a_key_reaches_the_recovered_object() {
+        // `WAWebBizCreateOrderJob` builds the variables object and then adds a
+        // key to it under a gate, one level down. The literal alone answers for
+        // neither the overwritten key nor the added one.
+        let overwritten = r#"function f(){var v={a:!0};v.a=void 0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(overwritten, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        let added = r#"function f(t){var v={input:{b:!0}};t!=null&&(v.input.a=t);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(added, &["input"]);
+        assert_eq!(at(&tree, "input"), VariablePresence::Always);
+        let input = &tree["input"];
+        assert_eq!(input.fields["b"].presence, VariablePresence::Always);
+        assert_eq!(
+            input.fields["a"].presence,
+            VariablePresence::Conditional,
+            "written only on the gated path"
+        );
+    }
+
+    #[test]
+    fn a_write_this_pass_cannot_follow_withdraws_the_object() {
+        // A computed key names nothing publishable, so what the binding holds
+        // afterwards is no longer the literal that was read.
+        let caller = r#"function f(t){var v={a:!0};v[t.k]=1;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_call_inside_a_branch_reads_what_that_branch_wrote() {
+        // The only invocation runs after the write, so `a` is on every request
+        // this module sends - joining with the pre-branch `undefined` would
+        // publish an optional field for a key the client never omits.
+        let caller = r#"function f(t){var x;if(t){x=!0;o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn the_other_arm_does_not_read_what_this_one_wrote() {
+        // Each arm is its own branch: the `else` runs on the path where the `if`
+        // did not, so the write above it is not evidence for the call below.
+        let caller = r#"function f(t){var x;if(t){x=!0}else{o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
