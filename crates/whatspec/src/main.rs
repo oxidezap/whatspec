@@ -758,6 +758,15 @@ struct Counts {
     iq_modules: usize,
     proto_entities: usize,
     mex_ops: usize,
+    /// Variable keys the official client's own call sites always write, mirroring
+    /// `diagnostics.mex.presenceAlways`. Floored: this is the constraint the
+    /// domain gained, and a WA refactor that hides a call site drops it silently
+    /// otherwise - the keys stay published, just as `undetermined`.
+    mex_presence_always: usize,
+    /// Operations whose `docId` was read out of this run's bundles (inline or via
+    /// the sibling relay-operation module). Floored so an id cannot start looking
+    /// unchanged because nothing re-derived it.
+    mex_doc_ids_extracted: usize,
     appstate_actions: usize,
     abprops_configs: usize,
     enum_defs: usize,
@@ -1998,7 +2007,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let checked = "domain result verified Ok above";
     let (iq_arts, (iq_count, iq_diag)) = iq.expect(checked);
     let (proto_arts, proto_count) = proto.expect(checked);
-    let (mex_arts, mex_count) = mex.expect(checked);
+    let (mex_arts, (mex_count, mex_diag)) = mex.expect(checked);
     let (appstate_arts, appstate_count) = appstate.expect(checked);
     let (abprops_arts, abprops_count) = abprops.expect(checked);
     let mut enums_ir = enums.expect(checked);
@@ -2109,6 +2118,8 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         iq_modules: iq_count,
         proto_entities: proto_count,
         mex_ops: mex_count,
+        mex_presence_always: mex_diag.presence_always,
+        mex_doc_ids_extracted: mex_diag.doc_ids_inline + mex_diag.doc_ids_from_sibling,
         appstate_actions: appstate_count,
         abprops_configs: abprops_count,
         enum_defs: enums_count,
@@ -2287,6 +2298,31 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "samplingWeightOverrides": wam_diag.sampling_weight_overrides,
                 "dropsByReason": wam_diag.drops_by_reason,
             },
+            // The mex domain publishes two things about a variable a count of
+            // operations cannot see. `presence*` is the distribution of the verdict
+            // the IR now carries per key, with `undetermined` counted rather than
+            // folded into `conditional` - the whole point of the third state is
+            // that it stays visible. `docIds*` splits the persisted ids by where
+            // this run read them, so an id that looks unchanged because it was
+            // extracted and an id that looks unchanged because nothing re-derived
+            // it are not the same number.
+            "mex": {
+                "operations": mex_diag.operations,
+                "operationsWithVariables": mex_diag.operations_with_variables,
+                "operationsFullyDetermined": mex_diag.operations_fully_determined,
+                "presenceAlways": mex_diag.presence_always,
+                "presenceConditional": mex_diag.presence_conditional,
+                "presenceUndetermined": mex_diag.presence_undetermined,
+                "docIdsInline": mex_diag.doc_ids_inline,
+                "docIdsFromSibling": mex_diag.doc_ids_from_sibling,
+                "docIdsFromName": mex_diag.doc_ids_from_name,
+                "dropsByReason": {
+                    "operationWithNoCallSite": mex_diag.presence.operations_without_call_site,
+                    "unreadableCallArgument": mex_diag.presence.unreadable_call_arguments,
+                    "unreadableSpread": mex_diag.presence.unreadable_spreads,
+                    "unreadableKey": mex_diag.presence.unreadable_keys,
+                },
+            },
             // These two domains run the same legacy parser as IQ and had no diagnostics
             // block at all, so a constraint they saw and could not recover was reported
             // nowhere — the one case the pending marker cannot distinguish on its own.
@@ -2363,6 +2399,34 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
             {
                 regressions.push(format!("wam.{key}: {prev} → {new}"));
             }
+        }
+    }
+    // The mex presence surface. `presenceAlways` is what the domain gained and the
+    // only number that falls when a call site stops being readable: the keys stay
+    // published either way, just as `undetermined`, so the operation count sees
+    // nothing. `docIdsInline`/`docIdsFromSibling` are floored together because a
+    // persisted id is a bare numeric string - an id nothing re-derived looks exactly
+    // like an id that did not change, and only its origin tells the two apart.
+    if let Some(mex) = prior.get("diagnostics").and_then(|d| d.get("mex")) {
+        if let Some(prev) = mex
+            .get("presenceAlways")
+            .and_then(serde_json::Value::as_u64)
+            && (counts.mex_presence_always as u64) < prev
+        {
+            regressions.push(format!(
+                "mex.presenceAlways: {prev} → {}",
+                counts.mex_presence_always
+            ));
+        }
+        let prev_ids: u64 = ["docIdsInline", "docIdsFromSibling"]
+            .iter()
+            .filter_map(|k| mex.get(*k).and_then(serde_json::Value::as_u64))
+            .sum();
+        if (counts.mex_doc_ids_extracted as u64) < prev_ids {
+            regressions.push(format!(
+                "mex.docIds(extracted): {prev_ids} → {}",
+                counts.mex_doc_ids_extracted
+            ));
         }
     }
     // Stanza-level IQ coverage — the sensitive signal the guard's doc promises:
@@ -2865,8 +2929,9 @@ fn push_mex(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<usize> {
-    let ir = wa_mex::extract_mex_from_modules(source, module_defs, wa_version);
+) -> Result<(usize, wa_mex::MexDiagnostics)> {
+    let (ir, diag) =
+        wa_mex::extract_mex_from_modules_with_diagnostics(source, module_defs, wa_version);
     let count = ir.operations.len();
     eprintln!("mex: {count} operations");
     artifacts.push(Artifact {
@@ -2878,7 +2943,7 @@ fn push_mex(
         rel_path: PathBuf::from("mex/operations.rs"),
         content: wa_codegen::generate_mex_operations(&ir),
     });
-    Ok(count)
+    Ok((count, diag))
 }
 
 fn push_appstate(

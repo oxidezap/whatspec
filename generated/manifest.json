@@ -55,6 +55,23 @@
       "typedResponses": 139,
       "unparseable": 5
     },
+    "mex": {
+      "docIdsFromName": 0,
+      "docIdsFromSibling": 33,
+      "docIdsInline": 110,
+      "dropsByReason": {
+        "operationWithNoCallSite": 6,
+        "unreadableCallArgument": 1,
+        "unreadableKey": 0,
+        "unreadableSpread": 0
+      },
+      "operations": 143,
+      "operationsFullyDetermined": 7,
+      "operationsWithVariables": 128,
+      "presenceAlways": 124,
+      "presenceConditional": 187,
+      "presenceUndetermined": 102
+    },
     "notif": {
       "actionShapes": 184,
       "actions": 47,
@@ -93,37 +110,37 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "5fb1f19c2547f8617f719268276016336aa04949fea91690773015a250a526f3"
+      "sha256": "8a82b844bbf713422c17d086eb03ec38016acd836908c6b1ceed6d0d4537939e"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "5c3b3881a6eb307436496236f981a466c195bd8f0a19a719eb6ed47eff0af2ed"
+      "sha256": "c8c0166ba7a2a3e9ca8cd0b232cc4b7c6f38411a18114c69755f7fac02cdfb25"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "7eda6cfd16fd0e5b927e797b01d891ab2296cedd23e89635cb47877dffe84a21"
+      "sha256": "53ca154bd9c638ccdbeec58182b98a31dc2e24e15c8e6712d7be4330705d1628"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "58d5ee0e3f2a03d828435bb49b71c00d72f3ea9c871d3722f2ecbe6a79114601"
+      "sha256": "91155cfb7182d8fbbfc00d795cd6b763aa5a97e544de1d572d812261b3f87c1f"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "b814494668a0bf36839679dff0cb9f263238391378b57b90ad8bfae7f70fcffa"
+      "sha256": "c166fdcc55403e4faf9b284b68e74407a2423ea53eccb353af45308c8ea7bab0"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "2f94dad2691eb9036fea7a2685acf3340364ba2a333df88299145933847ddb4a"
+      "sha256": "4bfffebc8ddd170e943a385613c138a573a8e22a1fa597fe0fdf95c79dc0c999"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "0002dd3f9e74a9ffcc37f0bca4772abcb9f6efdcdfcbceea80d245ca691729fa"
+      "sha256": "ab1d53a025ba89b0abbe86dbeed5be5a3889f622fa0798580a2a22ac85f863f1"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -132,27 +149,27 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "d8eff4e11cdbb4d1f98daccde3bc90756ff0606853d2d547cde4d90742c0d544"
+      "sha256": "6900750eb85603564213e06c79dae359a8ef21388dc8a17f14c82de45c0d128a"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "71bf4cf68551b9a70a9eca21e78ac33f02c13925a039769780f8da3bc6c016ab"
+      "sha256": "c49afaa82604a52aa0a33f22aa204030886b30935667e5f838c058a0cdab3d41"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "2c21ee752449f0d12d6ea3b10897597416013eb14e36e12bad815f266985c3c7"
+      "sha256": "9b74e5fdef0fc980f907ecff1ccdbf5c5acd356f6ba5686acae31fa3f2172488"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "39e3ffcac131264d99b368a951a94c1fc3ff44091f837250d70fa445c2948736"
+      "sha256": "0358960b52ec49c94306588e81a0d012756d32c73acc3e1af632fc4e0f880913"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "662451cea1460ddc5cc0164a9ba11a344240d4710de98cb36645bd0b2bf3e273"
+      "sha256": "fffd9788d00fc3a1a3fa50da87b125e01e712251807c2490a3255e641b8cd914"
     }
   },
   "enumDefs": 416,
@@ -162,7 +179,7 @@
   "mexOperations": 143,
   "notifTypes": 27,
   "protoEntities": 356,
-  "schemaVersion": "4.1.0",
+  "schemaVersion": "4.2.0",
   "serverRequestDefs": 23,
   "stanzaDefs": 198,
   "tokenDoubleByte": 1024,

@@ -97,10 +97,72 @@ const NOISE: &[&str] = &[
     "boost",
 ];
 
+/// Where an operation's persisted `docId` came from **in this run**, and how many
+/// variable keys landed in each presence state.
+///
+/// The two halves answer questions a count of operations cannot. A `docId` is a
+/// bare numeric string, so a stale one and a fresh one look alike; splitting the
+/// total by origin makes "extracted from the operation literal" and "fell back to
+/// the operation name" separately visible, and a fallback is a broken persisted
+/// id rather than a cosmetic gap. The presence tallies are the residue of the
+/// same rule the IR publishes: `undetermined` is a real state, and it belongs in
+/// a counted diagnostic rather than in silence.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct MexDiagnostics {
+    /// Operations published.
+    pub operations: usize,
+    /// `params.id` read as a string literal in the operation's own module.
+    pub doc_ids_inline: usize,
+    /// `params.id: require("X_facebookRelayOperation")`, resolved against the
+    /// sibling module that exports the id.
+    pub doc_ids_from_sibling: usize,
+    /// No id in the bundle at all: the operation name stands in for one, which is
+    /// the only state in which `docId` is not a persisted id.
+    pub doc_ids_from_name: usize,
+    /// Variable keys carrying each verdict, counted over the whole published
+    /// tree (nested object keys and list-element keys included).
+    pub presence_always: usize,
+    pub presence_conditional: usize,
+    pub presence_undetermined: usize,
+    /// Operations with at least one variable.
+    pub operations_with_variables: usize,
+    /// Operations where every variable is `always`.
+    pub operations_fully_determined: usize,
+    /// What the presence scan saw and could not read.
+    pub presence: PresenceDiagnostics,
+}
+
+/// The forms the presence scan could not turn into a verdict, kept apart from
+/// the verdicts themselves so a rise in "we could not read this" is not hidden by
+/// a fall in "the client may omit this".
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PresenceDiagnostics {
+    /// Operations for which no call site was recovered, so every one of their
+    /// variables is `undetermined` for want of evidence rather than by judgement.
+    pub operations_without_call_site: usize,
+    /// A matched Relay call whose second argument is not an object literal and
+    /// does not resolve to one.
+    pub unreadable_call_arguments: usize,
+    /// A spread whose source object the scan could not enumerate, so the keys it
+    /// contributes are unknown - the one way a variable can look unwritten while
+    /// the client writes it.
+    pub unreadable_spreads: usize,
+    /// A computed property key, which names no publishable variable.
+    pub unreadable_keys: usize,
+}
+
 /// Extract all persisted Mex operations from a bundle's source.
 pub fn extract_mex(bundle_source: &str, wa_version: &str) -> MexIr {
+    extract_mex_with_diagnostics(bundle_source, wa_version).0
+}
+
+/// [`extract_mex`], plus the extraction-quality counts.
+pub fn extract_mex_with_diagnostics(
+    bundle_source: &str,
+    wa_version: &str,
+) -> (MexIr, MexDiagnostics) {
     let module_defs = wa_transform::extract_module_definitions(bundle_source);
-    extract_mex_from_modules(bundle_source, &module_defs, wa_version)
+    extract_mex_from_modules_with_diagnostics(bundle_source, &module_defs, wa_version)
 }
 
 /// Extract Mex operations from an already-split module index (shares one
@@ -111,6 +173,15 @@ pub fn extract_mex_from_modules(
     module_defs: &[ModuleDefinition],
     wa_version: &str,
 ) -> MexIr {
+    extract_mex_from_modules_with_diagnostics(source, module_defs, wa_version).0
+}
+
+/// [`extract_mex_from_modules`], plus the extraction-quality counts.
+pub fn extract_mex_from_modules_with_diagnostics(
+    source: &str,
+    module_defs: &[ModuleDefinition],
+    wa_version: &str,
+) -> (MexIr, MexDiagnostics) {
     // Map each `.graphql` module to its first caller (a module that depends on
     // it) — the caller's body holds the `fetchQuery(id, <expr>)` whose 2nd arg
     // reveals the input variable shape.
@@ -146,8 +217,33 @@ pub fn extract_mex_from_modules(
         collector.visit_program(&ret.program);
         if let Some(mut raw) = collector.raw {
             raw.response = crate::shape::response_from_module(slice);
-            let caller_body = caller_by_graphql.get(name).map(|d| &source[d.start..d.end]);
+            let caller = caller_by_graphql.get(name);
+            let caller_body = caller.map(|d| &source[d.start..d.end]);
             raw.variables_shape = crate::shape::variables_shape(caller_body, &raw.variables);
+            // A caller that depends on exactly one `.graphql` module cannot be
+            // sending another operation, so a call whose handle argument the scan
+            // cannot tie back to a module is still unambiguously this one's.
+            let sole = caller
+                .map(|d| d.deps.iter().filter(|x| x.ends_with(MODULE_SUFFIX)).count() == 1)
+                .unwrap_or(false);
+            // Counted per operation and folded in below, so the totals describe
+            // the operations the IR publishes rather than the raw scan - the noise
+            // filter drops a third of them, and a diagnostic that counted those
+            // would not add up against the document a consumer reads.
+            raw.variables_presence = crate::presence::variables_presence(
+                caller_body,
+                name,
+                sole,
+                &raw.variables,
+                &mut raw.presence,
+            );
+            // The two maps are siblings a consumer reads together, so every key
+            // the shape publishes has to carry a verdict. A key the presence scan
+            // never reached - a list built by `.map(…)`, whose callback the shape
+            // pass reads and this one does not judge - gets `undetermined` rather
+            // than no entry, because an absent key and "we could not tell" are
+            // exactly the two a reader must not have to guess between.
+            align_with_shape(&raw.variables_shape, &mut raw.variables_presence);
             raw_ops.push(raw);
         }
     }
@@ -159,6 +255,7 @@ pub fn extract_mex_from_modules(
     // keeps the base key, which gets the suffix, which is dropped) is independent
     // of bundle/source order — otherwise the same WA version emits different keys.
     raw_ops.sort_by(|a, b| a.original_name.cmp(&b.original_name));
+    let mut diag = MexDiagnostics::default();
     let mut operations: BTreeMap<String, MexOperation> = BTreeMap::new();
     for raw in raw_ops {
         if is_noise(&raw.original_name) {
@@ -167,10 +264,25 @@ pub fn extract_mex_from_modules(
         let Some(kind) = raw.operation_kind else {
             continue;
         };
-        let doc_id = raw
-            .doc_id
-            .or_else(|| raw.doc_id_ref.and_then(|m| exported_ids.get(&m).cloned()))
-            .unwrap_or_else(|| raw.original_name.clone());
+        // Split by origin as the id is resolved, so the manifest can say that
+        // every published `docId` was read out of THIS bundle set rather than
+        // looking unchanged because nothing re-derived it.
+        let doc_id = match raw.doc_id {
+            Some(id) => {
+                diag.doc_ids_inline += 1;
+                id
+            }
+            None => match raw.doc_id_ref.and_then(|m| exported_ids.get(&m).cloned()) {
+                Some(id) => {
+                    diag.doc_ids_from_sibling += 1;
+                    id
+                }
+                None => {
+                    diag.doc_ids_from_name += 1;
+                    raw.original_name.clone()
+                }
+            },
+        };
 
         let mut key = strip_op_name(&raw.original_name);
         if operations.contains_key(&key) {
@@ -180,6 +292,18 @@ pub fn extract_mex_from_modules(
             }
             key = alt;
         }
+        count_presence(&raw.variables_presence, &mut diag);
+        let p = &raw.presence;
+        diag.presence.operations_without_call_site += p.operations_without_call_site;
+        diag.presence.unreadable_call_arguments += p.unreadable_call_arguments;
+        diag.presence.unreadable_spreads += p.unreadable_spreads;
+        diag.presence.unreadable_keys += p.unreadable_keys;
+        if !raw.variables.is_empty() {
+            diag.operations_with_variables += 1;
+            if raw.variables_presence.values().all(all_always) {
+                diag.operations_fully_determined += 1;
+            }
+        }
         operations.insert(
             key,
             MexOperation {
@@ -188,15 +312,75 @@ pub fn extract_mex_from_modules(
                 operation_kind: kind,
                 variables: raw.variables,
                 variables_shape: raw.variables_shape,
+                variables_presence: raw.variables_presence,
                 response: raw.response,
             },
         );
     }
 
-    MexIr {
-        wa_version: wa_version.to_string(),
-        operations,
+    diag.operations = operations.len();
+    (
+        MexIr {
+            wa_version: wa_version.to_string(),
+            operations,
+        },
+        diag,
+    )
+}
+
+/// Give every key of the shape tree a verdict, defaulting to `undetermined`.
+fn align_with_shape(
+    shape: &BTreeMap<String, wa_ir::TypeNode>,
+    presence: &mut BTreeMap<String, wa_ir::VariablePresenceNode>,
+) {
+    for (key, node) in shape {
+        let entry = presence.entry(key.clone()).or_insert_with(|| {
+            wa_ir::VariablePresenceNode::leaf(wa_ir::VariablePresence::Undetermined)
+        });
+        align_node(node, entry);
     }
+}
+
+fn align_node(shape: &wa_ir::TypeNode, presence: &mut wa_ir::VariablePresenceNode) {
+    match shape {
+        wa_ir::TypeNode::Object(fields) => align_with_shape(fields, &mut presence.fields),
+        wa_ir::TypeNode::Array(items) => {
+            if let Some(wa_ir::TypeNode::Object(fields)) = items.first() {
+                // A list element is not a key, so it carries no verdict of its own
+                // - see `VariablePresenceNode::items`.
+                let item = presence.items.get_or_insert_with(|| {
+                    Box::new(wa_ir::VariablePresenceNode::leaf(
+                        wa_ir::VariablePresence::Always,
+                    ))
+                });
+                align_with_shape(fields, &mut item.fields);
+            }
+        }
+        wa_ir::TypeNode::Leaf(_) => {}
+    }
+}
+
+/// Tally every key of a presence tree, nested keys included: the question is
+/// asked of each key, so the count has to be of keys and not of variables.
+fn count_presence(tree: &BTreeMap<String, wa_ir::VariablePresenceNode>, diag: &mut MexDiagnostics) {
+    for node in tree.values() {
+        match node.presence {
+            wa_ir::VariablePresence::Always => diag.presence_always += 1,
+            wa_ir::VariablePresence::Conditional => diag.presence_conditional += 1,
+            wa_ir::VariablePresence::Undetermined => diag.presence_undetermined += 1,
+        }
+        count_presence(&node.fields, diag);
+        if let Some(items) = &node.items {
+            count_presence(&items.fields, diag);
+        }
+    }
+}
+
+/// Whether a variable and everything nested under it is `always`.
+fn all_always(node: &wa_ir::VariablePresenceNode) -> bool {
+    node.presence == wa_ir::VariablePresence::Always
+        && node.fields.values().all(all_always)
+        && node.items.as_ref().is_none_or(|i| all_always(i))
 }
 
 fn is_noise(name: &str) -> bool {
@@ -236,6 +420,10 @@ struct RawOp {
     operation_kind: Option<MexOperationKind>,
     variables: Vec<String>,
     variables_shape: BTreeMap<String, wa_ir::TypeNode>,
+    variables_presence: BTreeMap<String, wa_ir::VariablePresenceNode>,
+    /// What the presence scan could not read for THIS operation, folded into the
+    /// document-level totals only once the operation survives the noise filter.
+    presence: PresenceDiagnostics,
     response: BTreeMap<String, wa_ir::TypeNode>,
 }
 
@@ -325,6 +513,8 @@ impl MexCollector {
             operation_kind,
             variables,
             variables_shape: BTreeMap::new(),
+            variables_presence: BTreeMap::new(),
+            presence: PresenceDiagnostics::default(),
             response: BTreeMap::new(),
         })
     }
@@ -460,6 +650,52 @@ mod tests {
         );
         assert_eq!(strip_op_name("WAWebMexSomethingQuery"), "Something");
         assert_eq!(strip_op_name("Plain"), "Plain");
+    }
+
+    #[test]
+    fn doc_id_origin_is_counted_per_operation() {
+        // A persisted id is a bare numeric string, so an id that did not change and
+        // an id nothing re-derived are the same value. Splitting by origin is what
+        // makes the second visible, and the name fallback is the state in which
+        // `docId` is not a persisted id at all.
+        let (_, diag) = extract_mex_with_diagnostics(MODULE, "2.3000.1");
+        assert_eq!(diag.doc_ids_inline, 1, "read from this run's params.id");
+        assert_eq!(diag.doc_ids_from_sibling, 0);
+        assert_eq!(diag.doc_ids_from_name, 0);
+
+        let m = r#"__d("WAWebNoIdQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",operation:{argumentDefinitions:[],name:"WAWebNoIdQuery"},params:{id:null,name:"WAWebNoIdQuery",operationKind:"query"}}
+        }),null);"#;
+        let (_, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        assert_eq!(diag.doc_ids_from_name, 1);
+        assert_eq!(diag.doc_ids_inline, 0);
+    }
+
+    #[test]
+    fn presence_is_published_beside_the_shape() {
+        let m = r#"
+        __d("WAWebFlagQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"fetch_x"},{kind:"LocalArgument",name:"fetch_y"}],name:"WAWebFlagQuery"},operation:{argumentDefinitions:[],name:"WAWebFlagQuery"},params:{id:"7",name:"WAWebFlagQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebFlagJob",["WAWebFlagQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebFlagQuery.graphql"),{fetch_x:(e==null?void 0:e.x)===!0,fetch_y:e.y})}
+            l.job=u
+        }),null);"#;
+        let (ir, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        let op = ir.operations.get("Flag").unwrap();
+        assert_eq!(
+            op.variables_presence["fetch_x"].presence,
+            wa_ir::VariablePresence::Always
+        );
+        assert_eq!(
+            op.variables_presence["fetch_y"].presence,
+            wa_ir::VariablePresence::Conditional
+        );
+        assert_eq!(diag.presence_always, 1);
+        assert_eq!(diag.presence_conditional, 1);
+        assert_eq!(diag.presence_undetermined, 0);
+        assert_eq!(diag.operations_with_variables, 1);
+        assert_eq!(diag.operations_fully_determined, 0);
     }
 
     #[test]

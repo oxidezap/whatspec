@@ -52,6 +52,13 @@
             "type": "string"
           }
         },
+        "variablesPresence": {
+          "description": "Whether the official client always sends each input variable, keyed the\nsame way as `variables_shape` and nested the same way - see\n[`VariablePresence`].",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/VariablePresenceNode"
+          }
+        },
         "variablesShape": {
           "description": "Typed shape of the input variables (argument name → type tree).",
           "type": "object",
@@ -91,6 +98,56 @@
         {
           "type": "string"
         }
+      ]
+    },
+    "VariablePresence": {
+      "description": "Whether the official client's own call sites put a variable key on the wire.\n\nA persisted operation's compiled tree references its variables\nunconditionally, so a server validates the *presence* of a key, not only its\ntype. `variablesShape` answers \"what type\", and answered nothing about \"is it\nthere\" - which made \"the client may omit this\" and \"we could not tell\"\nthe same silence, read by every emitter as the first.\n\nThe unit is the key as it survives serialization: WA hands the variables\nobject to `JSON.stringify`, which drops a key whose value is `undefined`, so\na key written with a possibly-`undefined` value is not a key on the wire.",
+      "oneOf": [
+        {
+          "description": "Every recovered call site writes the key, with a value no JS evaluation\ncan make `undefined` (a literal, a comparison, a coercion like `x === !0`\nor `!!x`, a `??`/`||` whose right side is itself defined, a ternary whose\nboth arms are).",
+          "type": "string",
+          "const": "always"
+        },
+        {
+          "description": "At least one recovered call site can leave the key off the wire: it sits\nbehind a conditional spread, its value passes an expression through that\nmay be `undefined` (a bare binding, a property read, an optional chain),\nor that site's variables object does not write the key at all.",
+          "type": "string",
+          "const": "conditional"
+        },
+        {
+          "description": "Not established. No call site was recovered for the operation, or the\nvalue is an expression form this extractor does not judge (a call, an\n`await`, anything whose result it cannot reason about). Deliberately not\nfolded into `Conditional`: \"the official client sometimes omits this\" is\na claim, and one this variant has not earned.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "VariablePresenceNode": {
+      "description": "Presence of one variable key, plus the same answer for the keys nested under\nit.\n\nA sibling of `variablesShape` rather than a richer leaf inside it: enriching\nthe shape's type tags would break every consumer that reads them as strings,\nand presence is a property of the *key*, not of the type.",
+      "type": "object",
+      "properties": {
+        "fields": {
+          "description": "Keys of the object this variable carries, when the call site writes an\nobject literal. Empty for a scalar.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/VariablePresenceNode"
+          }
+        },
+        "items": {
+          "description": "The element of a list variable. An element is not a key, so its own\n`presence` is `Always` by construction; it exists to carry the element's\n`fields`, which are keys and are subject to the same question.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VariablePresenceNode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "presence": {
+          "$ref": "#/$defs/VariablePresence"
+        }
+      },
+      "required": [
+        "presence"
       ]
     }
   }

@@ -179,7 +179,7 @@ pub enum Scalar {
 /// [`WamConstant`]: crate::WamConstant
 /// [`WamEvent::call_sites`]: crate::WamEvent::call_sites
 /// [`WamEvent::consumers`]: crate::WamEvent::consumers
-pub const SCHEMA_VERSION: &str = "4.1.0";
+pub const SCHEMA_VERSION: &str = "4.2.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

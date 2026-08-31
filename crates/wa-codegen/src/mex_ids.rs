@@ -112,6 +112,7 @@ mod tests {
                     operation_kind: MexOperationKind::Query,
                     variables: vec![],
                     variables_shape: Default::default(),
+                    variables_presence: Default::default(),
                     response: Default::default(),
                 },
             );

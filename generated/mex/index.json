@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "4.1.0",
+  "schemaVersion": "4.2.0",
   "waVersion": "2.3000.1045368834",
   "operations": {
     "ACSServerProviderConfig": {
@@ -11,6 +11,11 @@
       ],
       "variablesShape": {
         "project_name": "string"
+      },
+      "variablesPresence": {
+        "project_name": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa_wa_acs_config": {
@@ -37,6 +42,25 @@
           "issue_element": "string",
           "project_name": "string",
           "request_proof": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "config_id": {
+              "presence": "conditional"
+            },
+            "issue_element": {
+              "presence": "undetermined"
+            },
+            "project_name": {
+              "presence": "conditional"
+            },
+            "request_proof": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -69,6 +93,11 @@
       "variablesShape": {
         "newsletter_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_admin_invite_accept": {
           "__typename": "string",
@@ -89,6 +118,17 @@
         "consumer_lid": "string",
         "phone_number": "number",
         "thread_status": "string"
+      },
+      "variablesPresence": {
+        "consumer_lid": {
+          "presence": "conditional"
+        },
+        "phone_number": {
+          "presence": "conditional"
+        },
+        "thread_status": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xfb_whatsapp_smb_maiba_status_update": {
@@ -119,6 +159,14 @@
         "application_id": "string",
         "code": "string"
       },
+      "variablesPresence": {
+        "application_id": {
+          "presence": "always"
+        },
+        "code": {
+          "presence": "always"
+        }
+      },
       "response": {
         "xwa_bp_access_token_and_session_cookies": {
           "access_token": "string",
@@ -142,6 +190,24 @@
           "order": {
             "jid": "string",
             "products": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "order": {
+              "presence": "always",
+              "fields": {
+                "jid": {
+                  "presence": "undetermined"
+                },
+                "products": {
+                  "presence": "undetermined"
+                }
+              }
+            }
           }
         }
       },
@@ -174,6 +240,21 @@
           }
         }
       },
+      "variablesPresence": {
+        "data": {
+          "presence": "always",
+          "fields": {
+            "custom_url": {
+              "presence": "always",
+              "fields": {
+                "path": {
+                  "presence": "conditional"
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa_custom_url_get_user": {
           "error_code": "string",
@@ -196,6 +277,25 @@
           "operation": "string",
           "query": "string",
           "version": "number"
+        }
+      },
+      "variablesPresence": {
+        "query_params": {
+          "presence": "always",
+          "fields": {
+            "locale": {
+              "presence": "conditional"
+            },
+            "operation": {
+              "presence": "always"
+            },
+            "query": {
+              "presence": "conditional"
+            },
+            "version": {
+              "presence": "always"
+            }
+          }
         }
       },
       "response": {
@@ -226,6 +326,25 @@
           "operation": "string",
           "query": "string",
           "version": "number"
+        }
+      },
+      "variablesPresence": {
+        "query_params": {
+          "presence": "always",
+          "fields": {
+            "locale": {
+              "presence": "conditional"
+            },
+            "operation": {
+              "presence": "always"
+            },
+            "query": {
+              "presence": "conditional"
+            },
+            "version": {
+              "presence": "always"
+            }
+          }
         }
       },
       "response": {
@@ -269,6 +388,21 @@
           }
         }
       },
+      "variablesPresence": {
+        "data": {
+          "presence": "always",
+          "fields": {
+            "custom_url": {
+              "presence": "always",
+              "fields": {
+                "path": {
+                  "presence": "conditional"
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa_custom_url_get_user": {
           "error_code": "string",
@@ -289,6 +423,11 @@
       ],
       "variablesShape": {
         "request": "string"
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xfb_whatsapp_biz_merchant_compliance_info": {
@@ -324,6 +463,16 @@
           "locale": "string"
         }
       },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "locale": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa_whatsapp_get_pricing_tiers": {
           "price_tiers": [
@@ -346,6 +495,11 @@
       "variablesShape": {
         "bizJid": "string"
       },
+      "variablesPresence": {
+        "bizJid": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa_whatsapp_smb_get_profile_linkshims": [
           {
@@ -364,6 +518,11 @@
       ],
       "variablesShape": {
         "request": "string"
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa_checkout_refresh_cart": {
@@ -499,6 +658,22 @@
           "use_case_id": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "center": {
+              "presence": "undetermined"
+            },
+            "query": {
+              "presence": "conditional"
+            },
+            "use_case_id": {
+              "presence": "always"
+            }
+          }
+        }
+      },
       "response": {
         "whatsapp_maps_typeahead": {
           "items": [
@@ -540,6 +715,46 @@
             "jid": "string",
             "token": {
               "sensitive_string_value": "string"
+            }
+          }
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "order": {
+              "presence": "always",
+              "fields": {
+                "direct_connection_encrypted_info": {
+                  "presence": "always"
+                },
+                "id": {
+                  "presence": "conditional"
+                },
+                "image_dimensions": {
+                  "presence": "always",
+                  "fields": {
+                    "height": {
+                      "presence": "conditional"
+                    },
+                    "width": {
+                      "presence": "conditional"
+                    }
+                  }
+                },
+                "jid": {
+                  "presence": "undetermined"
+                },
+                "token": {
+                  "presence": "always",
+                  "fields": {
+                    "sensitive_string_value": {
+                      "presence": "conditional"
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -592,6 +807,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xfb_whatsapp_biz_merchant_set_compliance_info": {
           "__typename": "string",
@@ -628,6 +848,19 @@
           "request_id": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "client_pub_key": {
+              "presence": "undetermined"
+            },
+            "request_id": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_ent_trade_canonical_nonce_for_access_tokens": {
           "encrypted_access_tokens": {
@@ -662,6 +895,14 @@
         "newsletter_id": "string",
         "user_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "user_id": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "xwa2_newsletter_change_owner": {
           "__typename": "string",
@@ -687,6 +928,33 @@
             "country": "string",
             "is_from_wa_smb": "boolean",
             "locale": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "nux_ids": {
+          "presence": "undetermined"
+        },
+        "trigger_context": {
+          "presence": "always",
+          "fields": {
+            "wa_smb_trigger_context": {
+              "presence": "always",
+              "fields": {
+                "app_version": {
+                  "presence": "conditional"
+                },
+                "country": {
+                  "presence": "undetermined"
+                },
+                "is_from_wa_smb": {
+                  "presence": "always"
+                },
+                "locale": {
+                  "presence": "conditional"
+                }
+              }
+            }
           }
         }
       },
@@ -843,6 +1111,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "wa_consumer_quick_promotion_log_event": {
           "client_mutation_id": "string"
@@ -858,6 +1131,11 @@
       ],
       "variablesShape": {
         "lid": "string"
+      },
+      "variablesPresence": {
+        "lid": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "xfb_wa_customer_profile": {
@@ -889,6 +1167,11 @@
           "string"
         ]
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always"
+        }
+      },
       "response": {
         "xfb_wa_upsert_customer_profiles": {
           "profiles": [
@@ -915,6 +1198,28 @@
           "page_size": "number",
           "sort_column": "string",
           "sort_descending": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "candidate_lids": {
+              "presence": "always"
+            },
+            "cursor": {
+              "presence": "conditional"
+            },
+            "page_size": {
+              "presence": "always"
+            },
+            "sort_column": {
+              "presence": "always"
+            },
+            "sort_descending": {
+              "presence": "always"
+            }
+          }
         }
       },
       "response": {
@@ -951,6 +1256,22 @@
           "server_send_sms": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "entry_point": {
+              "presence": "conditional"
+            },
+            "receiver": {
+              "presence": "conditional"
+            },
+            "server_send_sms": {
+              "presence": "always"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_growth_create_invite_code": {
           "code": "string"
@@ -966,6 +1287,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "wa_labyrinth_create_backup": {
@@ -989,6 +1315,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "whatsapp_marketing_messages_create": {
@@ -1016,6 +1347,22 @@
           "description": "string",
           "name": "string",
           "picture": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "description": {
+              "presence": "conditional"
+            },
+            "name": {
+              "presence": "conditional"
+            },
+            "picture": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -1075,6 +1422,14 @@
         "newsletter_id": "string",
         "user_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "user_id": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "xwa2_newsletter_admin_invite_create": {
           "id": "string",
@@ -1093,6 +1448,14 @@
       "variablesShape": {
         "reason": "string",
         "report_id": "string"
+      },
+      "variablesPresence": {
+        "reason": {
+          "presence": "conditional"
+        },
+        "report_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_create_channel_report_appeal_v2": {
@@ -1145,6 +1508,24 @@
           "sensitive_string_value": "string"
         }
       },
+      "variablesPresence": {
+        "code": {
+          "presence": "always",
+          "fields": {
+            "sensitive_string_value": {
+              "presence": "conditional"
+            }
+          }
+        },
+        "phone_number": {
+          "presence": "always",
+          "fields": {
+            "sensitive_string_value": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "create_or_update_whatsapp_ads_identity": {
           "id": "string"
@@ -1162,6 +1543,14 @@
       "variablesShape": {
         "custom_labels": "string",
         "expt_group": "string"
+      },
+      "variablesPresence": {
+        "custom_labels": {
+          "presence": "conditional"
+        },
+        "expt_group": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa_get_3pd_event": [
@@ -1187,6 +1576,25 @@
           "num_msgs": "string",
           "num_threads": "string",
           "upper_timestamp": "number"
+        }
+      },
+      "variablesPresence": {
+        "params": {
+          "presence": "always",
+          "fields": {
+            "lower_timestamp": {
+              "presence": "conditional"
+            },
+            "num_msgs": {
+              "presence": "conditional"
+            },
+            "num_threads": {
+              "presence": "conditional"
+            },
+            "upper_timestamp": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -1228,6 +1636,17 @@
         "message_count": "number",
         "partial_thread_id": "string"
       },
+      "variablesPresence": {
+        "device_id": {
+          "presence": "conditional"
+        },
+        "message_count": {
+          "presence": "conditional"
+        },
+        "partial_thread_id": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "get_WAMessagingViewerThreadByORF": {
           "__typename": "string",
@@ -1264,6 +1683,11 @@
       "variablesShape": {
         "newsletter_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_delete_v2": {
           "id": "string",
@@ -1285,6 +1709,14 @@
         "newsletter_id": "string",
         "user_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "user_id": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "xwa2_newsletter_admin_demote": {
           "__typename": "string",
@@ -1301,6 +1733,11 @@
       ],
       "variablesShape": {
         "data": "string"
+      },
+      "variablesPresence": {
+        "data": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "viewer": {
@@ -1333,6 +1770,14 @@
         "input": "string",
         "lid": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        },
+        "lid": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "edit_wa_web_biz_profile": "string"
       }
@@ -1346,6 +1791,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "xwa_external_ctx_authorise_wa_chat": {
@@ -1364,6 +1814,16 @@
       "variablesShape": {
         "user": {
           "user_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "user": {
+          "presence": "always",
+          "fields": {
+            "user_id": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -1390,6 +1850,14 @@
       "variablesShape": {
         "fetch_status_metadata": "boolean",
         "fetch_wamo_sub": "boolean"
+      },
+      "variablesPresence": {
+        "fetch_status_metadata": {
+          "presence": "always"
+        },
+        "fetch_wamo_sub": {
+          "presence": "always"
+        }
       },
       "response": {
         "xwa2_newsletter_subscribed": [
@@ -1464,6 +1932,17 @@
         "query_context": "string",
         "sub_group_hint_id": "string"
       },
+      "variablesPresence": {
+        "group_id": {
+          "presence": "undetermined"
+        },
+        "query_context": {
+          "presence": "conditional"
+        },
+        "sub_group_hint_id": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "xwa2_group_query_by_id": {
           "__typename": "string",
@@ -1509,6 +1988,11 @@
       "variablesShape": {
         "crl_name": "string"
       },
+      "variablesPresence": {
+        "crl_name": {
+          "presence": "always"
+        }
+      },
       "response": {
         "xwa2_fetch_feature_pki_crl": {
           "crl": "string",
@@ -1525,6 +2009,11 @@
       ],
       "variablesShape": {
         "ids": "string"
+      },
+      "variablesPresence": {
+        "ids": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xfb_fetch_genai_personas": [
@@ -1580,6 +2069,20 @@
         "include_username": "boolean",
         "participants_phash": "string",
         "query_context": "string"
+      },
+      "variablesPresence": {
+        "id": {
+          "presence": "conditional"
+        },
+        "include_username": {
+          "presence": "undetermined"
+        },
+        "participants_phash": {
+          "presence": "conditional"
+        },
+        "query_context": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_group_query_by_id": {
@@ -1696,6 +2199,20 @@
         "participants_phash": "string",
         "query_context": "string"
       },
+      "variablesPresence": {
+        "id": {
+          "presence": "conditional"
+        },
+        "include_username": {
+          "presence": "undetermined"
+        },
+        "participants_phash": {
+          "presence": "conditional"
+        },
+        "query_context": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_group_query_by_id": {
           "__typename": "string",
@@ -1809,6 +2326,14 @@
         "id": "string",
         "query_context": "string"
       },
+      "variablesPresence": {
+        "id": {
+          "presence": "undetermined"
+        },
+        "query_context": {
+          "presence": "always"
+        }
+      },
       "response": {
         "xwa2_group_query_by_id": {
           "__typename": "string",
@@ -1826,6 +2351,11 @@
       ],
       "variablesShape": {
         "id": "string"
+      },
+      "variablesPresence": {
+        "id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_group_query_by_id": {
@@ -1859,6 +2389,40 @@
           }
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "query_input": {
+              "presence": "always",
+              "items": {
+                "presence": "always",
+                "fields": {
+                  "integrity_signals": {
+                    "presence": "always",
+                    "fields": {
+                      "use_case": {
+                        "presence": "always"
+                      }
+                    }
+                  },
+                  "jid": {
+                    "presence": "undetermined"
+                  }
+                }
+              }
+            },
+            "telemetry": {
+              "presence": "always",
+              "fields": {
+                "context": {
+                  "presence": "always"
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_fetch_wa_users": [
           {
@@ -1883,6 +2447,16 @@
       "variablesShape": {
         "input": {
           "type": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "type": {
+              "presence": "always"
+            }
+          }
         }
       },
       "response": {
@@ -1926,6 +2500,40 @@
           "key": "string",
           "type": "string",
           "view_role": "string"
+        }
+      },
+      "variablesPresence": {
+        "fetch_creation_time": {
+          "presence": "always"
+        },
+        "fetch_full_image": {
+          "presence": "always"
+        },
+        "fetch_pinned_messages": {
+          "presence": "undetermined"
+        },
+        "fetch_status_metadata": {
+          "presence": "always"
+        },
+        "fetch_viewer_metadata": {
+          "presence": "conditional"
+        },
+        "fetch_wamo_sub": {
+          "presence": "always"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "key": {
+              "presence": "conditional"
+            },
+            "type": {
+              "presence": "always"
+            },
+            "view_role": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -2002,6 +2610,11 @@
       "variablesShape": {
         "newsletter_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_admin": {
           "capabilities": "string",
@@ -2018,6 +2631,11 @@
       ],
       "variablesShape": {
         "newsletter_id": "string"
+      },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_newsletter_admin": {
@@ -2053,6 +2671,28 @@
           "key": "string",
           "type": "string",
           "view_role": "string"
+        }
+      },
+      "variablesPresence": {
+        "fetch_pinned_messages": {
+          "presence": "undetermined"
+        },
+        "fetch_wamo_sub": {
+          "presence": "always"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "key": {
+              "presence": "conditional"
+            },
+            "type": {
+              "presence": "always"
+            },
+            "view_role": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -2098,6 +2738,25 @@
           ],
           "country_code": "string",
           "per_category_limit": "string"
+        }
+      },
+      "variablesPresence": {
+        "fetch_status_metadata": {
+          "presence": "undetermined"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "categories": {
+              "presence": "undetermined"
+            },
+            "country_code": {
+              "presence": "conditional"
+            },
+            "per_category_limit": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -2164,6 +2823,36 @@
           "view": "string"
         }
       },
+      "variablesPresence": {
+        "fetch_status_metadata": {
+          "presence": "undetermined"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "filters": {
+              "presence": "always",
+              "fields": {
+                "categories": {
+                  "presence": "undetermined"
+                },
+                "country_codes": {
+                  "presence": "conditional"
+                }
+              }
+            },
+            "limit": {
+              "presence": "conditional"
+            },
+            "start_cursor": {
+              "presence": "conditional"
+            },
+            "view": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletters_directory_list": {
           "page_info": {
@@ -2225,6 +2914,28 @@
           "start_cursor": "string"
         }
       },
+      "variablesPresence": {
+        "fetch_status_metadata": {
+          "presence": "undetermined"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "categories": {
+              "presence": "undetermined"
+            },
+            "limit": {
+              "presence": "conditional"
+            },
+            "search_text": {
+              "presence": "conditional"
+            },
+            "start_cursor": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletters_directory_search": {
           "page_info": {
@@ -2278,6 +2989,14 @@
       "variablesShape": {
         "locale": "string",
         "newsletter_id": "string"
+      },
+      "variablesPresence": {
+        "locale": {
+          "presence": "conditional"
+        },
+        "newsletter_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_channel_enforcements": {
@@ -2494,6 +3213,19 @@
           "newsletter_id": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "count": {
+              "presence": "undetermined"
+            },
+            "newsletter_id": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletter_followers": {
           "followers": {
@@ -2537,6 +3269,19 @@
           "newsletter_id": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "metrics": {
+              "presence": "conditional"
+            },
+            "newsletter_id": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletter_admin_insights": {
           "last_update_time": "number",
@@ -2571,6 +3316,11 @@
       "variablesShape": {
         "url_domains": "string"
       },
+      "variablesPresence": {
+        "url_domains": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_message_integrity": {
           "url_previews": [
@@ -2593,6 +3343,19 @@
         "input": {
           "id": "string",
           "server_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "id": {
+              "presence": "conditional"
+            },
+            "server_id": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -2625,6 +3388,11 @@
       "variablesShape": {
         "newsletter_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_admin": {
           "id": "string",
@@ -2652,6 +3420,25 @@
           "newsletter_id": "string",
           "server_id": "string",
           "vote_hash": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "limit": {
+              "presence": "conditional"
+            },
+            "newsletter_id": {
+              "presence": "conditional"
+            },
+            "server_id": {
+              "presence": "undetermined"
+            },
+            "vote_hash": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -2683,6 +3470,11 @@
       ],
       "variablesShape": {
         "locale": "string"
+      },
+      "variablesPresence": {
+        "locale": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_channels_reports": {
@@ -2763,6 +3555,16 @@
           "url": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "url": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletter_link_preview": {
           "description": "string",
@@ -2794,6 +3596,33 @@
             "country": "string",
             "is_from_wa_smb": "boolean",
             "locale": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "nux_ids": {
+          "presence": "undetermined"
+        },
+        "trigger_context": {
+          "presence": "always",
+          "fields": {
+            "wa_smb_trigger_context": {
+              "presence": "always",
+              "fields": {
+                "app_version": {
+                  "presence": "conditional"
+                },
+                "country": {
+                  "presence": "undetermined"
+                },
+                "is_from_wa_smb": {
+                  "presence": "always"
+                },
+                "locale": {
+                  "presence": "conditional"
+                }
+              }
+            }
           }
         }
       },
@@ -3038,6 +3867,22 @@
           "limit": "number"
         }
       },
+      "variablesPresence": {
+        "fetch_status_metadata": {
+          "presence": "undetermined"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "country_codes": {
+              "presence": "conditional"
+            },
+            "limit": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletters_recommended": {
           "page_info": {
@@ -3099,6 +3944,25 @@
           "newsletter_id": "string"
         }
       },
+      "variablesPresence": {
+        "fetch_status_metadata": {
+          "presence": "undetermined"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "country_codes": {
+              "presence": "conditional"
+            },
+            "limit": {
+              "presence": "conditional"
+            },
+            "newsletter_id": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletters_similar": {
           "result": [
@@ -3141,6 +4005,17 @@
         "group_id": "string",
         "query_context": "string",
         "sub_group_hint_id": "string"
+      },
+      "variablesPresence": {
+        "group_id": {
+          "presence": "undetermined"
+        },
+        "query_context": {
+          "presence": "conditional"
+        },
+        "sub_group_hint_id": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "xwa2_group_query_by_id": {
@@ -3200,6 +4075,16 @@
           "platform": "string"
         }
       },
+      "variablesPresence": {
+        "data": {
+          "presence": "always",
+          "fields": {
+            "platform": {
+              "presence": "always"
+            }
+          }
+        }
+      },
       "response": {
         "xwa_get_subscriptions": {
           "feature_flags": [
@@ -3234,6 +4119,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "xwa2_text_status_list": [
@@ -3276,6 +4166,11 @@
       "variablesShape": {
         "botFbid": "string"
       },
+      "variablesPresence": {
+        "botFbid": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "get_wass_account_profile": {
           "is_deprecated": "boolean",
@@ -3298,6 +4193,14 @@
         "code": "string",
         "state": "string"
       },
+      "variablesPresence": {
+        "code": {
+          "presence": "conditional"
+        },
+        "state": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xfb_wa_biz_get_token_from_oidc_code": {
           "access_token": "string",
@@ -3316,6 +4219,21 @@
         "input": {
           "identifier": {
             "scope": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "identifier": {
+              "presence": "always",
+              "fields": {
+                "scope": {
+                  "presence": "always"
+                }
+              }
+            }
           }
         }
       },
@@ -3339,6 +4257,11 @@
       ],
       "variablesShape": {
         "userId": "string"
+      },
+      "variablesPresence": {
+        "userId": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "user": {
@@ -3373,6 +4296,19 @@
           "lid_based_response": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "brand_ids": {
+              "presence": "conditional"
+            },
+            "lid_based_response": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
       "response": {
         "xwa_get_numbers_for_brand_ids": {
           "brand_ids_data": [
@@ -3405,6 +4341,38 @@
               }
             }
           ]
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "query_input": {
+              "presence": "always",
+              "items": {
+                "presence": "always",
+                "fields": {
+                  "jid": {
+                    "presence": "conditional"
+                  },
+                  "privacy_contact_list_type": {
+                    "presence": "always",
+                    "fields": {
+                      "category": {
+                        "presence": "conditional"
+                      },
+                      "dhash": {
+                        "presence": "conditional"
+                      },
+                      "type": {
+                        "presence": "conditional"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "response": {
@@ -3444,6 +4412,27 @@
               "privacy_features": "string"
             }
           ]
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "query_input": {
+              "presence": "always",
+              "items": {
+                "presence": "always",
+                "fields": {
+                  "jid": {
+                    "presence": "undetermined"
+                  },
+                  "privacy_features": {
+                    "presence": "conditional"
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "response": {
@@ -3490,6 +4479,19 @@
           "request_id": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "flow_id": {
+              "presence": "conditional"
+            },
+            "request_id": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
       "response": {
         "eval_wa_ad_account_eligibility_rules": {
           "eligibility_result": "string"
@@ -3507,6 +4509,21 @@
         "request": {
           "public_key": {
             "biz_jid": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "public_key": {
+              "presence": "always",
+              "fields": {
+                "biz_jid": {
+                  "presence": "undetermined"
+                }
+              }
+            }
           }
         }
       },
@@ -3535,6 +4552,24 @@
           }
         }
       },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "verify_postcode": {
+              "presence": "always",
+              "fields": {
+                "biz_jid": {
+                  "presence": "undetermined"
+                },
+                "direct_connection_encrypted_info": {
+                  "presence": "conditional"
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa_product_catalog_get_verify_postcode": {
           "postcode_verification_result": {
@@ -3555,6 +4590,19 @@
         "input": {
           "group_jid": "string",
           "partcipants": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "group_jid": {
+              "presence": "conditional"
+            },
+            "partcipants": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -3582,6 +4630,22 @@
           "group_jid": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "appeal_reason": {
+              "presence": "conditional"
+            },
+            "debug_info": {
+              "presence": "conditional"
+            },
+            "group_jid": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "wa_create_group_suspension_appeal": {
           "appeal_creation_time": "number",
@@ -3606,6 +4670,27 @@
           }
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "challenge_type": {
+              "presence": "always"
+            },
+            "passkey_response": {
+              "presence": "always",
+              "fields": {
+                "prf_available": {
+                  "presence": "always"
+                },
+                "signed_challenge": {
+                  "presence": "undetermined"
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_submit_integrity_challenge_response": {
           "error_message": "string",
@@ -3622,6 +4707,11 @@
       ],
       "variablesShape": {
         "newsletter_id": "string"
+      },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_newsletter_join_v2": {
@@ -3641,6 +4731,11 @@
       ],
       "variablesShape": {
         "newsletter_id": "string"
+      },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_newsletter_leave_v2": {
@@ -3679,6 +4774,27 @@
           ]
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "exposures": {
+              "presence": "undetermined",
+              "items": {
+                "presence": "always",
+                "fields": {
+                  "capability": {
+                    "presence": "undetermined"
+                  },
+                  "newsletter_id": {
+                    "presence": "undetermined"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_newsletter_log_exposures": {
           "__typename": "string"
@@ -3696,6 +4812,14 @@
       "variablesShape": {
         "client_capability_metadata": "string",
         "model_request_metadatas": "string"
+      },
+      "variablesPresence": {
+        "client_capability_metadata": {
+          "presence": "conditional"
+        },
+        "model_request_metadatas": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "aim_model_batched_manifest": {
@@ -3748,6 +4872,17 @@
         "newsletter_id": "string",
         "server_id": "string"
       },
+      "variablesPresence": {
+        "message_type": {
+          "presence": "conditional"
+        },
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "server_id": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_label_paid_partnership": {
           "id": "string"
@@ -3767,6 +4902,17 @@
         "message_type": "string",
         "newsletter_id": "string",
         "server_id": "string"
+      },
+      "variablesPresence": {
+        "message_type": {
+          "presence": "conditional"
+        },
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "server_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_newsletter_label_ai_content": {
@@ -3789,6 +4935,19 @@
           ]
         },
         "newsletter_id": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "message_ids": {
+              "presence": "conditional"
+            }
+          }
+        },
+        "newsletter_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_newsletter_pin_messages": {
@@ -3820,6 +4979,20 @@
         "server_id": "string",
         "state": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "response_server_id": {
+          "presence": "conditional"
+        },
+        "server_id": {
+          "presence": "conditional"
+        },
+        "state": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_question_response_state_update": {
           "id": "string"
@@ -3841,6 +5014,19 @@
           ]
         },
         "newsletter_id": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "message_ids": {
+              "presence": "conditional"
+            }
+          }
+        },
+        "newsletter_id": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_newsletter_unpin_messages": {
@@ -3887,6 +5073,51 @@
             "variant_thumbnail_height": "number",
             "variant_thumbnail_width": "number",
             "width": "number"
+          }
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "product_catalog": {
+              "presence": "always",
+              "fields": {
+                "after": {
+                  "presence": "conditional"
+                },
+                "allow_shop_source": {
+                  "presence": "always"
+                },
+                "catalog_session_id": {
+                  "presence": "conditional"
+                },
+                "direct_connection_encrypted_info": {
+                  "presence": "conditional"
+                },
+                "height": {
+                  "presence": "undetermined"
+                },
+                "jid": {
+                  "presence": "undetermined"
+                },
+                "limit": {
+                  "presence": "undetermined"
+                },
+                "variant_info_fields": {
+                  "presence": "conditional"
+                },
+                "variant_thumbnail_height": {
+                  "presence": "undetermined"
+                },
+                "variant_thumbnail_width": {
+                  "presence": "undetermined"
+                },
+                "width": {
+                  "presence": "undetermined"
+                }
+              }
+            }
           }
         }
       },
@@ -4020,6 +5251,30 @@
           }
         }
       },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "categories": {
+              "presence": "always",
+              "fields": {
+                "biz_jid": {
+                  "presence": "undetermined"
+                },
+                "catalog_session_id": {
+                  "presence": "conditional"
+                },
+                "direct_connection_encrypted_info": {
+                  "presence": "conditional"
+                },
+                "image_dimensions": {
+                  "presence": "conditional"
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa_product_catalog_get_categories": {
           "categories": [
@@ -4049,6 +5304,45 @@
             "variant_thumbnail_height": "number",
             "variant_thumbnail_width": "number",
             "width": "number"
+          }
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "product": {
+              "presence": "always",
+              "fields": {
+                "direct_connection_encrypted_info": {
+                  "presence": "conditional"
+                },
+                "fetch_compliance_info": {
+                  "presence": "undetermined"
+                },
+                "height": {
+                  "presence": "undetermined"
+                },
+                "jid": {
+                  "presence": "undetermined"
+                },
+                "product_id": {
+                  "presence": "conditional"
+                },
+                "variant_info_fields": {
+                  "presence": "conditional"
+                },
+                "variant_thumbnail_height": {
+                  "presence": "undetermined"
+                },
+                "variant_thumbnail_width": {
+                  "presence": "undetermined"
+                },
+                "width": {
+                  "presence": "undetermined"
+                }
+              }
+            }
           }
         }
       },
@@ -4178,6 +5472,48 @@
             "variant_thumbnail_height": "number",
             "variant_thumbnail_width": "number",
             "width": "number"
+          }
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "collections": {
+              "presence": "always",
+              "fields": {
+                "after": {
+                  "presence": "conditional"
+                },
+                "biz_jid": {
+                  "presence": "undetermined"
+                },
+                "collection_limit": {
+                  "presence": "undetermined"
+                },
+                "direct_connection_encrypted_info": {
+                  "presence": "conditional"
+                },
+                "height": {
+                  "presence": "undetermined"
+                },
+                "item_limit": {
+                  "presence": "undetermined"
+                },
+                "variant_info_fields": {
+                  "presence": "conditional"
+                },
+                "variant_thumbnail_height": {
+                  "presence": "undetermined"
+                },
+                "variant_thumbnail_width": {
+                  "presence": "undetermined"
+                },
+                "width": {
+                  "presence": "undetermined"
+                }
+              }
+            }
           }
         }
       },
@@ -4325,6 +5661,41 @@
           }
         }
       },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "product_list": {
+              "presence": "always",
+              "fields": {
+                "direct_connection_encrypted_info": {
+                  "presence": "conditional"
+                },
+                "height": {
+                  "presence": "undetermined"
+                },
+                "jid": {
+                  "presence": "undetermined"
+                },
+                "products": {
+                  "presence": "undetermined",
+                  "items": {
+                    "presence": "always",
+                    "fields": {
+                      "id": {
+                        "presence": "undetermined"
+                      }
+                    }
+                  }
+                },
+                "width": {
+                  "presence": "undetermined"
+                }
+              }
+            }
+          }
+        }
+      },
       "response": {
         "xwa_product_catalog_get_product_list": {
           "__typename": "string",
@@ -4454,6 +5825,48 @@
             "variant_thumbnail_height": "number",
             "variant_thumbnail_width": "number",
             "width": "number"
+          }
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "collection": {
+              "presence": "always",
+              "fields": {
+                "after": {
+                  "presence": "conditional"
+                },
+                "biz_jid": {
+                  "presence": "undetermined"
+                },
+                "direct_connection_encrypted_info": {
+                  "presence": "conditional"
+                },
+                "height": {
+                  "presence": "undetermined"
+                },
+                "id": {
+                  "presence": "conditional"
+                },
+                "limit": {
+                  "presence": "undetermined"
+                },
+                "variant_info_fields": {
+                  "presence": "conditional"
+                },
+                "variant_thumbnail_height": {
+                  "presence": "undetermined"
+                },
+                "variant_thumbnail_width": {
+                  "presence": "undetermined"
+                },
+                "width": {
+                  "presence": "undetermined"
+                }
+              }
+            }
           }
         }
       },
@@ -4590,6 +6003,22 @@
           "sub_group_jid_hint": "string"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "group_jid": {
+              "presence": "undetermined"
+            },
+            "query_context": {
+              "presence": "conditional"
+            },
+            "sub_group_jid_hint": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_group_query_by_id": {
           "__typename": "string",
@@ -4617,6 +6046,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "wa_quick_promotion_log_event": {
           "client_mutation_id": "string"
@@ -4634,6 +6068,19 @@
         "input": {
           "jid": "string",
           "product_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "jid": {
+              "presence": "undetermined"
+            },
+            "product_id": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -4660,6 +6107,25 @@
           "up_to_timestamp_secs": "number"
         }
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "bug_id": {
+              "presence": "conditional"
+            },
+            "participant_ids": {
+              "presence": "conditional"
+            },
+            "reporter_id": {
+              "presence": "undetermined"
+            },
+            "up_to_timestamp_secs": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
       "response": {
         "xwa2_request_client_logs_for_bug": "string"
       }
@@ -4670,6 +6136,11 @@
       "operationKind": "mutation",
       "variablesShape": {
         "pageId": "string"
+      },
+      "variablesPresence": {
+        "pageId": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "xfb_wa_biz_clear_oidc_preference": "string"
@@ -4684,6 +6155,11 @@
       ],
       "variablesShape": {
         "pageId": "string"
+      },
+      "variablesPresence": {
+        "pageId": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "page": {
@@ -4704,6 +6180,14 @@
         "newsletter_id": "string",
         "user_id": "string"
       },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "user_id": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "xwa2_newsletter_admin_invite_revoke": {
           "__typename": "string",
@@ -4720,6 +6204,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "wa_labyrinth_rotate_epoch": {
@@ -4746,6 +6235,20 @@
         "session_id": "string",
         "source": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        },
+        "reserved": {
+          "presence": "conditional"
+        },
+        "session_id": {
+          "presence": "conditional"
+        },
+        "source": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_username_set": {
           "result": "string"
@@ -4761,6 +6264,11 @@
       ],
       "variablesShape": {
         "pin": "string"
+      },
+      "variablesPresence": {
+        "pin": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_username_pin_set": {
@@ -4780,6 +6288,14 @@
         "phone_number": "number",
         "signup_id": "string"
       },
+      "variablesPresence": {
+        "phone_number": {
+          "presence": "conditional"
+        },
+        "signup_id": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "wa_signup_metadata": {
           "id": "string",
@@ -4797,6 +6313,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa_wa_support_bug_report_submit": {
@@ -4818,6 +6339,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa_wa_support_contact_form_submit": {
           "error_code": "string",
@@ -4838,6 +6364,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa_wa_support_message_feedback_submit": {
           "error_code": "string",
@@ -4857,6 +6388,14 @@
       "variablesShape": {
         "employeeName": "string",
         "lid": "string"
+      },
+      "variablesPresence": {
+        "employeeName": {
+          "presence": "conditional"
+        },
+        "lid": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "whatsapp_teamlink_create_agent_invitation": {
@@ -4894,6 +6433,11 @@
       "variablesShape": {
         "lid": "string"
       },
+      "variablesPresence": {
+        "lid": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "whatsapp_teamlink_remove_agent_invitation": {
           "removed": "string",
@@ -4910,6 +6454,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_group_update_users_role": {
@@ -4931,6 +6480,14 @@
       "variablesShape": {
         "group_id": "string",
         "update": "string"
+      },
+      "variablesPresence": {
+        "group_id": {
+          "presence": "conditional"
+        },
+        "update": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "xwa2_group_update_property": {
@@ -4954,6 +6511,28 @@
           "name": "string",
           "picture": "string",
           "settings": "string"
+        }
+      },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "updates": {
+          "presence": "always",
+          "fields": {
+            "description": {
+              "presence": "conditional"
+            },
+            "name": {
+              "presence": "conditional"
+            },
+            "picture": {
+              "presence": "conditional"
+            },
+            "settings": {
+              "presence": "always"
+            }
+          }
         }
       },
       "response": {
@@ -5006,6 +6585,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
       "response": {
         "xwa2_newsletter_update_user_setting": {
           "id": "string",
@@ -5025,6 +6609,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "xwa2_update_text_status": {
           "result": "string"
@@ -5040,6 +6629,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
       },
       "response": {
         "wa_labyrinth_upload_messages": {
@@ -5070,6 +6664,17 @@
         "session_id": "string",
         "source": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        },
+        "session_id": {
+          "presence": "conditional"
+        },
+        "source": {
+          "presence": "always"
+        }
+      },
       "response": {
         "xwa2_username_check": {
           "result": "string",
@@ -5094,6 +6699,28 @@
         "input": {
           "query_input": "string",
           "telemetry": "string"
+        }
+      },
+      "variablesPresence": {
+        "include_about_status": {
+          "presence": "always"
+        },
+        "include_country_code": {
+          "presence": "always"
+        },
+        "include_username": {
+          "presence": "always"
+        },
+        "input": {
+          "presence": "always",
+          "fields": {
+            "query_input": {
+              "presence": "undetermined"
+            },
+            "telemetry": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -5132,6 +6759,19 @@
         "input": {
           "flow_id": "string",
           "request_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "flow_id": {
+              "presence": "conditional"
+            },
+            "request_id": {
+              "presence": "undetermined"
+            }
+          }
         }
       },
       "response": {
@@ -5193,6 +6833,11 @@
       "variablesShape": {
         "input": "string"
       },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "waffle_xe_root": {
           "purpose_public_keys": {
@@ -5235,6 +6880,11 @@
       "variablesShape": {
         "encryptedContext": "string"
       },
+      "variablesPresence": {
+        "encryptedContext": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "xfb_upsell_passkey_post_reauth": "string"
       }
@@ -5265,6 +6915,35 @@
         "postID": "string",
         "targetingSpecAudience": "string"
       },
+      "variablesPresence": {
+        "audienceOptionAudience": {
+          "presence": "undetermined"
+        },
+        "configuredPlacementSpec": {
+          "presence": "undetermined"
+        },
+        "currency": {
+          "presence": "undetermined"
+        },
+        "flow": {
+          "presence": "undetermined"
+        },
+        "flowID": {
+          "presence": "undetermined"
+        },
+        "legacyAdAccountID": {
+          "presence": "undetermined"
+        },
+        "optimizationGoalInput": {
+          "presence": "undetermined"
+        },
+        "postID": {
+          "presence": "undetermined"
+        },
+        "targetingSpecAudience": {
+          "presence": "undetermined"
+        }
+      },
       "response": {
         "lwi": {
           "budget_estimate_data_v2": {
@@ -5294,6 +6973,11 @@
       ],
       "variablesShape": {
         "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
       },
       "response": {
         "meta_ai_biz_agent_wa_suggested_reply_used": {
