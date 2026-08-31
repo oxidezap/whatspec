@@ -6134,14 +6134,6 @@
       "originalName": "WAWebResolveAccountTypeAndAdPageMutation",
       "docId": "24732033759799062",
       "operationKind": "mutation",
-      "variablesShape": {
-        "pageId": "string"
-      },
-      "variablesPresence": {
-        "pageId": {
-          "presence": "undetermined"
-        }
-      },
       "response": {
         "xfb_wa_biz_clear_oidc_preference": "string"
       }

@@ -26,6 +26,7 @@ use oxc_ast::ast::{
     UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 use wa_ir::{VariablePresence, VariablePresenceNode};
 
 use crate::PresenceDiagnostics;
@@ -299,29 +300,41 @@ impl Scopes {
     /// after them as one of their two values and never as the one from before,
     /// because no path gets past the statement without taking an arm.
     fn join_arms(&mut self, first: Vec<ArmExit>, second: Vec<ArmExit>) {
-        let mut merged: Vec<ArmExit> = Vec::new();
-        for exit in first {
-            merged.push(exit);
-        }
-        for exit in second {
-            match merged
-                .iter_mut()
-                .find(|m| m.frame == exit.frame && m.name == exit.name)
-            {
-                Some(m) => {
-                    m.after = match (m.after.take(), exit.after) {
-                        (Some(a), Some(b)) => Some(Value::Either(Box::new(a), Box::new(b))),
-                        (a, b) => a.or(b),
-                    };
-                    // Written by both arms, so what came before it is unreachable.
-                    m.before = None;
+        self.join_all_arms(vec![first, second], true);
+    }
+
+    /// The same over any number of arms. `exhaustive` says whether some arm
+    /// always runs: an `if`/`else` pair leaves no way past it, a `switch`
+    /// without a `default` does, and a name every arm writes only loses its
+    /// earlier value in the first case.
+    fn join_all_arms(&mut self, arms: Vec<Vec<ArmExit>>, exhaustive: bool) {
+        let count = arms.len();
+        let mut merged: Vec<(ArmExit, usize)> = Vec::new();
+        for arm in arms {
+            for exit in arm {
+                match merged
+                    .iter_mut()
+                    .find(|(m, _)| m.frame == exit.frame && m.name == exit.name)
+                {
+                    Some((m, written)) => {
+                        m.after = match (m.after.take(), exit.after) {
+                            (Some(a), Some(b)) => Some(Value::Either(Box::new(a), Box::new(b))),
+                            (a, b) => a.or(b),
+                        };
+                        *written += 1;
+                    }
+                    None => merged.push((exit, 1)),
                 }
-                None => merged.push(exit),
             }
         }
-        for exit in merged {
+        for (mut exit, written) in merged {
             if exit.frame >= self.frames.len() {
                 continue;
+            }
+            // Written on every path through the statement, so what it held
+            // before it is a value nothing below can still see.
+            if exhaustive && written == count {
+                exit.before = None;
             }
             let Some(after) = exit.after else {
                 continue;
@@ -654,6 +667,16 @@ fn classify_object_reporting(
                     withdraw(node);
                 }
             }
+            // `JSON.stringify` calls an object's own `toJSON` and serializes what
+            // that returns, so the keys written beside it may reach the wire or
+            // may not - and what the hook returns is a function body this pass
+            // does not read.
+            Prop::Key(key, _) if key == "toJSON" => {
+                opaque.push(Opaque::here());
+                for node in out.values_mut() {
+                    withdraw(node);
+                }
+            }
             Prop::Key(key, value) => {
                 // Replaces rather than merges: within one literal the last write
                 // to a key IS the value, so `{...base, a: !0}` is `a: !0` however
@@ -719,8 +742,11 @@ fn classify_object_reporting(
     // `opts` holds. Only the keys it does NOT carry are the ones an unreadable
     // spread might be supplying, and only those are withdrawn once the sites are
     // merged.
+    let serialized_whole = props
+        .iter()
+        .any(|p| matches!(p, Prop::Key(key, _) if key == "toJSON"));
     for record in &mut opaque {
-        if record.path.is_empty() {
+        if record.path.is_empty() && !serialized_whole {
             record.written = out.keys().cloned().collect();
         }
     }
@@ -1037,7 +1063,37 @@ fn collect_hoisted_declaration(
     }
 }
 
-/// The module's own top-level `var`/`let`/`const` bindings.
+/// The names a block declares with `let`, `const`, `class` or a function
+/// declaration, as the `undefined` they hold before the declaration runs.
+fn lexical_names(statements: &[oxc_ast::ast::Statement]) -> HashMap<String, Value> {
+    use oxc_ast::ast::Statement as S;
+    let mut out = HashMap::new();
+    for stmt in statements {
+        match stmt {
+            S::VariableDeclaration(decl) if !decl.kind.is_var() => {
+                for d in &decl.declarations {
+                    for ident in d.id.get_binding_identifiers() {
+                        out.insert(ident.name.as_str().to_string(), Value::MaybeUndefined);
+                    }
+                }
+            }
+            S::ClassDeclaration(c) => {
+                if let Some(id) = &c.id {
+                    out.insert(id.name.as_str().to_string(), Value::MaybeUndefined);
+                }
+            }
+            S::FunctionDeclaration(f) => {
+                if let Some(id) = &f.id {
+                    out.insert(id.name.as_str().to_string(), Value::MaybeUndefined);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The module's own top-level `var`/`let`/`const` bindings./// The module's own top-level `var`/`let`/`const` bindings.
 ///
 /// Only that level: a name declared inside one function says nothing about the
 /// same spelling inside another, and the minifier reuses single letters
@@ -1474,6 +1530,11 @@ struct CallSiteCollector<'d> {
     /// Paths whose keys a spread or a computed key may still be writing, from
     /// any recovered site. The empty path is the variables object itself.
     opaque_paths: Vec<Opaque>,
+    /// Where each matched call's variables argument starts in this caller. The
+    /// shape pass reads the same text and needs the same calls: one that belongs
+    /// to another operation of the same module is not this operation's shape
+    /// either.
+    variable_arguments: Vec<u32>,
     /// How many branching statements enclose the node being visited. A write
     /// inside one may not run before the call; a write at zero does.
     diag: &'d mut PresenceDiagnostics,
@@ -1534,7 +1595,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
-        self.scopes.push_block();
+        // `let` and `const` cover the whole block, not the part after the line
+        // that declares them: a closure written above one captures THAT binding,
+        // so the names go in before the statements are walked.
+        self.scopes.push_frame(lexical_names(&block.body), false);
         walk::walk_block_statement(self, block);
         self.scopes.pop();
     }
@@ -1561,9 +1625,31 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
         // `for (let x …)` binds `x` for the loop and nothing after it, so the
-        // header needs a block of its own around header and body alike.
+        // header needs a block of its own around header and body alike. And the
+        // update runs AFTER the body, which the generic walker has the other way
+        // round: the first pass through the body has not seen it.
         self.scopes.push_block();
-        self.in_branch(|v| walk::walk_for_statement(v, stmt));
+        if let Some(init) = &stmt.init {
+            match init {
+                oxc_ast::ast::ForStatementInit::VariableDeclaration(decl) => {
+                    self.visit_variable_declaration(decl);
+                }
+                other => {
+                    if let Some(expr) = other.as_expression() {
+                        self.visit_expression(expr);
+                    }
+                }
+            }
+        }
+        if let Some(test) = &stmt.test {
+            self.visit_expression(test);
+        }
+        self.in_branch(|v| {
+            v.visit_statement(&stmt.body);
+            if let Some(update) = &stmt.update {
+                v.visit_expression(update);
+            }
+        });
         self.scopes.pop();
     }
 
@@ -1591,12 +1677,39 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.in_branch(|v| walk::walk_do_while_statement(v, stmt));
     }
 
+    /// Each case from the state before the statement: a `break` makes them
+    /// exclusive, so what one writes is not what the next reads. Only a
+    /// `default` makes the set exhaustive - without one, no case may run at all.
     fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
-        self.in_branch(|v| walk::walk_switch_statement(v, stmt));
+        self.visit_expression(&stmt.discriminant);
+        let mut arms = Vec::with_capacity(stmt.cases.len());
+        let mut has_default = false;
+        for case in &stmt.cases {
+            has_default |= case.test.is_none();
+            self.scopes.enter_branch();
+            self.visit_switch_case(case);
+            arms.push(self.scopes.take_branch());
+        }
+        self.scopes.join_all_arms(arms, has_default);
     }
 
+    /// The handler runs from wherever the block threw, which is any point in
+    /// it, so it reads the state the `try` started from rather than the one the
+    /// block would have finished with.
     fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
-        self.in_branch(|v| walk::walk_try_statement(v, stmt));
+        self.scopes.enter_branch();
+        self.visit_block_statement(&stmt.block);
+        let block = self.scopes.take_branch();
+        let mut arms = vec![block];
+        if let Some(handler) = &stmt.handler {
+            self.scopes.enter_branch();
+            self.visit_catch_clause(handler);
+            arms.push(self.scopes.take_branch());
+        }
+        self.scopes.join_all_arms(arms, false);
+        if let Some(finalizer) = &stmt.finalizer {
+            self.visit_block_statement(finalizer);
+        }
     }
 
     /// A write inside a short-circuit or a ternary arm runs only when that arm
@@ -1688,10 +1801,14 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        // The arguments run before the call does, and one of them can write a
-        // binding another reads: `{a: (x = void 0, !0), b: x}` sends no `b`.
-        // Walking them first also settles the handle a memoising ternary writes.
-        walk::walk_call_expression(self, call);
+        // In evaluation order: the callee, then the handle, then the variables
+        // object - which is read where it is built, because an argument after it
+        // can write a binding it captured. `fetchQuery(op, {a: x}, x = !0)`
+        // builds `{a: undefined}` first.
+        self.visit_expression(&call.callee);
+        for argument in call.arguments.iter().take(2) {
+            self.visit_argument(argument);
+        }
         if !self.is_operation_call(call) && self.is_ambiguous_call(call) {
             // A Relay call in a module that sends several operations, whose
             // handle names no module at all. It may be this operation's, and
@@ -1703,6 +1820,9 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
         if self.is_operation_call(call) {
             let vars = call.arguments.get(1).and_then(Argument::as_expression);
+            if let Some(expression) = vars {
+                self.variable_arguments.push(expression.span().start);
+            }
             // `undefined` is a name like any other: a parameter or a local can
             // hold a whole variables object under it, and that is a site this
             // pass cannot read rather than one that writes nothing.
@@ -1732,6 +1852,9 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                     self.unreadable_sites += 1;
                 }
             }
+        }
+        for argument in call.arguments.iter().skip(2) {
+            self.visit_argument(argument);
         }
     }
 }
@@ -1874,6 +1997,7 @@ pub(crate) fn variables_presence(
     module: &str,
     arg_def_names: &[String],
     diag: &mut PresenceDiagnostics,
+    variable_arguments: &mut Vec<(usize, u32)>,
 ) -> BTreeMap<String, VariablePresenceNode> {
     if arg_def_names.is_empty() {
         return BTreeMap::new();
@@ -1881,7 +2005,7 @@ pub(crate) fn variables_presence(
     let mut merged: Option<SiteTree> = None;
     let mut unreadable_sites = 0usize;
     let mut opaque_paths: Vec<Opaque> = Vec::new();
-    for (src, sole_operation) in callers {
+    for (caller, (src, sole_operation)) in callers.iter().enumerate() {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, src);
         let (hoisted, module_rewritten) = hoist_module_bindings(&ret.program);
@@ -1897,11 +2021,13 @@ pub(crate) fn variables_presence(
             sites: Vec::new(),
             unreadable_sites: 0,
             opaque_paths: Vec::new(),
+            variable_arguments: Vec::new(),
             diag,
         };
         collector.visit_program(&ret.program);
         unreadable_sites += collector.unreadable_sites;
         opaque_paths.extend(collector.opaque_paths);
+        variable_arguments.extend(collector.variable_arguments.iter().map(|at| (caller, *at)));
         // Every recovered site has to agree for a key to be `always`, so the sites
         // are folded rather than picked from - across callers as well as within one.
         for site in collector.sites {
@@ -2004,7 +2130,13 @@ mod tests {
     ) -> (BTreeMap<String, VariablePresenceNode>, PresenceDiagnostics) {
         let names: Vec<String> = vars.iter().map(|s| s.to_string()).collect();
         let mut diag = PresenceDiagnostics::default();
-        let out = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let out = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         (out, diag)
     }
 
@@ -2191,6 +2323,7 @@ mod tests {
             MODULE,
             &names,
             &mut diag,
+            &mut Vec::new(),
         );
         assert_eq!(at(&tree, "a"), VariablePresence::Always, "written by both");
         assert_eq!(
@@ -2209,7 +2342,13 @@ mod tests {
         let live = r#"function g(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(quiet, false), (live, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(quiet, false), (live, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
         assert_eq!(diag.operations_without_call_site, 0);
     }
@@ -2597,7 +2736,13 @@ mod tests {
         let caller = r#"function f(t,h){o("C").fetchQuery(h,{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
         assert_eq!(diag.ambiguous_call_sites, 1);
     }
@@ -2609,7 +2754,13 @@ mod tests {
         let caller = r#"function f(t){o("C").fetchQuery(n("WAWebOtherQuery.graphql"),{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
         assert_eq!(diag.ambiguous_call_sites, 0);
     }
@@ -2623,7 +2774,13 @@ mod tests {
         let caller = r#"function f(t,h){o("C").fetchQuery(h?n("WAWebOtherQuery.graphql"):h,{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
         assert_eq!(diag.ambiguous_call_sites, 1);
     }
@@ -2638,7 +2795,13 @@ mod tests {
         let caller = r#"var e,s,u=e!==void 0?e:e=n("WAWebOtherQuery.graphql"),c=s!==void 0?s:s=n("WAWebFooQuery.graphql");function f(e,t){o("C").fetchQuery(u,{a:e.x});return o("C").commitMutation(c,{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
         assert_eq!(diag.ambiguous_call_sites, 0);
     }
@@ -2771,7 +2934,13 @@ mod tests {
         let caller = r#"function f(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{...t.opts}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0}})}"#;
         let names = vec!["input".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(
             at(&tree, "input"),
             VariablePresence::Always,
@@ -2799,7 +2968,13 @@ mod tests {
             );
             let names = vec!["a".to_string()];
             let mut diag = PresenceDiagnostics::default();
-            let tree = variables_presence(&[(caller.as_str(), false)], MODULE, &names, &mut diag);
+            let tree = variables_presence(
+                &[(caller.as_str(), false)],
+                MODULE,
+                &names,
+                &mut diag,
+                &mut Vec::new(),
+            );
             assert_eq!(at(&tree, "a"), VariablePresence::Undetermined, "{handle}");
             assert_eq!(diag.ambiguous_call_sites, 1, "{handle}");
         }
@@ -2865,7 +3040,13 @@ mod tests {
         let caller = r#"function f(t,h){o("C").fetchQuery(s(h,n("WAWebOtherQuery.graphql")),{a:t.x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
         assert_eq!(diag.ambiguous_call_sites, 1);
     }
@@ -2886,7 +3067,13 @@ mod tests {
         let caller = r#"function f(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{...t.opts,a:!0}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0,b:!0}})}"#;
         let names = vec!["input".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let tree = variables_presence(&[(caller, false)], MODULE, &names, &mut diag);
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         let input = &tree["input"];
         assert_eq!(
             input.fields["a"].presence,
@@ -2984,6 +3171,58 @@ mod tests {
     fn a_named_function_expression_binds_its_own_name() {
         // Inside the body `x` is the function, not the module's boolean.
         let caller = r#"var x=!0;var f=function x(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_loop_body_runs_before_the_update() {
+        // The first pass through the body has not seen `x = !0` yet, and this
+        // one breaks out before a second.
+        let caller = r#"function f(t){var x;for(;t;x=!0){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});break}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn one_switch_case_does_not_answer_for_another() {
+        // `break` makes the cases exclusive: the call in the second runs on a
+        // path where the first never wrote.
+        let caller = r#"function f(t){var x;switch(t){case 0:x=!0;break;case 1:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_handler_reads_the_state_the_try_started_from() {
+        // The block can throw before its last line, and that is the path the
+        // handler runs on.
+        let caller = r#"function f(t){var x;try{t();x=!0}catch(e){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_block_binds_its_lexical_names_for_the_whole_block() {
+        // The closure is written above the `let`, and captures it all the same.
+        let caller = r#"var x=!0;function f(){{var g=()=>o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});let x;g()}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_object_with_its_own_to_json_decides_its_own_serialization() {
+        // `JSON.stringify` calls the hook and serializes what it returns, which
+        // is a function body this pass does not read.
+        let caller = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,toJSON(){return{}}})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn an_argument_after_the_variables_object_is_too_late_to_change_it() {
+        // `fetchQuery(op, {a: x}, x = !0)` builds `{a: undefined}` first.
+        let caller = r#"function f(){var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x},x=!0)}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }

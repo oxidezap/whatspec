@@ -250,17 +250,23 @@ pub fn extract_mex_from_modules_with_diagnostics(
                 })
                 .collect();
             let shape_bodies: Vec<&str> = bodies.iter().map(|(src, _)| *src).collect();
-            raw.variables_shape = crate::shape::variables_shape(&shape_bodies, &raw.variables);
+            // Presence first: it reads the call sites structurally and reports
+            // which of them are this operation's, and the shape pass reads the
+            // same calls rather than every Relay call in the module.
             // Counted per operation and folded in below, so the totals describe
             // the operations the IR publishes rather than the raw scan - the noise
             // filter drops a third of them, and a diagnostic that counted those
             // would not add up against the document a consumer reads.
+            let mut variable_arguments = Vec::new();
             raw.variables_presence = crate::presence::variables_presence(
                 &bodies,
                 name,
                 &raw.variables,
                 &mut raw.presence,
+                &mut variable_arguments,
             );
+            raw.variables_shape =
+                crate::shape::variables_shape(&shape_bodies, &variable_arguments, &raw.variables);
             // The two maps are siblings a consumer reads together, so every key
             // the shape publishes has to carry a verdict. A key the presence scan
             // never reached - a list built by `.map(…)`, whose callback the shape
@@ -793,6 +799,37 @@ mod tests {
         );
         assert_eq!(diag.operations_with_variables, 1);
         assert_eq!(diag.operations_fully_determined, 0);
+    }
+
+    #[test]
+    fn a_shape_is_read_from_this_operation_s_own_calls() {
+        // `WAWebResolveAccountTypeAndAdPage` sends a query and a mutation from
+        // one module, and only the query is given a variables object. Reading
+        // every Relay call in the module gave the mutation - which declares no
+        // variables at all - the query's `pageId`, and the presence pass then had
+        // to answer for a key that operation does not have.
+        let m = r#"
+        __d("WAWebPairInfoQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"pageId"}],name:"WAWebPairInfoQuery"},operation:{argumentDefinitions:[],name:"WAWebPairInfoQuery"},params:{id:"11",name:"WAWebPairInfoQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebPairClearMutation.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[],name:"WAWebPairClearMutation"},operation:{argumentDefinitions:[],name:"WAWebPairClearMutation"},params:{id:"12",name:"WAWebPairClearMutation",operationKind:"mutation"}}
+        }),null);
+        __d("WAWebPairJob",["WAWebPairInfoQuery.graphql","WAWebPairClearMutation.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebPairInfoQuery.graphql"),{pageId:e})}
+            function c(){return o("WAWebMexClient").commitMutation(n("WAWebPairClearMutation.graphql"),{})}
+            l.pair=u;l.clear=c
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        let query = ir.operations.get("PairInfo").expect("query extracted");
+        assert!(query.variables_shape.contains_key("pageId"));
+        let mutation = ir.operations.get("PairClear").expect("mutation extracted");
+        assert!(
+            mutation.variables_shape.is_empty(),
+            "the mutation declares no variables and writes none: {:?}",
+            mutation.variables_shape
+        );
+        assert!(mutation.variables_presence.is_empty());
     }
 
     #[test]

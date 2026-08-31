@@ -961,36 +961,6 @@ fn parse_second_arg(body: &[u8], start: usize) -> Option<Shape> {
     None
 }
 
-/// Scan a caller body for `.fetchQuery|commitMutation|fetchSubscription(id, <expr>)`
-/// calls and merge every recovered input shape.
-fn extract_vars_shape(body: &[u8]) -> Option<Shape> {
-    let mut acc: Option<Shape> = None;
-    for method in [
-        &b".fetchQuery"[..],
-        b".commitMutation",
-        b".fetchSubscription",
-    ] {
-        let mut search = 0;
-        while let Some(p) = find_sub(body, method, search) {
-            let after = p + method.len();
-            let paren = skip_ascii_ws(body, after);
-            search = p + 1;
-            if body.get(paren) != Some(&b'(') {
-                continue;
-            }
-            // Skip the first arg (the id) to the comma.
-            let comma = skip_expr(body, paren + 1, b",");
-            if body.get(comma) != Some(&b',') {
-                continue;
-            }
-            if let Some(shape) = parse_second_arg(body, comma + 1) {
-                acc = merge_shapes(acc, Some(shape));
-            }
-        }
-    }
-    acc
-}
-
 /// Keep only argDef-named keys (the authoritative variable names), preserving
 /// their recovered nested shape and filling missing ones as `null` leaves.
 fn augment_with_arg_defs(
@@ -1026,6 +996,7 @@ fn augment_with_arg_defs(
 /// the authoritative argDef names.
 pub(crate) fn variables_shape(
     caller_srcs: &[&str],
+    variable_arguments: &[(usize, u32)],
     arg_def_names: &[String],
 ) -> BTreeMap<String, TypeNode> {
     // Every caller, folded, for the same reason the presence pass reads them all:
@@ -1035,9 +1006,17 @@ pub(crate) fn variables_shape(
     // presence carry a nested key the shape does not, which `scripts/lint-ir.py`
     // rejects outright - the operation would fail to publish rather than come
     // out imprecise.
-    let raw = caller_srcs
+    // Only the calls the presence pass tied to THIS operation. A caller that
+    // sends two operations writes two variables objects, and reading both into
+    // one shape publishes the other operation's keys here - which the presence
+    // pass then has to answer for with a verdict about a key this operation does
+    // not have.
+    let raw = variable_arguments
         .iter()
-        .filter_map(|s| extract_vars_shape(s.as_bytes()))
+        .filter_map(|(caller, offset)| {
+            let body = caller_srcs.get(*caller)?.as_bytes();
+            parse_second_arg(body, *offset as usize)
+        })
         .fold(None, |acc, shape| merge_shapes(acc, Some(shape)));
     type_tree(augment_with_arg_defs(raw, arg_def_names), true)
 }
@@ -1169,6 +1148,37 @@ pub(crate) fn response_from_module(module_src: &str) -> BTreeMap<String, TypeNod
     type_tree(structural, false)
 }
 
+/// Test helper: every Relay call in the sources, as the scanner used to find
+/// them, so the shape tests can stay written against a caller body.
+#[cfg(test)]
+fn all_variable_arguments(caller_srcs: &[&str]) -> Vec<(usize, u32)> {
+    let mut out = Vec::new();
+    for (i, src) in caller_srcs.iter().enumerate() {
+        let body = src.as_bytes();
+        for method in [
+            &b".fetchQuery"[..],
+            b".commitMutation",
+            b".fetchSubscription",
+        ] {
+            let mut search = 0;
+            while let Some(p) = find_sub(body, method, search) {
+                let after = p + method.len();
+                let paren = skip_ascii_ws(body, after);
+                search = p + 1;
+                if body.get(paren) != Some(&b'(') {
+                    continue;
+                }
+                let comma = skip_expr(body, paren + 1, b",");
+                if body.get(comma) != Some(&b',') {
+                    continue;
+                }
+                out.push((i, (comma + 1) as u32));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1283,7 +1293,11 @@ mod tests {
     fn variables_shape_from_caller_fetch_query() {
         // Caller invokes fetchQuery(id, {input:{group_jid,reason}, fetch_meta}).
         let caller = r#"function send(t){return o("RelayRuntime").fetchQuery(n,{input:{group_jid:t.jid,reason:t.why},fetch_meta:!0})}"#;
-        let vs = variables_shape(&[caller], &["input".to_string(), "fetch_meta".to_string()]);
+        let vs = variables_shape(
+            &[caller],
+            &all_variable_arguments(&[caller]),
+            &["input".to_string(), "fetch_meta".to_string()],
+        );
         let TypeNode::Object(input) = vs.get("input").unwrap() else {
             panic!("input object")
         };
@@ -1300,6 +1314,7 @@ mod tests {
         let caller = r#"function s(t,r){return o("WAWebMexClient").fetchQuery(i,{newsletter_id:t,input:{message_ids:r}})}"#;
         let vs = variables_shape(
             &[caller],
+            &all_variable_arguments(&[caller]),
             &["newsletter_id".to_string(), "input".to_string()],
         );
         assert_eq!(leaf(vs.get("newsletter_id").unwrap()), "string");
@@ -1313,7 +1328,11 @@ mod tests {
 
         // `_jids` suffix takes the same branch.
         let caller_jids = r#"function s(t,r){return o("WAWebMexClient").fetchQuery(i,{input:{participant_jids:r}})}"#;
-        let vs_jids = variables_shape(&[caller_jids], &["input".to_string()]);
+        let vs_jids = variables_shape(
+            &[caller_jids],
+            &all_variable_arguments(&[caller_jids]),
+            &["input".to_string()],
+        );
         let TypeNode::Object(input_jids) = vs_jids.get("input").unwrap() else {
             panic!("input object")
         };
@@ -1329,7 +1348,11 @@ mod tests {
         // extractor yields `Array([Leaf(unknown)])`. The heuristic must not fire on
         // the array *element* (inherited `_ids` key), else we'd get `[[string]]`.
         let caller = r#"function s(t,e){return o("WAWebMexClient").fetchQuery(i,{input:{message_ids:[e]}})}"#;
-        let vs = variables_shape(&[caller], &["input".to_string()]);
+        let vs = variables_shape(
+            &[caller],
+            &all_variable_arguments(&[caller]),
+            &["input".to_string()],
+        );
         let TypeNode::Object(input) = vs.get("input").unwrap() else {
             panic!("input object")
         };
@@ -1347,7 +1370,11 @@ mod tests {
     #[test]
     fn variables_shape_argdefs_are_authoritative() {
         // No caller → every argDef becomes a typed leaf; sibling keys excluded.
-        let vs = variables_shape(&[], &["newsletter_id".to_string()]);
+        let vs = variables_shape(
+            &[],
+            &all_variable_arguments(&[]),
+            &["newsletter_id".to_string()],
+        );
         assert_eq!(vs.len(), 1);
         assert!(vs.contains_key("newsletter_id"));
     }
@@ -1357,7 +1384,11 @@ mod tests {
         // Regression: `.map(e => ({ a:[{x}], b:1 }))` — the no-trace array parser
         // must stop at its matching `]`, not run to end and drop `b`.
         let caller = r#"function f(a){return o("R").commitMutation(n,{input:a.map(function(e){return{a:[{x:e.x}],b:e.y}})})}"#;
-        let vs = variables_shape(&[caller], &["input".to_string()]);
+        let vs = variables_shape(
+            &[caller],
+            &all_variable_arguments(&[caller]),
+            &["input".to_string()],
+        );
         let TypeNode::Array(items) = vs.get("input").unwrap() else {
             panic!("input array")
         };
@@ -1379,7 +1410,11 @@ mod tests {
     fn variables_shape_map_callback_recovers_array_item() {
         // `.map(function(e){return {newsletter_id:..,capability:..}})` → array item shape.
         let caller = r#"function f(a){return o("R").commitMutation(n,{input:{exposures:a.map(function(e){return{newsletter_id:e.id,capability:e.cap}})}})}"#;
-        let vs = variables_shape(&[caller], &["input".to_string()]);
+        let vs = variables_shape(
+            &[caller],
+            &all_variable_arguments(&[caller]),
+            &["input".to_string()],
+        );
         let TypeNode::Object(input) = vs.get("input").unwrap() else {
             panic!()
         };
