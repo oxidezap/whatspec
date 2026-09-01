@@ -1112,6 +1112,11 @@ fn classify_object_reporting(
                         opaque.extend(nested_opaque);
                         for (k, mut node) in nested {
                             node.presence = node.presence.weaker(floor);
+                            // A getter above runs while these keys are written,
+                            // exactly as it does for the ones written by name.
+                            if serializing_runs_code {
+                                withdraw(&mut node);
+                            }
                             // A later spread overwrites the keys it carries, the
                             // same order rule the explicit keys follow.
                             out.insert(k, node);
@@ -1183,24 +1188,31 @@ fn withdraw(node: &mut VariablePresenceNode) {
 /// built, by position. A later write to the same key replaces the accessor, so
 /// the body written at this position is one nothing ever runs.
 fn standing_getters(props: &[Prop]) -> Vec<usize> {
-    let mut standing: HashMap<&str, usize> = HashMap::new();
-    let mut getters = Vec::new();
+    // Where each key is FIRST written, which is where it sits in the order
+    // `JSON.stringify` walks: `{get a(){…}, b: !0, set a(v){…}}` serializes `a`
+    // before `b`, so the getter's body runs before `b` is written however far
+    // down the setter completing it is.
+    let mut first: HashMap<&str, usize> = HashMap::new();
+    let mut standing: HashMap<&str, bool> = HashMap::new();
+    let mut order: Vec<&str> = Vec::new();
     for (index, prop) in props.iter().enumerate() {
-        // A spread writes keys over what stands, and where its keys cannot be
-        // read it may write any of them: either way what it covers is no longer
-        // the accessor written above it.
+        // A spread writes keys of its own, and a computed key names one this
+        // pass cannot read. Either may cover an accessor written above - or may
+        // not, in which case its getter still runs - so what stands is kept
+        // rather than forgotten.
         let Prop::Key(key, value) = prop else {
-            standing.clear();
             continue;
         };
-        standing.insert(key.as_str(), index);
-        if matches!(value, Value::Getter) {
-            getters.push(index);
+        if let std::collections::hash_map::Entry::Vacant(slot) = first.entry(key.as_str()) {
+            slot.insert(index);
+            order.push(key.as_str());
         }
+        standing.insert(key.as_str(), matches!(value, Value::Getter));
     }
-    getters
+    order
         .into_iter()
-        .filter(|index| standing.values().any(|last| last == index))
+        .filter(|key| standing[key])
+        .filter_map(|key| first.get(key).copied())
         .collect()
 }
 
@@ -5873,6 +5885,32 @@ mod tests {
         let data = r#"function f(){var v={a:q()};v.a=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
         let (tree, _) = presence_of(data, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_getter_runs_where_its_key_was_first_written() {
+        // `{get a(){…}, b: !0, set a(v){…}}` serializes `a` before `b`, however
+        // far down the setter completing the accessor is: the getter's body has
+        // run by the time `b` is written. Reading the accessor at the setter's
+        // position put `b` above it.
+        let caller = r#"function f(){var v={get a(){return!0},b:!0,set a(x){}};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "b"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_spread_does_not_take_away_the_getter_above_it() {
+        // A spread may cover the accessor or may not, and where it does not the
+        // getter still runs while everything below is written - the keys the
+        // spread itself carries included.
+        for caller in [
+            r#"function f(){var v={get a(){return!0},...s,b:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={get a(){return!0},...null,b:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={get a(){return!0},...{b:!0}};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a", "b"]);
+            assert_eq!(at(&tree, "b"), VariablePresence::Undetermined);
+        }
     }
 
     #[test]
