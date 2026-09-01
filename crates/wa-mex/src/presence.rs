@@ -2907,6 +2907,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `break` ends that case is not read here, and carrying its exit is the
         // half that cannot claim a key the client may omit.
         let mut falls_through: Vec<ArmExit> = Vec::new();
+        // Whether the case above this one can run into it, which is not the
+        // same as whether it left anything behind: a case that writes nothing
+        // and does not break still hands control down.
+        let mut entered_from_above = false;
         for (index, case) in stmt.cases.iter().enumerate() {
             has_default |= case.test.is_none();
             // A case's test is evaluated before its body and after the tests of
@@ -2926,23 +2930,32 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // round - it runs the moment its test matches, before any test
             // below it.
             if case.test.is_none() {
-                // On the no-match path they have all run; on a fall-through
-                // from the case above, none of them has. Both reach this body,
-                // so their writes join rather than stand.
-                self.in_branch(|v| {
+                // On the no-match path they have all run. A case above that can
+                // fall into this one is the other way in, and on THAT path none
+                // of them has, so their writes join rather than stand. Where
+                // nothing can fall in - no case above, or every one of them
+                // leaves - the no-match path is the only way here and the tests
+                // are as certain as any line above the switch.
+                let reached = |v: &mut Self| {
                     for below in stmt.cases.iter().skip(index + 1) {
                         if let Some(test) = &below.test {
                             v.visit_expression(test);
                         }
                     }
-                });
+                };
+                match entered_from_above {
+                    true => self.in_branch(reached),
+                    false => reached(self),
+                }
             }
             self.visit_statements(&case.consequent);
             let exits = self.scopes.take_branch();
             // Whether the case LEFT, not what its last line is: the walk stops
             // at the first abrupt statement, and anything written after one is
             // text rather than code.
-            falls_through = match case.consequent.iter().any(always_leaves) {
+            let leaves = case.consequent.iter().any(always_leaves);
+            entered_from_above = !leaves;
+            falls_through = match leaves {
                 true => Vec::new(),
                 false => exits.clone(),
             };
@@ -6448,10 +6461,16 @@ mod tests {
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
 
-        // With no case above it, the only way in is the no-match path.
+        // With no case above it, the no-match path is the only way in, so the
+        // tests below it have all run by the time the body does.
         let alone = r#"function f(){var x;switch(t){default:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});break;case (x=!0,2):break}}"#;
         let (tree, _) = presence_of(alone, &["a"]);
-        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // A case above that always leaves cannot fall into it either.
+        let breaks = r#"function f(){var x;switch(t){case 1:break;default:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});break;case (x=!0,2):break}}"#;
+        let (tree, _) = presence_of(breaks, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
