@@ -97,6 +97,12 @@ enum Value {
     /// apart from [`Value::Defined`] because `x || y` is `x` only when `x` is
     /// truthy, and `x === !0` is defined while being `false` half the time.
     Truthy,
+    /// An accessor with no getter: reading it gives `undefined`, so it is no key
+    /// on the wire, and writing to it - `v.a = 1`, `v.a++` - runs the setter and
+    /// leaves it reading `undefined` still. Held apart from both `MaybeUndefined`
+    /// (a data property that a write DOES change) and `Dropped` (a function,
+    /// which a write replaces with a number).
+    WriteOnly,
     /// `null`, which is a key on the wire (`JSON.stringify` writes it) and is
     /// still what `??` gives way on. Held apart from [`Value::Defined`] for that
     /// second reason: `x ?? y` with a `null` `x` IS `y`.
@@ -826,7 +832,7 @@ fn accessor(property: &oxc_ast::ast::ObjectProperty, paired: bool) -> Option<Val
         // bare `undefined` does not.
         oxc_ast::ast::PropertyKind::Set => match paired {
             true => Some(Value::Unjudged),
-            false => Some(Value::Dropped),
+            false => Some(Value::WriteOnly),
         },
         oxc_ast::ast::PropertyKind::Init => None,
     }
@@ -837,6 +843,24 @@ fn accessor(property: &oxc_ast::ast::ObjectProperty, paired: bool) -> Option<Val
 /// through its getter, while `{get a(){…}, a: 1, set a(v){…}}` ends at a setter
 /// alone, because the data property in between replaced the accessor. Read in
 /// source order for that reason.
+/// Every key an object literal writes when it is spread, including through the
+/// literals spread inside it. `None` when it carries a source this pass cannot
+/// enumerate, which is a spread that may write anything.
+fn spread_keys(object: &ObjectExpression) -> Option<Vec<String>> {
+    let mut keys = Vec::new();
+    for property in &object.properties {
+        match property {
+            ObjectPropertyKind::ObjectProperty(p) => keys.push(static_key(&p.key)?),
+            ObjectPropertyKind::SpreadProperty(spread) => match &spread.argument {
+                Expression::ObjectExpression(inner) => keys.extend(spread_keys(inner)?),
+                other if nullish_sentinel(other) => {}
+                _ => return None,
+            },
+        }
+    }
+    Some(keys)
+}
+
 fn accessor_pairs(object: &ObjectExpression) -> Vec<bool> {
     use oxc_ast::ast::PropertyKind;
     let mut standing: HashMap<String, PropertyKind> = HashMap::new();
@@ -851,14 +875,17 @@ fn accessor_pairs(object: &ObjectExpression) -> Vec<bool> {
                 // the getter above.
                 if let ObjectPropertyKind::SpreadProperty(spread) = property {
                     match &spread.argument {
-                        Expression::ObjectExpression(inner) => {
-                            for key in inner.properties.iter().filter_map(|p| match p {
-                                ObjectPropertyKind::ObjectProperty(p) => static_key(&p.key),
-                                _ => None,
-                            }) {
-                                standing.remove(&key);
+                        Expression::ObjectExpression(inner) => match spread_keys(inner) {
+                            Some(keys) => {
+                                for key in keys {
+                                    standing.remove(&key);
+                                }
                             }
-                        }
+                            None => standing.clear(),
+                        },
+                        // `...null` and `...void 0` write nothing at all, so
+                        // what stood before them stands after.
+                        other if nullish_sentinel(other) => {}
                         _ => standing.clear(),
                     }
                 }
@@ -905,7 +932,7 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
         Value::Defined | Value::Truthy | Value::Null | Value::Object(_) | Value::Array(_) => {
             Definedness::Defined
         }
-        Value::MaybeUndefined | Value::Dropped => Definedness::MaybeUndefined,
+        Value::MaybeUndefined | Value::Dropped | Value::WriteOnly => Definedness::MaybeUndefined,
         Value::Unjudged | Value::Call(_) => Definedness::Unjudged,
         // `a || b` is `b` only when `a` is falsy. A left side this pass knows to
         // be truthy is therefore the value, an object, an array and a function
@@ -2742,10 +2769,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                                 .and_then(|value| key_value(value, &path, &self.scopes, 0));
                             // An accessor stays an accessor: the increment runs
                             // its setter and reads back through its getter, or
-                            // through nothing at all when it has none.
+                            // through nothing at all when it has none. A data
+                            // property holding a function is not one of those -
+                            // the increment leaves `NaN` in it, which is a key.
                             let written = match read {
                                 Some(Value::Unjudged) => Value::Unjudged,
-                                Some(Value::Dropped) => Value::Dropped,
+                                Some(Value::WriteOnly) => Value::WriteOnly,
                                 _ => Value::Defined,
                             };
                             let updated = current
@@ -5455,6 +5484,31 @@ mod tests {
         let elsewhere = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},...{b:!0},set a(x){}})}"#;
         let (tree, _) = presence_of(elsewhere, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_function_in_a_key_is_replaced_by_the_number_an_update_leaves() {
+        // A data property holding a function is not an accessor: `v.a++` leaves
+        // `NaN` in it, and `JSON.stringify` writes that as `null` with the key
+        // there - so the key is on the wire even though the function was not.
+        let caller = r#"function f(){var v={a:function(){}};v.a++;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_spread_that_writes_nothing_leaves_the_accessor_standing() {
+        // `...null` is a no-op, so the setter below it still completes the
+        // getter above it.
+        let nullish = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},...null,set a(x){}})}"#;
+        let (tree, _) = presence_of(nullish, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+
+        // A spread inside the spread source writes its keys too, and one of
+        // them is the accessor's.
+        let nested = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},...{...{a:!0}},set a(x){}})}"#;
+        let (tree, _) = presence_of(nested, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
