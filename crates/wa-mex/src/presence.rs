@@ -1892,6 +1892,26 @@ fn static_path(target: &oxc_ast::ast::AssignmentTarget) -> Option<Vec<String>> {
 /// The recovered object with `path` written to `written`, or `None` when the
 /// path does not run through objects this pass read - in which case the caller
 /// has to stop treating the binding as evidence.
+/// The value a path reads to inside a recovered object, when every step of it
+/// is a key the object carries.
+fn key_value(value: &Value, path: &[String], scopes: &Scopes, depth: usize) -> Option<Value> {
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    let Value::Object(props) = scopes.resolve(value, 0) else {
+        return None;
+    };
+    let (key, rest) = path.split_first()?;
+    let inner = props.iter().rev().find_map(|prop| match prop {
+        Prop::Key(k, inner) if k == key => Some(inner),
+        _ => None,
+    })?;
+    match rest.is_empty() {
+        true => Some(inner.clone()),
+        false => key_value(inner, rest, scopes, depth + 1),
+    }
+}
+
 fn write_key(
     value: &Value,
     path: &[String],
@@ -2691,14 +2711,23 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                     });
                     match named {
                         Some(base) => {
-                            path.reverse();
                             let owner = self.scopes.alias_target(&base, 0);
-                            let updated = self
-                                .scopes
-                                .lookup(&owner)
-                                .cloned()
+                            path.reverse();
+                            let current = self.scopes.lookup(&owner).cloned();
+                            // `v.a++` reads the key and writes it back, and where
+                            // the key is something this pass could not read - an
+                            // accessor above all, whose getter both halves go
+                            // through - what it leaves is unread too.
+                            let read = current
+                                .as_ref()
+                                .and_then(|value| key_value(value, &path, &self.scopes, 0));
+                            let written = match read {
+                                Some(Value::Unjudged) => Value::Unjudged,
+                                _ => Value::Defined,
+                            };
+                            let updated = current
                                 .and_then(|current| {
-                                    write_key(&current, &path, Value::Defined, &self.scopes, 0)
+                                    write_key(&current, &path, written, &self.scopes, 0)
                                 })
                                 .unwrap_or(Value::Unjudged);
                             self.scopes.bind_assignment(&owner, updated);
@@ -5368,6 +5397,16 @@ mod tests {
         // through the getter.
         let whole = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},set a(v){}})}"#;
         let (tree, _) = presence_of(whole, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn an_update_through_an_accessor_reads_the_accessor() {
+        // `v.a++` goes through the setter and the serialization goes back
+        // through the getter, so what the key holds is still a body this pass
+        // does not read - not the number an update leaves in a data property.
+        let caller = r#"function f(){var v={get a(){return !0}};v.a++;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
     }
 
