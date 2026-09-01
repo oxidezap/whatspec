@@ -1447,11 +1447,15 @@ fn merge_sites(mut a: SiteTree, mut b: SiteTree) -> SiteTree {
 /// descended into: their `var`s belong to them.
 fn hoisted_vars(body: &oxc_ast::ast::FunctionBody) -> HashMap<String, Value> {
     let mut out = HashMap::new();
-    collect_hoisted(&body.statements, &mut out);
+    collect_hoisted(&body.statements, &mut out, true);
     out
 }
 
-fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<String, Value>) {
+fn collect_hoisted(
+    statements: &[oxc_ast::ast::Statement],
+    out: &mut HashMap<String, Value>,
+    top: bool,
+) {
     use oxc_ast::ast::Statement as S;
     for stmt in statements {
         match stmt {
@@ -1470,9 +1474,12 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
             }
             // A class binds its name for the block that declares it, and its
             // value is a function - a key holding one does not reach the wire
-            // either. Collected with the `var`s because shadowing is the point:
-            // the outer name must not answer for the local one.
-            S::ClassDeclaration(c) => {
+            // either. Taken here only for this scope's own statements: a
+            // function body has no block of its own to declare them in, while a
+            // class inside a nested one belongs to that block and is bound
+            // there. Hoisting those would shadow an outer name of the same
+            // spelling for the whole function, which is not where they live.
+            S::ClassDeclaration(c) if top => {
                 if let Some(id) = &c.id {
                     // Before the declaration runs the name is in its temporal
                     // dead zone, which no key can read; after it, the binding is
@@ -1481,11 +1488,11 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
                     out.insert(id.name.as_str().to_string(), Value::Dropped);
                 }
             }
-            S::BlockStatement(b) => collect_hoisted(&b.body, out),
+            S::BlockStatement(b) => collect_hoisted(&b.body, out, false),
             S::IfStatement(i) => {
-                collect_hoisted(std::slice::from_ref(&i.consequent), out);
+                collect_hoisted(std::slice::from_ref(&i.consequent), out, false);
                 if let Some(alt) = &i.alternate {
-                    collect_hoisted(std::slice::from_ref(alt), out);
+                    collect_hoisted(std::slice::from_ref(alt), out, false);
                 }
             }
             // A loop header declares in the enclosing function, not in the loop:
@@ -1495,37 +1502,37 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
                 if let Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(decl)) = &f.init {
                     collect_hoisted_declaration(decl, out);
                 }
-                collect_hoisted(std::slice::from_ref(&f.body), out);
+                collect_hoisted(std::slice::from_ref(&f.body), out, false);
             }
             S::ForInStatement(f) => {
                 if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &f.left {
                     collect_hoisted_declaration(decl, out);
                 }
-                collect_hoisted(std::slice::from_ref(&f.body), out);
+                collect_hoisted(std::slice::from_ref(&f.body), out, false);
             }
             S::ForOfStatement(f) => {
                 if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &f.left {
                     collect_hoisted_declaration(decl, out);
                 }
-                collect_hoisted(std::slice::from_ref(&f.body), out);
+                collect_hoisted(std::slice::from_ref(&f.body), out, false);
             }
-            S::WhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
-            S::DoWhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
+            S::WhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out, false),
+            S::DoWhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out, false),
             S::TryStatement(t) => {
-                collect_hoisted(&t.block.body, out);
+                collect_hoisted(&t.block.body, out, false);
                 if let Some(h) = &t.handler {
-                    collect_hoisted(&h.body.body, out);
+                    collect_hoisted(&h.body.body, out, false);
                 }
                 if let Some(f) = &t.finalizer {
-                    collect_hoisted(&f.body, out);
+                    collect_hoisted(&f.body, out, false);
                 }
             }
             S::SwitchStatement(sw) => {
                 for case in &sw.cases {
-                    collect_hoisted(&case.consequent, out);
+                    collect_hoisted(&case.consequent, out, false);
                 }
             }
-            S::LabeledStatement(l) => collect_hoisted(std::slice::from_ref(&l.body), out),
+            S::LabeledStatement(l) => collect_hoisted(std::slice::from_ref(&l.body), out, false),
             _ => {}
         }
     }
@@ -2151,11 +2158,12 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
 /// what the body writes is not something the code beside it has seen. A class is
 /// one too, through the methods it carries.
 fn defines_a_function(expr: &Expression) -> bool {
+    // Not a class: its static blocks and static field initializers run where the
+    // class is written, so what they leave behind IS something the property
+    // beside it sees.
     matches!(
         expr,
-        Expression::FunctionExpression(_)
-            | Expression::ArrowFunctionExpression(_)
-            | Expression::ClassExpression(_)
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
     )
 }
 
@@ -2569,6 +2577,8 @@ struct CallSiteCollector<'d> {
     /// Whether the body about to be walked is an invoked async one, which runs
     /// only as far as its first `await` before the call returns.
     suspends: bool,
+    /// The values a direct call passes, for the parameters of the body it runs.
+    call_arguments: Option<Vec<Value>>,
     /// Whether this pass is a second reading of a body already walked - a loop
     /// on its way round again. Its call sites are real and are kept; what it
     /// could not read was already counted the first time.
@@ -2829,6 +2839,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
         if let Some(test) = &stmt.test {
             self.visit_expression(test);
+            // `for (; !1;) …` runs its body no times at all, and the update with
+            // it: a call written there is not one the client makes.
+            if static_truth(test) == Some(false) {
+                self.scopes.pop();
+                return;
+            }
         }
         // Round again: every iteration after the first reads what the body and
         // the update left behind. `for (; t; x = void 0) { fetchQuery(op, {a:
@@ -3431,9 +3447,27 @@ impl CallSiteCollector<'_> {
             self.visit_argument(argument);
         }
         if runs_here {
+            // Read after the arguments, which is where they are evaluated, so
+            // each parameter gets the value its own call wrote.
+            let passed: Vec<Value> = call
+                .arguments
+                .iter()
+                .map(|argument| match argument.as_expression() {
+                    Some(expression) => self.settled(expression),
+                    // A spread stands for any number of arguments, so nothing
+                    // after it lines up with a parameter this pass can name.
+                    None => Value::Unjudged,
+                })
+                .collect();
+            let spread = call
+                .arguments
+                .iter()
+                .any(|argument| argument.as_expression().is_none());
+            self.call_arguments = (!spread).then_some(passed);
             self.invoked = true;
             self.visit_expression(&call.callee);
             self.invoked = false;
+            self.call_arguments = None;
         }
         if !self.is_operation_call(call, handle) && self.is_ambiguous_call(call, handle) {
             // A Relay call in a module that sends several operations, whose
@@ -3780,12 +3814,17 @@ impl CallSiteCollector<'_> {
     /// function's parameter `e` too - so without this the inner `e` resolves to the
     /// outer `require` call and a plain passthrough reads as unjudged.
     fn bind_params(&mut self, params: &oxc_ast::ast::FormalParameters) {
+        // `(function(x){…})(!0)` hands its parameters the values written at the
+        // call, which is the one case where this pass knows what a caller
+        // passed. Taken here so a body walked for any other reason keeps
+        // reading its parameters as values from outside.
+        let passed = std::mem::take(&mut self.call_arguments);
         // Every name the pattern introduces, destructured and rest included.
         // Leaving those unbound is not the same as binding them: an unbound name
         // falls through to the enclosing frames, so `function f({x})` inside a
         // module that also binds `x` would resolve the parameter to the module's
         // value and call a passthrough unconditional.
-        for item in &params.items {
+        for (index, item) in params.items.iter().enumerate() {
             // `function f(x = !0)` substitutes the default whenever the argument
             // is missing or `undefined`, so the binding is the default and not a
             // passthrough. Only for a plain `x`: with `function f({x} = {})` the
@@ -3801,7 +3840,16 @@ impl CallSiteCollector<'_> {
                 .filter(|_| plain)
                 .map(|d| convert(d, 0));
             for ident in item.pattern.get_binding_identifiers() {
-                let value = default.clone().unwrap_or(Value::Given);
+                // A value the call passed, when this is that call's own body and
+                // the parameter is a plain name: a destructured one is a shape
+                // this pass does not take apart, and a missing argument leaves
+                // the default or the `undefined` any call may have passed.
+                let argument = passed
+                    .as_ref()
+                    .filter(|_| plain)
+                    .and_then(|values| values.get(index))
+                    .cloned();
+                let value = argument.or_else(|| default.clone()).unwrap_or(Value::Given);
                 self.scopes.bind(ident.name.as_str(), value);
             }
         }
@@ -3965,6 +4013,7 @@ pub(crate) fn variables_presence(
             opaque_paths: Vec::new(),
             invoked: false,
             suspends: false,
+            call_arguments: None,
             replaying: false,
             variable_arguments: Vec::new(),
             diag,
@@ -6649,18 +6698,80 @@ mod tests {
     }
 
     #[test]
-    fn probe_alias_handle() {
+    fn a_for_loop_a_literal_test_never_enters_is_not_a_call_site() {
+        // `for (; !1;) …` runs its body no times, and the update with it.
+        let caller = r#"function f(){for(;!1;)o("C").fetchQuery(n("WAWebFooQuery.graphql"),{});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_direct_call_hands_its_arguments_to_its_parameters() {
+        // `(function(x){…})(!0)` is the one case where this pass knows what a
+        // caller passed, so the parameter is that value and not a passthrough.
+        let caller = r#"function f(){return(function(x){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(!0)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // A parameter the call passes nothing for is `undefined` on every path.
+        let missing = r#"function f(){return(function(x){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})()}"#;
+        let (tree, _) = presence_of(missing, &["a"]);
+        assert_ne!(at(&tree, "a"), VariablePresence::Always);
+
+        // A spread stands for any number of arguments, so nothing after it
+        // lines up with a parameter this pass can name.
+        let spread = r#"function f(t){return(function(x){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(...t)}"#;
+        let (tree, _) = presence_of(spread, &["a"]);
+        assert_ne!(at(&tree, "a"), VariablePresence::Always);
+
+        // A body walked for any other reason still reads its parameters as
+        // values from outside.
+        let defined = r#"function f(){function g(x){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}g(!0)}"#;
+        let (tree, _) = presence_of(defined, &["a"]);
+        assert_ne!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_class_runs_its_static_parts_where_it_is_written() {
+        // A static block runs when the class is evaluated, so what it writes IS
+        // something the property beside it sees. Only method bodies are held
+        // back, which is what a function-valued property gets.
+        let caller = r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{static{x=void 0}},a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_class_in_a_block_stays_in_that_block() {
+        // A class binds its name for the block that declares it. Hoisting it to
+        // the function would shadow an outer name of the same spelling from the
+        // top, which is not where it lives.
+        let caller = r#"function f(){var X=!0;{class X{}}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:X})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // At the top of a function body there is no block to declare it in, and
+        // the name below the declaration is the class.
+        let own = r#"function f(){class X{}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:X||!0})}"#;
+        let (tree, _) = presence_of(own, &["a"]);
+        assert_ne!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_property_read_stays_read_through_a_binding() {
+        // `var h = e.handle` carries the read into the binding, so the call
+        // argument being a plain name does not make the handle this module's.
+        let caller = r#"function m(t,n,r,o,a,i,l){function d(e){var h=e.handle;return o("WAWebRelayClient").fetchQuery(h,{a:!0})}}"#;
         let names = vec!["a".to_string()];
         let mut diag = PresenceDiagnostics::default();
-        let aliased = r#"function m(t,n,r,o,a,i,l){function d(e){var h=e.handle;return o("WAWebRelayClient").fetchQuery(h,{a:!0})}}"#;
         let out = variables_presence(
-            &[(aliased, true)],
+            &[(caller, true)],
             MODULE,
             &names,
             &mut diag,
             &mut Vec::new(),
         );
-        println!("aliased handle: {:?}", out.get("a").map(|n| n.presence));
+        assert_eq!(out["a"].presence, VariablePresence::Undetermined);
     }
 
     #[test]
