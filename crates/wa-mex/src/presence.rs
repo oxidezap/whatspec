@@ -2023,16 +2023,24 @@ fn may_be_called(value: &Value, scopes: &Scopes, depth: usize) -> bool {
     }
 }
 
-/// Whether a statement always ends the function it sits in, so nothing after it
-/// runs with what it wrote. Only `return`: a `throw` is read by an enclosing
-/// handler, which is exactly the state those writes leave.
-fn always_returns(stmt: &oxc_ast::ast::Statement) -> bool {
+/// Whether a statement always ends the path it is on, so the code written after
+/// it does not run with what it wrote.
+///
+/// A `throw` as much as a `return`: the statements below the `if` are not on the
+/// throwing arm. An enclosing handler still sees those writes, because the watch
+/// a `try` opens records them where they are made and not where the arm ends.
+fn never_falls_through(stmt: &oxc_ast::ast::Statement) -> bool {
     match stmt {
-        oxc_ast::ast::Statement::ReturnStatement(_) => true,
-        oxc_ast::ast::Statement::BlockStatement(b) => b.body.last().is_some_and(always_returns),
+        oxc_ast::ast::Statement::ReturnStatement(_)
+        | oxc_ast::ast::Statement::ThrowStatement(_) => true,
+        oxc_ast::ast::Statement::BlockStatement(b) => {
+            b.body.last().is_some_and(never_falls_through)
+        }
         oxc_ast::ast::Statement::IfStatement(i) => {
-            always_returns(&i.consequent)
-                && i.alternate.as_ref().is_some_and(|arm| always_returns(arm))
+            never_falls_through(&i.consequent)
+                && i.alternate
+                    .as_ref()
+                    .is_some_and(|arm| never_falls_through(arm))
         }
         _ => false,
     }
@@ -2389,6 +2397,28 @@ fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>
     let base = base_of(current, &mut path)?;
     path.reverse();
     Some((base, path))
+}
+
+/// The same as [`member_path`] for a member read through an optional chain:
+/// `v?.a` and `v?.["a"]` name the key `v.a` names.
+fn optional_member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>)> {
+    let Expression::ChainExpression(chain) = expr else {
+        return None;
+    };
+    let member = chain.expression.member_expression()?;
+    let mut path = vec![member.static_property_name()?.to_string()];
+    let base = base_of(member.object(), &mut path)?;
+    path.reverse();
+    Some((base, path))
+}
+
+/// The name an optional member chain starts from, for a key this pass cannot
+/// read: `delete v?.[k]` takes off one of the keys `v` holds.
+fn optional_member_base<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b str> {
+    let Expression::ChainExpression(chain) = expr else {
+        return None;
+    };
+    member_base(chain.expression.member_expression()?.object())
 }
 
 /// Walk up a member chain, pushing each key it reads through, to the name the
@@ -2959,7 +2989,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // so what it wrote is not a value that code can read: `if (t) { x = void
         // 0; return } fetchQuery(op, {a: x})` sends `a` on every call that
         // reaches it.
-        let returns = always_returns(&stmt.consequent);
+        let returns = never_falls_through(&stmt.consequent);
         let Some(alternate) = &stmt.alternate else {
             if returns {
                 self.scopes.enter_branch();
@@ -2981,7 +3011,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         let second = self.scopes.take_branch();
         // With one arm returning, the code after the statement is on the other
         // arm and on no other path, so that arm answers for it alone.
-        match (returns, always_returns(alternate)) {
+        match (returns, never_falls_through(alternate)) {
             (true, true) => {}
             (true, false) => self.scopes.join_all_arms(vec![second], true),
             (false, true) => self.scopes.join_all_arms(vec![first], true),
@@ -3552,7 +3582,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // alias hold, and the expression itself is only the boolean that says it
         // worked. A key that is gone is a key `JSON.stringify` cannot write.
         if expr.operator == UnaryOperator::Delete {
-            match member_path(&expr.argument) {
+            // `delete v?.a` removes the same key `delete v.a` does wherever `v`
+            // is there, and a recovered object is. The chain around the member
+            // is punctuation, not part of the path.
+            match member_path(&expr.argument).or_else(|| optional_member_path(&expr.argument)) {
                 Some((base, path)) => {
                     let owner = self.scopes.alias_target(base, 0);
                     let updated = self
@@ -3568,7 +3601,9 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 // `delete v[k]` takes off a key this pass cannot name, which
                 // may be any of the ones it recovered.
                 None => {
-                    if let Some(base) = member_base(&expr.argument) {
+                    if let Some(base) =
+                        member_base(&expr.argument).or_else(|| optional_member_base(&expr.argument))
+                    {
                         let owner = self.scopes.alias_target(base, 0);
                         self.scopes.bind_assignment(&owner, Value::Unjudged);
                     }
@@ -7279,6 +7314,42 @@ mod tests {
         let default = r#"function f(t){var v=null;return(function(x=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(v&&t.u)}"#;
         let (tree, _) = presence_of(default, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_throwing_arm_is_not_a_path_the_code_below_is_on() {
+        // `if (t) { x = void 0; throw e }` ends the path it is on, exactly as a
+        // `return` does, so the call written after the statement never reads
+        // what that arm wrote.
+        let caller = r#"function f(t){var x=!0;if(t){x=void 0;throw e}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // The handler is the other path, and it still sees the write: a `catch`
+        // is entered from wherever the `try` threw.
+        let caught = r#"function f(t){var x=!0;try{if(t){x=void 0;throw e}}catch(u){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caught, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_optional_delete_takes_the_key_off_too() {
+        // `delete v?.a` removes what `delete v.a` removes wherever `v` is there,
+        // and a recovered object is. Rejecting the chain around the member left
+        // the object standing and published a key the client takes off.
+        for caller in [
+            r#"function f(){var v={a:!0};delete v?.a;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={a:!0};delete v?.["a"];return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
+
+        // A key the chain cannot name may be any of them, the same as without
+        // the chain.
+        let computed = r#"function f(t){var v={a:!0};delete v?.[t.k];return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(computed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
     }
 
     #[test]
