@@ -807,6 +807,94 @@ fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
 
 /// The names a pattern introduces through a rest element: `{...x}` and
 /// `[...x]`, at any depth of nesting.
+/// What a destructuring pattern hands each name it introduces, when the value
+/// it takes apart is one this pass can read.
+///
+/// `var {x} = {x: v}` hands `x` the very object `v` names, so a `delete x.a`
+/// through the new name removes the key from the object a call later sends.
+/// Binding an unrelated unknown there hid that write and left the key reading
+/// as always sent. Only object and array references travel: for anything else
+/// the name keeps the conservative value the pattern bound before, which is
+/// what an unreadable source leaves too.
+fn destructured_values(
+    pattern: &oxc_ast::ast::BindingPattern,
+    source: Option<Value>,
+    scopes: &Scopes,
+    depth: usize,
+    out: &mut Vec<(String, Value)>,
+) {
+    if depth >= MAX_DEPTH {
+        return;
+    }
+    let next = depth + 1;
+    match pattern {
+        oxc_ast::ast::BindingPattern::BindingIdentifier(id) => {
+            let Some(value) = source else {
+                return;
+            };
+            if matches!(
+                scopes.resolve(&value, 0),
+                Value::Object(_) | Value::Array(_)
+            ) {
+                out.push((id.name.to_string(), value));
+            }
+        }
+        oxc_ast::ast::BindingPattern::ObjectPattern(object) => {
+            for property in &object.properties {
+                let key = static_key(&property.key);
+                let value = key.and_then(|key| {
+                    source
+                        .as_ref()
+                        .and_then(|source| readable_property(source, &key, scopes))
+                });
+                destructured_values(&property.value, value, scopes, next, out);
+            }
+        }
+        oxc_ast::ast::BindingPattern::ArrayPattern(array) => {
+            let items = source.as_ref().map(|source| scopes.resolve(source, 0));
+            for (index, element) in array.elements.iter().enumerate() {
+                let Some(element) = element else {
+                    continue;
+                };
+                // Only a literal array reads by position: a spread inside one
+                // shifts every element after it by however many it yields.
+                let value = match items {
+                    Some(Value::Array(items)) => items.get(index).cloned(),
+                    _ => None,
+                };
+                destructured_values(element, value, scopes, next, out);
+            }
+        }
+        // `{x = d}` takes the default whenever the property is missing or
+        // `undefined`, so what the name holds is not simply what was read.
+        oxc_ast::ast::BindingPattern::AssignmentPattern(assignment) => {
+            destructured_values(&assignment.left, None, scopes, next, out);
+        }
+    }
+}
+
+/// The value an object literal holds under a key, when nothing in it can be
+/// hiding another write to that key. A spread after the key may overwrite it
+/// and a key this pass cannot read may BE it, so either one leaves the answer
+/// unknown rather than the value written here.
+fn readable_property(source: &Value, key: &str, scopes: &Scopes) -> Option<Value> {
+    let Value::Object(props) = scopes.resolve(source, 0) else {
+        return None;
+    };
+    let mut found = None;
+    for prop in props {
+        match prop {
+            Prop::Key(name, value) => {
+                if name == key {
+                    found = Some(value.clone());
+                }
+            }
+            _ => return None,
+        }
+    }
+    found
+}
+
 fn rest_names(pattern: &oxc_ast::ast::BindingPattern) -> Vec<String> {
     let mut out = Vec::new();
     collect_rest_names(pattern, &mut out);
@@ -2025,14 +2113,6 @@ fn suspends_here(statement: &oxc_ast::ast::Statement) -> bool {
     awaits.found
 }
 
-/// The same question of one expression, for splitting a statement that suspends
-/// partway through: `x = !0, await q()` has run the write when the call returns.
-fn suspends_in(expression: &Expression) -> bool {
-    let mut awaits = Awaits { found: false };
-    awaits.visit_expression(expression);
-    awaits.found
-}
-
 /// The names an argument hands to a body this pass does not read: the argument
 /// itself when it is one, and any name nested inside an object or array literal
 /// built around it, at any depth. `mutate({value: v})` reaches `v` as surely as
@@ -2596,6 +2676,11 @@ struct CallSiteCollector<'d> {
     /// Whether the body about to be walked is an invoked async one, which runs
     /// only as far as its first `await` before the call returns.
     suspends: bool,
+    /// Whether an `await` reached from here suspends the body being walked, so
+    /// what follows it is a branch the call does not run.
+    suspend_on_await: bool,
+    /// How many such branches are open in the statement being walked.
+    suspended: usize,
     /// The values a direct call passes, for the parameters of the body it runs.
     /// `None` in the slot for an argument written `void 0`: a parameter with a
     /// default takes the default for that one, exactly as it does for an
@@ -2656,11 +2741,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // The flag is set here, next to the walk that reads it, so a default
         // in the parameters cannot spend it on a body of its own.
         self.suspends = invoked && func.r#async;
+        // An `await` inside this body is this body's suspension and not the one
+        // being split above it.
+        let outer = std::mem::take(&mut self.suspend_on_await);
         match invoked {
             true => walk::walk_function(self, func, flags),
             false => self.read_until_it_settles(|v| walk::walk_function(v, func, flags)),
         }
         self.suspends = false;
+        self.suspend_on_await = outer;
         self.scopes.pop();
     }
 
@@ -2672,11 +2761,13 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
         self.suspends = invoked && func.r#async;
+        let outer = std::mem::take(&mut self.suspend_on_await);
         match invoked {
             true => walk::walk_arrow_function_expression(self, func),
             false => self.read_until_it_settles(|v| walk::walk_arrow_function_expression(v, func)),
         }
         self.suspends = false;
+        self.suspend_on_await = outer;
         self.scopes.pop();
     }
 
@@ -2728,44 +2819,22 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         let suspends = std::mem::take(&mut self.suspends);
         for (index, statement) in statements.iter().enumerate() {
             if suspends && suspends_here(statement) {
-                // The minifier writes a run of statements as one comma
-                // expression, so the suspension can sit partway through the
-                // statement that carries it: `x = !0, await q()` has made its
-                // write by the time the call returns. What the sequence
-                // evaluates before the `await` is as certain as any statement
-                // above it.
-                let split = match statement {
-                    oxc_ast::ast::Statement::ExpressionStatement(statement) => {
-                        match &statement.expression {
-                            Expression::SequenceExpression(sequence) => sequence
-                                .expressions
-                                .iter()
-                                .position(suspends_in)
-                                .filter(|split| *split > 0)
-                                .map(|split| {
-                                    (
-                                        &sequence.expressions[..split],
-                                        &sequence.expressions[split..],
-                                    )
-                                }),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-                let (rest, tail) = match split {
-                    Some((prefix, tail)) => {
-                        for expression in prefix {
-                            self.visit_expression(expression);
-                        }
-                        (&statements[index + 1..], Some(tail))
-                    }
-                    None => (&statements[index..], None),
-                };
+                // The suspension can sit anywhere inside the statement that
+                // carries it - `x = !0, await q()`, `q(x = !0, await p())` - and
+                // everything evaluated before it has run by the time the call
+                // returns. So the statement is walked with the `await` itself
+                // opening a branch: what comes after it joins, what came before
+                // stands.
+                self.suspend_on_await = true;
+                self.visit_statement(statement);
+                self.suspend_on_await = false;
+                let opened = std::mem::take(&mut self.suspended);
+                for _ in 0..opened {
+                    let exits = self.scopes.take_branch();
+                    self.scopes.join_all_arms(vec![exits], false);
+                }
+                let rest = &statements[index + 1..];
                 self.read_until_it_settles(|v| {
-                    for expression in tail.into_iter().flatten() {
-                        v.visit_expression(expression);
-                    }
                     for statement in rest {
                         v.visit_statement(statement);
                         if always_leaves(statement) {
@@ -2965,6 +3034,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // whose body a falsy test skips entirely.
         self.visit_statement(&stmt.body);
         self.visit_expression(&stmt.test);
+        // `do {…} while (!1)` has run its body exactly once by now, and there is
+        // no second iteration to read. Replaying it would record a call the
+        // client never makes with the state the first pass left behind.
+        if static_truth(&stmt.test) == Some(false) {
+            return;
+        }
         self.read_until_it_settles(|v| walk::walk_do_while_statement(v, stmt));
     }
 
@@ -3135,6 +3210,16 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// Both arms from the state before the ternary, the same as an `if`: only
     /// one of them runs, so a call in the second must not read what the first
     /// wrote.
+    /// The point an async body stops: what the `await` is applied to has been
+    /// evaluated, and nothing after it runs before the call returns.
+    fn visit_await_expression(&mut self, expr: &oxc_ast::ast::AwaitExpression<'a>) {
+        self.visit_expression(&expr.argument);
+        if self.suspend_on_await {
+            self.scopes.enter_branch();
+            self.suspended += 1;
+        }
+    }
+
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
         // A literal test takes one arm on every path, so what that arm writes is
@@ -3211,6 +3296,19 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 self.scopes.bind(name.as_str(), value);
             }
             return;
+        }
+        // A name taken out of a source this pass can read holds what was
+        // written there, references included: the conservative value bound
+        // above hides a later write through the new name from the object it
+        // reaches. Written after the initializer for the same reason the plain
+        // name is.
+        if let Some(init) = d.init.as_ref() {
+            let source = convert(init, 0);
+            let mut bindings = Vec::new();
+            destructured_values(&d.id, Some(source), &self.scopes, 0, &mut bindings);
+            for (name, value) in bindings {
+                self.scopes.bind(&name, value);
+            }
         }
         // A rest binding is a container the destructuring builds: `{...x}`
         // leaves an object and `[...x]` an array, on every path that gets past
@@ -3932,7 +4030,15 @@ impl CallSiteCollector<'_> {
                 let value = match (argument, default.clone()) {
                     // `f(void 0)` and `f()` both take the default, which is what
                     // the empty slot says.
-                    (Some(None) | None, Some(default)) => default,
+                    (Some(None), Some(default)) => default,
+                    // No call to read: the parameter is the default on the
+                    // calls that pass nothing and what the caller passed on the
+                    // others. That other arm is defined and no more - the
+                    // default rules `undefined` out, so a key holding the
+                    // parameter is on the wire either way - and it carries no
+                    // shape, because `function f(v = {a: !0})` says nothing
+                    // about what `f({})` sends.
+                    (None, Some(default)) => either(default, Value::Defined),
                     (Some(Some(passed)), Some(default)) => {
                         // A value that MAY be undefined is one of the two: the
                         // argument on the calls that pass something, the default
@@ -4109,6 +4215,8 @@ pub(crate) fn variables_presence(
             opaque_paths: Vec::new(),
             invoked: false,
             suspends: false,
+            suspend_on_await: false,
+            suspended: 0,
             call_arguments: None,
             replaying: false,
             variable_arguments: Vec::new(),
@@ -6919,6 +7027,74 @@ mod tests {
         ] {
             let (tree, _) = presence_of(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
+    }
+
+    #[test]
+    fn a_do_while_false_body_runs_once_and_does_not_come_back() {
+        // `do {…} while (!1)` has no back edge, so what the body writes after
+        // the call never reaches it. Replaying the body to a fixed point read
+        // the second pass value at a call the second pass never makes.
+        let caller = r#"function f(){var x=!0;do{o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});x=void 0}while(!1)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_parameter_default_is_not_what_every_caller_sends() {
+        // `function f(v = {a: !0})` shows what ONE call sends, the one that
+        // passes nothing. Reading the default as the parameter published the
+        // key of a caller that hands in an object of its own.
+        let caller =
+            r#"function f(v={a:!0}){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn an_await_suspends_wherever_in_a_statement_it_sits() {
+        // An `async` body stops at its first `await` and the module goes on, so
+        // only what runs before that first suspension has happened when the
+        // code below the call reads it. The `await` decides that, not the shape
+        // of the statement holding it: here it is an argument in the middle of
+        // a call, and the write beside it lands on either side.
+        let before = r#"function f(){var x;(async function(){q(x=!0,await p())})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(before, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // What is ordered after that first `await` waits for a turn this pass
+        // cannot place against the call below, so it is read as a write that
+        // may or may not have landed rather than as one that has.
+        let after = r#"function f(){var x=!0;(async function(){q(await p(),x=void 0)})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(after, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_name_destructured_out_of_a_readable_source_aliases_what_it_took() {
+        // `var {x} = {x: v}` hands `x` the object `v` names, so `delete x.a`
+        // removes the key from the object the call sends. Binding the new name
+        // to an unrelated unknown hid the write and published `a` as always.
+        for caller in [
+            r#"function f(){var v={a:!0};var{x}={x:v};delete x.a;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={a:!0};var[x]=[v];delete x.a;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
+    }
+
+    #[test]
+    fn a_destructuring_this_pass_cannot_read_leaves_the_names_alone() {
+        // Only a source whose keys are all readable says what a name holds: a
+        // spread beside the key can overwrite it, and a property off a
+        // parameter is not a shape this pass has.
+        for caller in [
+            r#"function f(t){var v={a:!0};var{x}=t.pair;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(t){var v={a:!0};var{x}={x:v,...t.extra};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
         }
     }
 
