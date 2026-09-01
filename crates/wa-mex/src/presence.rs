@@ -771,9 +771,16 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         // which serializes as `null` with the key still there.
         Expression::UpdateExpression(_) => Value::Defined,
 
-        Expression::CallExpression(c) => {
+        // The require a module handle comes from takes the module name and
+        // nothing else - `n("X.graphql")` - so a call handed more than that is
+        // a call whose name this pass does not know, whatever its first
+        // argument spells. It cannot tell that require from a helper of the
+        // same shape, which is why a call is never this operation's by
+        // elimination: see `supplied_from_outside_at`.
+        Expression::CallExpression(c) if c.arguments.len() == 1 => {
             Value::Call(wa_oxc::first_string_arg(c).map(str::to_string))
         }
+        Expression::CallExpression(_) => Value::Call(None),
 
         _ => Value::Unjudged,
     }
@@ -5386,6 +5393,14 @@ mod tests {
             assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
             assert_eq!(diag.ambiguous_call_sites, 1);
         }
+
+        // A call handed more than the module name is not the require, whose
+        // whole argument list IS that name, so it carries no name at all.
+        let extra =
+            r#"function f(t){return o("C").fetchQuery(select("WAWebFooQuery.graphql",t),{a:!0})}"#;
+        let (tree, diag) = presence_of_sole(extra, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.ambiguous_call_sites, 1);
 
         // A helper carrying the name of ANOTHER `.graphql` module reads as that
         // module, so the call is one this operation is not in at all: skipped
