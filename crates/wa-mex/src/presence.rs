@@ -866,9 +866,11 @@ fn destructured_values(
             }
         }
         // `{x = d}` takes the default whenever the property is missing or
-        // `undefined`, so what the name holds is not simply what was read.
+        // `undefined`. Only object and array references travel out of here and
+        // neither one is `undefined`, so where the source reads the default is
+        // not the value and the name still aliases what was there.
         oxc_ast::ast::BindingPattern::AssignmentPattern(assignment) => {
-            destructured_values(&assignment.left, None, scopes, next, out);
+            destructured_values(&assignment.left, source, scopes, next, out);
         }
     }
 }
@@ -3314,12 +3316,20 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // falls through to an enclosing scope: `let {x} = opts` beside an outer
         // `x` would otherwise resolve to the outer value. What it extracts is not
         // modelled, so those names are passthroughs.
+        let function_scoped = d.kind.is_var();
         if d.id.get_identifier_name().is_none() {
             for ident in d.id.get_binding_identifiers() {
-                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
+                // Where a plain `var` lands: a block does not hold it, so a
+                // write through the name after the block still reaches what the
+                // destructuring bound.
+                match function_scoped {
+                    true => self
+                        .scopes
+                        .bind_function_scoped(ident.name.as_str(), Value::MaybeUndefined),
+                    false => self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined),
+                }
             }
         }
-        let function_scoped = d.kind.is_var();
         // The initializer runs before the name holds anything: a call inside it
         // sees the binding as it was, which for a `var` is the hoisted
         // `undefined`. Walking it after the bind let `var x = (fetchQuery(op,
@@ -3376,7 +3386,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             let mut bindings = Vec::new();
             destructured_values(&d.id, Some(source), &self.scopes, 0, &mut bindings);
             for (name, value) in bindings {
-                self.scopes.bind(&name, value);
+                match function_scoped {
+                    true => self.scopes.bind_function_scoped(&name, value),
+                    false => self.scopes.bind(&name, value),
+                }
             }
         }
         // A rest binding is a container the destructuring builds: `{...x}`
@@ -4098,11 +4111,14 @@ impl CallSiteCollector<'_> {
                 // What the call passed for this position, when this is that
                 // call's own body and the parameter is a plain name: a
                 // destructured one is a shape this pass does not take apart.
+                // A call this pass read but whose list stops short of this
+                // position passed nothing here, which is the empty slot and not
+                // the absence of a call: `(function (x = !0) {…})()` takes the
+                // default and takes it exactly.
                 let argument = passed
                     .as_ref()
                     .filter(|_| plain)
-                    .and_then(|values| values.get(index))
-                    .cloned();
+                    .map(|values| values.get(index).cloned().flatten());
                 let value = match (argument, default.clone()) {
                     // `f(void 0)` and `f()` both take the default, which is what
                     // the empty slot says.
@@ -7209,6 +7225,36 @@ mod tests {
             let (tree, _) = presence_of(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
         }
+    }
+
+    #[test]
+    fn a_call_that_stops_short_of_a_parameter_passed_nothing_there() {
+        // A read call whose argument list ends before this position is not a
+        // call this pass could not read: it passed nothing here, which is what
+        // the default is for, so the parameter is the default and no more.
+        let caller = r#"function f(){return(function(v={a:!0}){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)})()}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_destructured_var_outlives_the_block_it_is_written_in() {
+        // `var` belongs to the function, so a write through the name after the
+        // block still reaches the object the destructuring handed it. Binding it
+        // where the block stands dropped it with the block.
+        let caller = r#"function f(){var v={a:!0};{var{x}={x:v}}delete x.a;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_default_beside_a_destructured_name_does_not_hide_the_source() {
+        // `{x = 1}` takes the default only where the property is missing or
+        // `undefined`, and an object is neither, so `x` still names what the
+        // source held.
+        let caller = r#"function f(){var v={a:!0};var{x=1}={x:v};delete x.a;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
