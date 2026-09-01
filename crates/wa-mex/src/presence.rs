@@ -93,13 +93,22 @@ enum Value {
     /// `MaybeUndefined` because the difference decides `a || b` - a function on
     /// the left IS the value, where an undefined one hands over to `b`.
     Dropped,
+    /// A value that is defined AND truthy: the literals `!0`, `1`, `"x"`. Held
+    /// apart from [`Value::Defined`] because `x || y` is `x` only when `x` is
+    /// truthy, and `x === !0` is defined while being `false` half the time.
+    Truthy,
     /// An identifier, resolved against the enclosing bindings when read.
     Ref(String),
     Object(Vec<Prop>),
     Array(Vec<Value>),
-    /// `a ?? b` / `a || b`: the result is `a` only when `a` is non-nullish /
-    /// truthy, so it is defined exactly when `b` is.
+    /// `a || b`: the result is `b` only when `a` is falsy, so a left side this
+    /// pass knows to be truthy IS the value.
     OrElse(Box<Value>, Box<Value>),
+    /// `a ?? b`: the result is `b` only when `a` is nullish, which is a
+    /// different question from truthiness - `0 ?? x` is `0` and `0 || x` is
+    /// `x` - and the two operators cannot share a node without answering one
+    /// of them wrongly.
+    Coalesce(Box<Value>, Box<Value>),
     /// `a && b`: can yield a falsy `a`, `undefined` included.
     AndThen(Box<Value>, Box<Value>),
     /// `c ? a : b`.
@@ -579,7 +588,10 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         // Every binary operator (`===`, `!==`, `<`, `+`, `in`, `instanceof`, …)
         // yields a primitive. This is the arm that classifies WA's `x === !0`
         // coercion, which is the whole finding.
-        | Expression::BinaryExpression(_) => Value::Defined,
+        | Expression::BinaryExpression(_) => match falsy_literal(expr) {
+            Some(false) => Value::Truthy,
+            _ => Value::Defined,
+        },
 
         // A defined value is not the same as a value that survives the wire.
         // `JSON.stringify` drops a property whose value is a function, so
@@ -599,7 +611,12 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         // so it is the one unary that does not.
         Expression::UnaryExpression(u) => match u.operator {
             UnaryOperator::Void => Value::MaybeUndefined,
-            _ => Value::Defined,
+            // `!0` is how the minifier writes `true`, and its truthiness is as
+            // readable as the literal's.
+            _ => match falsy_literal(expr) {
+                Some(false) => Value::Truthy,
+                _ => Value::Defined,
+            },
         },
 
         Expression::LogicalExpression(l) => match l.operator {
@@ -619,7 +636,7 @@ fn convert(expr: &Expression, depth: usize) -> Value {
             LogicalOperator::Coalesce => match nullish_literal(&l.left) {
                 Some(false) => convert(&l.left, next),
                 Some(true) => convert(&l.right, next),
-                None => Value::OrElse(
+                None => Value::Coalesce(
                     Box::new(convert(&l.left, next)),
                     Box::new(convert(&l.right, next)),
                 ),
@@ -726,13 +743,24 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
     }
     let next = depth + 1;
     match value {
-        Value::Defined | Value::Object(_) | Value::Array(_) => Definedness::Defined,
+        Value::Defined | Value::Truthy | Value::Object(_) | Value::Array(_) => Definedness::Defined,
         Value::MaybeUndefined | Value::Dropped => Definedness::MaybeUndefined,
         Value::Unjudged | Value::Call(_) => Definedness::Unjudged,
-        // `a ?? b` and `a || b` are `b` only when `a` gives way. A function or a
-        // class does not: it is truthy and non-nullish, and it is the value -
-        // one `JSON.stringify` drops.
+        // `a || b` is `b` only when `a` is falsy. A left side this pass knows to
+        // be truthy is therefore the value, an object, an array and a function
+        // included - and a function is the one whose key `JSON.stringify` drops.
         Value::OrElse(lhs, rhs) => match scopes.resolve(lhs, 0) {
+            Value::Truthy | Value::Object(_) | Value::Array(_) => definedness(lhs, scopes, next),
+            Value::Dropped => Definedness::MaybeUndefined,
+            _ => definedness(rhs, scopes, next),
+        },
+        // `a ?? b` asks the other question: `0 ?? b` is `0`, which `a || b`
+        // would have thrown away. Anything this pass knows to be neither `null`
+        // nor `undefined` is the value.
+        Value::Coalesce(lhs, rhs) => match scopes.resolve(lhs, 0) {
+            Value::Defined | Value::Truthy | Value::Object(_) | Value::Array(_) => {
+                definedness(lhs, scopes, next)
+            }
             Value::Dropped => Definedness::MaybeUndefined,
             _ => definedness(rhs, scopes, next),
         },
@@ -1423,6 +1451,10 @@ fn settle(value: &Value, scopes: &Scopes, depth: usize) -> Value {
             Box::new(settle(a, scopes, next)),
             Box::new(settle(b, scopes, next)),
         ),
+        Value::Coalesce(a, b) => Value::Coalesce(
+            Box::new(settle(a, scopes, next)),
+            Box::new(settle(b, scopes, next)),
+        ),
         Value::AndThen(a, b) => Value::AndThen(
             Box::new(settle(a, scopes, next)),
             Box::new(settle(b, scopes, next)),
@@ -1492,10 +1524,11 @@ fn may_be_called(value: &Value, scopes: &Scopes, depth: usize) -> bool {
     }
     let next = depth + 1;
     match scopes.resolve(value, 0) {
-        Value::Defined | Value::Object(_) | Value::Array(_) => false,
-        Value::Either(a, b) | Value::OrElse(a, b) | Value::AndThen(a, b) => {
-            may_be_called(a, scopes, next) || may_be_called(b, scopes, next)
-        }
+        Value::Defined | Value::Truthy | Value::Object(_) | Value::Array(_) => false,
+        Value::Either(a, b)
+        | Value::OrElse(a, b)
+        | Value::Coalesce(a, b)
+        | Value::AndThen(a, b) => may_be_called(a, scopes, next) || may_be_called(b, scopes, next),
         _ => true,
     }
 }
@@ -1674,7 +1707,11 @@ fn assignment_value(a: &oxc_ast::ast::AssignmentExpression, depth: usize) -> Val
             Box::new(Value::MaybeUndefined),
             Box::new(convert(&a.right, depth)),
         ),
-        AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish => Value::OrElse(
+        AssignmentOperator::LogicalOr => Value::OrElse(
+            Box::new(Value::MaybeUndefined),
+            Box::new(convert(&a.right, depth)),
+        ),
+        AssignmentOperator::LogicalNullish => Value::Coalesce(
             Box::new(Value::MaybeUndefined),
             Box::new(convert(&a.right, depth)),
         ),
@@ -1776,7 +1813,7 @@ fn every_branch_names_a_module(value: &Value, scopes: &Scopes, depth: usize) -> 
         Value::AndThen(_, rhs) => every_branch_names_a_module(rhs, scopes, next),
         // `a || b` and `a ?? b` DO hand the call `a` when it is there, so the
         // fallback naming a module says nothing about what `a` is.
-        Value::OrElse(lhs, rhs) => {
+        Value::OrElse(lhs, rhs) | Value::Coalesce(lhs, rhs) => {
             every_branch_names_a_module(lhs, scopes, next)
                 && every_branch_names_a_module(rhs, scopes, next)
         }
@@ -1809,7 +1846,7 @@ fn references_module(value: &Value, module: &str, scopes: &Scopes, depth: usize)
         Value::Either(a, b) => {
             references_module(a, module, scopes, next) && references_module(b, module, scopes, next)
         }
-        Value::OrElse(lhs, rhs) => {
+        Value::OrElse(lhs, rhs) | Value::Coalesce(lhs, rhs) => {
             references_module(lhs, module, scopes, next)
                 && references_module(rhs, module, scopes, next)
         }
@@ -1834,7 +1871,7 @@ fn may_reference_module(value: &Value, module: &str, scopes: &Scopes, depth: usi
     let next = depth + 1;
     match value {
         Value::Call(name) => name.as_deref() == Some(module),
-        Value::Either(a, b) | Value::OrElse(a, b) => {
+        Value::Either(a, b) | Value::OrElse(a, b) | Value::Coalesce(a, b) => {
             may_reference_module(a, module, scopes, next)
                 || may_reference_module(b, module, scopes, next)
         }
@@ -4407,6 +4444,31 @@ mod tests {
         let richer = r#"function f(t){var v={};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v,(v={a:!0}))}"#;
         let (tree, _) = presence_of(richer, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_binding_the_fallback_never_reaches_past_is_the_value() {
+        // `x || void 0` with a truthy `x` never evaluates its right side, and
+        // `x ?? void 0` with a zero never evaluates its own: the two operators
+        // ask different questions of the same binding.
+        for caller in [
+            r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||void 0})}"#,
+            r#"function f(){var x=0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x??void 0})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+
+        // And where the left side gives way, the right side still decides: a
+        // zero is falsy, and a comparison is a boolean that is false half the
+        // time.
+        for caller in [
+            r#"function f(){var x=0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||void 0})}"#,
+            r#"function f(t){var x=t===!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||void 0})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
     }
 
     #[test]
