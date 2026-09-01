@@ -203,6 +203,10 @@ struct Scopes {
     /// `a` on the only path that calls at all. The join with the pre-branch value
     /// happens on the way out, for the calls that follow.
     branches: Vec<Vec<BranchWrite>>,
+    /// Every value written while a watch is open, for a block a `catch` can be
+    /// entered from part-way through: the handler reads any of them, not only
+    /// the one the block ended on.
+    watched: Vec<Vec<(usize, String, Value)>>,
 }
 
 /// A name a branch wrote, with the value it had before the branch began.
@@ -318,6 +322,9 @@ impl Scopes {
                 .expect("a branch is open")
                 .push(write);
         }
+        if let Some(watch) = self.watched.last_mut() {
+            watch.push((index, name.to_string(), value.clone()));
+        }
         self.frames[index].insert(name.to_string(), value);
     }
 
@@ -327,23 +334,42 @@ impl Scopes {
     /// earlier arm left reach the code here, which is what `Either` says
     /// everywhere else in this pass.
     fn carry(&mut self, exits: &[ArmExit]) {
-        for exit in exits {
-            let Some(after) = exit.after.clone() else {
-                continue;
-            };
-            if exit.frame >= self.frames.len() {
+        let values: Vec<(usize, String, Value)> = exits
+            .iter()
+            .filter_map(|exit| Some((exit.frame, exit.name.clone(), exit.after.clone()?)))
+            .collect();
+        self.carry_values(&values);
+    }
+
+    /// The same for values named directly rather than read off an arm's exit: a
+    /// `catch` is entered from any point in the block, so every value the block
+    /// passed through reaches it and not only the one it ended on.
+    fn carry_values(&mut self, values: &[(usize, String, Value)]) {
+        for (frame, name, value) in values {
+            if *frame >= self.frames.len() {
                 continue;
             }
-            let here = self.frames[exit.frame]
-                .get(&exit.name)
-                .or_else(|| self.frame_hoisted[exit.frame].get(&exit.name))
+            let here = self.frames[*frame]
+                .get(name)
+                .or_else(|| self.frame_hoisted[*frame].get(name))
                 .cloned();
-            let value = match here {
-                Some(before) => either(before, after),
-                None => after,
+            let joined = match here {
+                Some(before) => either(before, value.clone()),
+                None => value.clone(),
             };
-            self.write_frame(exit.frame, &exit.name, value);
+            self.write_frame(*frame, name, joined);
         }
+    }
+
+    /// Start recording every value written from here on, for a block whose
+    /// intermediate states another path can see.
+    fn watch(&mut self) {
+        self.watched.push(Vec::new());
+    }
+
+    /// Stop recording, and hand back what was written while it was open.
+    fn watched(&mut self) -> Vec<(usize, String, Value)> {
+        self.watched.pop().unwrap_or_default()
     }
 
     /// `var w = v` makes `w` another way of saying `v`, and it stays one only
@@ -717,7 +743,13 @@ fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
                 Some(key) => Prop::Key(key, convert(&p.value, depth)),
                 None => Prop::Unreadable,
             },
-            ObjectPropertyKind::SpreadProperty(s) => Prop::Spread(convert(&s.argument, depth)),
+            // `{...null}` and `{...void 0}` are no-ops: object spread ignores a
+            // nullish source rather than failing, so the keys written beside it
+            // stand. Reading the source as unknown withdrew them instead.
+            ObjectPropertyKind::SpreadProperty(s) => match is_nullish_literal(&s.argument) {
+                true => Prop::Spread(Value::Object(Vec::new())),
+                false => Prop::Spread(convert(&s.argument, depth)),
+            },
         })
         .collect()
 }
@@ -985,6 +1017,15 @@ fn classify_value_reporting(
             let (fields, nested) = classify_object_reporting(props, scopes, diag, depth + 1);
             node.fields = fields;
             opaque.extend(nested);
+            // The hook decides what this object serializes to, and `undefined`
+            // is one of the things it can return - which drops the key holding
+            // it, not only the keys inside it.
+            if props.iter().any(|prop| match prop {
+                Prop::Key(key, value) => key == "toJSON" && may_be_called(value, scopes, depth),
+                _ => false,
+            }) {
+                withdraw(&mut node);
+            }
         }
         Value::Array(items) => {
             // Every element, folded the way two call sites are: the item shape
@@ -1970,6 +2011,13 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
     }
 
+    /// `let {x = (z = !0)} = opts` runs the default only when the property is
+    /// missing, exactly like a parameter's.
+    fn visit_assignment_pattern(&mut self, pattern: &oxc_ast::ast::AssignmentPattern<'a>) {
+        self.visit_binding_pattern(&pattern.left);
+        self.in_branch(|v| v.visit_expression(&pattern.right));
+    }
+
     fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
         // `catch (x)` binds `x` for the handler only, and the thrown value is
         // whatever was thrown - nothing this pass can judge. Without the frame
@@ -2144,11 +2192,22 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `break` ends that case is not read here, and carrying its exit is the
         // half that cannot claim a key the client may omit.
         let mut falls_through: Vec<ArmExit> = Vec::new();
+        // Every test up to the matching case is evaluated before any body runs,
+        // and which case matches is not read here: each test's own writes join
+        // with the state around them, and the bodies start from that.
+        for case in &stmt.cases {
+            if let Some(test) = &case.test {
+                self.in_branch(|v| v.visit_expression(test));
+            }
+        }
         for case in &stmt.cases {
             has_default |= case.test.is_none();
             self.scopes.enter_branch();
             self.scopes.carry(&falls_through);
-            self.visit_switch_case(case);
+            // The test was walked above, in the order the switch evaluates it.
+            for statement in &case.consequent {
+                self.visit_statement(statement);
+            }
             let exits = self.scopes.take_branch();
             falls_through = match case.consequent.last().is_some_and(always_leaves) {
                 true => Vec::new(),
@@ -2164,15 +2223,19 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// reached by then - never only the one the block would have finished with.
     fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
         self.scopes.enter_branch();
+        self.scopes.watch();
         self.visit_block_statement(&stmt.block);
+        let passed_through = self.scopes.watched();
         let block = self.scopes.take_branch();
-        let mut arms = vec![block.clone()];
+        let mut arms = vec![block];
         if let Some(handler) = &stmt.handler {
             self.scopes.enter_branch();
             // The throw comes from a point in the block this pass does not know,
-            // so the handler reads the state the block started from OR anything
-            // it had already written when it threw.
-            self.scopes.carry(&block);
+            // so the handler reads the state the block started from or ANY state
+            // the block wrote on the way: `x = void 0; mayThrow(); x = !0` can
+            // throw between the two writes, and the value in between is one the
+            // handler sees.
+            self.scopes.carry_values(&passed_through);
             self.visit_catch_clause(handler);
             arms.push(self.scopes.take_branch());
         }
@@ -2597,7 +2660,11 @@ impl CallSiteCollector<'_> {
                 }
                 ObjectPropertyKind::SpreadProperty(spread) => {
                     self.visit_expression(&spread.argument);
-                    let value = self.settled(&spread.argument);
+                    // A nullish source spreads nothing, the same as in `convert`.
+                    let value = match is_nullish_literal(&spread.argument) {
+                        true => Value::Object(Vec::new()),
+                        false => self.settled(&spread.argument),
+                    };
                     props.push(Prop::Spread(value));
                 }
             }
@@ -4469,6 +4536,52 @@ mod tests {
             let (tree, _) = presence_of(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
         }
+    }
+
+    #[test]
+    fn a_handler_reads_a_state_the_block_only_passed_through() {
+        // The block clears `x` and puts it back; a throw between the two is the
+        // path the handler runs on, and neither end of the block shows it.
+        let caller = r#"function f(t){var x=!0;try{x=void 0;t();x=!0}catch(e){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_destructuring_default_runs_only_when_the_key_is_missing() {
+        // The object supplies `x`, so the default beside it never runs and the
+        // write inside it never happens.
+        let caller = r#"function f(){var z;var {x=(z=!0)}={x:0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:z})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_nullish_spread_writes_nothing_and_withdraws_nothing() {
+        // `{...null}` is a no-op in JS, not a source of keys this pass cannot
+        // read: the key written beside it stands.
+        let caller =
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...null})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_nested_hook_decides_the_key_that_holds_it() {
+        // `input.toJSON()` can return `undefined`, and then `input` itself is
+        // not on the wire - not only the keys under it.
+        let caller = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0,toJSON:function(){}}})}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        assert_eq!(at(&tree, "input"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_case_test_runs_before_the_body_that_matches() {
+        // The first test is evaluated on the way to the second case, so its
+        // write has happened by the time the call in that case runs.
+        let caller = r#"function f(t){var x=!0;switch(1){case (x=void 0,0):break;case 1:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
