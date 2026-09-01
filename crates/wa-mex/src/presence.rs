@@ -2685,7 +2685,7 @@ impl CallSiteCollector<'_> {
                     // and what it leaves is the value stored: `{a: (x = void 0,
                     // x)}` stores the `x` the assignment just cleared.
                     self.visit_expression(&p.value);
-                    let value = self.settled(&p.value);
+                    let value = self.hold(&p.value);
                     props.push(match key {
                         Some(key) => Prop::Key(key, value),
                         None => Prop::Unreadable,
@@ -2698,7 +2698,7 @@ impl CallSiteCollector<'_> {
                     // are classified, which is where the scopes are.
                     let value = match nullish_sentinel(&spread.argument) {
                         true => Value::Object(Vec::new()),
-                        false => self.settled(&spread.argument),
+                        false => self.hold(&spread.argument),
                     };
                     props.push(Prop::Spread(value));
                 }
@@ -2711,6 +2711,58 @@ impl CallSiteCollector<'_> {
     /// so a write further along the object cannot reach back into it.
     fn settled(&self, expression: &Expression<'_>) -> Value {
         settle(&convert(expression, 0), &self.scopes, 0)
+    }
+
+    /// The value the call will receive: a primitive settled where it is
+    /// written, and an object kept as the object it NAMES.
+    ///
+    /// The difference is JS's: `{input: v}` stores a reference, so an argument
+    /// after it can still delete a key from that object, while `{a: x}` stores
+    /// what `x` held and a later write to `x` cannot reach it. The object is
+    /// held under a name of this pass's own, so pointing `v` at another object
+    /// detaches it the way it detaches any other alias, and a write through `v`
+    /// still reaches what the call was given.
+    fn hold(&mut self, expression: &Expression<'_>) -> Value {
+        match expression {
+            Expression::Identifier(id) => {
+                let owner = self.scopes.alias_target(id.name.as_str(), 0);
+                let carries_keys = matches!(
+                    self.scopes.resolve(&Value::Ref(owner.clone()), 0),
+                    Value::Object(_) | Value::Array(_)
+                );
+                if !carries_keys {
+                    return self.settled(expression);
+                }
+                let held = format!(" held@{}", expression.span().start);
+                self.scopes.bind(&held, Value::Ref(owner));
+                Value::Ref(held)
+            }
+            // A literal nested inside the one being snapshotted: its own
+            // properties are values the call receives too, and an identifier
+            // among them names an object just as the outer one does.
+            Expression::ObjectExpression(object) => {
+                let mut props = Vec::with_capacity(object.properties.len());
+                for property in &object.properties {
+                    match property {
+                        ObjectPropertyKind::ObjectProperty(p) => {
+                            props.push(match static_key(&p.key) {
+                                Some(key) => Prop::Key(key, self.hold(&p.value)),
+                                None => Prop::Unreadable,
+                            });
+                        }
+                        ObjectPropertyKind::SpreadProperty(s) => {
+                            let value = match nullish_sentinel(&s.argument) {
+                                true => Value::Object(Vec::new()),
+                                false => self.hold(&s.argument),
+                            };
+                            props.push(Prop::Spread(value));
+                        }
+                    }
+                }
+                Value::Object(props)
+            }
+            _ => self.settled(expression),
+        }
     }
 
     /// Bind a function's parameters, so a name the caller passes in resolves to a    /// Bind a function's parameters, so a name the caller passes in resolves to a
@@ -4674,6 +4726,33 @@ mod tests {
             tree["input"].fields["a"].presence,
             VariablePresence::Undetermined
         );
+    }
+
+    #[test]
+    fn a_key_holding_an_object_holds_the_object_itself() {
+        // `{input: v}` stores a reference, so the argument after it deletes a
+        // key from the object the call receives.
+        let deleted = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:v},delete v.a)}"#;
+        let (tree, _) = presence_of(deleted, &["input"]);
+        assert_eq!(
+            tree["input"].fields["a"].presence,
+            VariablePresence::Conditional
+        );
+
+        // One literal deeper is the same rule: the name is what carries the
+        // object, whatever it is nested inside.
+        let deeper = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{b:v}},delete v.a)}"#;
+        let (tree, _) = presence_of(deeper, &["input"]);
+        assert_eq!(
+            tree["input"].fields["b"].fields["a"].presence,
+            VariablePresence::Conditional
+        );
+
+        // Pointing the name at another object afterwards leaves the call with
+        // the one it was given, which is the opposite error.
+        let rebound = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:v},(v={}))}"#;
+        let (tree, _) = presence_of(rebound, &["input"]);
+        assert_eq!(tree["input"].fields["a"].presence, VariablePresence::Always);
     }
 
     #[test]
