@@ -2350,10 +2350,24 @@ impl CallSiteCollector<'_> {
             .get(1)
             .and_then(Argument::as_expression)
             .and_then(|expression| self.snapshot_object(expression));
-        if let Some(second) = call.arguments.get(1)
+        let second = call.arguments.get(1).and_then(Argument::as_expression);
+        if snapshot.is_none()
+            && let Some(argument) = call.arguments.get(1)
+        {
+            self.visit_argument(argument);
+        }
+        // The second argument is evaluated HERE, though the call happens after
+        // the arguments that follow it: one of those can point the name at
+        // another object, and the call still receives the one this argument
+        // named. Held under a name of this pass's own - no JS identifier has a
+        // space in it - so a rebinding detaches it exactly as it detaches any
+        // other alias, while a write through the name still reaches it.
+        let held = second.map(|expression| format!(" variables@{}", expression.span().start));
+        if let (Some(name), Some(expression)) = (&held, second)
             && snapshot.is_none()
         {
-            self.visit_argument(second);
+            let value = convert(expression, 0);
+            self.scopes.bind(name, value);
         }
         // The arguments after it run before the call does, and one of them can
         // still reach an object the second argument only NAMES: `fetchQuery(op,
@@ -2395,7 +2409,12 @@ impl CallSiteCollector<'_> {
                 self.sites.push(SiteTree::new());
                 return;
             };
-            let value = snapshot.unwrap_or_else(|| convert(vars, 0));
+            let value = snapshot
+                .or_else(|| {
+                    held.as_ref()
+                        .and_then(|name| self.scopes.lookup(name).cloned())
+                })
+                .unwrap_or_else(|| convert(vars, 0));
             match self.variables_object(&value) {
                 Some(tree) => self.sites.push(tree),
                 // This call sends the operation and its variables object could
@@ -4372,6 +4391,21 @@ mod tests {
         // called: the object it receives has no `a` in it.
         let caller = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v,delete v.a)}"#;
         let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn the_call_receives_the_object_the_argument_named() {
+        // A later argument points `v` at another object, and the call still
+        // sends the one argument two evaluated to.
+        let empty = r#"function f(t){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v,(v={}))}"#;
+        let (tree, _) = presence_of(empty, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And the other way round: the object the call receives is the empty
+        // one, whatever the name holds by the time the call runs.
+        let richer = r#"function f(t){var v={};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v,(v={a:!0}))}"#;
+        let (tree, _) = presence_of(richer, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
