@@ -5176,6 +5176,22 @@ mod tests {
     }
 
     #[test]
+    fn a_handle_a_call_produced_is_not_ours_by_elimination() {
+        // One `.graphql` dependency says what the module requires and nothing
+        // about what a helper hands back: `fetchQuery(select(t, n("X.graphql")),
+        // …)` may be sending an operation chosen at run time, so the shortcut
+        // for a module with a single operation does not reach it.
+        for caller in [
+            r#"function f(t){return o("C").fetchQuery(select(t,n("WAWebFooQuery.graphql")),{a:!0})}"#,
+            r#"function f(t){n("WAWebFooQuery.graphql");return o("C").fetchQuery(pick(t),{a:!0})}"#,
+        ] {
+            let (tree, diag) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+            assert_eq!(diag.ambiguous_call_sites, 1);
+        }
+    }
+
+    #[test]
     fn a_handle_that_is_sometimes_ours_is_ambiguous() {
         // `t ? n("Ours") : n("Other")` names a module on both sides, so it is
         // read whole - and one of the two is this operation, so the call may be
