@@ -820,11 +820,13 @@ fn accessor(property: &oxc_ast::ast::ObjectProperty, paired: bool) -> Option<Val
     match property.kind {
         oxc_ast::ast::PropertyKind::Get => Some(Value::Unjudged),
         // A setter beside a getter of the same name is one accessor with both
-        // halves, and `JSON.stringify` reads the getter half: only a set-ONLY
-        // property serializes as `undefined`.
+        // halves, and `JSON.stringify` reads the getter half. A set-ONLY
+        // property reads as `undefined` and is no key on the wire - and it
+        // stays that way through a write, which is what `Dropped` says and a
+        // bare `undefined` does not.
         oxc_ast::ast::PropertyKind::Set => match paired {
             true => Some(Value::Unjudged),
-            false => Some(Value::MaybeUndefined),
+            false => Some(Value::Dropped),
         },
         oxc_ast::ast::PropertyKind::Init => None,
     }
@@ -843,6 +845,23 @@ fn accessor_pairs(object: &ObjectExpression) -> Vec<bool> {
         .iter()
         .map(|property| {
             let ObjectPropertyKind::ObjectProperty(p) = property else {
+                // A spread writes keys of its own over what stands: the ones it
+                // names when they can be read, and any of them when they
+                // cannot. Either way a setter below it is no longer completing
+                // the getter above.
+                if let ObjectPropertyKind::SpreadProperty(spread) = property {
+                    match &spread.argument {
+                        Expression::ObjectExpression(inner) => {
+                            for key in inner.properties.iter().filter_map(|p| match p {
+                                ObjectPropertyKind::ObjectProperty(p) => static_key(&p.key),
+                                _ => None,
+                            }) {
+                                standing.remove(&key);
+                            }
+                        }
+                        _ => standing.clear(),
+                    }
+                }
                 return false;
             };
             let Some(key) = static_key(&p.key) else {
@@ -2721,8 +2740,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                             let read = current
                                 .as_ref()
                                 .and_then(|value| key_value(value, &path, &self.scopes, 0));
+                            // An accessor stays an accessor: the increment runs
+                            // its setter and reads back through its getter, or
+                            // through nothing at all when it has none.
                             let written = match read {
                                 Some(Value::Unjudged) => Value::Unjudged,
+                                Some(Value::Dropped) => Value::Dropped,
                                 _ => Value::Defined,
                             };
                             let updated = current
@@ -5407,6 +5430,30 @@ mod tests {
         // does not read - not the number an update leaves in a data property.
         let caller = r#"function f(){var v={get a(){return !0}};v.a++;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
         let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_set_only_property_stays_one_through_a_write() {
+        // `v.a++` runs the setter and reads back through a getter the property
+        // does not have, so the key is still `undefined` afterwards - not the
+        // number an update leaves in a data property.
+        let caller = r#"function f(){var v={set a(x){}};v.a++;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_spread_between_the_halves_breaks_the_accessor_too() {
+        // The spread writes `a` over the accessor the getter started, so the
+        // setter below it is a set-only property of its own.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},...{a:!0},set a(x){}})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // A spread that writes something else leaves the pair standing.
+        let elsewhere = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},...{b:!0},set a(x){}})}"#;
+        let (tree, _) = presence_of(elsewhere, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
     }
 
