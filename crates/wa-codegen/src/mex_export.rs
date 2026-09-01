@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use wa_ir::{MexIr, MexOperationKind, TypeNode};
+use wa_ir::{MexIr, MexOperationKind, TypeNode, VariablePresence, VariablePresenceNode};
 
 use crate::naming::{pascal_case, rust_ident, snake_case, unique_ident};
 
@@ -30,8 +30,12 @@ pub fn generate_mex_operations(ir: &MexIr) -> String {
         // `match` would otherwise emit an invalid `pub mod match`).
         let module = unique_ident(&snake_case(short), &mut used_mods, "op");
         let mut b = Builder::default();
-        b.register("Variables", &op.variables_shape);
-        b.register("Response", &op.response);
+        b.register(
+            "Variables",
+            &op.variables_shape,
+            Some(&op.variables_presence),
+        );
+        b.register("Response", &op.response, None);
 
         out.push_str(&format!(
             "\n/// `{}` ({}).\n",
@@ -68,10 +72,24 @@ fn kind_str(k: MexOperationKind) -> &'static str {
     }
 }
 
-/// A generated struct: name + ordered `(rust_field, json_key, type)` fields.
+/// A generated struct: name + ordered fields.
 struct StructDef {
     name: String,
-    fields: Vec<(String, String, String)>,
+    fields: Vec<StructField>,
+}
+
+/// One generated field. `required` carries the IR's `always` verdict through to
+/// the emitted type: a variable WA Web writes on every request is a `T` that is
+/// always serialized, not an `Option<T>` the caller can forget. Sending `{}` to a
+/// persisted operation whose compiled tree references the variable is what the
+/// server answers with a bare `400`, and an `Option` with `skip_serializing_if`
+/// makes that the default. Anything the IR does not call `always` - including
+/// `undetermined` - keeps the optional form.
+struct StructField {
+    rust_field: String,
+    json_key: String,
+    ty: String,
+    required: bool,
 }
 
 impl StructDef {
@@ -81,7 +99,7 @@ impl StructDef {
     fn signature(&self) -> String {
         self.fields
             .iter()
-            .map(|(r, json, t)| format!("{json}={r}:{t}"))
+            .map(|f| format!("{}={}:{}", f.json_key, f.rust_field, f.ty))
             .collect::<Vec<_>>()
             .join(",")
     }
@@ -92,13 +110,21 @@ impl StructDef {
             "{indent}#[derive(Debug, Clone, Default, Serialize, Deserialize)]\n"
         ));
         s.push_str(&format!("{indent}pub struct {} {{\n", self.name));
-        for (rust_field, json_key, ty) in &self.fields {
+        for f in &self.fields {
+            let (rust_field, json_key, ty) = (&f.rust_field, &f.json_key, &f.ty);
             if rust_field.trim_start_matches("r#") != json_key {
                 s.push_str(&format!("{indent}    #[serde(rename = \"{json_key}\")]\n"));
             }
-            s.push_str(&format!(
-                "{indent}    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n"
-            ));
+            if f.required {
+                s.push_str(&format!(
+                    "{indent}    /// WA Web writes this key on every request.\n"
+                ));
+                s.push_str(&format!("{indent}    #[serde(default)]\n"));
+            } else {
+                s.push_str(&format!(
+                    "{indent}    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n"
+                ));
+            }
             s.push_str(&format!("{indent}    pub {rust_field}: {ty},\n"));
         }
         s.push_str(&format!("{indent}}}\n"));
@@ -115,33 +141,43 @@ struct Builder {
 }
 
 impl Builder {
-    /// Register a top-level struct named `name` from an object tree.
-    fn register(&mut self, name: &str, fields: &BTreeMap<String, TypeNode>) -> String {
+    /// Register a top-level struct named `name` from an object tree, with the
+    /// presence tree that says which of its keys are never omitted.
+    fn register(
+        &mut self,
+        name: &str,
+        fields: &BTreeMap<String, TypeNode>,
+        presence: Option<&BTreeMap<String, VariablePresenceNode>>,
+    ) -> String {
         let mut def = StructDef {
             name: name.to_string(),
             fields: Vec::new(),
         };
         for (key, node) in fields {
-            let rust_field = rust_ident(key);
-            let hint = pascal_case(key);
-            let ty = self.field_type(node, &hint);
-            def.fields
-                .push((rust_field, key.clone(), format!("Option<{ty}>")));
+            let verdict = presence.and_then(|p| p.get(key));
+            let ty = self.field_type(node, &pascal_case(key), verdict);
+            def.fields.push(field(key, ty, verdict));
         }
         self.intern(def)
     }
 
     /// The Rust type for a tree node used as a field value (registering any
     /// nested struct). Scalars map to `String`/`i64`/`bool`; arrays to `Vec<_>`.
-    fn field_type(&mut self, node: &TypeNode, name_hint: &str) -> String {
+    fn field_type(
+        &mut self,
+        node: &TypeNode,
+        name_hint: &str,
+        presence: Option<&VariablePresenceNode>,
+    ) -> String {
         match node {
             TypeNode::Leaf(tag) => scalar_rust(tag).to_string(),
             TypeNode::Array(items) => {
                 // The IR always carries a single element shape; fall back to a
                 // valid serde-only scalar if an empty array ever slips through.
+                let element = presence.and_then(|p| p.items.as_deref());
                 let inner = items
                     .first()
-                    .map(|n| self.field_type(n, name_hint))
+                    .map(|n| self.field_type(n, name_hint, element))
                     .unwrap_or_else(|| "String".to_string());
                 format!("Vec<{inner}>")
             }
@@ -151,11 +187,9 @@ impl Builder {
                     fields: Vec::new(),
                 };
                 for (key, child) in map {
-                    let rust_field = rust_ident(key);
-                    let child_hint = pascal_case(key);
-                    let ty = self.field_type(child, &child_hint);
-                    def.fields
-                        .push((rust_field, key.clone(), format!("Option<{ty}>")));
+                    let verdict = presence.and_then(|p| p.fields.get(key));
+                    let ty = self.field_type(child, &pascal_case(key), verdict);
+                    def.fields.push(field(key, ty, verdict));
                 }
                 self.intern(def)
             }
@@ -189,6 +223,21 @@ impl Builder {
     }
 }
 
+/// One field, optional unless the IR says the client always writes the key.
+fn field(key: &str, ty: String, presence: Option<&VariablePresenceNode>) -> StructField {
+    let required = presence.is_some_and(|p| p.presence == VariablePresence::Always);
+    StructField {
+        rust_field: rust_ident(key),
+        json_key: key.to_string(),
+        ty: if required {
+            ty
+        } else {
+            format!("Option<{ty}>")
+        },
+        required,
+    }
+}
+
 fn scalar_rust(tag: &str) -> &'static str {
     match tag {
         "number" => "i64",
@@ -215,6 +264,15 @@ mod tests {
         vars: BTreeMap<String, TypeNode>,
         resp: BTreeMap<String, TypeNode>,
     ) -> MexIr {
+        ir_with_presence(op_short, vars, BTreeMap::new(), resp)
+    }
+
+    fn ir_with_presence(
+        op_short: &str,
+        vars: BTreeMap<String, TypeNode>,
+        presence: BTreeMap<String, VariablePresenceNode>,
+        resp: BTreeMap<String, TypeNode>,
+    ) -> MexIr {
         let mut operations = BTreeMap::new();
         operations.insert(
             op_short.to_string(),
@@ -224,6 +282,7 @@ mod tests {
                 operation_kind: MexOperationKind::Query,
                 variables: vec![],
                 variables_shape: vars,
+                variables_presence: presence,
                 response: resp,
             },
         );
@@ -267,6 +326,62 @@ mod tests {
         assert!(code.contains("pub struct Response {"));
         assert!(code.contains("pub is_open: Option<bool>,"));
         assert!(code.contains("pub items: Option<Vec<Items>>,"));
+    }
+
+    #[test]
+    fn always_sent_variables_are_not_optional() {
+        // The consumer defect behind oxidezap/whatsapp-rust#1372: every variable was
+        // an `Option` with `skip_serializing_if`, so a caller that filled none of
+        // them sent `{}` to an operation whose compiled tree names them.
+        let vars = obj(vec![
+            ("fetch_wamo_sub", leaf("boolean")),
+            ("fetch_viewer_metadata", leaf("boolean")),
+            ("fetch_pinned_messages", leaf("boolean")),
+        ]);
+        let presence: BTreeMap<String, VariablePresenceNode> = [
+            ("fetch_wamo_sub", VariablePresence::Always),
+            ("fetch_viewer_metadata", VariablePresence::Conditional),
+            ("fetch_pinned_messages", VariablePresence::Undetermined),
+        ]
+        .into_iter()
+        .map(|(k, p)| (k.to_string(), VariablePresenceNode::leaf(p)))
+        .collect();
+        let code =
+            generate_mex_operations(&ir_with_presence("Flags", vars, presence, BTreeMap::new()));
+        assert!(
+            code.contains("pub fetch_wamo_sub: bool,"),
+            "an always-sent variable is a value, not an Option: {code}"
+        );
+        assert!(code.contains("pub fetch_viewer_metadata: Option<bool>,"));
+        assert!(
+            code.contains("pub fetch_pinned_messages: Option<bool>,"),
+            "undetermined keeps the optional form - the IR did not say it is sent"
+        );
+    }
+
+    #[test]
+    fn a_nested_always_key_is_required_too() {
+        let vars = obj(vec![(
+            "input",
+            TypeNode::Object(obj(vec![
+                ("r#type", leaf("string")),
+                ("key", leaf("string")),
+            ])),
+        )]);
+        let mut input = VariablePresenceNode::leaf(VariablePresence::Always);
+        input.fields.insert(
+            "r#type".to_string(),
+            VariablePresenceNode::leaf(VariablePresence::Always),
+        );
+        input.fields.insert(
+            "key".to_string(),
+            VariablePresenceNode::leaf(VariablePresence::Conditional),
+        );
+        let presence = [("input".to_string(), input)].into_iter().collect();
+        let code =
+            generate_mex_operations(&ir_with_presence("Nested", vars, presence, BTreeMap::new()));
+        assert!(code.contains("pub input: Input,"), "{code}");
+        assert!(code.contains("pub key: Option<String>,"));
     }
 
     #[test]

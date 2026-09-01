@@ -97,10 +97,77 @@ const NOISE: &[&str] = &[
     "boost",
 ];
 
+/// Where an operation's persisted `docId` came from **in this run**, and how many
+/// variable keys landed in each presence state.
+///
+/// The two halves answer questions a count of operations cannot. A `docId` is a
+/// bare numeric string, so a stale one and a fresh one look alike; splitting the
+/// total by origin makes "extracted from the operation literal" and "fell back to
+/// the operation name" separately visible, and a fallback is a broken persisted
+/// id rather than a cosmetic gap. The presence tallies are the residue of the
+/// same rule the IR publishes: `undetermined` is a real state, and it belongs in
+/// a counted diagnostic rather than in silence.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct MexDiagnostics {
+    /// Operations published.
+    pub operations: usize,
+    /// `params.id` read as a string literal in the operation's own module.
+    pub doc_ids_inline: usize,
+    /// `params.id: require("X_facebookRelayOperation")`, resolved against the
+    /// sibling module that exports the id.
+    pub doc_ids_from_sibling: usize,
+    /// No id in the bundle at all: the operation name stands in for one, which is
+    /// the only state in which `docId` is not a persisted id.
+    pub doc_ids_from_name: usize,
+    /// Variable keys carrying each verdict, counted over the whole published
+    /// tree (nested object keys and list-element keys included).
+    pub presence_always: usize,
+    pub presence_conditional: usize,
+    pub presence_undetermined: usize,
+    /// Operations with at least one variable.
+    pub operations_with_variables: usize,
+    /// Operations where every variable is `always`.
+    pub operations_fully_determined: usize,
+    /// What the presence scan saw and could not read.
+    pub presence: PresenceDiagnostics,
+}
+
+/// The forms the presence scan could not turn into a verdict, kept apart from
+/// the verdicts themselves so a rise in "we could not read this" is not hidden by
+/// a fall in "the client may omit this".
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PresenceDiagnostics {
+    /// Operations for which no call site was recovered, so every one of their
+    /// variables is `undetermined` for want of evidence rather than by judgement.
+    pub operations_without_call_site: usize,
+    /// A matched Relay call whose second argument is not an object literal and
+    /// does not resolve to one.
+    pub unreadable_call_arguments: usize,
+    /// A spread whose source object the scan could not enumerate, so the keys it
+    /// contributes are unknown - the one way a variable can look unwritten while
+    /// the client writes it.
+    pub unreadable_spreads: usize,
+    /// A computed property key, which names no publishable variable.
+    pub unreadable_keys: usize,
+    /// Relay calls in a module that sends several operations whose handle names
+    /// no module, so whether they belong to this operation is unknown. Kept
+    /// apart from `unreadable_call_arguments`: there the call is known to be
+    /// ours and its argument unreadable, here it is the other way round.
+    pub ambiguous_call_sites: usize,
+}
+
 /// Extract all persisted Mex operations from a bundle's source.
 pub fn extract_mex(bundle_source: &str, wa_version: &str) -> MexIr {
+    extract_mex_with_diagnostics(bundle_source, wa_version).0
+}
+
+/// [`extract_mex`], plus the extraction-quality counts.
+pub fn extract_mex_with_diagnostics(
+    bundle_source: &str,
+    wa_version: &str,
+) -> (MexIr, MexDiagnostics) {
     let module_defs = wa_transform::extract_module_definitions(bundle_source);
-    extract_mex_from_modules(bundle_source, &module_defs, wa_version)
+    extract_mex_from_modules_with_diagnostics(bundle_source, &module_defs, wa_version)
 }
 
 /// Extract Mex operations from an already-split module index (shares one
@@ -111,14 +178,45 @@ pub fn extract_mex_from_modules(
     module_defs: &[ModuleDefinition],
     wa_version: &str,
 ) -> MexIr {
-    // Map each `.graphql` module to its first caller (a module that depends on
-    // it) — the caller's body holds the `fetchQuery(id, <expr>)` whose 2nd arg
-    // reveals the input variable shape.
-    let mut caller_by_graphql: HashMap<&str, &ModuleDefinition> = HashMap::new();
+    extract_mex_from_modules_with_diagnostics(source, module_defs, wa_version).0
+}
+
+/// [`extract_mex_from_modules`], plus the extraction-quality counts.
+pub fn extract_mex_from_modules_with_diagnostics(
+    source: &str,
+    module_defs: &[ModuleDefinition],
+    wa_version: &str,
+) -> (MexIr, MexDiagnostics) {
+    // Map each `.graphql` module to the callers (modules that depend on it) whose
+    // bodies hold the `fetchQuery(id, <expr>)` the input variables are read from.
+    //
+    // All of them, not the first: presence only says `always` when every recovered
+    // call site agrees, so a second job module sending the same operation is
+    // evidence that has to reach the merge. No operation has two callers at the
+    // waVersion this was written against, which is exactly why the single-caller
+    // form looked sufficient and would have failed silently on the rollout that
+    // added one, in the direction that matters (a key claimed unconditional
+    // because the site contradicting it was never read).
+    //
+    // Deduplicated by module NAME, so the copies of one module that several
+    // bundle files define are not merged with themselves; first occurrence wins,
+    // the same rule the operation scan below follows.
+    let mut caller_by_graphql: HashMap<&str, Vec<&ModuleDefinition>> = HashMap::new();
+    let mut seen_caller_modules: HashSet<&str> = HashSet::new();
+    let mut seen_callers: HashSet<(&str, &str)> = HashSet::new();
     for def in module_defs {
+        // The NAME, before its dependencies are read: two definitions of one
+        // module in a concatenated bundle can list different operations, and
+        // only the first of them is the module the runtime keeps. Keying on
+        // (dependency, name) let the later copy in as another operation's
+        // caller, whose variables object would then answer for a call the live
+        // module never makes.
+        if !seen_caller_modules.insert(def.name.as_str()) {
+            continue;
+        }
         for dep in &def.deps {
-            if dep.ends_with(MODULE_SUFFIX) {
-                caller_by_graphql.entry(dep.as_str()).or_insert(def);
+            if dep.ends_with(MODULE_SUFFIX) && seen_callers.insert((dep.as_str(), &def.name)) {
+                caller_by_graphql.entry(dep.as_str()).or_default().push(def);
             }
         }
     }
@@ -127,12 +225,21 @@ pub fn extract_mex_from_modules(
     // bundles) and the persisted-id strings exported by relay-operation siblings.
     let mut raw_ops: Vec<RawOp> = Vec::new();
     let mut exported_ids: HashMap<String, String> = HashMap::new();
+    let mut seen_relay_ops: HashSet<&str> = HashSet::new();
     let mut seen_modules: HashSet<&str> = HashSet::new();
     for def in module_defs {
         let name = def.name.as_str();
         let slice = &source[def.start..def.end];
         if name.ends_with(RELAY_OP_SUFFIX) {
-            if let Some(id) = module_exported_string(slice) {
+            // First occurrence wins, the rule the operation scan below and the
+            // caller index above both follow: two definitions of one module in a
+            // concatenated bundle can export different ids, and the first is the
+            // one the runtime keeps. Read on the NAME rather than on what was
+            // recovered, so a first definition this pass cannot read leaves the
+            // id absent rather than letting a later shard answer for it.
+            if seen_relay_ops.insert(name)
+                && let Some(id) = module_exported_string(slice)
+            {
                 exported_ids.insert(name.to_string(), id);
             }
             continue;
@@ -146,8 +253,46 @@ pub fn extract_mex_from_modules(
         collector.visit_program(&ret.program);
         if let Some(mut raw) = collector.raw {
             raw.response = crate::shape::response_from_module(slice);
-            let caller_body = caller_by_graphql.get(name).map(|d| &source[d.start..d.end]);
-            raw.variables_shape = crate::shape::variables_shape(caller_body, &raw.variables);
+            let callers = caller_by_graphql
+                .get(name)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let bodies: Vec<(&str, bool)> = callers
+                .iter()
+                .map(|d| {
+                    // A caller that depends on exactly one `.graphql` module cannot
+                    // be sending another operation, so a call whose handle argument
+                    // the scan cannot tie back to a module is still unambiguously
+                    // this one's. Asked per caller, since they need not agree.
+                    let sole = d.deps.iter().filter(|x| x.ends_with(MODULE_SUFFIX)).count() == 1;
+                    (&source[d.start..d.end], sole)
+                })
+                .collect();
+            let shape_bodies: Vec<&str> = bodies.iter().map(|(src, _)| *src).collect();
+            // Presence first: it reads the call sites structurally and reports
+            // which of them are this operation's, and the shape pass reads the
+            // same calls rather than every Relay call in the module.
+            // Counted per operation and folded in below, so the totals describe
+            // the operations the IR publishes rather than the raw scan - the noise
+            // filter drops a third of them, and a diagnostic that counted those
+            // would not add up against the document a consumer reads.
+            let mut variable_arguments = Vec::new();
+            raw.variables_presence = crate::presence::variables_presence(
+                &bodies,
+                name,
+                &raw.variables,
+                &mut raw.presence,
+                &mut variable_arguments,
+            );
+            raw.variables_shape =
+                crate::shape::variables_shape(&shape_bodies, &variable_arguments, &raw.variables);
+            // The two maps are siblings a consumer reads together, so every key
+            // the shape publishes has to carry a verdict. A key the presence scan
+            // never reached - a list built by `.map(…)`, whose callback the shape
+            // pass reads and this one does not judge - gets `undetermined` rather
+            // than no entry, because an absent key and "we could not tell" are
+            // exactly the two a reader must not have to guess between.
+            align_with_shape(&raw.variables_shape, &mut raw.variables_presence);
             raw_ops.push(raw);
         }
     }
@@ -159,6 +304,7 @@ pub fn extract_mex_from_modules(
     // keeps the base key, which gets the suffix, which is dropped) is independent
     // of bundle/source order — otherwise the same WA version emits different keys.
     raw_ops.sort_by(|a, b| a.original_name.cmp(&b.original_name));
+    let mut diag = MexDiagnostics::default();
     let mut operations: BTreeMap<String, MexOperation> = BTreeMap::new();
     for raw in raw_ops {
         if is_noise(&raw.original_name) {
@@ -167,10 +313,19 @@ pub fn extract_mex_from_modules(
         let Some(kind) = raw.operation_kind else {
             continue;
         };
-        let doc_id = raw
-            .doc_id
-            .or_else(|| raw.doc_id_ref.and_then(|m| exported_ids.get(&m).cloned()))
-            .unwrap_or_else(|| raw.original_name.clone());
+        // Split by origin so the manifest can say that every published `docId`
+        // was read out of THIS bundle set rather than looking unchanged because
+        // nothing re-derived it. Resolved here and counted below, after the
+        // collision filter: an operation the filter drops is not published, and
+        // counting it would report more ids than there are operations to carry
+        // them.
+        let (doc_id, origin) = match raw.doc_id {
+            Some(id) => (id, DocIdOrigin::Inline),
+            None => match raw.doc_id_ref.and_then(|m| exported_ids.get(&m).cloned()) {
+                Some(id) => (id, DocIdOrigin::Sibling),
+                None => (raw.original_name.clone(), DocIdOrigin::Name),
+            },
+        };
 
         let mut key = strip_op_name(&raw.original_name);
         if operations.contains_key(&key) {
@@ -180,6 +335,30 @@ pub fn extract_mex_from_modules(
             }
             key = alt;
         }
+        match origin {
+            DocIdOrigin::Inline => diag.doc_ids_inline += 1,
+            DocIdOrigin::Sibling => diag.doc_ids_from_sibling += 1,
+            DocIdOrigin::Name => diag.doc_ids_from_name += 1,
+        }
+        count_presence(&raw.variables_presence, &mut diag);
+        let p = &raw.presence;
+        diag.presence.operations_without_call_site += p.operations_without_call_site;
+        diag.presence.unreadable_call_arguments += p.unreadable_call_arguments;
+        diag.presence.unreadable_spreads += p.unreadable_spreads;
+        diag.presence.unreadable_keys += p.unreadable_keys;
+        diag.presence.ambiguous_call_sites += p.ambiguous_call_sites;
+        if !raw.variables.is_empty() {
+            diag.operations_with_variables += 1;
+            // `all` on an empty map is `true`. Today every declared variable is
+            // typed by the shape and so carries a verdict, which keeps the map
+            // non-empty here, but that is the shape pass's invariant rather than
+            // this count's: an operation with no verdict at all has determined
+            // nothing, and must not read as the opposite.
+            if !raw.variables_presence.is_empty() && raw.variables_presence.values().all(all_always)
+            {
+                diag.operations_fully_determined += 1;
+            }
+        }
         operations.insert(
             key,
             MexOperation {
@@ -188,15 +367,124 @@ pub fn extract_mex_from_modules(
                 operation_kind: kind,
                 variables: raw.variables,
                 variables_shape: raw.variables_shape,
+                variables_presence: raw.variables_presence,
                 response: raw.response,
             },
         );
     }
 
-    MexIr {
-        wa_version: wa_version.to_string(),
-        operations,
+    diag.operations = operations.len();
+    (
+        MexIr {
+            wa_version: wa_version.to_string(),
+            operations,
+        },
+        diag,
+    )
+}
+
+/// Publish a verdict for exactly the keys the shape types.
+///
+/// The two maps are siblings a consumer reads together, and `scripts/lint-ir.py`
+/// rejects a document where one names a key the other does not - so this is what
+/// makes that check unfailable rather than a hazard. A shape key the presence
+/// scan never reached gets `undetermined`, because an absent key and "we could
+/// not tell" must not look alike. A presence key the shape does not type is
+/// dropped: the two passes read the call site differently (the shape's tracer
+/// resolves a binding backwards from the call, presence also sees the module's
+/// own later declarations), and a verdict for a key no consumer can generate a
+/// field for is not worth an unpublishable document.
+fn align_with_shape(
+    shape: &BTreeMap<String, wa_ir::TypeNode>,
+    presence: &mut BTreeMap<String, wa_ir::VariablePresenceNode>,
+) {
+    presence.retain(|key, _| shape.contains_key(key));
+    for (key, node) in shape {
+        let entry = presence.entry(key.clone()).or_insert_with(|| {
+            wa_ir::VariablePresenceNode::leaf(wa_ir::VariablePresence::Undetermined)
+        });
+        align_node(node, entry);
     }
+}
+
+fn align_node(shape: &wa_ir::TypeNode, presence: &mut wa_ir::VariablePresenceNode) {
+    // Each arm clears the children the shape does NOT have room for. The two
+    // passes read a call site differently, so presence can resolve an object
+    // where the shape emitted a leaf; keeping its fields there would publish
+    // nested verdicts on a variable that is not an object, which the linter
+    // rejects and which no consumer could generate against.
+    match shape {
+        wa_ir::TypeNode::Object(fields) => {
+            presence.items = None;
+            align_with_shape(fields, &mut presence.fields)
+        }
+        wa_ir::TypeNode::Array(items) => {
+            presence.fields.clear();
+            // Every layer, since a list of lists carries its keys one level
+            // deeper (`[[{a}]]`) and stopping at the first would leave them with
+            // no verdict at all rather than an undetermined one.
+            if let Some(element @ (wa_ir::TypeNode::Object(_) | wa_ir::TypeNode::Array(_))) =
+                items.first()
+            {
+                // A list element is not a key, so it carries no verdict of
+                // its own - see `VariablePresenceNode::items`.
+                let item = presence.items.get_or_insert_with(|| {
+                    Box::new(wa_ir::VariablePresenceNode::leaf(
+                        wa_ir::VariablePresence::Always,
+                    ))
+                });
+                align_node(element, item);
+            } else {
+                presence.items = None;
+            }
+        }
+        wa_ir::TypeNode::Leaf(_) => {
+            presence.fields.clear();
+            presence.items = None;
+        }
+    }
+}
+
+/// Where a resolved `docId` was read from, carried between resolution and the
+/// collision filter so only a published operation is counted.
+#[derive(Debug, Clone, Copy)]
+enum DocIdOrigin {
+    Inline,
+    Sibling,
+    Name,
+}
+
+/// Tally every key of a presence tree, nested keys included: the question is
+/// asked of each key, so the count has to be of keys and not of variables.
+fn count_presence(tree: &BTreeMap<String, wa_ir::VariablePresenceNode>, diag: &mut MexDiagnostics) {
+    for node in tree.values() {
+        match node.presence {
+            wa_ir::VariablePresence::Always => diag.presence_always += 1,
+            wa_ir::VariablePresence::Conditional => diag.presence_conditional += 1,
+            wa_ir::VariablePresence::Undetermined => diag.presence_undetermined += 1,
+        }
+        count_keys_under(node, diag);
+    }
+}
+
+/// The keys nested under one node, at every layer.
+///
+/// A list element is not a key and carries no verdict of its own, so it is
+/// followed rather than counted - including through `items.items`, which a list
+/// of lists carries and which stopping at the first layer left out of the totals
+/// the floor guard reads.
+fn count_keys_under(node: &wa_ir::VariablePresenceNode, diag: &mut MexDiagnostics) {
+    count_presence(&node.fields, diag);
+    if let Some(items) = &node.items {
+        count_keys_under(items, diag);
+    }
+}
+
+/// Whether a variable and everything nested under it is `always`.
+fn all_always(node: &wa_ir::VariablePresenceNode) -> bool {
+    node.presence == wa_ir::VariablePresence::Always
+        && node.fields.values().all(all_always)
+        && node.items.as_ref().is_none_or(|i| all_always(i))
 }
 
 fn is_noise(name: &str) -> bool {
@@ -236,6 +524,10 @@ struct RawOp {
     operation_kind: Option<MexOperationKind>,
     variables: Vec<String>,
     variables_shape: BTreeMap<String, wa_ir::TypeNode>,
+    variables_presence: BTreeMap<String, wa_ir::VariablePresenceNode>,
+    /// What the presence scan could not read for THIS operation, folded into the
+    /// document-level totals only once the operation survives the noise filter.
+    presence: PresenceDiagnostics,
     response: BTreeMap<String, wa_ir::TypeNode>,
 }
 
@@ -325,6 +617,8 @@ impl MexCollector {
             operation_kind,
             variables,
             variables_shape: BTreeMap::new(),
+            variables_presence: BTreeMap::new(),
+            presence: PresenceDiagnostics::default(),
             response: BTreeMap::new(),
         })
     }
@@ -444,6 +738,37 @@ mod tests {
     }
 
     #[test]
+    fn the_first_definition_of_a_relay_operation_sibling_wins() {
+        // Concatenated bundles can define one module twice. The runtime keeps
+        // the first, and so does the operation scan, so the id has to come from
+        // the same copy - pairing the first operation with a later shard's
+        // export is an id for another document.
+        let m = r#"
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports="999111"}),null);
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports="222222"}),null);
+        __d("WAWebGetThingQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"q"}],name:"WAWebGetThingQuery"},operation:{argumentDefinitions:[],name:"WAWebGetThingQuery"},params:{id:n("WAWebGetThingQuery_facebookRelayOperation"),name:"WAWebGetThingQuery",operationKind:"query"}}
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        assert_eq!(ir.operations.get("GetThing").unwrap().doc_id, "999111");
+
+        // And a first definition this pass cannot read leaves the id absent
+        // rather than letting the later shard answer for it: the name falls
+        // back to itself, which is what an unresolved id has always done.
+        let unreadable = r#"
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports=q()}),null);
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports="222222"}),null);
+        __d("WAWebGetThingQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"q"}],name:"WAWebGetThingQuery"},operation:{argumentDefinitions:[],name:"WAWebGetThingQuery"},params:{id:n("WAWebGetThingQuery_facebookRelayOperation"),name:"WAWebGetThingQuery",operationKind:"query"}}
+        }),null);"#;
+        let ir = extract_mex(unreadable, "2.3000.1");
+        assert_eq!(
+            ir.operations.get("GetThing").unwrap().doc_id,
+            "WAWebGetThingQuery"
+        );
+    }
+
+    #[test]
     fn noise_operations_are_skipped() {
         let m = r#"__d("WAWebBizAdSomethingQuery.graphql",[],(function(t,n,r,o,a,i){
             i.exports={kind:"Request",operation:{argumentDefinitions:[],name:"WAWebBizAdSomethingQuery"},params:{id:"1",name:"WAWebBizAdSomethingQuery",operationKind:"query"}}
@@ -460,6 +785,205 @@ mod tests {
         );
         assert_eq!(strip_op_name("WAWebMexSomethingQuery"), "Something");
         assert_eq!(strip_op_name("Plain"), "Plain");
+    }
+
+    #[test]
+    fn doc_id_origin_is_counted_per_operation() {
+        // A persisted id is a bare numeric string, so an id that did not change and
+        // an id nothing re-derived are the same value. Splitting by origin is what
+        // makes the second visible, and the name fallback is the state in which
+        // `docId` is not a persisted id at all.
+        let (_, diag) = extract_mex_with_diagnostics(MODULE, "2.3000.1");
+        assert_eq!(diag.doc_ids_inline, 1, "read from this run's params.id");
+        assert_eq!(diag.doc_ids_from_sibling, 0);
+        assert_eq!(diag.doc_ids_from_name, 0);
+
+        let m = r#"__d("WAWebNoIdQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",operation:{argumentDefinitions:[],name:"WAWebNoIdQuery"},params:{id:null,name:"WAWebNoIdQuery",operationKind:"query"}}
+        }),null);"#;
+        let (_, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        assert_eq!(diag.doc_ids_from_name, 1);
+        assert_eq!(diag.doc_ids_inline, 0);
+    }
+
+    #[test]
+    fn presence_is_published_beside_the_shape() {
+        let m = r#"
+        __d("WAWebFlagQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"fetch_x"},{kind:"LocalArgument",name:"fetch_y"}],name:"WAWebFlagQuery"},operation:{argumentDefinitions:[],name:"WAWebFlagQuery"},params:{id:"7",name:"WAWebFlagQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebFlagJob",["WAWebFlagQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebFlagQuery.graphql"),{fetch_x:(e==null?void 0:e.x)===!0,fetch_y:e.y})}
+            l.job=u
+        }),null);"#;
+        let (ir, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        let op = ir.operations.get("Flag").unwrap();
+        assert_eq!(
+            op.variables_presence["fetch_x"].presence,
+            wa_ir::VariablePresence::Always
+        );
+        assert_eq!(
+            op.variables_presence["fetch_y"].presence,
+            wa_ir::VariablePresence::Conditional
+        );
+        assert_eq!(diag.presence_always, 1);
+        assert_eq!(diag.presence_conditional, 1);
+        assert_eq!(diag.presence_undetermined, 0);
+        assert_eq!(diag.operations_with_variables, 1);
+        assert_eq!(diag.operations_fully_determined, 0);
+    }
+
+    #[test]
+    fn an_operation_with_no_verdict_is_not_fully_determined() {
+        // Typed variables, no recovered call site, so nothing is known about any
+        // of them. That is the opposite of fully determined, and it is a plain
+        // `all` over an empty map - which answers `true` - that would say so.
+        let m = r#"__d("WAWebLoneQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"q"}],name:"WAWebLoneQuery"},operation:{argumentDefinitions:[],name:"WAWebLoneQuery"},params:{id:"3",name:"WAWebLoneQuery",operationKind:"query"}}
+        }),null);"#;
+        let (ir, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        let op = &ir.operations["Lone"];
+        assert_eq!(
+            op.variables_presence["q"].presence,
+            wa_ir::VariablePresence::Undetermined
+        );
+        assert_eq!(diag.operations_with_variables, 1);
+        assert_eq!(diag.operations_fully_determined, 0);
+    }
+
+    #[test]
+    fn a_shape_survives_an_operation_with_no_argument_definitions() {
+        // The presence pass reports where the calls write, and it has to do that
+        // even when the operation declares no variables to publish a verdict for
+        // - otherwise the shape loses the keys the call site does write.
+        let m = r#"
+        __d("WAWebBareQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[],name:"WAWebBareQuery"},operation:{argumentDefinitions:[],name:"WAWebBareQuery"},params:{id:"9",name:"WAWebBareQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebBareJob",["WAWebBareQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(){return o("WAWebMexClient").fetchQuery(n("WAWebBareQuery.graphql"),{a:!0})}
+            l.job=u
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        let op = ir.operations.get("Bare").expect("extracted");
+        assert!(
+            op.variables_shape.contains_key("a"),
+            "the call writes it: {:?}",
+            op.variables_shape
+        );
+        // And the verdict comes from the same call: the key is written outright.
+        assert_eq!(
+            op.variables_presence["a"].presence,
+            wa_ir::VariablePresence::Always
+        );
+    }
+
+    #[test]
+    fn only_the_first_definition_of_a_caller_module_is_read() {
+        // Concatenated bundles define one module more than once, and the runtime
+        // keeps the first. A later copy that depends on a different operation is
+        // not that operation's caller: reading it would let a call the live
+        // module never makes answer for the keys.
+        let m = r#"
+        __d("WAWebDupQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"a"}],name:"WAWebDupQuery"},operation:{argumentDefinitions:[],name:"WAWebDupQuery"},params:{id:"31",name:"WAWebDupQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebDupJob",["WAWebMexClient"],(function(t,n,r,o,a,i,l){l.job=function(){}}),null);
+        __d("WAWebDupJob",["WAWebDupQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(){return o("WAWebMexClient").fetchQuery(n("WAWebDupQuery.graphql"),{a:!0})}
+            l.job=u
+        }),null);"#;
+        let (ir, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
+        let op = ir.operations.get("Dup").expect("extracted");
+        assert_eq!(
+            op.variables_presence["a"].presence,
+            wa_ir::VariablePresence::Undetermined,
+            "the live module makes no call, so nothing is established: {:?}",
+            op.variables_presence
+        );
+        assert_eq!(diag.presence.operations_without_call_site, 1);
+    }
+
+    #[test]
+    fn a_shape_is_read_from_this_operation_s_own_calls() {
+        // `WAWebResolveAccountTypeAndAdPage` sends a query and a mutation from
+        // one module, and only the query is given a variables object. Reading
+        // every Relay call in the module gave the mutation - which declares no
+        // variables at all - the query's `pageId`, and the presence pass then had
+        // to answer for a key that operation does not have.
+        let m = r#"
+        __d("WAWebPairInfoQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"pageId"}],name:"WAWebPairInfoQuery"},operation:{argumentDefinitions:[],name:"WAWebPairInfoQuery"},params:{id:"11",name:"WAWebPairInfoQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebPairClearMutation.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[],name:"WAWebPairClearMutation"},operation:{argumentDefinitions:[],name:"WAWebPairClearMutation"},params:{id:"12",name:"WAWebPairClearMutation",operationKind:"mutation"}}
+        }),null);
+        __d("WAWebPairJob",["WAWebPairInfoQuery.graphql","WAWebPairClearMutation.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebPairInfoQuery.graphql"),{pageId:e})}
+            function c(){return o("WAWebMexClient").commitMutation(n("WAWebPairClearMutation.graphql"),{})}
+            l.pair=u;l.clear=c
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        let query = ir.operations.get("PairInfo").expect("query extracted");
+        assert!(query.variables_shape.contains_key("pageId"));
+        let mutation = ir.operations.get("PairClear").expect("mutation extracted");
+        assert!(
+            mutation.variables_shape.is_empty(),
+            "the mutation declares no variables and writes none: {:?}",
+            mutation.variables_shape
+        );
+        assert!(mutation.variables_presence.is_empty());
+    }
+
+    #[test]
+    fn two_callers_agree_on_shape_and_presence_keys() {
+        // Presence merges every caller, so the shape has to as well: a nested key
+        // only the second caller writes would otherwise carry a verdict the shape
+        // does not type, which `scripts/lint-ir.py` rejects outright - the
+        // operation would fail to publish rather than come out imprecise.
+        let m = r#"
+        __d("WAWebTwoQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"input"}],name:"WAWebTwoQuery"},operation:{argumentDefinitions:[],name:"WAWebTwoQuery"},params:{id:"5",name:"WAWebTwoQuery",operationKind:"query"}}
+        }),null);
+        __d("WAWebJobOne",["WAWebTwoQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebTwoQuery.graphql"),{input:{a:!0}})}
+            l.one=u
+        }),null);
+        __d("WAWebJobTwo",["WAWebTwoQuery.graphql","WAWebMexClient"],(function(t,n,r,o,a,i,l){
+            function u(e){return o("WAWebMexClient").fetchQuery(n("WAWebTwoQuery.graphql"),{input:{a:!0,b:e.b}})}
+            l.two=u
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        let op = ir.operations.get("Two").expect("operation published");
+        let wa_ir::TypeNode::Object(shape) = &op.variables_shape["input"] else {
+            panic!("input shape is an object")
+        };
+        let presence = &op.variables_presence["input"];
+        assert!(
+            shape.contains_key("b") && presence.fields.contains_key("b"),
+            "the second caller's key is typed and answered, not one or the other"
+        );
+        assert_eq!(
+            presence.fields["a"].presence,
+            wa_ir::VariablePresence::Always,
+            "written by both callers"
+        );
+        assert_eq!(
+            presence.fields["b"].presence,
+            wa_ir::VariablePresence::Conditional,
+            "one caller's input object does not carry it"
+        );
+        // The invariant the linter enforces, asserted here so a regression fails
+        // in the crate rather than at publish time.
+        for key in shape.keys() {
+            assert!(
+                presence.fields.contains_key(key),
+                "{key} typed with no verdict"
+            );
+        }
+        for key in presence.fields.keys() {
+            assert!(shape.contains_key(key), "{key} answered but not typed");
+        }
     }
 
     #[test]

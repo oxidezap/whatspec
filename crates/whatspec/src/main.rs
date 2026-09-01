@@ -758,6 +758,19 @@ struct Counts {
     iq_modules: usize,
     proto_entities: usize,
     mex_ops: usize,
+    /// Variable keys the official client's own call sites always write, mirroring
+    /// `diagnostics.mex.presenceAlways`. Floored: this is the constraint the
+    /// domain gained, and a WA refactor that hides a call site drops it silently
+    /// otherwise - the keys stay published, just as `undetermined`.
+    mex_presence_always: usize,
+    /// Operations whose `docId` was read out of this run's bundles (inline or via
+    /// the sibling relay-operation module). Floored so an id cannot start looking
+    /// unchanged because nothing re-derived it.
+    mex_doc_ids_extracted: usize,
+    /// Operations left with their own name in place of a persisted id. Guarded
+    /// UPWARD: it is the broken state, and the extracted total cannot see one
+    /// operation falling into it while another arrives with a real id.
+    mex_doc_ids_from_name: usize,
     appstate_actions: usize,
     abprops_configs: usize,
     enum_defs: usize,
@@ -1998,7 +2011,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let checked = "domain result verified Ok above";
     let (iq_arts, (iq_count, iq_diag)) = iq.expect(checked);
     let (proto_arts, proto_count) = proto.expect(checked);
-    let (mex_arts, mex_count) = mex.expect(checked);
+    let (mex_arts, (mex_count, mex_diag)) = mex.expect(checked);
     let (appstate_arts, appstate_count) = appstate.expect(checked);
     let (abprops_arts, abprops_count) = abprops.expect(checked);
     let mut enums_ir = enums.expect(checked);
@@ -2109,6 +2122,9 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         iq_modules: iq_count,
         proto_entities: proto_count,
         mex_ops: mex_count,
+        mex_presence_always: mex_diag.presence_always,
+        mex_doc_ids_extracted: mex_diag.doc_ids_inline + mex_diag.doc_ids_from_sibling,
+        mex_doc_ids_from_name: mex_diag.doc_ids_from_name,
         appstate_actions: appstate_count,
         abprops_configs: abprops_count,
         enum_defs: enums_count,
@@ -2287,6 +2303,32 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "samplingWeightOverrides": wam_diag.sampling_weight_overrides,
                 "dropsByReason": wam_diag.drops_by_reason,
             },
+            // The mex domain publishes two things about a variable a count of
+            // operations cannot see. `presence*` is the distribution of the verdict
+            // the IR now carries per key, with `undetermined` counted rather than
+            // folded into `conditional` - the whole point of the third state is
+            // that it stays visible. `docIds*` splits the persisted ids by where
+            // this run read them, so an id that looks unchanged because it was
+            // extracted and an id that looks unchanged because nothing re-derived
+            // it are not the same number.
+            "mex": {
+                "operations": mex_diag.operations,
+                "operationsWithVariables": mex_diag.operations_with_variables,
+                "operationsFullyDetermined": mex_diag.operations_fully_determined,
+                "presenceAlways": mex_diag.presence_always,
+                "presenceConditional": mex_diag.presence_conditional,
+                "presenceUndetermined": mex_diag.presence_undetermined,
+                "docIdsInline": mex_diag.doc_ids_inline,
+                "docIdsFromSibling": mex_diag.doc_ids_from_sibling,
+                "docIdsFromName": mex_diag.doc_ids_from_name,
+                "dropsByReason": {
+                    "operationWithNoCallSite": mex_diag.presence.operations_without_call_site,
+                    "unreadableCallArgument": mex_diag.presence.unreadable_call_arguments,
+                    "unreadableSpread": mex_diag.presence.unreadable_spreads,
+                    "unreadableKey": mex_diag.presence.unreadable_keys,
+                    "ambiguousCallSite": mex_diag.presence.ambiguous_call_sites,
+                },
+            },
             // These two domains run the same legacy parser as IQ and had no diagnostics
             // block at all, so a constraint they saw and could not recover was reported
             // nowhere — the one case the pending marker cannot distinguish on its own.
@@ -2363,6 +2405,49 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
             {
                 regressions.push(format!("wam.{key}: {prev} → {new}"));
             }
+        }
+    }
+    // The mex presence surface. `presenceAlways` is what the domain gained and the
+    // only number that falls when a call site stops being readable: the keys stay
+    // published either way, just as `undetermined`, so the operation count sees
+    // nothing. `docIdsInline`/`docIdsFromSibling` are floored together because a
+    // persisted id is a bare numeric string - an id nothing re-derived looks exactly
+    // like an id that did not change, and only its origin tells the two apart.
+    if let Some(mex) = prior.get("diagnostics").and_then(|d| d.get("mex")) {
+        if let Some(prev) = mex
+            .get("presenceAlways")
+            .and_then(serde_json::Value::as_u64)
+            && (counts.mex_presence_always as u64) < prev
+        {
+            regressions.push(format!(
+                "mex.presenceAlways: {prev} → {}",
+                counts.mex_presence_always
+            ));
+        }
+        let prev_ids: u64 = ["docIdsInline", "docIdsFromSibling"]
+            .iter()
+            .filter_map(|k| mex.get(*k).and_then(serde_json::Value::as_u64))
+            .sum();
+        if (counts.mex_doc_ids_extracted as u64) < prev_ids {
+            regressions.push(format!(
+                "mex.docIds(extracted): {prev_ids} → {}",
+                counts.mex_doc_ids_extracted
+            ));
+        }
+        // And the fallback on its own, because the sum cannot see a SWAP: one
+        // operation losing its id while a new operation arrives with one holds
+        // both totals steady and publishes a `docId` that is an operation name,
+        // which is not a persisted id and answers nothing. It is 0 today and a
+        // rise is the defect, so it is guarded upward rather than floored.
+        let prev_fallback = mex
+            .get("docIdsFromName")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        if (counts.mex_doc_ids_from_name as u64) > prev_fallback {
+            regressions.push(format!(
+                "mex.docIdsFromName: {prev_fallback} → {} (an operation name is not a persisted id)",
+                counts.mex_doc_ids_from_name
+            ));
         }
     }
     // Stanza-level IQ coverage — the sensitive signal the guard's doc promises:
@@ -2865,8 +2950,9 @@ fn push_mex(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<usize> {
-    let ir = wa_mex::extract_mex_from_modules(source, module_defs, wa_version);
+) -> Result<(usize, wa_mex::MexDiagnostics)> {
+    let (ir, diag) =
+        wa_mex::extract_mex_from_modules_with_diagnostics(source, module_defs, wa_version);
     let count = ir.operations.len();
     eprintln!("mex: {count} operations");
     artifacts.push(Artifact {
@@ -2878,7 +2964,7 @@ fn push_mex(
         rel_path: PathBuf::from("mex/operations.rs"),
         content: wa_codegen::generate_mex_operations(&ir),
     });
-    Ok(count)
+    Ok((count, diag))
 }
 
 fn push_appstate(
@@ -3515,6 +3601,63 @@ mod tests {
         assert!(regressions.iter().any(|r| r.contains("iq.stanzas")));
         assert!(regressions.iter().any(|r| r.contains("iq.typedResponses")));
         assert!(!regressions.iter().any(|r| r.contains("iqModules")));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn check_floor_sees_a_persisted_id_replaced_by_an_operation_name() {
+        let dir = std::env::temp_dir().join(format!("whatspec-floor-mex-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let prior = serde_json::json!({
+            "diagnostics": { "mex": {
+                "presenceAlways": 123, "docIdsInline": 110, "docIdsFromSibling": 33,
+                "docIdsFromName": 0,
+            } },
+        });
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_string_pretty(&prior).unwrap(),
+        )
+        .unwrap();
+        // One operation loses its id while another arrives with one: 143 extracted
+        // either way, so the floor on the sum sees nothing, and the document now
+        // publishes a `docId` that is an operation name. This is the one guard in
+        // the function that flags a RISE, and an inverted comparison would pass
+        // every other test in here.
+        let counts = Counts {
+            mex_presence_always: 123,
+            mex_doc_ids_extracted: 143,
+            mex_doc_ids_from_name: 1,
+            iq_targets: IqTargetCounts::default(),
+            ..Default::default()
+        };
+        let regressions = check_floor(&dir, &counts).unwrap();
+        assert!(
+            regressions.iter().any(|r| r.contains("mex.docIdsFromName")),
+            "a name in place of a persisted id must be named: {regressions:?}"
+        );
+        assert!(
+            !regressions
+                .iter()
+                .any(|r| r.contains("mex.docIds(extracted)")),
+            "and the sum is exactly what could not see it: {regressions:?}"
+        );
+        // The floors in the same block still point down.
+        let dropped = Counts {
+            mex_presence_always: 122,
+            mex_doc_ids_extracted: 142,
+            mex_doc_ids_from_name: 0,
+            iq_targets: IqTargetCounts::default(),
+            ..Default::default()
+        };
+        let regressions = check_floor(&dir, &dropped).unwrap();
+        assert!(regressions.iter().any(|r| r.contains("mex.presenceAlways")));
+        assert!(
+            regressions
+                .iter()
+                .any(|r| r.contains("mex.docIds(extracted)"))
+        );
+        assert!(!regressions.iter().any(|r| r.contains("mex.docIdsFromName")));
         fs::remove_dir_all(&dir).ok();
     }
 

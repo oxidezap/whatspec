@@ -92,6 +92,47 @@ BASELINE = {
     "wam construction with an unread argument": 104,
     "wam construction of an event with no catalog entry": 41,
     "wam written key naming no field of the event": 0,
+    # Variable keys whose presence the mex extractor did not establish: a value expression
+    # it does not judge (a call's return value, an `await`), or an operation whose call
+    # site it could not recover at all. Counted rather than floor-guarded because this is
+    # the number that must FALL as the classifier learns forms - and because the states it
+    # is held apart from are guarded the other way: `diagnostics.mex.presenceAlways` is
+    # floored in `check_floor`, so a key cannot slide from `always` into `undetermined`
+    # unseen. Collapsing these into `conditional` would be the one outcome that defeats
+    # the whole dimension: "the official client sometimes omits this" is a claim, and an
+    # unread expression has not earned it.
+    #
+    # Rose from 102 to 106 with the review pass that made a partially readable call site
+    # withdraw rather than decide. `WAWebMexSetUsernameJob` sends
+    # `isStringNullOrEmpty(t.input) ? {} : t`: one arm is an empty object and the other
+    # hands over the whole parameter, so its four variables were published as
+    # `conditional` on the empty arm alone. Nothing was known about them, and that is
+    # what this number is for. Back to 105 when a caller module indexed twice stopped
+    # lending one operation a key that belongs to another.
+    #
+    # Rose to 108 when the sole-operation shortcut stopped claiming a handle the module
+    # cannot be shown to require. A caller that depends on exactly one `.graphql` module
+    # was reading every call whose handle it could not follow as that operation's, and a
+    # handle read off something the module was given - `t.handle`, or the binding a `var
+    # h = t.handle` leaves - is not one the dependency says anything about. The three
+    # keys are `DebugLabyrinthRange`, whose handle IS its own memoised require and is
+    # simply not followed that far; they are withdrawn rather than published on a rule
+    # that also claims another operation's variables.
+    "mex variable with an undetermined presence": 108,
+    # Operations where the verdict is `undetermined` for EVERY variable - no call site
+    # was recovered, or the one that was writes nothing this classifier reads. Pinned
+    # beside the per-key count because a single key regaining a verdict moves that number
+    # and not this one: an operation a consumer can say nothing about is a different
+    # failure from an operation with one unreadable field, and only this sees it.
+    # `manifest.diagnostics.mex.dropsByReason` splits the two causes; from the document
+    # alone they are indistinguishable, so the name says what is actually measured.
+    #
+    # Rose to 13 with the same change that took the per-key count to 108: all three of
+    # `DebugLabyrinthRange`'s variables were the withdrawn ones, so the operation joins
+    # the ones a consumer can say nothing about. This is the number to watch if the
+    # handle resolution learns to follow a memoised require through a nested body -
+    # that operation is the one it would win back.
+    "mex operation with no established variable presence": 13,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
     # because the alternative to dropping it is publishing `["regular"]` over a policy WA
     # stated and we failed to read — so a rise here is a channel rule going missing, not
@@ -198,6 +239,9 @@ FIELD_TYPES = {
 
 # The `UnknownValuePolicy` vocabulary, mirroring `wa_ir::UnknownValuePolicy`.
 UNKNOWN_VALUE_POLICIES = {"reject", "null", "unclassified"}
+
+# The `VariablePresence` vocabulary, mirroring `wa_ir::VariablePresence`.
+VARIABLE_PRESENCES = {"always", "conditional", "undetermined"}
 
 # Addressee values that name no server. `wa_ir::IqTarget::is_resolved` is their negation;
 # the two must agree, so a variant added on one side and not the other is a lint failure
@@ -1268,6 +1312,106 @@ def check_action_keys(node, path, errors, flattened):
         errors.append(f"{path}: one key filled twice across fields/constantFields/children: {repeated}")
 
 
+def check_mex(data, domain, errors, counts):
+    """`variablesPresence` against `variablesShape`, key for key.
+
+    The two are siblings a consumer reads together - one says what type a variable has,
+    the other whether the official client always puts it on the wire - so a key carried by
+    one and not the other is the ambiguity the dimension exists to remove: a reader cannot
+    tell "no verdict was needed here" from "the verdict went missing". They are required
+    to name exactly the same keys, at every level of nesting, and the third presence state
+    is what a key with no evidence gets instead of an absence.
+    """
+    if domain != "mex":
+        return
+    operations = data.get("operations")
+    if not isinstance(operations, dict):
+        errors.append(f"{domain}: operations is not an object")
+        return
+    for name, op in sorted(operations.items()):
+        if not isinstance(op, dict):
+            errors.append(f"{domain}/{name}: operation is not an object")
+            continue
+        # `.get(key, {})` and not `or {}`: an operation declaring no variables omits
+        # both keys, and a document carrying `[]` or `""` under one of them is
+        # malformed - normalizing that to an empty map reported nothing at all.
+        shape = op.get("variablesShape", {})
+        presence = op.get("variablesPresence", {})
+        _check_presence_level(f"{domain}/{name}", shape, presence, errors, counts)
+        # An operation nothing is established about: no call site was recovered, or the
+        # one that was writes only values this classifier does not read. Which of the two
+        # is in `manifest.diagnostics.mex.dropsByReason`; from here they look alike, and
+        # the point of the count is that a consumer is equally stuck either way.
+        if presence and all(
+            isinstance(v, dict) and v.get("presence") == "undetermined"
+            for v in presence.values()
+        ):
+            counts["mex operation with no established variable presence"] += 1
+
+
+def _check_presence_level(path, shape, presence, errors, counts):
+    if not isinstance(shape, dict) or not isinstance(presence, dict):
+        errors.append(f"{path}: variablesShape/variablesPresence are not both objects")
+        return
+    for key in sorted(set(shape) | set(presence)):
+        here = f"{path}/{key}"
+        if key not in presence:
+            errors.append(
+                f"{here}: typed by variablesShape with no variablesPresence verdict - "
+                f"an absent key and 'we could not tell' must not look alike"
+            )
+            continue
+        if key not in shape:
+            errors.append(f"{here}: a presence verdict for a key variablesShape does not carry")
+            continue
+        node = presence[key]
+        if not isinstance(node, dict):
+            errors.append(f"{here}: presence node is not an object")
+            continue
+        verdict = node.get("presence")
+        if verdict not in VARIABLE_PRESENCES:
+            errors.append(f"{here}: presence {verdict!r} is not in the vocabulary")
+        elif verdict == "undetermined":
+            counts["mex variable with an undetermined presence"] += 1
+        typed = shape[key]
+        # Nesting has to agree too: `fields` describes the keys of an object and `items`
+        # the element of a list, so either on the wrong shape is a verdict about keys that
+        # are not there.
+        if isinstance(typed, dict):
+            _check_presence_level(here, typed, node.get("fields", {}), errors, counts)
+        elif "fields" in node:
+            # The key itself is the error, empty or not: a leaf that carries a
+            # `fields` map at all is a verdict about keys the shape does not have.
+            errors.append(f"{here}: nested field verdicts on a variable that is not an object")
+        element = typed[0] if isinstance(typed, list) and typed else None
+        item = node.get("items")
+        # A list of lists carries its keys one layer deeper, so the element node is
+        # followed through every layer; stopping at the first would let the keys
+        # under `[[{a}]]` carry no verdict and still pass this parity check.
+        if isinstance(element, (dict, list)):
+            if not isinstance(item, dict):
+                errors.append(f"{here}: a list of objects with no element verdicts")
+            else:
+                # An element is not a key, so it is not a thing that can be absent:
+                # `VariablePresenceNode::items` fixes its verdict at `always` by
+                # construction, and anything else is a claim about a key that does
+                # not exist.
+                if item.get("presence") != "always":
+                    errors.append(
+                        f"{here}: list-element presence is {item.get('presence')!r}, not "
+                        f"'always' - an element is not a key and cannot be omitted"
+                    )
+                # The element node itself, against the element shape, under a
+                # synthetic key: that is what checks its `fields` on an object,
+                # its `items` one layer down on a list of lists, and the absence
+                # of either on a shape with no room for them. Descending straight
+                # into `fields` or `items` left the node between them unread, so
+                # verdicts about keys the element does not have passed.
+                _check_presence_level(here, {"[]": element}, {"[]": item}, errors, counts)
+        elif item is not None:
+            errors.append(f"{here}: element verdicts on a variable that is not a list of objects")
+
+
 def check_abprops(data, domain, errors):
     """An A/B config's `default`/`altDefault` are typed by its `valueType`.
 
@@ -1835,7 +1979,16 @@ def main() -> int:
             continue
         domain = doc.parent.name
 
+        # `variablesShape`, `variablesPresence` and `response` are keyed by GraphQL
+        # names the bundle chooses, so their nodes are data rather than IR nodes: a
+        # variable called `enumRef` or `kind` puts a value under that key and the
+        # generic checks below would read it as the node they are named for.
+        # `check_mex` validates these trees against each other instead.
+        mex_data = ("variablesShape", "variablesPresence", "response")
+
         def visit(node, path, domain=domain):
+            if domain == "mex" and any(seg in mex_data for seg in path.split("/")):
+                return
             # A field is anything with a KNOWN type, or anything carrying a key only a
             # response field has. The first clause reaches the appstate fields, which
             # carry no `method`/`wireName`; the second is what makes an unrecognized type
@@ -1844,7 +1997,13 @@ def main() -> int:
             # A marker only counts when the object HAS a type: an assertion carries
             # `referencePath` too, and flagging those as untyped fields was the first
             # version of this check reporting four contradictions that were not.
-            known = node.get("type") in FIELD_TYPES
+            # A KNOWN type has to be a string: an unhashable value under that key
+            # aborts an `in` test, and a document is data that can carry anything.
+            # The marker clause asks only whether the key is there, so a field whose
+            # `type` is not a string is reported as an unrecognized type rather than
+            # excused from every check below.
+            declared = node.get("type")
+            known = isinstance(declared, str) and declared in FIELD_TYPES
             marked = "type" in node and any(k in node for k in FIELD_MARKERS)
             if known or marked:
                 if not known:
@@ -1879,6 +2038,7 @@ def main() -> int:
         check_event_codes(data, domain, errors)
         check_wam_buffer(data, domain, errors)
         check_abprops(data, domain, errors)
+        check_mex(data, domain, errors, counts)
         check_appstate_collections(
             data, domain, errors, proto_enums, proto_messages, sync_fields
         )

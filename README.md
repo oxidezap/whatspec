@@ -78,6 +78,33 @@ Two smaller corrections came out of the same pass, both visible in the numbers: 
 
 **`schemaVersion` is now 4.1.0**, a minor because all of the above is additive: every new property is optional, the new lists are skipped when empty, and the committed `wam/index.json` validates against the **4.0.0** schema with 0 errors. The one thing a 4.x consumer must re-read is `consumers`, whose data did not change and whose documentation did. `scripts/lint-ir.py` gained the three invariants the JSON Schema cannot state — a global with no channel, a `privateStatsId` that resolves against no group, a call site naming a field its event does not declare — and `diagnostics.wam.{globals,privateStatsIds,constants,callSites}` are floor-guarded like every other coverage number.
 
+### Whether the official client actually sends a variable
+
+The mex catalog says a persisted operation takes `fetch_wamo_sub: boolean`. It did not say whether WA Web ever leaves that key out, and a persisted query is validated on the *presence* of a variable its compiled tree references, not only on its type - so the difference is a `400 Bad Request` with nothing in it naming the variable ([oxidezap/whatsapp-rust#1372](https://github.com/oxidezap/whatsapp-rust/issues/1372) is two of them). Worse than unstated: silence read as permission. An emitter generating `Option<T>` with `skip_serializing_if` from a bare type tag sends `{}` and is never told which key was missing.
+
+The evidence was already in hand. `variablesShape` is recovered from the call site WA Web writes, and the call site says both things at once:
+
+```js
+fetchQuery(r, {
+  fetch_wamo_sub:       (t == null ? void 0 : t.fetchWamoSub)       === !0,
+  fetch_status_metadata:(t == null ? void 0 : t.fetchStatusMetadata) === !0,
+})
+```
+
+`=== !0` coerces `undefined` to `false`. There is no path on which either key is absent, and the shape pass kept the resulting `boolean` and discarded that. **`variablesPresence`** now carries it, a sibling map keyed and nested exactly like `variablesShape`:
+
+- **`always`** - every recovered call site writes the key with a value no evaluation can make `undefined`: a literal, a comparison, a coercion (`x === !0`, `!!x`), a `??`/`||` whose right side is itself defined, a ternary whose arms both are, or a local bound to one of those (`fetch_full_image` reads `c`, and `c` is `u !== "INVITE"`).
+- **`conditional`** - a site can leave it off: a spread behind a gate (`...(cond && {…})`), a value that passes through something that may be `undefined` (a bare binding, a property read, a lowered optional chain), or a site whose object does not write the key at all. `FetchNewsletter`'s `fetch_viewer_metadata` is a plain `i.fetchViewerMetadata`, and `JSON.stringify` drops a key whose value is `undefined`, so a key written with one is not a key on the wire.
+- **`undetermined`** - not established, and deliberately not folded into `conditional`. `fetch_pinned_messages` is `isChannelMessagePinReadEnabled()`: the key is written unconditionally and the call's result is not something this extractor reads. "The official client sometimes omits this" is a claim, and an unread expression has not earned it - a consumer that cannot tell the two apart is back where it started.
+
+The unit is the key, not the variable, so a nested object is answered too - `FetchNewsletter`'s `input` is `{key: t, type: u, view_role: a}`, and only `type` is `always` (it is bound to a ternary of two string literals; the other two are parameters passed straight through). Presence is read structurally from the `oxc` AST, never from the name: `fetch_*` being a boolean says nothing about whether it is sent, and guessing there is the opposite of the point.
+
+Across the domain: **412 variable keys in 128 operations - 123 `always`, 184 `conditional`, 105 `undetermined`**, of which 12 operations have no verdict at all (5 where no call site was recovered, the rest where the site was recovered and writes only values the classifier does not read). Every key `variablesShape` types carries a verdict, checked by `scripts/lint-ir.py`: a typed key with no presence entry is exactly the ambiguity this removes. `diagnostics.mex` publishes the distribution plus `dropsByReason`, the two `undetermined` states are held to a baseline, and `presenceAlways` is floor-guarded - the keys stay published when a call site stops being readable, just as `undetermined`, so the operation count would see nothing.
+
+`diagnostics.mex` also splits the persisted ids by where this run read them - 110 inline, 33 from a `_facebookRelayOperation` sibling, **0 falling back to the operation name** - and floors the sum. A `docId` is a bare numeric string, so an id that did not change and an id nothing re-derived are the same value on inspection; the origin is what tells them apart, and both of the ids in that issue are read from `params.id` in the current bundle.
+
+**`schemaVersion` is now 4.2.0**, a minor: `variablesPresence` is a new optional property, skipped when empty, and the committed `mex/index.json` validates against the **4.1.0** schema with 0 errors. A 4.x consumer that ignores it keeps working and keeps the defect - nothing forces the field on anyone, which is why it is a sibling map rather than a richer `variablesShape` leaf; folding presence into the type tags would have broken every consumer reading them as strings, for a fact that belongs to the key rather than to the type. The reference Rust consumer does read it: an `always` variable is emitted as `T` and always serialized, and everything else - `undetermined` included - keeps `Option<T>` with `skip_serializing_if`.
+
 Anything the extractor sees but cannot resolve structurally is counted under `manifest.diagnostics.iq.dropsByReason` rather than omitted, so "no constraint here" and "a constraint we failed to extract" never look alike. `manifest.diagnostics.iq.constraints`, `diagnostics.iq.targets.resolved`, `diagnostics.iq.builder` and `diagnostics.notif.actions` are floor-guarded: a WA refactor that hides one of these constructs fails the update instead of silently emptying a field. The unresolved states are guarded the other way — `scripts/lint-ir.py` pins the count of unaddressed requests and of unjudged accessors to an exact baseline. A rise means a constraint is being lost; a fall means extraction improved and the baseline owes an update. Either way the lint fails, so neither direction passes unnoticed.
 
 ## Quick start
