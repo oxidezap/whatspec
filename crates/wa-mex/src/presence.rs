@@ -750,13 +750,13 @@ fn convert(expr: &Expression, depth: usize) -> Value {
 }
 
 fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
-    let getters = getter_keys(obj);
+    let pairs = accessor_pairs(obj);
     obj.properties
         .iter()
-        .map(|p| match p {
+        .zip(pairs)
+        .map(|(p, paired)| match p {
             ObjectPropertyKind::ObjectProperty(p) => match static_key(&p.key) {
                 Some(key) => {
-                    let paired = getters.contains(&key);
                     let value = accessor(p, paired).unwrap_or_else(|| convert(&p.value, depth));
                     Prop::Key(key, value)
                 }
@@ -830,17 +830,34 @@ fn accessor(property: &oxc_ast::ast::ObjectProperty, paired: bool) -> Option<Val
     }
 }
 
-/// The keys an object literal defines a getter for, so a setter written beside
-/// one is read as the accessor it completes rather than as a key of its own.
-fn getter_keys(object: &ObjectExpression) -> Vec<String> {
+/// Per property of an object literal, whether it is a setter completing a getter
+/// that still stands: `{get a(){…}, set a(v){…}}` is one accessor and serializes
+/// through its getter, while `{get a(){…}, a: 1, set a(v){…}}` ends at a setter
+/// alone, because the data property in between replaced the accessor. Read in
+/// source order for that reason.
+fn accessor_pairs(object: &ObjectExpression) -> Vec<bool> {
+    use oxc_ast::ast::PropertyKind;
+    let mut standing: HashMap<String, PropertyKind> = HashMap::new();
     object
         .properties
         .iter()
-        .filter_map(|property| match property {
-            ObjectPropertyKind::ObjectProperty(p) if p.kind == oxc_ast::ast::PropertyKind::Get => {
-                static_key(&p.key)
-            }
-            _ => None,
+        .map(|property| {
+            let ObjectPropertyKind::ObjectProperty(p) = property else {
+                return false;
+            };
+            let Some(key) = static_key(&p.key) else {
+                return false;
+            };
+            let before = standing.get(&key).copied();
+            let paired = p.kind == PropertyKind::Set && before == Some(PropertyKind::Get);
+            // A getter and a setter of one name are halves of one accessor, so
+            // neither replaces the other; anything else replaces what stood.
+            let now = match (before, p.kind) {
+                (Some(PropertyKind::Set), PropertyKind::Get) => PropertyKind::Get,
+                (_, kind) => kind,
+            };
+            standing.insert(key, now);
+            paired
         })
         .collect()
 }
@@ -1820,7 +1837,9 @@ fn literal_key(expr: &Expression) -> Option<String> {
         // `"1000000000000000000000"` here and `"1e+21"` there). Only whole
         // numbers small enough for both to write the same digits.
         Expression::NumericLiteral(n) => {
-            let whole = n.value.fract() == 0.0 && n.value.abs() < 1e15;
+            // Up to 2^53 an integer is exact in both languages and JS writes
+            // it in full decimal, which is the same digits Rust writes.
+            let whole = n.value.fract() == 0.0 && n.value.abs() <= 9007199254740992.0;
             whole.then(|| format!("{}", n.value as i64))
         }
         Expression::ParenthesizedExpression(p) => literal_key(&p.expression),
@@ -2457,11 +2476,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.enter_branch();
         self.scopes.watch();
         self.visit_block_statement(&stmt.block);
-        let passed_through = self.scopes.watched();
+        let mut passed_through = self.scopes.watched();
         let block = self.scopes.take_branch();
         let mut arms = vec![block];
         if let Some(handler) = &stmt.handler {
             self.scopes.enter_branch();
+            self.scopes.watch();
             // The throw comes from a point in the block this pass does not know,
             // so the handler reads the state the block started from or ANY state
             // the block wrote on the way: `x = void 0; mayThrow(); x = !0` can
@@ -2469,6 +2489,9 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // handler sees.
             self.scopes.carry_values(&passed_through);
             self.visit_catch_clause(handler);
+            // A handler can throw as well, and then the finalizer runs from
+            // wherever IT had reached.
+            passed_through.extend(self.scopes.watched());
             arms.push(self.scopes.take_branch());
         }
         // With a handler, the code after the statement is reached on either arm.
@@ -2488,9 +2511,20 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.scopes.carry_values(&passed_through);
             self.scopes.watch();
             self.visit_block_statement(finalizer);
+            // What it LEAVES each name at, read at the end of the walk: a write
+            // inside an `if` in there has already joined with the path around
+            // it, and replaying the raw write would put back the unconditional
+            // value that join was there to weaken.
             let wrote = self.scopes.watched();
+            let left: Vec<(usize, String, Value)> = wrote
+                .iter()
+                .filter_map(|(frame, name, _)| {
+                    let value = self.scopes.frames.get(*frame)?.get(name)?.clone();
+                    Some((*frame, name.clone(), value))
+                })
+                .collect();
             self.scopes.take_branch();
-            for (frame, name, value) in wrote {
+            for (frame, name, value) in left {
                 self.scopes.write_frame(frame, &name, value);
             }
         }
@@ -2959,9 +2993,9 @@ impl CallSiteCollector<'_> {
         let Expression::ObjectExpression(object) = expression else {
             return None;
         };
-        let getters = getter_keys(object);
+        let pairs = accessor_pairs(object);
         let mut props = Vec::with_capacity(object.properties.len());
-        for property in &object.properties {
+        for (property, paired) in object.properties.iter().zip(pairs) {
             match property {
                 ObjectPropertyKind::ObjectProperty(p) => {
                     let key = match &p.key {
@@ -2981,7 +3015,6 @@ impl CallSiteCollector<'_> {
                     // and what it leaves is the value stored: `{a: (x = void 0,
                     // x)}` stores the `x` the assignment just cleared.
                     self.visit_expression(&p.value);
-                    let paired = key.as_ref().is_some_and(|key| getters.contains(key));
                     let value = accessor(p, paired).unwrap_or_else(|| self.hold(&p.value));
                     props.push(match key {
                         Some(key) => Prop::Key(key, value),
@@ -3051,13 +3084,12 @@ impl CallSiteCollector<'_> {
             // properties are values the call receives too, and an identifier
             // among them names an object just as the outer one does.
             Expression::ObjectExpression(object) => {
-                let getters = getter_keys(object);
+                let pairs = accessor_pairs(object);
                 let mut props = Vec::with_capacity(object.properties.len());
-                for property in &object.properties {
+                for (property, paired) in object.properties.iter().zip(pairs) {
                     match property {
                         ObjectPropertyKind::ObjectProperty(p) => {
                             let key = static_key(&p.key);
-                            let paired = key.as_ref().is_some_and(|key| getters.contains(key));
                             let value = accessor(p, paired).unwrap_or_else(|| self.hold(&p.value));
                             props.push(match key {
                                 Some(key) => Prop::Key(key, value),
@@ -5301,6 +5333,42 @@ mod tests {
         let caller = r#"function f(){return (function x(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||!0})})()}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_finalizer_leaves_what_its_own_branches_left() {
+        // The write is inside an `if` in the finalizer, so it has already joined
+        // with the path around it: putting the raw write back afterwards would
+        // undo the join that made it conditional.
+        let caller = r#"function f(t){var y;try{t()}finally{if(t){y=!0}}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_handler_is_a_place_a_throw_comes_from_too() {
+        // The handler clears `x` and puts it back; a throw in between runs the
+        // finalizer with the cleared value, and neither end of the handler
+        // shows it.
+        let caller = r#"function f(t){var x=!0;try{t()}catch(e){x=void 0;t();x=!0}finally{o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_data_property_between_the_halves_breaks_the_accessor() {
+        // `{get a(){…}, a: !0, set a(v){…}}` ends at a setter alone, because the
+        // data property replaced the accessor the getter started - so the key
+        // reads as `undefined` rather than through a getter.
+        let broken = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},a:!0,set a(v){}})}"#;
+        let (tree, _) = presence_of(broken, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // Written as the two halves of one accessor, it still serializes
+        // through the getter.
+        let whole = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},set a(v){}})}"#;
+        let (tree, _) = presence_of(whole, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
     }
 
     #[test]
