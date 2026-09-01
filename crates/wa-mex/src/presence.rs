@@ -1771,7 +1771,7 @@ fn callee_receiver<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b str> {
 }
 
 fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>)> {
-    let (mut current, key) = match expr {
+    let (current, key) = match expr {
         Expression::StaticMemberExpression(member) => {
             (&member.object, member.property.name.as_str().to_string())
         }
@@ -1783,12 +1783,19 @@ fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>
         _ => return None,
     };
     let mut path = vec![key];
+    let base = base_of(current, &mut path)?;
+    path.reverse();
+    Some((base, path))
+}
+
+/// Walk up a member chain, pushing each key it reads through, to the name the
+/// whole path starts from. The keys come out innermost first, which is why the
+/// callers reverse them.
+fn base_of<'b, 'a>(expr: &'b Expression<'a>, path: &mut Vec<String>) -> Option<&'b str> {
+    let mut current = expr;
     loop {
         match current {
-            Expression::Identifier(id) => {
-                path.reverse();
-                return Some((id.name.as_str(), path));
-            }
+            Expression::Identifier(id) => return Some(id.name.as_str()),
             Expression::StaticMemberExpression(m) => {
                 path.push(m.property.name.as_str().to_string());
                 current = &m.object;
@@ -2152,7 +2159,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // that name is the function - a key holding one is dropped by
         // `JSON.stringify`, so an outer `x` must not answer for it.
         if let Some(id) = &func.id {
-            self.scopes.bind(id.name.as_str(), Value::MaybeUndefined);
+            // The name IS the function throughout the body: truthy, non-nullish,
+            // and a value `JSON.stringify` drops - which is what `Dropped` says,
+            // and what makes `x || !0` the function rather than the fallback.
+            self.scopes.bind(id.name.as_str(), Value::Dropped);
         }
         let invoked = std::mem::take(&mut self.invoked);
         self.bind_params(&func.params);
@@ -2413,22 +2423,24 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `break` ends that case is not read here, and carrying its exit is the
         // half that cannot claim a key the client may omit.
         let mut falls_through: Vec<ArmExit> = Vec::new();
-        // Every test up to the matching case is evaluated before any body runs,
-        // and which case matches is not read here: each test's own writes join
-        // with the state around them, and the bodies start from that.
         for case in &stmt.cases {
+            has_default |= case.test.is_none();
+            // A case's test is evaluated before its body and after the tests of
+            // the cases above it, and only up to the one that matches: walking
+            // it here rather than in a prepass keeps a later test out of an
+            // earlier body. Which case matches is not read, so each test's own
+            // writes join with the state around them.
             if let Some(test) = &case.test {
                 self.in_branch(|v| v.visit_expression(test));
             }
-        }
-        for case in &stmt.cases {
-            has_default |= case.test.is_none();
             self.scopes.enter_branch();
             self.scopes.carry(&falls_through);
-            // The test was walked above, in the order the switch evaluates it.
             self.visit_statements(&case.consequent);
             let exits = self.scopes.take_branch();
-            falls_through = match case.consequent.last().is_some_and(always_leaves) {
+            // Whether the case LEFT, not what its last line is: the walk stops
+            // at the first abrupt statement, and anything written after one is
+            // text rather than code.
+            falls_through = match case.consequent.iter().any(always_leaves) {
                 true => Vec::new(),
                 false => exits.clone(),
             };
@@ -2626,11 +2638,49 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `x++` leaves a number behind - `NaN` when it was not one, which
         // `JSON.stringify` writes as `null` with the key still there. Either way
         // the binding is no longer whatever it was.
-        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = &expr.argument
-        {
-            self.scopes.detach_aliases(id.name.as_str());
-            self.scopes
-                .bind_assignment(id.name.as_str(), Value::Defined);
+        match &expr.argument {
+            oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => {
+                self.scopes.detach_aliases(id.name.as_str());
+                self.scopes
+                    .bind_assignment(id.name.as_str(), Value::Defined);
+            }
+            // `v.a++` writes a number into the key, `NaN` included, and the key
+            // is on the wire either way. Where the key cannot be named, the
+            // object stops being evidence rather than keeping a value the
+            // increment replaced.
+            other => {
+                if let Some(member) = other.as_member_expression() {
+                    let mut path = Vec::new();
+                    let named = member.static_property_name().and_then(|key| {
+                        path.push(key.to_string());
+                        base_of(member.object(), &mut path).map(|base| base.to_string())
+                    });
+                    match named {
+                        Some(base) => {
+                            path.reverse();
+                            let owner = self.scopes.alias_target(&base, 0);
+                            let updated = self
+                                .scopes
+                                .lookup(&owner)
+                                .cloned()
+                                .and_then(|current| {
+                                    write_key(&current, &path, Value::Defined, &self.scopes, 0)
+                                })
+                                .unwrap_or(Value::Unjudged);
+                            self.scopes.bind_assignment(&owner, updated);
+                        }
+                        // A key this pass cannot name is one it cannot follow:
+                        // the object stops being evidence rather than keeping
+                        // the value the increment replaced.
+                        None => {
+                            if let Some(base) = member_base(member.object()) {
+                                let owner = self.scopes.alias_target(base, 0);
+                                self.scopes.bind_assignment(&owner, Value::Unjudged);
+                            }
+                        }
+                    }
+                }
+            }
         }
         walk::walk_update_expression(self, expr);
     }
@@ -5207,6 +5257,50 @@ mod tests {
         let (tree, diag) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
         assert_eq!(diag.unreadable_call_arguments, 0);
+    }
+
+    #[test]
+    fn a_case_that_left_is_not_one_the_next_falls_into() {
+        // The `break` ends the case; the line after it is text rather than
+        // code, and reading the case by its last line called that a
+        // fallthrough.
+        let caller = r#"function f(t){var x=!0;switch(t){case 0:x=void 0;break;t();case 1:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_test_below_the_matching_case_never_runs() {
+        // `switch (0)` matches the first case and stops looking, so the write
+        // inside the second case's test is one no execution makes before the
+        // call in the first.
+        let caller = r#"function f(){var x=!0;switch(0){case 0:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});break;case (x=void 0,1):break}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_update_through_a_key_writes_that_key() {
+        // `v.a++` leaves a number - `NaN` here - and `JSON.stringify` writes it
+        // as `null` with the key still there.
+        let named = r#"function f(){var v={a:void 0};v.a++;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(named, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // Through a key this pass cannot name, the object stops being evidence
+        // rather than keeping the value the increment replaced.
+        let computed = r#"function f(t){var v={a:!0};v[t]++;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(computed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_named_function_expression_is_its_own_name() {
+        // Inside the body the name IS the function: truthy, so `x || !0` is the
+        // function, and a key holding one is a key `JSON.stringify` drops.
+        let caller = r#"function f(){return (function x(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||!0})})()}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
