@@ -103,6 +103,13 @@ enum Value {
     /// (a data property that a write DOES change) and `Dropped` (a function,
     /// which a write replaces with a number).
     WriteOnly,
+    /// An accessor with a getter: reading it runs a body this pass does not
+    /// read, so the value is unjudged, and two things follow that a bare
+    /// [`Value::Unjudged`] does not carry. A write leaves the accessor standing
+    /// rather than replacing it, and `JSON.stringify` runs the getter WHILE it
+    /// serializes, so a body that touches the object reaches the keys still to
+    /// be written.
+    Getter,
     /// `null`, which is a key on the wire (`JSON.stringify` writes it) and is
     /// still what `??` gives way on. Held apart from [`Value::Defined`] for that
     /// second reason: `x ?? y` with a `null` `x` IS `y`.
@@ -824,14 +831,14 @@ fn collect_rest_names(pattern: &oxc_ast::ast::BindingPattern, out: &mut Vec<Stri
 /// and a set-only property reads as `undefined`, which is no key at all.
 fn accessor(property: &oxc_ast::ast::ObjectProperty, paired: bool) -> Option<Value> {
     match property.kind {
-        oxc_ast::ast::PropertyKind::Get => Some(Value::Unjudged),
+        oxc_ast::ast::PropertyKind::Get => Some(Value::Getter),
         // A setter beside a getter of the same name is one accessor with both
         // halves, and `JSON.stringify` reads the getter half. A set-ONLY
         // property reads as `undefined` and is no key on the wire - and it
         // stays that way through a write, which is what `Dropped` says and a
         // bare `undefined` does not.
         oxc_ast::ast::PropertyKind::Set => match paired {
-            true => Some(Value::Unjudged),
+            true => Some(Value::Getter),
             false => Some(Value::WriteOnly),
         },
         oxc_ast::ast::PropertyKind::Init => None,
@@ -933,13 +940,23 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
             Definedness::Defined
         }
         Value::MaybeUndefined | Value::Dropped | Value::WriteOnly => Definedness::MaybeUndefined,
-        Value::Unjudged | Value::Call(_) => Definedness::Unjudged,
+        Value::Unjudged | Value::Call(_) | Value::Getter => Definedness::Unjudged,
         // `a || b` is `b` only when `a` is falsy. A left side this pass knows to
         // be truthy is therefore the value, an object, an array and a function
         // included - and a function is the one whose key `JSON.stringify` drops.
         Value::OrElse(lhs, rhs) => match scopes.resolve(lhs, 0) {
             Value::Truthy | Value::Object(_) | Value::Array(_) => definedness(lhs, scopes, next),
             Value::Dropped => Definedness::MaybeUndefined,
+            // A left side that is one of two things is asked one arm at a time:
+            // `(t ? function(){} : !1) || !0` yields the function on the path
+            // where `t` holds, and a key holding a function is no key at all.
+            Value::Either(a, b) => {
+                definedness(&Value::OrElse(a.clone(), rhs.clone()), scopes, next).max(definedness(
+                    &Value::OrElse(b.clone(), rhs.clone()),
+                    scopes,
+                    next,
+                ))
+            }
             _ => definedness(rhs, scopes, next),
         },
         // `a ?? b` asks the other question: `0 ?? b` is `0`, which `a || b`
@@ -950,6 +967,11 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
                 definedness(lhs, scopes, next)
             }
             Value::Dropped => Definedness::MaybeUndefined,
+            Value::Either(a, b) => {
+                definedness(&Value::Coalesce(a.clone(), rhs.clone()), scopes, next).max(
+                    definedness(&Value::Coalesce(b.clone(), rhs.clone()), scopes, next),
+                )
+            }
             _ => definedness(rhs, scopes, next),
         },
         // `a && b` is `b` whenever `a` is truthy, and a function always is.
@@ -987,6 +1009,13 @@ fn classify_object_reporting(
 ) -> (SiteTree, Vec<Opaque>) {
     let mut opaque: Vec<Opaque> = Vec::new();
     let mut out: SiteTree = BTreeMap::new();
+    // Whether a getter above the key being read runs while the object is
+    // serialized, so what it leaves for the keys below it is not this literal's
+    // to say. Only a getter that is still the property at the end of the
+    // literal: `{get a(){…}, a: !0}` is a data property by the time anything is
+    // serialized, and the body written above it never runs.
+    let mut serializing_runs_code = false;
+    let standing_getters = standing_getters(props);
     // A spread whose source resolves back through itself (`var e = {...e}`)
     // would otherwise descend forever, and an extractor that aborts publishes
     // nothing at all.
@@ -994,7 +1023,7 @@ fn classify_object_reporting(
         diag.unreadable_spreads += 1;
         return (out, vec![Opaque::here()]);
     }
-    for prop in props {
+    for (index, prop) in props.iter().enumerate() {
         match prop {
             Prop::Unreadable => {
                 // A computed key names something this pass cannot read, and that
@@ -1018,17 +1047,34 @@ fn classify_object_reporting(
                     withdraw(node);
                 }
             }
+            // `JSON.stringify` runs a getter while it serializes, and the body
+            // it runs is one this pass does not read: `{get b(){delete this.a;
+            // return !0}, a: !0}` writes `b` and then has no `a` left to write.
+            // Only the keys after it are at risk - the ones before it are on the
+            // wire already - and the getter may add keys as easily as take them
+            // away, which is what the opaque path says.
+            Prop::Key(key, Value::Getter) => {
+                serializing_runs_code |= standing_getters.contains(&index);
+                opaque.push(Opaque::here());
+                out.insert(
+                    key.clone(),
+                    VariablePresenceNode::leaf(VariablePresence::Undetermined),
+                );
+            }
             Prop::Key(key, value) => {
                 // Replaces rather than merges: within one literal the last write
                 // to a key IS the value, so `{...base, a: !0}` is `a: !0` however
                 // `base` wrote it. Merging here would publish a key the client
                 // always sends as omissible, which is the defect this whole
                 // dimension exists to remove, only pointing the other way.
-                let (node, nested) =
+                let (mut node, nested) =
                     classify_value_reporting(value, scopes, diag, depth, VariablePresence::Always);
                 for mut nested in nested {
                     nested.path.insert(0, Step::Field(key.clone()));
                     opaque.push(nested);
+                }
+                if serializing_runs_code {
+                    withdraw(&mut node);
                 }
                 out.insert(key.clone(), node);
             }
@@ -1131,6 +1177,31 @@ enum Step {
 fn withdraw(node: &mut VariablePresenceNode) {
     node.presence = node.presence.weaker(VariablePresence::Undetermined);
     withdraw_children(node);
+}
+
+/// The properties that are still accessors with a getter once the literal is
+/// built, by position. A later write to the same key replaces the accessor, so
+/// the body written at this position is one nothing ever runs.
+fn standing_getters(props: &[Prop]) -> Vec<usize> {
+    let mut standing: HashMap<&str, usize> = HashMap::new();
+    let mut getters = Vec::new();
+    for (index, prop) in props.iter().enumerate() {
+        // A spread writes keys over what stands, and where its keys cannot be
+        // read it may write any of them: either way what it covers is no longer
+        // the accessor written above it.
+        let Prop::Key(key, value) = prop else {
+            standing.clear();
+            continue;
+        };
+        standing.insert(key.as_str(), index);
+        if matches!(value, Value::Getter) {
+            getters.push(index);
+        }
+    }
+    getters
+        .into_iter()
+        .filter(|index| standing.values().any(|last| last == index))
+        .collect()
 }
 
 /// Withdraw everything under a node without touching the node's own verdict.
@@ -2799,7 +2870,16 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             let owner = self.scopes.alias_target(base, 0);
             let updated = static_path(&n.left).and_then(|path| {
                 let current = self.scopes.lookup(&owner)?.clone();
-                write_key(&current, &path, assignment_value(n, 0), &self.scopes, 0)
+                // An accessor is not replaced by a write to it: `v.a = !0` on a
+                // `set a(x){…}` runs the setter, and reading the key back still
+                // goes through the getter, or through nothing at all when there
+                // is none. Only a data property takes the value written.
+                let written = match key_value(&current, &path, &self.scopes, 0) {
+                    Some(Value::Getter) => Value::Getter,
+                    Some(Value::WriteOnly) => Value::WriteOnly,
+                    _ => assignment_value(n, 0),
+                };
+                write_key(&current, &path, written, &self.scopes, 0)
             });
             self.scopes
                 .bind_assignment(&owner, updated.unwrap_or(Value::Unjudged));
@@ -2846,6 +2926,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                             // the increment leaves `NaN` in it, which is a key.
                             let written = match read {
                                 Some(Value::Unjudged) => Value::Unjudged,
+                                Some(Value::Getter) => Value::Getter,
                                 Some(Value::WriteOnly) => Value::WriteOnly,
                                 _ => Value::Defined,
                             };
@@ -3233,6 +3314,23 @@ impl CallSiteCollector<'_> {
                 self.scopes.bind(&held, Value::Ref(owner));
                 Value::Ref(held)
             }
+            // A list nested inside the one being snapshotted stores whatever
+            // its elements name, references and all: `{items: [v]}` and a later
+            // `delete v.a` take the key off `items[0]` too.
+            Expression::ArrayExpression(array) => Value::Array(
+                array
+                    .elements
+                    .iter()
+                    .map(|element| match element {
+                        ArrayExpressionElement::SpreadElement(_) => Value::Unjudged,
+                        ArrayExpressionElement::Elision(_) => Value::MaybeUndefined,
+                        other => match other.as_expression() {
+                            Some(expression) => self.hold(expression),
+                            None => Value::Unjudged,
+                        },
+                    })
+                    .collect(),
+            ),
             // A literal nested inside the one being snapshotted: its own
             // properties are values the call receives too, and an identifier
             // among them names an object just as the outer one does.
@@ -3264,7 +3362,7 @@ impl CallSiteCollector<'_> {
         }
     }
 
-    /// Bind a function's parameters, so a name the caller passes in resolves to a    /// Bind a function's parameters, so a name the caller passes in resolves to a
+    /// Bind a function's parameters, so a name the caller passes in resolves to a
     /// passthrough rather than to whatever the enclosing module bound it to.
     ///
     /// The minifier reuses one letter for both - `WAWebMexFetchNewsletterAdminInfoJob`
@@ -5648,6 +5746,69 @@ mod tests {
         // not called here: the outer body runs straight past it to the write.
         let caller = r#"function f(){var x;(async function(){var g=async function(){await q()};x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
         let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_list_stores_the_object_a_name_holds() {
+        // `{items: [v]}` puts the object itself in the list, not a copy of it,
+        // so a later `delete v.a` takes the key off `items[0]` before the
+        // request is built.
+        let caller = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{items:[v]},delete v.a)}"#;
+        let (tree, _) = presence_of(caller, &["items"]);
+        let item = tree["items"].items.as_ref().expect("list element node");
+        assert_eq!(item.fields["a"].presence, VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_fallback_answers_each_arm_of_its_left_side() {
+        // `(t ? function(){} : !1) || !0` is the function when `t` holds, and a
+        // key holding a function is one `JSON.stringify` leaves out. Reading
+        // only the right operand called it unconditional.
+        let caller = r#"function f(){var x=t?function(){}:!1;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // `??` asks the other question and reaches the same place: the `null`
+        // arm gives way to the fallback, the defined one does not.
+        let coalesced = r#"function f(){var x=t?null:function(){};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x??!0})}"#;
+        let (tree, _) = presence_of(coalesced, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_getter_is_read_while_the_keys_below_it_are_written() {
+        // `JSON.stringify` runs the getter as it serializes, and that body is
+        // not one this pass reads: it may take `a` off the object before the
+        // writing reaches it.
+        let caller = r#"function f(){var v={get b(){delete this.a;return!0},a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(at(&tree, "b"), VariablePresence::Undetermined);
+
+        // Above the getter is another matter: those keys are on the wire by the
+        // time its body runs.
+        let above = r#"function f(){var v={a:!0,get b(){return!0}};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(above, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_write_to_an_accessor_leaves_it_an_accessor() {
+        // `v.a = !0` on a `set a(x){…}` runs the setter and installs nothing:
+        // the property still reads as `undefined`, so there is no key. Same for
+        // a getter, whose body answers the read however the setter was called.
+        for caller in [
+            r#"function f(){var v={set a(x){}};v.a=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={get a(){return q()},set a(x){}};v.a=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_ne!(at(&tree, "a"), VariablePresence::Always);
+        }
+
+        // A data property is replaced by the write, as it always was.
+        let data = r#"function f(){var v={a:q()};v.a=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(data, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
