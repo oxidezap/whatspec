@@ -175,6 +175,7 @@ struct BranchWrite {
 
 /// What one arm of an `if` left a name at, beside what it held before the
 /// statement.
+#[derive(Clone)]
 struct ArmExit {
     frame: usize,
     name: String,
@@ -251,6 +252,12 @@ impl Scopes {
         let Some(index) = index else {
             return;
         };
+        self.write_frame(index, name, value);
+    }
+
+    /// Write a name in a frame that is already known, logging what it held when
+    /// the branch being walked began.
+    fn write_frame(&mut self, index: usize, name: &str, value: Value) {
         if let Some(log) = self.branches.last()
             && !log.iter().any(|w| w.frame == index && w.name == name)
         {
@@ -273,6 +280,62 @@ impl Scopes {
                 .push(write);
         }
         self.frames[index].insert(name.to_string(), value);
+    }
+
+    /// Enter an arm that an earlier one can also reach: a `switch` case the
+    /// case above it falls into, or a `catch` the block jumps into after some
+    /// of its writes. Both the value from before the statement and the one that
+    /// earlier arm left reach the code here, which is what `Either` says
+    /// everywhere else in this pass.
+    fn carry(&mut self, exits: &[ArmExit]) {
+        for exit in exits {
+            let Some(after) = exit.after.clone() else {
+                continue;
+            };
+            if exit.frame >= self.frames.len() {
+                continue;
+            }
+            let here = self.frames[exit.frame]
+                .get(&exit.name)
+                .or_else(|| self.frame_hoisted[exit.frame].get(&exit.name))
+                .cloned();
+            let value = match here {
+                Some(before) => Value::Either(Box::new(before), Box::new(after)),
+                None => after,
+            };
+            self.write_frame(exit.frame, &exit.name, value);
+        }
+    }
+
+    /// `var w = v` makes `w` another way of saying `v`, and it stays one only
+    /// while `v` names the same object: `v = {…}` afterwards leaves `w` holding
+    /// what it was handed. Following the name instead gave `w` an object it
+    /// never saw. A write THROUGH an alias (`w.a = …`) is the opposite case and
+    /// keeps the link, which is why this is not part of `bind_assignment`.
+    fn detach_aliases(&mut self, name: &str) {
+        let current = self.lookup(name).cloned().unwrap_or(Value::MaybeUndefined);
+        let aliases: Vec<(usize, String)> = self
+            .frames
+            .iter()
+            .enumerate()
+            .flat_map(|(index, frame)| {
+                frame.iter().filter_map(move |(alias, value)| match value {
+                    Value::Ref(target) if target == name => Some((index, alias.clone())),
+                    _ => None,
+                })
+            })
+            .collect();
+        for (frame, alias) in aliases {
+            self.write_frame(frame, &alias, current.clone());
+        }
+    }
+
+    /// Whether a frame binds the name itself, rather than inheriting it from an
+    /// enclosing one.
+    fn binds_here(&self, index: usize, name: &str) -> bool {
+        self.frames
+            .get(index)
+            .is_some_and(|frame| frame.contains_key(name))
     }
 
     /// Start a branch: writes inside it are what the code inside it reads.
@@ -1361,6 +1424,34 @@ fn is_nullish_literal(expr: &Expression) -> bool {
 /// The binding a member expression reads through and the static path from it:
 /// `v.order.jid` gives `("v", ["order", "jid"])`. `None` for a computed key or
 /// anything but a plain binding at the root.
+/// Whether an expression is reached through an optional link, so the call it is
+/// the callee of may never happen: `t?.m(…)` runs nothing when `t` is nullish.
+fn optional_link(expr: &Expression) -> bool {
+    match expr {
+        Expression::StaticMemberExpression(m) => m.optional || optional_link(&m.object),
+        Expression::ComputedMemberExpression(m) => m.optional || optional_link(&m.object),
+        Expression::PrivateFieldExpression(m) => m.optional || optional_link(&m.object),
+        Expression::ParenthesizedExpression(p) => optional_link(&p.expression),
+        Expression::ChainExpression(_) => true,
+        _ => false,
+    }
+}
+
+/// The name a method is called on, when it is a plain identifier: the receiver
+/// of `v.clear()`.
+fn callee_receiver<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b str> {
+    let object = match callee {
+        Expression::StaticMemberExpression(m) => &m.object,
+        Expression::ComputedMemberExpression(m) => &m.object,
+        Expression::ParenthesizedExpression(p) => return callee_receiver(&p.expression),
+        _ => return None,
+    };
+    match object {
+        Expression::Identifier(id) => Some(id.name.as_str()),
+        _ => None,
+    }
+}
+
 fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>)> {
     let Expression::StaticMemberExpression(member) = expr else {
         return None;
@@ -1714,6 +1805,16 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.pop();
     }
 
+    /// A default runs only when the argument is missing, so what it writes is
+    /// not something the body can count on: `function f(t = (z = !0))` leaves
+    /// `z` undefined on every call that passes `t`.
+    fn visit_formal_parameter(&mut self, param: &oxc_ast::ast::FormalParameter<'a>) {
+        self.visit_binding_pattern(&param.pattern);
+        if let Some(initializer) = &param.initializer {
+            self.in_branch(|v| v.visit_expression(initializer));
+        }
+    }
+
     fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
         // `catch (x)` binds `x` for the handler only, and the thrown value is
         // whatever was thrown - nothing this pass can judge. Without the frame
@@ -1865,25 +1966,37 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.visit_expression(&stmt.discriminant);
         let mut arms = Vec::with_capacity(stmt.cases.len());
         let mut has_default = false;
+        // A case the one above it falls into is entered from two places: the
+        // discriminant matching it, and the case above running first. Whether a
+        // `break` ends that case is not read here, and carrying its exit is the
+        // half that cannot claim a key the client may omit.
+        let mut falls_through: Vec<ArmExit> = Vec::new();
         for case in &stmt.cases {
             has_default |= case.test.is_none();
             self.scopes.enter_branch();
+            self.scopes.carry(&falls_through);
             self.visit_switch_case(case);
-            arms.push(self.scopes.take_branch());
+            let exits = self.scopes.take_branch();
+            falls_through = exits.clone();
+            arms.push(exits);
         }
         self.scopes.join_all_arms(arms, has_default);
     }
 
     /// The handler runs from wherever the block threw, which is any point in
-    /// it, so it reads the state the `try` started from rather than the one the
-    /// block would have finished with.
+    /// it, so it reads the state the `try` started from or any the block had
+    /// reached by then - never only the one the block would have finished with.
     fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
         self.scopes.enter_branch();
         self.visit_block_statement(&stmt.block);
         let block = self.scopes.take_branch();
-        let mut arms = vec![block];
+        let mut arms = vec![block.clone()];
         if let Some(handler) = &stmt.handler {
             self.scopes.enter_branch();
+            // The throw comes from a point in the block this pass does not know,
+            // so the handler reads the state the block started from OR anything
+            // it had already written when it threw.
+            self.scopes.carry(&block);
             self.visit_catch_clause(handler);
             arms.push(self.scopes.take_branch());
         }
@@ -1940,6 +2053,20 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // `x` held, and following the name afterwards would hand `y` a value
             // it never had. An object keeps its reference, because a write
             // through either name reaches the one object.
+            // `var x;` after `var x = !0` is not a write: JS redeclares the
+            // name and leaves the value alone. Only when the frame this
+            // declaration lands in binds the name already - the hoisted
+            // `undefined` is not a value anything wrote.
+            let frame = if function_scoped {
+                self.scopes.function_frame()
+            } else {
+                self.scopes.frames.len().checked_sub(1)
+            };
+            if d.init.is_none()
+                && frame.is_some_and(|frame| self.scopes.binds_here(frame, name.as_str()))
+            {
+                return;
+            }
             let value = match d.init.as_ref() {
                 Some(init) => {
                     let value = convert(init, 0);
@@ -1962,10 +2089,21 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // The right side runs first: `x = fetchQuery(op, {a: x})` sends the `x`
         // from before the assignment, so the call inside it has to be read
         // against that binding rather than against the one this write installs.
-        walk::walk_assignment_expression(self, n);
+        //
+        // `x ||= v` is the exception: the right side runs only when the left is
+        // falsy, so a write inside it is one the path around it does not make.
+        if n.operator.is_logical() {
+            self.visit_assignment_target(&n.left);
+            self.in_branch(|v| v.visit_expression(&n.right));
+        } else {
+            walk::walk_assignment_expression(self, n);
+        }
         // The memoised require is written `e !== void 0 ? e : e = n("X.graphql")`,
         // so the binding for the operation handle exists only as an assignment.
         if let Some(name) = wa_oxc::assignment_target_name(&n.left) {
+            // The name now says something else, so any alias holding it keeps
+            // what it was given rather than following the name here.
+            self.scopes.detach_aliases(name);
             // Not the right side: `x &&= v` leaves `x` alone when it is falsy,
             // so the binding afterwards is what the whole expression yields.
             self.scopes.bind_assignment(name, assignment_value(n, 0));
@@ -1974,6 +2112,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // and leaving it bound to what it held before publishes that older
             // value for a name the statement has replaced.
             for name in idents {
+                self.scopes.detach_aliases(&name);
                 self.scopes.bind_assignment(&name, Value::MaybeUndefined);
             }
         } else if let Some(base) = member_assignment_base(&n.left) {
@@ -2002,6 +2141,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // the binding is no longer whatever it was.
         if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = &expr.argument
         {
+            self.scopes.detach_aliases(id.name.as_str());
             self.scopes
                 .bind_assignment(id.name.as_str(), Value::Defined);
         }
@@ -2030,14 +2170,38 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // `t?.(x = !0)` and `t?.m(x = !0)` evaluate nothing when `t` is nullish,
+        // so everything the call does - its arguments' writes, and the call
+        // itself - belongs to a branch.
+        if call.optional || optional_link(&call.callee) {
+            self.in_branch(|v| v.read_call(call));
+        } else {
+            self.read_call(call);
+        }
+    }
+}
+
+impl CallSiteCollector<'_> {
+    /// The body of [`Visit::visit_call_expression`], split out so an optional
+    /// call can run all of it inside a branch.
+    fn read_call<'a>(&mut self, call: &CallExpression<'a>)
+    where
+        Self: Visit<'a>,
+    {
         // In evaluation order: the callee, then the handle, then the variables
         // object - which is read where it is built, because an argument after it
         // can write a binding it captured. `fetchQuery(op, {a: x}, x = !0)`
         // builds `{a: undefined}` first.
         self.visit_expression(&call.callee);
-        if let Some(handle) = call.arguments.first() {
-            self.visit_argument(handle);
+        // Read where it is passed: the variables object built after it can
+        // rebind the name the handle came from, and the call still sends what
+        // that name held here.
+        let mut handle = None;
+        if let Some(argument) = call.arguments.first() {
+            self.visit_argument(argument);
+            handle = argument.as_expression().map(|e| self.settled(e));
         }
+        let handle = handle.as_ref();
         // The variables object is built property by property, and a later one
         // can write a binding an earlier one read: `{a: x, b: (x = !0, !0)}`
         // stores `undefined` in `a`. So each value is taken where it is written,
@@ -2052,7 +2216,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         {
             self.visit_argument(second);
         }
-        if !self.is_operation_call(call) && self.is_ambiguous_call(call) {
+        if !self.is_operation_call(call, handle) && self.is_ambiguous_call(call, handle) {
             // A Relay call in a module that sends several operations, whose
             // handle names no module at all. It may be this operation's, and
             // dropping it silently would let another caller's site decide a key
@@ -2063,7 +2227,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             }
             self.unreadable_sites += 1;
         }
-        if self.is_operation_call(call) {
+        if self.is_operation_call(call, handle) {
             let vars = call.arguments.get(1).and_then(Argument::as_expression);
             if let Some(expression) = vars {
                 self.variable_arguments.push(expression.span().start);
@@ -2113,15 +2277,27 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 let Expression::Identifier(id) = argument else {
                     continue;
                 };
-                let owner = self.scopes.alias_target(id.name.as_str(), 0);
-                let carries_keys = matches!(
-                    self.scopes.resolve(&Value::Ref(owner.clone()), 0),
-                    Value::Object(_) | Value::Array(_)
-                );
-                if carries_keys {
-                    self.scopes.bind_assignment(&owner, Value::Unjudged);
-                }
+                self.stops_being_evidence(id.name.as_str());
             }
+            // `v.clear()` reaches the same object `clear(v)` does: the receiver
+            // is handed to a body this pass does not read, exactly like an
+            // argument.
+            if let Some(receiver) = callee_receiver(&call.callee) {
+                self.stops_being_evidence(receiver);
+            }
+        }
+    }
+
+    /// A recovered object handed somewhere this pass does not read stops
+    /// answering for the keys it carries.
+    fn stops_being_evidence(&mut self, name: &str) {
+        let owner = self.scopes.alias_target(name, 0);
+        let carries_keys = matches!(
+            self.scopes.resolve(&Value::Ref(owner.clone()), 0),
+            Value::Object(_) | Value::Array(_)
+        );
+        if carries_keys {
+            self.scopes.bind_assignment(&owner, Value::Unjudged);
         }
     }
 }
@@ -2172,6 +2348,14 @@ impl CallSiteCollector<'_> {
                         PropertyKey::StringLiteral(lit) => Some(lit.value.as_str().to_string()),
                         _ => None,
                     };
+                    // A computed key is an expression of its own, and it runs
+                    // before the value beside it: `{[(x = void 0, "z")]: 1, a:
+                    // x}` clears `x` before `a` reads it.
+                    if p.computed
+                        && let Some(key) = p.key.as_expression()
+                    {
+                        self.visit_expression(key);
+                    }
                     // The property's own expression runs first, writes and all,
                     // and what it leaves is the value stored: `{a: (x = void 0,
                     // x)}` stores the `x` the assignment just cleared.
@@ -2244,40 +2428,39 @@ impl CallSiteCollector<'_> {
     /// Whether this call sends *this* operation: its handle argument resolves to
     /// a `require("<module>")`, or the caller has only one operation to send and
     /// so cannot be sending another.
-    fn is_operation_call(&self, call: &CallExpression) -> bool {
+    fn is_operation_call(&self, call: &CallExpression, handle: Option<&Value>) -> bool {
         let Some(method) = wa_oxc::callee_method(call) else {
             return false;
         };
         if !FETCH_METHODS.contains(&method) {
             return false;
         }
-        let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+        let Some(handle) = handle else {
             return false;
         };
-        references_module(&convert(first, 0), &self.module, &self.scopes, 0) || self.sole_operation
+        references_module(handle, &self.module, &self.scopes, 0) || self.sole_operation
     }
 
     /// A Relay call in a module that sends more than one operation whose handle
     /// this pass could not tie to any module: it may or may not be ours.
-    fn is_ambiguous_call(&self, call: &CallExpression) -> bool {
+    fn is_ambiguous_call(&self, call: &CallExpression, handle: Option<&Value>) -> bool {
         let Some(method) = wa_oxc::callee_method(call) else {
             return false;
         };
         if !FETCH_METHODS.contains(&method) || self.sole_operation {
             return false;
         }
-        let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+        let Some(handle) = handle else {
             return false;
         };
-        let handle = convert(first, 0);
         // Either the handle is not read whole, or one of the branches it CAN
         // take is this operation while another is not: `cond ? n("Ours") :
         // n("Other")` names a module on both sides and is still a call this
         // operation may be making. Neither case is knowledge about which keys
         // this operation sends, and `is_operation_call` has already said the
         // handle is not certainly ours.
-        !every_branch_names_a_module(&handle, &self.scopes, 0)
-            || may_reference_module(&handle, &self.module, &self.scopes, 0)
+        !every_branch_names_a_module(handle, &self.scopes, 0)
+            || may_reference_module(handle, &self.module, &self.scopes, 0)
     }
 
     /// The variables object of a matched call, if the argument is one or resolves
@@ -3845,6 +4028,104 @@ mod tests {
         // statement is about to install.
         let caller = r#"function f(){var x=(o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x}),!0);return x}"#;
         let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_case_the_one_above_falls_into_reads_what_it_wrote() {
+        // No `break`, so `case 1` runs after `case 0` as well as instead of it,
+        // and on that path the write above it has happened.
+        let caller = r#"function f(t){var x=!0;switch(t){case 0:x=void 0;case 1:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_handler_also_reads_what_the_block_wrote_before_it_threw() {
+        // The throw is after the write here, so the handler sees the cleared
+        // value on that path and the original on every earlier one.
+        let caller = r#"function f(t){var x=!0;try{x=void 0;t()}catch(e){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_alias_keeps_the_object_it_was_given() {
+        // `w` was handed the empty object; `v = {a: !0}` afterwards is a new
+        // object `w` never saw, and reading `w` as `v` published a key the call
+        // does not send.
+        let caller = r#"function f(){var v={},w=v;v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),w)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_method_called_on_a_recovered_object_stops_it_being_evidence() {
+        // `v.clear()` is a body this pass does not read, handed the same object
+        // `clear(v)` would be.
+        let caller = r#"function f(){var v={a:!0};v.clear();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_redeclaration_without_an_initializer_writes_nothing() {
+        // `var x;` after `var x = !0` declares a name that is already there and
+        // leaves its value alone - it does not reset it to `undefined`.
+        let caller = r#"function f(){var x=!0;var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_computed_key_runs_before_the_value_beside_it() {
+        // The key expression clears `x`, and the property after it reads what
+        // the key left.
+        let caller = r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{[(x=void 0,"z")]:!0,a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn the_right_side_of_a_logical_assignment_runs_only_sometimes() {
+        // `x ||= (y = !0)` leaves `y` undefined whenever `x` is truthy.
+        let caller = r#"function f(){var x=!0,y;x||=(y=!0);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_parameter_default_runs_only_when_the_argument_is_missing() {
+        // Every call that passes `t` skips the default, and with it the write
+        // the default makes.
+        let caller = r#"function f(t=(z=!0)){var z;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:z})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_optional_call_may_not_run_its_arguments() {
+        // `t?.(x = !0)` evaluates nothing at all when `t` is nullish.
+        let caller = r#"function f(t){var x;t?.(x=!0);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn the_handle_is_read_where_it_is_passed() {
+        // The first call is handed this operation and its variables object
+        // rebinds `h` on the way; the call still sent ours, and the key it
+        // leaves off the wire is this operation's evidence.
+        let caller = r#"function f(t){var h=n("WAWebFooQuery.graphql");o("C").fetchQuery(h,{a:(h=n("WAWebOtherQuery.graphql"),void 0)});h=n("WAWebFooQuery.graphql");return o("C").fetchQuery(h,{a:!0})}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let tree = variables_presence(
+            &[(caller, false)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
