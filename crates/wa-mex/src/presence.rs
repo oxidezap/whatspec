@@ -1474,9 +1474,17 @@ fn classify_value_reporting(
             // spread and an unreadable ternary arm.
             let mut unreadable_element = false;
             for element in items {
-                let Value::Object(props) = scopes.resolve(element, 0) else {
-                    unreadable_element = true;
-                    continue;
+                let props = match scopes.resolve(element, 0) {
+                    Value::Object(props) => props,
+                    // `null` is an element this pass CAN read: it carries none
+                    // of the item's keys, which is a key the client omits and
+                    // not a key nothing is known about. Collapsing the two
+                    // would lose the distinction the third state is for.
+                    Value::Null => &Vec::new(),
+                    _ => {
+                        unreadable_element = true;
+                        continue;
+                    }
                 };
                 let (here, nested) = classify_object_reporting(props, scopes, diag, depth + 1);
                 // An element's own unknowns belong to the element node, which is
@@ -2578,6 +2586,33 @@ fn write_key(
 
 /// What an assignment expression evaluates to, which is also what the name it
 /// writes holds afterwards.
+/// The value a logical assignment can carry over from the binding it writes.
+///
+/// A plain one: what a body read twice leaves has to be what reading it once
+/// leaves, or a loop never settles. A value already built from branches grows
+/// with every pass, so those keep the older reading, where the left side of the
+/// assignment is simply unknown.
+fn carried(before: Value) -> Value {
+    match before {
+        Value::OrElse(_, _)
+        | Value::Coalesce(_, _)
+        | Value::AndThen(_, _)
+        | Value::Either(_, _) => Value::MaybeUndefined,
+        other => other,
+    }
+}
+
+fn logical_value(a: &oxc_ast::ast::AssignmentExpression, before: Value, depth: usize) -> Value {
+    let right = convert(&a.right, depth);
+    let (before, right) = (Box::new(before), Box::new(right));
+    match a.operator {
+        AssignmentOperator::LogicalAnd => Value::AndThen(before, right),
+        AssignmentOperator::LogicalOr => Value::OrElse(before, right),
+        AssignmentOperator::LogicalNullish => Value::Coalesce(before, right),
+        _ => assignment_value(a, depth),
+    }
+}
+
 fn assignment_value(a: &oxc_ast::ast::AssignmentExpression, depth: usize) -> Value {
     match a.operator {
         // A logical assignment can yield the LEFT side without ever evaluating
@@ -3057,7 +3092,11 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // x}) }` sends `a` once and omits it thereafter.
         self.read_until_it_settles(|v| {
             v.visit_statement(&stmt.body);
-            if let Some(update) = &stmt.update {
+            // A body that leaves the loop leaves it before the update: `for (;;
+            // x = !0) { x = void 0; break }` ends on the `undefined`.
+            if let Some(update) = &stmt.update
+                && !always_leaves(&stmt.body)
+            {
                 v.visit_expression(update);
             }
         });
@@ -3335,6 +3374,21 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
     }
 
+    fn visit_computed_member_expression(
+        &mut self,
+        member: &oxc_ast::ast::ComputedMemberExpression<'a>,
+    ) {
+        self.visit_expression(&member.object);
+        // `t?.[x = !0]` reads the base first and stops there when it is nullish,
+        // so the subscript is a branch: a write inside one is not a write the
+        // path around the chain makes.
+        if member.optional || optional_link(&member.object) {
+            self.in_branch(|v| v.visit_expression(&member.expression));
+        } else {
+            self.visit_expression(&member.expression);
+        }
+    }
+
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
         // A literal test takes one arm on every path, so what that arm writes is
@@ -3462,12 +3516,22 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // The memoised require is written `e !== void 0 ? e : e = n("X.graphql")`,
         // so the binding for the operation handle exists only as an assignment.
         if let Some(name) = wa_oxc::assignment_target_name(&n.left) {
+            // What the name holds before this write, for the logical operators
+            // that can yield it.
+            let before = Value::Ref(name.to_string());
             // The name now says something else, so any alias holding it keeps
             // what it was given rather than following the name here.
             self.scopes.detach_aliases(name);
             // Not the right side: `x &&= v` leaves `x` alone when it is falsy,
             // so the binding afterwards is what the whole expression yields.
-            self.scopes.bind_assignment(name, assignment_value(n, 0));
+            // Which of the two it is turns on the value the name already held,
+            // and reading that as unknown published `x = !0; x ||= void 0` as a
+            // key the client sometimes omits.
+            let value = match n.operator.is_logical() {
+                true => logical_value(n, carried(settle(&before, &self.scopes, 0)), 0),
+                false => assignment_value(n, 0),
+            };
+            self.scopes.bind_assignment(name, value);
         } else if let Some(idents) = destructured_assignment_names(&n.left) {
             // `({x} = opts)` writes `x` with something this pass does not model,
             // and leaving it bound to what it held before publishes that older
@@ -3627,9 +3691,14 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // so everything the call does - its arguments' writes, and the call
         // itself - belongs to a branch.
         if call.optional || optional_link(&call.callee) {
-            self.in_branch(|v| v.read_call(call));
+            // The callee is evaluated either way - the check is on what it
+            // yields - so only the arguments and the call itself are the branch.
+            if !invoked_directly(&call.callee) {
+                self.visit_expression(&call.callee);
+            }
+            self.in_branch(|v| v.read_call(call, true));
         } else {
-            self.read_call(call);
+            self.read_call(call, false);
         }
     }
 }
@@ -3637,7 +3706,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
 impl CallSiteCollector<'_> {
     /// The body of [`Visit::visit_call_expression`], split out so an optional
     /// call can run all of it inside a branch.
-    fn read_call<'a>(&mut self, call: &CallExpression<'a>)
+    fn read_call<'a>(&mut self, call: &CallExpression<'a>, callee_read: bool)
     where
         Self: Visit<'a>,
     {
@@ -3653,7 +3722,7 @@ impl CallSiteCollector<'_> {
         // the body reads `x`. A callee that is not invoked here is a definition
         // and is walked where it is written.
         let runs_here = invoked_directly(&call.callee);
-        if !runs_here {
+        if !runs_here && !callee_read {
             self.visit_expression(&call.callee);
         }
         // Read where it is passed: the variables object built after it can
@@ -7382,6 +7451,69 @@ mod tests {
         let caller = r#"function f(t){if(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0});throw e}else{return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_optional_subscript_is_not_read_when_the_base_is_nullish() {
+        // `t?.[x = !0]` stops at the base, so the write inside the subscript is
+        // one the path around the chain does not make.
+        let caller = r#"function f(t){var x;t?.[x=!0];return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_body_that_breaks_leaves_before_the_update() {
+        // The update runs between iterations, and `break` ends the loop without
+        // one: `for (;; x = !0) { x = void 0; break }` ends on the `undefined`.
+        let caller = r#"function f(){var x=!0;for(;;x=!0){x=void 0;break}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_logical_assignment_yields_what_the_name_already_held() {
+        // `x ||= v` is `x` whenever `x` is truthy, so a truthy binding is what
+        // the name keeps. Reading the left side as an unknown published a key
+        // the client always sends as one it sometimes omits.
+        let caller = r#"function f(){var x=!0;x||=void 0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And the other way: an undefined binding takes the right side.
+        let taken = r#"function f(){var x;x??=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(taken, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // Read twice, the same statement must not nest itself: a loop body
+        // settling built `x ?? !0 ?? !0` until the value was too deep to judge.
+        let looped = r#"function f(t){var x;for(;t;){x??=!0;o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(looped, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_optional_call_still_evaluates_its_callee() {
+        // `(x = !0, t.fn)?.()` reads the callee and then checks what it yields,
+        // so the write in the callee has happened whether or not the call runs.
+        let caller = r#"function f(t){var x;(x=!0,t.fn)?.();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // What the call itself does stays behind the check.
+        let inside = r#"function f(t){var x;t.fn?.(x=!0);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(inside, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_null_list_element_is_read_rather_than_unreadable() {
+        // `[{a: !0}, null]` has an element carrying none of the item's keys,
+        // which is a key the client omits and not a key nothing is known about.
+        let caller = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{items:[{a:!0},null]})}"#;
+        let (tree, _) = presence_of(caller, &["items"]);
+        let item = tree["items"].items.as_deref().expect("list element node");
+        assert_eq!(item.fields["a"].presence, VariablePresence::Conditional);
     }
 
     #[test]
