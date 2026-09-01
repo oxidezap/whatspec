@@ -1102,6 +1102,56 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
     }
 }
 
+/// Whether a value can be `undefined` at run time, which is a different question
+/// from whether the key holding it reaches the wire.
+///
+/// A default parameter substitutes for `undefined` and for nothing else, so a
+/// function or a class argument keeps the parameter it was passed to even though
+/// `JSON.stringify` drops the key it ends up in.
+fn may_be_undefined(value: &Value, scopes: &Scopes, depth: usize) -> bool {
+    if depth >= MAX_DEPTH {
+        return true;
+    }
+    let next = depth + 1;
+    match value {
+        Value::Defined
+        | Value::Truthy
+        | Value::Null
+        | Value::Object(_)
+        | Value::Array(_)
+        | Value::Dropped => false,
+        Value::MaybeUndefined
+        | Value::Read
+        | Value::Given
+        | Value::WriteOnly
+        | Value::Unjudged
+        | Value::Call(_)
+        | Value::Getter => true,
+        // `a || b` is `a` whenever `a` is truthy, and a function is.
+        Value::OrElse(lhs, rhs) => match scopes.resolve(lhs, 0) {
+            Value::Truthy | Value::Object(_) | Value::Array(_) | Value::Dropped => false,
+            _ => may_be_undefined(rhs, scopes, next),
+        },
+        Value::Coalesce(lhs, rhs) => match scopes.resolve(lhs, 0) {
+            Value::Defined
+            | Value::Truthy
+            | Value::Object(_)
+            | Value::Array(_)
+            | Value::Dropped => false,
+            _ => may_be_undefined(rhs, scopes, next),
+        },
+        // `a && b` is `a` when `a` is falsy and `b` when it is not, so either
+        // side reaching `undefined` is enough.
+        Value::AndThen(lhs, rhs) | Value::Either(lhs, rhs) => {
+            may_be_undefined(lhs, scopes, next) || may_be_undefined(rhs, scopes, next)
+        }
+        Value::Ref(name) => match scopes.lookup(name) {
+            Some(bound) => may_be_undefined(bound, scopes, next),
+            None => name != "NaN" && name != "Infinity",
+        },
+    }
+}
+
 /// One call site's answer for the whole variables object.
 type SiteTree = BTreeMap<String, VariablePresenceNode>;
 
@@ -2240,6 +2290,12 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
 /// of those: a default does not stand in for it.
 fn argument_value(argument: &Argument, scopes: &Scopes, settled: Option<Value>) -> Option<Value> {
     let expression = argument.as_expression()?;
+    // `f((void 0))` passes exactly what `f(void 0)` does: the parentheses are
+    // in the tree and are not part of the value.
+    let mut expression = expression;
+    while let Expression::ParenthesizedExpression(inner) = expression {
+        expression = &inner.expression;
+    }
     let undefined = match expression {
         Expression::Identifier(id) if id.name.as_str() == "undefined" => {
             scopes.lookup("undefined").is_none()
@@ -2256,6 +2312,19 @@ fn argument_value(argument: &Argument, scopes: &Scopes, settled: Option<Value>) 
 /// Whether an expression only DEFINES a function: building it runs no body, so
 /// what the body writes is not something the code beside it has seen. A class is
 /// one too, through the methods it carries.
+/// The expression a class element's computed name is written as, which the class
+/// definition evaluates in source order: `class { [x = void 0]() {} }` runs the
+/// write where the class stands.
+fn computed_key<'b, 'a>(element: &'b oxc_ast::ast::ClassElement<'a>) -> Option<&'b Expression<'a>> {
+    use oxc_ast::ast::ClassElement as E;
+    match element {
+        E::MethodDefinition(method) if method.computed => method.key.as_expression(),
+        E::PropertyDefinition(property) if property.computed => property.key.as_expression(),
+        E::AccessorProperty(property) if property.computed => property.key.as_expression(),
+        _ => None,
+    }
+}
+
 fn defines_a_function(expr: &Expression) -> bool {
     // Not a class: its static blocks and static field initializers run where the
     // class is written, so what they leave behind IS something the property
@@ -3709,6 +3778,13 @@ impl CallSiteCollector<'_> {
             self.visit_expression(super_class);
         }
         for element in &class.body.body {
+            // A computed name is an expression the class definition evaluates,
+            // whether it names a method, a static field or an instance one, so
+            // what it writes has happened by the time the property beside the
+            // class is read.
+            if let Some(key) = computed_key(element) {
+                self.visit_expression(key);
+            }
             match element {
                 E::StaticBlock(block) => self.visit_static_block(block),
                 E::PropertyDefinition(property) if property.r#static => {
@@ -4042,10 +4118,13 @@ impl CallSiteCollector<'_> {
                     (Some(Some(passed)), Some(default)) => {
                         // A value that MAY be undefined is one of the two: the
                         // argument on the calls that pass something, the default
-                        // on the calls that pass `undefined`.
-                        match definedness(&passed, &self.scopes, 0) {
-                            Definedness::Defined => passed,
-                            _ => either(passed, default),
+                        // on the calls that pass `undefined`. The runtime asks
+                        // this, not the wire: a function argument is a value the
+                        // default does not stand in for, however the JSON of a
+                        // key holding one comes out.
+                        match may_be_undefined(&passed, &self.scopes, 0) {
+                            false => passed,
+                            true => either(passed, default),
                         }
                     }
                     (Some(Some(passed)), None) => passed,
@@ -7095,6 +7174,40 @@ mod tests {
         ] {
             let (tree, _) = presence_of(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+    }
+
+    #[test]
+    fn parentheses_around_an_argument_are_not_part_of_it() {
+        // `f((void 0))` passes what `f(void 0)` passes, so the default still
+        // stands in for it.
+        let caller = r#"function f(){return(function(x=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})((void 0))}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_default_does_not_stand_in_for_a_function_argument() {
+        // A default substitutes for `undefined` and for nothing else. A function
+        // is a value the parameter keeps, and it is truthy, so `x && !0` is `!0`
+        // on every call - even though a key holding the function itself would be
+        // dropped from the JSON. Which of the two is asked matters here.
+        let caller = r#"function f(){return(function(x=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x&&!0})})(function(){})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_computed_class_member_name_runs_where_the_class_is_written() {
+        // The body of a method waits for a call, but the expression naming it
+        // does not: it is evaluated as the class is defined, so what it writes
+        // has happened when the property beside the class is read.
+        for caller in [
+            r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{[x=void 0](){}},a:x})}"#,
+            r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{[x=void 0]=1},a:x})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
         }
     }
 
