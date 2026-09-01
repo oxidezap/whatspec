@@ -326,7 +326,10 @@ impl Scopes {
                 .expect("a branch is open")
                 .push(write);
         }
-        if let Some(watch) = self.watched.last_mut() {
+        // Every open watch, not only the innermost: a `try` inside a `try` is
+        // still a point the outer handler can be entered from, and its writes
+        // are states the outer block passed through.
+        for watch in &mut self.watched {
             watch.push((index, name.to_string(), value.clone()));
         }
         self.frames[index].insert(name.to_string(), value);
@@ -752,8 +755,10 @@ fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
             },
             // `{...null}` and `{...void 0}` are no-ops: object spread ignores a
             // nullish source rather than failing, so the keys written beside it
-            // stand. Reading the source as unknown withdrew them instead.
-            ObjectPropertyKind::SpreadProperty(s) => match is_nullish_literal(&s.argument) {
+            // stand. Reading the source as unknown withdrew them instead. Only
+            // the two spellings that cannot be anything else - `undefined` is a
+            // name, and this function has no scope to ask whether it is bound.
+            ObjectPropertyKind::SpreadProperty(s) => match nullish_sentinel(&s.argument) {
                 true => Prop::Spread(Value::Object(Vec::new())),
                 false => Prop::Spread(convert(&s.argument, depth)),
             },
@@ -1608,6 +1613,18 @@ fn always_leaves(stmt: &oxc_ast::ast::Statement) -> bool {
         | oxc_ast::ast::Statement::ReturnStatement(_)
         | oxc_ast::ast::Statement::ThrowStatement(_) => true,
         oxc_ast::ast::Statement::BlockStatement(b) => b.body.last().is_some_and(always_leaves),
+        _ => false,
+    }
+}
+
+/// `null` and `void x`: the two spellings of a nullish value that no binding
+/// can turn into something else. `undefined` is a name like any other and is
+/// judged where there is a scope to judge it in.
+fn nullish_sentinel(expr: &Expression) -> bool {
+    match expr {
+        Expression::NullLiteral(_) => true,
+        Expression::UnaryExpression(u) => u.operator == UnaryOperator::Void,
+        Expression::ParenthesizedExpression(p) => nullish_sentinel(&p.expression),
         _ => false,
     }
 }
@@ -2669,8 +2686,16 @@ impl CallSiteCollector<'_> {
                 }
                 ObjectPropertyKind::SpreadProperty(spread) => {
                     self.visit_expression(&spread.argument);
-                    // A nullish source spreads nothing, the same as in `convert`.
-                    let value = match is_nullish_literal(&spread.argument) {
+                    // A nullish source spreads nothing, the same as in
+                    // `convert` - plus the name `undefined` where nothing has
+                    // bound it, which here there is a scope to ask.
+                    let bare_undefined = matches!(
+                        &spread.argument,
+                        Expression::Identifier(id)
+                            if id.name.as_str() == "undefined"
+                                && self.scopes.lookup("undefined").is_none()
+                    );
+                    let value = match nullish_sentinel(&spread.argument) || bare_undefined {
                         true => Value::Object(Vec::new()),
                         false => self.settled(&spread.argument),
                     };
@@ -4611,6 +4636,29 @@ mod tests {
         // And it is falsy, so `||` steps past it to a right side that is there.
         let fallback = r#"function f(){var x=null;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||!0})}"#;
         let (tree, _) = presence_of(fallback, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_inner_try_is_still_a_point_the_outer_handler_starts_from() {
+        // The write that clears `x` happens inside a nested `try`, and the
+        // outer handler is entered from there too.
+        let caller = r#"function f(t){var x=!0;try{try{x=void 0;t()}finally{}x=!0}catch(e){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_bound_undefined_spreads_whatever_it_holds() {
+        // `undefined` is a name, and a parameter of that spelling can hold an
+        // object with keys of its own - including one that overwrites `a`.
+        let caller = r#"function f(undefined){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...undefined})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+
+        // Unbound, it is the value it is named for, and spreads nothing.
+        let bare = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...undefined})}"#;
+        let (tree, _) = presence_of(bare, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
