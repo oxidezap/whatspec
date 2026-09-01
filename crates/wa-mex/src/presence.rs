@@ -2349,12 +2349,13 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
         // binding. A name nothing wrote is not one of those: the memoised
         // require reads as that on the arm taken before it is filled.
         Value::Given | Value::Read => true,
-        // A call whose module this pass could not read hands back whatever it
-        // chose: `fetchQuery(select(t, n("X.graphql")), …)` may be sending an
-        // operation picked at run time, and one `.graphql` dependency says what
-        // the module REQUIRES, not what a helper returns. A require this pass
-        // did read carries its module name and is judged by that name instead.
-        Value::Call(None) => true,
+        // A call that did not read as a require of a `.graphql` module hands
+        // back whatever it chose: `fetchQuery(select(t, n("X.graphql")), …)` and
+        // `fetchQuery(select("foo"), …)` alike may be sending an operation
+        // picked at run time, and one `.graphql` dependency says what the module
+        // REQUIRES, not what a helper returns. Only the require itself carries a
+        // module name, and that one is judged by the name it carries.
+        Value::Call(name) => !name.as_deref().is_some_and(|n| n.ends_with(".graphql")),
         // `fetchQuery(e || s, …)` sends the parameter whenever the caller
         // passed one, so a handle from outside on either side is a handle from
         // outside. The memoised require the minifier writes - `e !== void 0 ? e
@@ -5376,6 +5377,9 @@ mod tests {
         for caller in [
             r#"function f(t){return o("C").fetchQuery(select(t,n("WAWebFooQuery.graphql")),{a:!0})}"#,
             r#"function f(t){n("WAWebFooQuery.graphql");return o("C").fetchQuery(pick(t),{a:!0})}"#,
+            // A helper whose own argument is a string reads as a call with a
+            // name, and that name is not a module this pass can be sending.
+            r#"function f(){n("WAWebFooQuery.graphql");return o("C").fetchQuery(select("foo"),{a:!0})}"#,
         ] {
             let (tree, diag) = presence_of_sole(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
