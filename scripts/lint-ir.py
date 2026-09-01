@@ -1364,7 +1364,9 @@ def _check_presence_level(path, shape, presence, errors, counts):
         # are not there.
         if isinstance(typed, dict):
             _check_presence_level(here, typed, node.get("fields", {}), errors, counts)
-        elif node.get("fields"):
+        elif "fields" in node:
+            # The key itself is the error, empty or not: a leaf that carries a
+            # `fields` map at all is a verdict about keys the shape does not have.
             errors.append(f"{here}: nested field verdicts on a variable that is not an object")
         element = typed[0] if isinstance(typed, list) and typed else None
         item = node.get("items")
