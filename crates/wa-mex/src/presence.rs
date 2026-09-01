@@ -2349,13 +2349,13 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
         // binding. A name nothing wrote is not one of those: the memoised
         // require reads as that on the arm taken before it is filled.
         Value::Given | Value::Read => true,
-        // A call that did not read as a require of a `.graphql` module hands
-        // back whatever it chose: `fetchQuery(select(t, n("X.graphql")), …)` and
-        // `fetchQuery(select("foo"), …)` alike may be sending an operation
-        // picked at run time, and one `.graphql` dependency says what the module
-        // REQUIRES, not what a helper returns. Only the require itself carries a
-        // module name, and that one is judged by the name it carries.
-        Value::Call(name) => !name.as_deref().is_some_and(|n| n.ends_with(".graphql")),
+        // A call hands back whatever it chose. A require of THIS operation's
+        // module is read by name, before the question is ever asked, so
+        // everything that reaches here is a call naming another module or
+        // naming nothing - `select(t, n("X.graphql"))`, `select("foo")`,
+        // `select("Other.graphql")` - and one `.graphql` dependency says what
+        // the module REQUIRES, not what a helper hands back.
+        Value::Call(_) => true,
         // `fetchQuery(e || s, …)` sends the parameter whenever the caller
         // passed one, so a handle from outside on either side is a handle from
         // outside. The memoised require the minifier writes - `e !== void 0 ? e
@@ -5378,13 +5378,22 @@ mod tests {
             r#"function f(t){return o("C").fetchQuery(select(t,n("WAWebFooQuery.graphql")),{a:!0})}"#,
             r#"function f(t){n("WAWebFooQuery.graphql");return o("C").fetchQuery(pick(t),{a:!0})}"#,
             // A helper whose own argument is a string reads as a call with a
-            // name, and that name is not a module this pass can be sending.
+            // name, and that name is not a module this pass can be sending -
+            // whether it looks like a module name or not.
             r#"function f(){n("WAWebFooQuery.graphql");return o("C").fetchQuery(select("foo"),{a:!0})}"#,
         ] {
             let (tree, diag) = presence_of_sole(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
             assert_eq!(diag.ambiguous_call_sites, 1);
         }
+
+        // A helper carrying the name of ANOTHER `.graphql` module reads as that
+        // module, so the call is one this operation is not in at all: skipped
+        // rather than counted ambiguous, and the operation is left with no site.
+        let other = r#"function f(){n("WAWebFooQuery.graphql");return o("C").fetchQuery(select("WAWebOtherQuery.graphql"),{a:!0})}"#;
+        let (tree, diag) = presence_of_sole(other, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.operations_without_call_site, 1);
 
         // The memoised require the minifier writes is a call too, and that one
         // names its module, so the shortcut still reaches it.
