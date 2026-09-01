@@ -97,6 +97,10 @@ enum Value {
     /// apart from [`Value::Defined`] because `x || y` is `x` only when `x` is
     /// truthy, and `x === !0` is defined while being `false` half the time.
     Truthy,
+    /// `null`, which is a key on the wire (`JSON.stringify` writes it) and is
+    /// still what `??` gives way on. Held apart from [`Value::Defined`] for that
+    /// second reason: `x ?? y` with a `null` `x` IS `y`.
+    Null,
     /// An identifier, resolved against the enclosing bindings when read.
     Ref(String),
     Object(Vec<Prop>),
@@ -609,7 +613,6 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         | Expression::StringLiteral(_)
         | Expression::BigIntLiteral(_)
         | Expression::RegExpLiteral(_)
-        | Expression::NullLiteral(_)
         | Expression::TemplateLiteral(_)
         // Every binary operator (`===`, `!==`, `<`, `+`, `in`, `instanceof`, …)
         // yields a primitive. This is the arm that classifies WA's `x === !0`
@@ -631,6 +634,10 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         // own serialization: a `toJSON` returning `undefined` drops the key.
         // Which class it is, and what it does there, is not something this pass
         // establishes.
+        // A key holding `null` is written, and `x ?? y` with a `null` `x` is
+        // `y`: the two facts live in one variant of their own.
+        Expression::NullLiteral(_) => Value::Null,
+
         Expression::NewExpression(_) => Value::Unjudged,
 
         // `!x`, `!!x`, `typeof x`, `-x` yield primitives; `void x` IS `undefined`,
@@ -775,7 +782,9 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
     }
     let next = depth + 1;
     match value {
-        Value::Defined | Value::Truthy | Value::Object(_) | Value::Array(_) => Definedness::Defined,
+        Value::Defined | Value::Truthy | Value::Null | Value::Object(_) | Value::Array(_) => {
+            Definedness::Defined
+        }
         Value::MaybeUndefined | Value::Dropped => Definedness::MaybeUndefined,
         Value::Unjudged | Value::Call(_) => Definedness::Unjudged,
         // `a || b` is `b` only when `a` is falsy. A left side this pass knows to
@@ -1565,7 +1574,7 @@ fn may_be_called(value: &Value, scopes: &Scopes, depth: usize) -> bool {
     }
     let next = depth + 1;
     match scopes.resolve(value, 0) {
-        Value::Defined | Value::Truthy | Value::Object(_) | Value::Array(_) => false,
+        Value::Defined | Value::Truthy | Value::Null | Value::Object(_) | Value::Array(_) => false,
         Value::Either(a, b)
         | Value::OrElse(a, b)
         | Value::Coalesce(a, b)
@@ -4582,6 +4591,27 @@ mod tests {
         let caller = r#"function f(t){var x=!0;switch(1){case (x=void 0,0):break;case 1:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_null_binding_gives_way_to_the_coalescing_fallback() {
+        // `null` is a key on the wire when it IS the value, and still what `??`
+        // steps past: `x ?? void 0` with a null `x` is `undefined`, and the key
+        // is gone.
+        let coalesced = r#"function f(){var x=null;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x??void 0})}"#;
+        let (tree, _) = presence_of(coalesced, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // Written straight, it is a key `JSON.stringify` writes as `null`.
+        let plain =
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:null})}"#;
+        let (tree, _) = presence_of(plain, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And it is falsy, so `||` steps past it to a right side that is there.
+        let fallback = r#"function f(){var x=null;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||!0})}"#;
+        let (tree, _) = presence_of(fallback, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
