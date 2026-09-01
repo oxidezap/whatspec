@@ -1886,36 +1886,48 @@ fn invoked_directly(callee: &Expression) -> bool {
     }
 }
 
+/// Looks for the `await` that suspends the async body a node is written in. A
+/// nested function carries its own suspension and not this one's, so its body is
+/// not searched.
+struct Awaits {
+    found: bool,
+}
+
+impl<'a> Visit<'a> for Awaits {
+    fn visit_await_expression(&mut self, _expr: &oxc_ast::ast::AwaitExpression<'a>) {
+        self.found = true;
+    }
+    fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        // `for await (const t of s)` awaits each step of the iteration.
+        self.found |= stmt.r#await;
+        walk::walk_for_of_statement(self, stmt);
+    }
+    fn visit_function(
+        &mut self,
+        _func: &oxc_ast::ast::Function<'a>,
+        _flags: oxc_syntax::scope::ScopeFlags,
+    ) {
+    }
+    fn visit_arrow_function_expression(
+        &mut self,
+        _func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+    }
+}
+
 /// Whether a statement suspends the async body it is written in: the first
-/// `await` is where the call stops running it and returns. A nested function
-/// carries its own suspension and not this one's, so its body is not searched.
+/// `await` is where the call stops running it and returns.
 fn suspends_here(statement: &oxc_ast::ast::Statement) -> bool {
-    struct Awaits {
-        found: bool,
-    }
-    impl<'a> Visit<'a> for Awaits {
-        fn visit_await_expression(&mut self, _expr: &oxc_ast::ast::AwaitExpression<'a>) {
-            self.found = true;
-        }
-        fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
-            // `for await (const t of s)` awaits each step of the iteration.
-            self.found |= stmt.r#await;
-            walk::walk_for_of_statement(self, stmt);
-        }
-        fn visit_function(
-            &mut self,
-            _func: &oxc_ast::ast::Function<'a>,
-            _flags: oxc_syntax::scope::ScopeFlags,
-        ) {
-        }
-        fn visit_arrow_function_expression(
-            &mut self,
-            _func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
-        ) {
-        }
-    }
     let mut awaits = Awaits { found: false };
     awaits.visit_statement(statement);
+    awaits.found
+}
+
+/// The same question of one expression, for splitting a statement that suspends
+/// partway through: `x = !0, await q()` has run the write when the call returns.
+fn suspends_in(expression: &Expression) -> bool {
+    let mut awaits = Awaits { found: false };
+    awaits.visit_expression(expression);
     awaits.found
 }
 
@@ -2450,8 +2462,44 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         let suspends = std::mem::take(&mut self.suspends);
         for (index, statement) in statements.iter().enumerate() {
             if suspends && suspends_here(statement) {
-                let rest = &statements[index..];
+                // The minifier writes a run of statements as one comma
+                // expression, so the suspension can sit partway through the
+                // statement that carries it: `x = !0, await q()` has made its
+                // write by the time the call returns. What the sequence
+                // evaluates before the `await` is as certain as any statement
+                // above it.
+                let split = match statement {
+                    oxc_ast::ast::Statement::ExpressionStatement(statement) => {
+                        match &statement.expression {
+                            Expression::SequenceExpression(sequence) => sequence
+                                .expressions
+                                .iter()
+                                .position(suspends_in)
+                                .filter(|split| *split > 0)
+                                .map(|split| {
+                                    (
+                                        &sequence.expressions[..split],
+                                        &sequence.expressions[split..],
+                                    )
+                                }),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                let (rest, tail) = match split {
+                    Some((prefix, tail)) => {
+                        for expression in prefix {
+                            self.visit_expression(expression);
+                        }
+                        (&statements[index + 1..], Some(tail))
+                    }
+                    None => (&statements[index..], None),
+                };
                 self.read_until_it_settles(|v| {
+                    for expression in tail.into_iter().flatten() {
+                        v.visit_expression(expression);
+                    }
                     for statement in rest {
                         v.visit_statement(statement);
                         if always_leaves(statement) {
@@ -5729,6 +5777,21 @@ mod tests {
             let (tree, _) = presence_of(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Always);
         }
+    }
+
+    #[test]
+    fn a_sequence_runs_up_to_the_await_inside_it() {
+        // The minifier writes a run of statements as one comma expression, so
+        // the suspension can sit partway through a statement: everything the
+        // sequence evaluates before the `await` has run when the call returns.
+        let before = r#"function f(){var x;(async function(){x=!0,await q()})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(before, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And what it evaluates after the `await` has not.
+        let after = r#"function f(){var x;(async function(){q(),await q(),x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(after, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
