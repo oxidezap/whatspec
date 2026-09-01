@@ -2056,6 +2056,12 @@ fn always_leaves(stmt: &oxc_ast::ast::Statement) -> bool {
         | oxc_ast::ast::Statement::ReturnStatement(_)
         | oxc_ast::ast::Statement::ThrowStatement(_) => true,
         oxc_ast::ast::Statement::BlockStatement(b) => b.body.last().is_some_and(always_leaves),
+        // With both arms leaving there is no path around the statement, so what
+        // is written after it is code the client never runs.
+        oxc_ast::ast::Statement::IfStatement(i) => {
+            always_leaves(&i.consequent)
+                && i.alternate.as_ref().is_some_and(|arm| always_leaves(arm))
+        }
         _ => false,
     }
 }
@@ -3583,9 +3589,13 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // worked. A key that is gone is a key `JSON.stringify` cannot write.
         if expr.operator == UnaryOperator::Delete {
             // `delete v?.a` removes the same key `delete v.a` does wherever `v`
-            // is there, and a recovered object is. The chain around the member
-            // is punctuation, not part of the path.
-            match member_path(&expr.argument).or_else(|| optional_member_path(&expr.argument)) {
+            // is there, and a recovered object is. Neither the chain around the
+            // member nor a pair of parentheses is part of the path.
+            let mut target = &expr.argument;
+            while let Expression::ParenthesizedExpression(inner) = target {
+                target = &inner.expression;
+            }
+            match member_path(target).or_else(|| optional_member_path(target)) {
                 Some((base, path)) => {
                     let owner = self.scopes.alias_target(base, 0);
                     let updated = self
@@ -3601,8 +3611,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 // `delete v[k]` takes off a key this pass cannot name, which
                 // may be any of the ones it recovered.
                 None => {
-                    if let Some(base) =
-                        member_base(&expr.argument).or_else(|| optional_member_base(&expr.argument))
+                    if let Some(base) = member_base(target).or_else(|| optional_member_base(target))
                     {
                         let owner = self.scopes.alias_target(base, 0);
                         self.scopes.bind_assignment(&owner, Value::Unjudged);
@@ -7350,6 +7359,29 @@ mod tests {
         let computed = r#"function f(t){var v={a:!0};delete v?.[t.k];return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
         let (tree, _) = presence_of(computed, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn parentheses_around_a_delete_target_are_not_part_of_it() {
+        // `delete (v.a)` and `delete (v?.a)` take off the key the same
+        // expressions without the parentheses do.
+        for caller in [
+            r#"function f(){var v={a:!0};delete (v.a);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={a:!0};delete (v?.a);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
+    }
+
+    #[test]
+    fn a_call_after_an_if_that_leaves_on_both_arms_is_not_a_call() {
+        // `if (t) { … throw } else { return … }` has no path around it, so the
+        // call written after it is one the client never makes and its variables
+        // object is not evidence about anything.
+        let caller = r#"function f(t){if(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0});throw e}else{return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
