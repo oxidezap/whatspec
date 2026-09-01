@@ -2063,6 +2063,33 @@ fn never_falls_through(stmt: &oxc_ast::ast::Statement) -> bool {
     }
 }
 
+/// Whether an expression IS the empty list, parentheses and all: `for (const x
+/// of [])` runs its body no times, and `([])` is the same list.
+fn empty_list(expr: &Expression) -> bool {
+    match expr {
+        Expression::ArrayExpression(array) => array.elements.is_empty(),
+        Expression::ParenthesizedExpression(inner) => empty_list(&inner.expression),
+        _ => false,
+    }
+}
+
+/// Whether a statement always ends the loop it is written in, so the update
+/// between iterations never runs. A `continue` does not: it is the jump TO the
+/// update, which is what separates it from a `break` here.
+fn leaves_the_loop(stmt: &oxc_ast::ast::Statement) -> bool {
+    match stmt {
+        oxc_ast::ast::Statement::BreakStatement(_)
+        | oxc_ast::ast::Statement::ReturnStatement(_)
+        | oxc_ast::ast::Statement::ThrowStatement(_) => true,
+        oxc_ast::ast::Statement::BlockStatement(b) => b.body.last().is_some_and(leaves_the_loop),
+        oxc_ast::ast::Statement::IfStatement(i) => {
+            leaves_the_loop(&i.consequent)
+                && i.alternate.as_ref().is_some_and(|arm| leaves_the_loop(arm))
+        }
+        _ => false,
+    }
+}
+
 /// Whether a statement always leaves the statement enclosing it: the `break`
 /// that ends a `switch` case, and every other abrupt completion. A case ending
 /// in one is a case the one above it does not fall into.
@@ -3108,9 +3135,11 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.read_until_it_settles(|v| {
             v.visit_statement(&stmt.body);
             // A body that leaves the loop leaves it before the update: `for (;;
-            // x = !0) { x = void 0; break }` ends on the `undefined`.
+            // x = !0) { x = void 0; break }` ends on the `undefined`. A
+            // `continue` is the opposite - it goes to the update - so the two
+            // cannot be asked with one question.
             if let Some(update) = &stmt.update
-                && !always_leaves(&stmt.body)
+                && !leaves_the_loop(&stmt.body)
             {
                 v.visit_expression(update);
             }
@@ -3169,7 +3198,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.visit_expression(&stmt.right);
         // `for (const x of [])` runs its body no times at all, the same as a
         // `while (!1)`, so a call written there is not one the client makes.
-        if matches!(&stmt.right, Expression::ArrayExpression(a) if a.elements.is_empty()) {
+        if empty_list(&stmt.right) {
             self.scopes.pop();
             return;
         }
@@ -7619,6 +7648,24 @@ mod tests {
         // class and runs the static parts after, so `static p = (x = !0)` above
         // a `[(x = void 0)]()` still ends on the value the static field wrote.
         let caller = r#"function f(){var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{static p=(x=!0);[(x=void 0)](){}},a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_continue_goes_to_the_update_rather_than_past_it() {
+        // `continue` is the jump TO the update, so the next iteration reads what
+        // it wrote. Only a `break` (or a `return`, or a `throw`) ends the loop
+        // before it runs.
+        let caller = r#"function f(t){var x=!0;for(;t;x=void 0){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});continue}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn parentheses_around_an_iterable_are_not_part_of_it() {
+        // `for (const x of ([]))` iterates the same empty list `of []` does.
+        let caller = r#"function f(){for(const x of ([])){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
