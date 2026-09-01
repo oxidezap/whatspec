@@ -41,6 +41,36 @@ const FETCH_METHODS: &[&str] = &["fetchQuery", "commitMutation", "fetchSubscript
 /// a self-referential binding (`var e = e || {}`).
 const MAX_DEPTH: usize = 12;
 
+/// How many times a body that runs more than once is read again before the pass
+/// gives up on its bindings settling. Every loop in the pinned bundles settles
+/// on the first reading back; the bound is what keeps a body whose values keep
+/// moving from being read forever.
+const MAX_PASSES: usize = 6;
+
+/// Join two values one call can see, keeping the arms distinct: a loop body
+/// read again joins what it wrote with what it wrote last time, and nesting
+/// those would grow a value that never settles without saying anything new.
+fn either(before: Value, after: Value) -> Value {
+    if contains_arm(&before, &after) {
+        return before;
+    }
+    if contains_arm(&after, &before) {
+        return after;
+    }
+    Value::Either(Box::new(before), Box::new(after))
+}
+
+/// Whether a value is already one of the values an `Either` tree can take.
+fn contains_arm(value: &Value, arm: &Value) -> bool {
+    if value == arm {
+        return true;
+    }
+    match value {
+        Value::Either(a, b) => contains_arm(a, arm) || contains_arm(b, arm),
+        _ => false,
+    }
+}
+
 /// A value expression, kept only as far as presence depends on it.
 ///
 /// Owned rather than borrowed because oxc's visitor hands out node references
@@ -48,7 +78,7 @@ const MAX_DEPTH: usize = 12;
 /// the binding it names is resolved. Every arm is a fact about evaluation rather
 /// than about syntax: whether the expression can be `undefined`, and what keys it
 /// carries if it is an object.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum Value {
     /// No evaluation yields `undefined`: a literal, a comparison, a coercion, a
     /// function, a `new`.
@@ -81,7 +111,7 @@ enum Value {
     Call(Option<String>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum Prop {
     Key(String, Value),
     Spread(Value),
@@ -300,7 +330,7 @@ impl Scopes {
                 .or_else(|| self.frame_hoisted[exit.frame].get(&exit.name))
                 .cloned();
             let value = match here {
-                Some(before) => Value::Either(Box::new(before), Box::new(after)),
+                Some(before) => either(before, after),
                 None => after,
             };
             self.write_frame(exit.frame, &exit.name, value);
@@ -388,7 +418,7 @@ impl Scopes {
                 {
                     Some((m, written)) => {
                         m.after = match (m.after.take(), exit.after) {
-                            (Some(a), Some(b)) => Some(Value::Either(Box::new(a), Box::new(b))),
+                            (Some(a), Some(b)) => Some(either(a, b)),
                             (a, b) => a.or(b),
                         };
                         *written += 1;
@@ -410,7 +440,7 @@ impl Scopes {
                 continue;
             };
             let value = match &exit.before {
-                Some(before) => Value::Either(Box::new(before.clone()), Box::new(after)),
+                Some(before) => either(before.clone(), after),
                 None => after,
             };
             self.frames[exit.frame].insert(exit.name.clone(), value);
@@ -441,10 +471,8 @@ impl Scopes {
             }
             if let Some(before) = write.before {
                 if let Some(after) = self.frames[write.frame].remove(&write.name) {
-                    self.frames[write.frame].insert(
-                        write.name.clone(),
-                        Value::Either(Box::new(before.clone()), Box::new(after)),
-                    );
+                    self.frames[write.frame]
+                        .insert(write.name.clone(), either(before.clone(), after));
                 }
                 // An enclosing branch joins against the value from before IT
                 // began, so it has to learn about this name too.
@@ -575,10 +603,27 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         },
 
         Expression::LogicalExpression(l) => match l.operator {
-            LogicalOperator::Coalesce | LogicalOperator::Or => Value::OrElse(
-                Box::new(convert(&l.left, next)),
-                Box::new(convert(&l.right, next)),
-            ),
+            // `!0 || x` never evaluates `x`, and neither does `0 ?? x`: one asks
+            // whether the left side is truthy and the other whether it is
+            // nullish, and a literal answers without the right side running. The
+            // fallback arm below decides on the right operand, which for these
+            // two is an operand the expression never reaches.
+            LogicalOperator::Or => match falsy_literal(&l.left) {
+                Some(false) => convert(&l.left, next),
+                Some(true) => convert(&l.right, next),
+                None => Value::OrElse(
+                    Box::new(convert(&l.left, next)),
+                    Box::new(convert(&l.right, next)),
+                ),
+            },
+            LogicalOperator::Coalesce => match nullish_literal(&l.left) {
+                Some(false) => convert(&l.left, next),
+                Some(true) => convert(&l.right, next),
+                None => Value::OrElse(
+                    Box::new(convert(&l.left, next)),
+                    Box::new(convert(&l.right, next)),
+                ),
+            },
             // `false && x` never evaluates `x`: the expression IS the left side,
             // and a literal there settles it either way. Only an operand this
             // pass cannot decide leaves both in play.
@@ -744,8 +789,9 @@ fn classify_object_reporting(
             // `JSON.stringify` calls an object's own `toJSON` and serializes what
             // that returns, so the keys written beside it may reach the wire or
             // may not - and what the hook returns is a function body this pass
-            // does not read.
-            Prop::Key(key, _) if key == "toJSON" => {
+            // does not read. Only when the value is one it will call: `{toJSON:
+            // null}` is serialized as an ordinary key of that name.
+            Prop::Key(key, value) if key == "toJSON" && may_be_called(value, scopes, depth) => {
                 opaque.push(Opaque::here());
                 for node in out.values_mut() {
                     withdraw(node);
@@ -1411,6 +1457,78 @@ fn falsy_literal(expr: &Expression) -> Option<bool> {
 /// Whether an expression IS `null`, `undefined` or `void 0`, spelled out at the
 /// call rather than reached through a binding. A property read that happens to
 /// be undefined at run time is not this: it is a value this pass cannot read.
+/// Whether a literal is nullish, when the expression IS a literal: `Some(true)`
+/// for `null` and `void 0`, `Some(false)` for a literal that is neither, and
+/// `None` for anything whose nullishness this pass does not decide. The
+/// counterpart of [`falsy_literal`] for `??`, which asks a different question of
+/// its left operand than `||` does.
+fn nullish_literal(expr: &Expression) -> Option<bool> {
+    match expr {
+        Expression::NullLiteral(_) => Some(true),
+        Expression::UnaryExpression(u) if u.operator == UnaryOperator::Void => Some(true),
+        Expression::Identifier(id) if id.name.as_str() == "undefined" => None,
+        Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_)
+        | Expression::ClassExpression(_) => Some(false),
+        Expression::ParenthesizedExpression(p) => nullish_literal(&p.expression),
+        _ => None,
+    }
+}
+
+/// Whether a value could be a function, which is the only thing
+/// `JSON.stringify` calls a `toJSON` for. Anything this pass has not resolved
+/// could be one.
+fn may_be_called(value: &Value, scopes: &Scopes, depth: usize) -> bool {
+    if depth >= MAX_DEPTH {
+        return true;
+    }
+    let next = depth + 1;
+    match scopes.resolve(value, 0) {
+        Value::Defined | Value::Object(_) | Value::Array(_) => false,
+        Value::Either(a, b) | Value::OrElse(a, b) | Value::AndThen(a, b) => {
+            may_be_called(a, scopes, next) || may_be_called(b, scopes, next)
+        }
+        _ => true,
+    }
+}
+
+/// Whether a statement always ends the function it sits in, so nothing after it
+/// runs with what it wrote. Only `return`: a `throw` is read by an enclosing
+/// handler, which is exactly the state those writes leave.
+fn always_returns(stmt: &oxc_ast::ast::Statement) -> bool {
+    match stmt {
+        oxc_ast::ast::Statement::ReturnStatement(_) => true,
+        oxc_ast::ast::Statement::BlockStatement(b) => b.body.last().is_some_and(always_returns),
+        oxc_ast::ast::Statement::IfStatement(i) => {
+            always_returns(&i.consequent)
+                && i.alternate.as_ref().is_some_and(|arm| always_returns(arm))
+        }
+        _ => false,
+    }
+}
+
+/// Whether a statement always leaves the statement enclosing it: the `break`
+/// that ends a `switch` case, and every other abrupt completion. A case ending
+/// in one is a case the one above it does not fall into.
+fn always_leaves(stmt: &oxc_ast::ast::Statement) -> bool {
+    match stmt {
+        oxc_ast::ast::Statement::BreakStatement(_)
+        | oxc_ast::ast::Statement::ContinueStatement(_)
+        | oxc_ast::ast::Statement::ReturnStatement(_)
+        | oxc_ast::ast::Statement::ThrowStatement(_) => true,
+        oxc_ast::ast::Statement::BlockStatement(b) => b.body.last().is_some_and(always_leaves),
+        _ => false,
+    }
+}
+
 fn is_nullish_literal(expr: &Expression) -> bool {
     match expr {
         Expression::NullLiteral(_) => true,
@@ -1791,7 +1909,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `send` may be called without `init` ever having been. And it is walked
         // twice for the same reason a loop body is: a function called again
         // reads what its own last call left behind.
-        self.walked_twice(|v| walk::walk_function(v, func, flags));
+        self.read_until_it_settles(|v| walk::walk_function(v, func, flags));
         self.scopes.pop();
     }
 
@@ -1801,7 +1919,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     ) {
         self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
-        self.walked_twice(|v| walk::walk_arrow_function_expression(v, func));
+        self.read_until_it_settles(|v| walk::walk_arrow_function_expression(v, func));
         self.scopes.pop();
     }
 
@@ -1842,8 +1960,19 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// reads, and neither is what follows the statement.
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
+        // An arm that returns is a path the code after the statement is not on,
+        // so what it wrote is not a value that code can read: `if (t) { x = void
+        // 0; return } fetchQuery(op, {a: x})` sends `a` on every call that
+        // reaches it.
+        let returns = always_returns(&stmt.consequent);
         let Some(alternate) = &stmt.alternate else {
-            self.in_branch(|v| v.visit_statement(&stmt.consequent));
+            if returns {
+                self.scopes.enter_branch();
+                self.visit_statement(&stmt.consequent);
+                self.scopes.take_branch();
+            } else {
+                self.in_branch(|v| v.visit_statement(&stmt.consequent));
+            }
             return;
         };
         // Both arms start from the state before the statement, and the code
@@ -1855,7 +1984,14 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         self.scopes.enter_branch();
         self.visit_statement(alternate);
         let second = self.scopes.take_branch();
-        self.scopes.join_arms(first, second);
+        // With one arm returning, the code after the statement is on the other
+        // arm and on no other path, so that arm answers for it alone.
+        match (returns, always_returns(alternate)) {
+            (true, true) => {}
+            (true, false) => self.scopes.join_all_arms(vec![second], true),
+            (false, true) => self.scopes.join_all_arms(vec![first], true),
+            (false, false) => self.scopes.join_arms(first, second),
+        }
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
@@ -1882,7 +2018,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // Round again: every iteration after the first reads what the body and
         // the update left behind. `for (; t; x = void 0) { fetchQuery(op, {a:
         // x}) }` sends `a` once and omits it thereafter.
-        self.walked_twice(|v| {
+        self.read_until_it_settles(|v| {
             v.visit_statement(&stmt.body);
             if let Some(update) = &stmt.update {
                 v.visit_expression(update);
@@ -1897,7 +2033,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `undefined`, however little this pass knows about the object.
         self.scopes.push_block();
         self.visit_expression(&stmt.right);
-        self.walked_twice(|v| {
+        self.read_until_it_settles(|v| {
             match stmt.left.as_assignment_target() {
                 Some(target) => {
                     let mut names = Vec::new();
@@ -1931,7 +2067,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // rewrites it per element, with whatever the list holds.
         self.scopes.push_block();
         self.visit_expression(&stmt.right);
-        self.walked_twice(|v| {
+        self.read_until_it_settles(|v| {
             match stmt.left.as_assignment_target() {
                 Some(target) => {
                     let mut names = Vec::new();
@@ -1952,11 +2088,11 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
-        self.walked_twice(|v| walk::walk_while_statement(v, stmt));
+        self.read_until_it_settles(|v| walk::walk_while_statement(v, stmt));
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
-        self.walked_twice(|v| walk::walk_do_while_statement(v, stmt));
+        self.read_until_it_settles(|v| walk::walk_do_while_statement(v, stmt));
     }
 
     /// Each case from the state before the statement: a `break` makes them
@@ -1977,7 +2113,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.scopes.carry(&falls_through);
             self.visit_switch_case(case);
             let exits = self.scopes.take_branch();
-            falls_through = exits.clone();
+            falls_through = match case.consequent.last().is_some_and(always_leaves) {
+                true => Vec::new(),
+                false => exits.clone(),
+            };
             arms.push(exits);
         }
         self.scopes.join_all_arms(arms, has_default);
@@ -2216,6 +2355,13 @@ impl CallSiteCollector<'_> {
         {
             self.visit_argument(second);
         }
+        // The arguments after it run before the call does, and one of them can
+        // still reach an object the second argument only NAMES: `fetchQuery(op,
+        // v, delete v.a)` hands Relay a `v` without `a`. A literal is not
+        // reachable that way and was snapshotted where it was written.
+        for argument in call.arguments.iter().skip(2) {
+            self.visit_argument(argument);
+        }
         if !self.is_operation_call(call, handle) && self.is_ambiguous_call(call, handle) {
             // A Relay call in a module that sends several operations, whose
             // handle names no module at all. It may be this operation's, and
@@ -2264,9 +2410,6 @@ impl CallSiteCollector<'_> {
                 }
             }
         }
-        for argument in call.arguments.iter().skip(2) {
-            self.visit_argument(argument);
-        }
         // A helper handed a recovered object can do anything to it - delete a
         // key, overwrite one with `undefined` - and this pass reads no function
         // body it did not have to. The object stops being evidence. Relay's own
@@ -2274,10 +2417,18 @@ impl CallSiteCollector<'_> {
         // point it is passed.
         if !wa_oxc::callee_method(call).is_some_and(|m| FETCH_METHODS.contains(&m)) {
             for argument in call.arguments.iter().filter_map(Argument::as_expression) {
-                let Expression::Identifier(id) = argument else {
-                    continue;
-                };
-                self.stops_being_evidence(id.name.as_str());
+                match argument {
+                    Expression::Identifier(id) => self.stops_being_evidence(id.name.as_str()),
+                    // `mutate(v.input)` hands over a part of a recovered object,
+                    // and what that body does to it is a change to the one
+                    // object. Which subtree came back changed is not something
+                    // this pass follows, so the owner stops being evidence.
+                    other => {
+                        if let Some((base, _)) = member_path(other) {
+                            self.stops_being_evidence(base);
+                        }
+                    }
+                }
             }
             // `v.clear()` reaches the same object `clear(v)` does: the receiver
             // is handed to a body this pass does not read, exactly like an
@@ -2312,17 +2463,39 @@ impl<'a> CallSiteCollector<'a> {
     }
 
     /// Walk a body that runs more than once, then walk it again with what the
-    /// first pass left behind. The second reading is where a call after a write
-    /// meets the write: `while (t) { fetchQuery(op, {a: x}); x = void 0 }` sends
-    /// `a` on the first iteration and on no other. Its diagnostics are already
-    /// counted, and a replay does not start another.
-    fn walked_twice(&mut self, walk_body: impl Fn(&mut Self)) {
+    /// last pass left behind, until the bindings stop moving. The second reading
+    /// is where a call after a write meets the write: `while (t) { fetchQuery(op,
+    /// {a: x}); x = void 0 }` sends `a` on the first iteration and on no other.
+    ///
+    /// One reading back is not always enough - `while (t) { …{a: x}…; x = y; y =
+    /// void 0 }` takes three iterations to reach the call that omits the key -
+    /// so the body is read until a pass writes what the pass before it did, and
+    /// a body still moving after [`MAX_PASSES`] is one whose calls this pass
+    /// cannot claim to have read. Its diagnostics are counted once: a replay
+    /// does not start another.
+    fn read_until_it_settles(&mut self, walk_body: impl Fn(&mut Self)) {
         self.in_branch(|v| {
             walk_body(v);
-            if !v.replaying {
-                v.replaying = true;
+            if v.replaying {
+                return;
+            }
+            v.replaying = true;
+            let sites_before = v.sites.len();
+            let mut settled = false;
+            for _ in 0..MAX_PASSES {
+                let bindings = v.scopes.frames.clone();
                 walk_body(v);
-                v.replaying = false;
+                if v.scopes.frames == bindings {
+                    settled = true;
+                    break;
+                }
+            }
+            v.replaying = false;
+            // Still moving, and a call inside it read values no pass here
+            // reached. The sites it did recover are kept - they are real calls -
+            // beside one that says the reading is incomplete.
+            if !settled && v.sites.len() > sites_before {
+                v.unreadable_sites += 1;
             }
         });
     }
@@ -4126,6 +4299,79 @@ mod tests {
             &mut diag,
             &mut Vec::new(),
         );
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_body_is_read_until_its_bindings_settle() {
+        // Three iterations before the call stops sending `a`: the first two send
+        // it, and one reading back would have called the key unconditional.
+        let caller = r#"function f(t){var x=!0,y=!0;while(t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});x=y;y=void 0}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_left_operand_the_expression_keeps_is_the_value() {
+        // `!0 || void 0` never evaluates its right side, and neither does
+        // `0 ?? void 0`: deciding on the right operand made both omissible.
+        for caller in [
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0||void 0})}"#,
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:0??void 0})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+    }
+
+    #[test]
+    fn a_part_of_a_recovered_object_handed_over_withdraws_the_whole() {
+        // `mutate(v.input)` can clear the key inside it, and which subtree came
+        // back changed is not something this pass follows.
+        let caller = r#"function f(t){var v={input:{a:!0}};t.mutate(v.input);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        assert_eq!(at(&tree, "input"), VariablePresence::Undetermined);
+        assert!(
+            tree["input"].fields.is_empty(),
+            "an object this pass stopped reading answers for none of its keys"
+        );
+    }
+
+    #[test]
+    fn an_arm_that_returns_is_not_a_path_the_call_is_on() {
+        // Every call that reaches the request took the other path, on which the
+        // write inside the arm never happened.
+        let caller = r#"function f(t){var x=!0;if(t){x=void 0;return}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And the same for the arm that does not return: with the returning one
+        // gone, the other answers for the code after the statement alone.
+        let both = r#"function f(t){var x;if(t){return}else{x=!0}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(both, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_to_json_that_cannot_be_called_is_an_ordinary_key() {
+        // `JSON.stringify` consults the hook only when it is a function, so
+        // `{toJSON: null}` serializes the keys beside it as written.
+        let caller = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,toJSON:null})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // A function under that name still decides the object's serialization.
+        let hook = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,toJSON:function(){return{}}})}"#;
+        let (tree, _) = presence_of(hook, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_later_argument_still_reaches_an_object_the_call_only_names() {
+        // `v` is a reference, and the third argument runs before Relay is
+        // called: the object it receives has no `a` in it.
+        let caller = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v,delete v.a)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
