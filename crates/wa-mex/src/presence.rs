@@ -780,7 +780,7 @@ fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
             // stand. Reading the source as unknown withdrew them instead. Only
             // the two spellings that cannot be anything else - `undefined` is a
             // name, and this function has no scope to ask whether it is bound.
-            ObjectPropertyKind::SpreadProperty(s) => match nullish_sentinel(&s.argument) {
+            ObjectPropertyKind::SpreadProperty(s) => match spreads_nothing(&s.argument) {
                 true => Prop::Spread(Value::Object(Vec::new())),
                 false => Prop::Spread(convert(&s.argument, depth)),
             },
@@ -860,7 +860,7 @@ fn spread_keys(object: &ObjectExpression) -> Option<Vec<String>> {
             ObjectPropertyKind::ObjectProperty(p) => keys.push(static_key(&p.key)?),
             ObjectPropertyKind::SpreadProperty(spread) => match &spread.argument {
                 Expression::ObjectExpression(inner) => keys.extend(spread_keys(inner)?),
-                other if nullish_sentinel(other) => {}
+                other if spreads_nothing(other) => {}
                 _ => return None,
             },
         }
@@ -890,9 +890,10 @@ fn accessor_pairs(object: &ObjectExpression) -> Vec<bool> {
                             }
                             None => standing.clear(),
                         },
-                        // `...null` and `...void 0` write nothing at all, so
-                        // what stood before them stands after.
-                        other if nullish_sentinel(other) => {}
+                        // `...null`, `...!1`: a source with no key to copy
+                        // writes nothing at all, so what stood before it stands
+                        // after.
+                        other if spreads_nothing(other) => {}
                         _ => standing.clear(),
                     }
                 }
@@ -1430,7 +1431,10 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
             // that does not reach the wire.
             S::FunctionDeclaration(f) => {
                 if let Some(id) = &f.id {
-                    out.insert(id.name.as_str().to_string(), Value::MaybeUndefined);
+                    // Hoisted with its body, not just its name: the binding IS
+                    // the function from the top of the scope, so `x || !0` is
+                    // the function and its key never reaches the wire.
+                    out.insert(id.name.as_str().to_string(), Value::Dropped);
                 }
             }
             // A class binds its name for the block that declares it, and its
@@ -1870,6 +1874,44 @@ fn nullish_sentinel(expr: &Expression) -> bool {
     }
 }
 
+/// What a test is worth when it is written as a literal, and `None` when it is
+/// anything this pass would have to run to know. `!0` and `!1` are how the
+/// minifier spells the booleans.
+fn static_truth(expr: &Expression) -> Option<bool> {
+    match expr {
+        Expression::BooleanLiteral(b) => Some(b.value),
+        Expression::NumericLiteral(n) => Some(n.value != 0.0),
+        Expression::StringLiteral(s) => Some(!s.value.is_empty()),
+        Expression::NullLiteral(_) => Some(false),
+        Expression::UnaryExpression(u) => match u.operator {
+            UnaryOperator::LogicalNot => static_truth(&u.argument).map(|truth| !truth),
+            UnaryOperator::Void => Some(false),
+            _ => None,
+        },
+        Expression::ParenthesizedExpression(p) => static_truth(&p.expression),
+        _ => None,
+    }
+}
+
+/// Whether spreading this expression writes no key at all. A nullish source is
+/// ignored by object spread, and a boolean or a number carries no enumerable own
+/// property to copy. Not a string: `{..."ab"}` writes `0` and `1`.
+fn spreads_nothing(expr: &Expression) -> bool {
+    match expr {
+        Expression::BooleanLiteral(_) | Expression::NumericLiteral(_) => true,
+        Expression::BigIntLiteral(_) => true,
+        // `!0` and `!1` are how the minifier writes the booleans, and `-1` is a
+        // number however it is spelled.
+        Expression::UnaryExpression(u) => match u.operator {
+            UnaryOperator::LogicalNot => true,
+            UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus => spreads_nothing(&u.argument),
+            _ => nullish_sentinel(expr),
+        },
+        Expression::ParenthesizedExpression(p) => spreads_nothing(&p.expression),
+        _ => nullish_sentinel(expr),
+    }
+}
+
 fn is_nullish_literal(expr: &Expression) -> bool {
     match expr {
         Expression::NullLiteral(_) => true,
@@ -1941,6 +1983,51 @@ fn suspends_in(expression: &Expression) -> bool {
     let mut awaits = Awaits { found: false };
     awaits.visit_expression(expression);
     awaits.found
+}
+
+/// The names an argument hands to a body this pass does not read: the argument
+/// itself when it is one, and any name nested inside an object or array literal
+/// built around it, at any depth. `mutate({value: v})` reaches `v` as surely as
+/// `mutate(v)` does.
+fn handed_over(expr: &Expression) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_handed_over(expr, &mut out, 0);
+    out
+}
+
+fn collect_handed_over(expr: &Expression, out: &mut Vec<String>, depth: usize) {
+    if depth >= MAX_DEPTH {
+        return;
+    }
+    let next = depth + 1;
+    match expr {
+        Expression::ObjectExpression(object) => {
+            for property in &object.properties {
+                match property {
+                    ObjectPropertyKind::ObjectProperty(p) => {
+                        collect_handed_over(&p.value, out, next)
+                    }
+                    ObjectPropertyKind::SpreadProperty(s) => {
+                        collect_handed_over(&s.argument, out, next)
+                    }
+                }
+            }
+        }
+        Expression::ArrayExpression(array) => {
+            for element in &array.elements {
+                if let Some(expression) = element.as_expression() {
+                    collect_handed_over(expression, out, next);
+                }
+            }
+        }
+        Expression::ParenthesizedExpression(p) => collect_handed_over(&p.expression, out, next),
+        Expression::Identifier(id) => out.push(id.name.as_str().to_string()),
+        other => {
+            if let Some((base, _)) = member_path(other) {
+                out.push(base.to_string());
+            }
+        }
+    }
 }
 
 /// Whether an expression is reached through an optional link, so the call it is
@@ -2541,6 +2628,18 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// reads, and neither is what follows the statement.
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
+        // A test that is a literal decides the statement: `if (!1) fetchQuery(…)`
+        // is a call the client never makes, and its variables object is not
+        // evidence about anything. The arm that runs is not a branch either -
+        // the code after the statement is on it and on no other path.
+        if let Some(taken) = static_truth(&stmt.test) {
+            match (taken, &stmt.alternate) {
+                (true, _) => self.visit_statement(&stmt.consequent),
+                (false, Some(alternate)) => self.visit_statement(alternate),
+                (false, None) => {}
+            }
+            return;
+        }
         // An arm that returns is a path the code after the statement is not on,
         // so what it wrote is not a value that code can read: `if (t) { x = void
         // 0; return } fetchQuery(op, {a: x})` sends `a` on every call that
@@ -3192,17 +3291,13 @@ impl CallSiteCollector<'_> {
         // point it is passed.
         if !wa_oxc::callee_method(call).is_some_and(|m| FETCH_METHODS.contains(&m)) {
             for argument in call.arguments.iter().filter_map(Argument::as_expression) {
-                match argument {
-                    Expression::Identifier(id) => self.stops_being_evidence(id.name.as_str()),
-                    // `mutate(v.input)` hands over a part of a recovered object,
-                    // and what that body does to it is a change to the one
-                    // object. Which subtree came back changed is not something
-                    // this pass follows, so the owner stops being evidence.
-                    other => {
-                        if let Some((base, _)) = member_path(other) {
-                            self.stops_being_evidence(base);
-                        }
-                    }
+                // `mutate(v.input)` hands over a part of a recovered object,
+                // and what that body does to it is a change to the one object.
+                // Which subtree came back changed is not something this pass
+                // follows, so the owner stops being evidence. `mutate({value:
+                // v})` hands the same object over one wrapper down.
+                for name in handed_over(argument) {
+                    self.stops_being_evidence(&name);
                 }
             }
             // `v.clear()` reaches the same object `clear(v)` does: the receiver
@@ -3216,6 +3311,8 @@ impl CallSiteCollector<'_> {
 
     /// A recovered object handed somewhere this pass does not read stops
     /// answering for the keys it carries.
+    ///
+    /// See [`handed_over`] for the names one argument reaches.
     fn stops_being_evidence(&mut self, name: &str) {
         let owner = self.scopes.alias_target(name, 0);
         let carries_keys = matches!(
@@ -3320,7 +3417,7 @@ impl CallSiteCollector<'_> {
                     // A nullish source spreads nothing, the same as in
                     // `convert`. The name `undefined` is judged where the keys
                     // are classified, which is where the scopes are.
-                    let value = match nullish_sentinel(&spread.argument) {
+                    let value = match spreads_nothing(&spread.argument) {
                         true => Value::Object(Vec::new()),
                         false => self.spread_copy(&spread.argument),
                     };
@@ -3408,7 +3505,7 @@ impl CallSiteCollector<'_> {
                             });
                         }
                         ObjectPropertyKind::SpreadProperty(s) => {
-                            let value = match nullish_sentinel(&s.argument) {
+                            let value = match spreads_nothing(&s.argument) {
                                 true => Value::Object(Vec::new()),
                                 false => self.spread_copy(&s.argument),
                             };
@@ -5910,6 +6007,71 @@ mod tests {
         ] {
             let (tree, _) = presence_of(caller, &["a", "b"]);
             assert_eq!(at(&tree, "b"), VariablePresence::Undetermined);
+        }
+    }
+
+    #[test]
+    fn a_function_declaration_is_the_function_from_the_top() {
+        // A declaration is hoisted with its body, so the name IS the function
+        // everywhere in the scope: `x || !0` is the function, and a key holding
+        // one is not on the wire. Binding it as merely possibly-undefined took
+        // the fallback and called the key unconditional.
+        let caller = r#"function f(){function x(){}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x||!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_ne!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_spread_of_a_primitive_writes_nothing() {
+        // A boolean or a number has no enumerable own property to copy, so the
+        // spread is a no-op and the keys beside it stand. A string is not one of
+        // those: `{..."ab"}` writes `0` and `1`.
+        for caller in [
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...!1})}"#,
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...0})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+
+        let string =
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,..."ab"})}"#;
+        let (tree, _) = presence_of(string, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn an_arm_a_literal_test_never_takes_is_not_a_call_site() {
+        // `if (!1) fetchQuery(…)` is a request the client never sends, so its
+        // variables object says nothing about the operation. Merging it made a
+        // key every real call writes look omissible.
+        let dead = r#"function f(){if(!1)o("C").fetchQuery(n("WAWebFooQuery.graphql"),{});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, _) = presence_of(dead, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And the arm a literal test always takes is not a branch: the code
+        // after the statement is on it and on no other path.
+        let taken = r#"function f(){var x;if(!0)x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(taken, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // The `else` of a test that is never true is the path that runs.
+        let otherwise = r#"function f(){var x;if(!1)x=void 0;else x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(otherwise, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_object_built_around_a_recovered_one_hands_it_over() {
+        // `mutate({value: v})` reaches `v` as surely as `mutate(v)` does, and
+        // what that body leaves behind is not something this pass reads.
+        for caller in [
+            r#"function f(){var v={a:!0};g({value:v});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={a:!0};g([v]);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={a:!0};g({t:{u:[v]}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_ne!(at(&tree, "a"), VariablePresence::Always);
         }
     }
 
