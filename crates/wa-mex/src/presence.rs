@@ -103,6 +103,11 @@ enum Value {
     /// (a data property that a write DOES change) and `Dropped` (a function,
     /// which a write replaces with a number).
     WriteOnly,
+    /// A parameter's value: possibly undefined like any argument, and chosen by
+    /// the caller rather than by this module. Held apart from
+    /// [`Value::MaybeUndefined`] for the one question only the origin answers -
+    /// whether a module of one operation can claim the call a handle makes.
+    Given,
     /// An accessor with a getter: reading it runs a body this pass does not
     /// read, so the value is unjudged, and two things follow that a bare
     /// [`Value::Unjudged`] does not carry. A write leaves the accessor standing
@@ -940,7 +945,9 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
         Value::Defined | Value::Truthy | Value::Null | Value::Object(_) | Value::Array(_) => {
             Definedness::Defined
         }
-        Value::MaybeUndefined | Value::Dropped | Value::WriteOnly => Definedness::MaybeUndefined,
+        Value::MaybeUndefined | Value::Given | Value::Dropped | Value::WriteOnly => {
+            Definedness::MaybeUndefined
+        }
         Value::Unjudged | Value::Call(_) | Value::Getter => Definedness::Unjudged,
         // `a || b` is `b` only when `a` is falsy. A left side this pass knows to
         // be truthy is therefore the value, an object, an array and a function
@@ -1893,6 +1900,9 @@ fn static_truth(expr: &Expression) -> Option<bool> {
     match expr {
         Expression::BooleanLiteral(b) => Some(b.value),
         Expression::NumericLiteral(n) => Some(n.value != 0.0),
+        // `value` is the digits in base ten with the separators taken out, so
+        // `0n` is the one falsy bigint however it was spelled.
+        Expression::BigIntLiteral(b) => Some(b.value != "0"),
         Expression::StringLiteral(s) => Some(!s.value.is_empty()),
         Expression::NullLiteral(_) => Some(false),
         Expression::UnaryExpression(u) => match u.operator {
@@ -2047,7 +2057,30 @@ fn collect_handed_over(expr: &Expression, out: &mut Vec<String>, depth: usize) {
 /// what this module requires and nothing about what a caller passes in, so such a
 /// handle is not this operation's by elimination.
 fn supplied_from_outside(handle: &Value, scopes: &Scopes) -> bool {
-    matches!(scopes.resolve(handle, 0), Value::MaybeUndefined)
+    supplied_from_outside_at(handle, scopes, 0)
+}
+
+fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bool {
+    // A handle this pass cannot finish reading is one it cannot vouch for.
+    if depth >= MAX_DEPTH {
+        return true;
+    }
+    let next = depth + 1;
+    match scopes.resolve(handle, 0) {
+        Value::Given => true,
+        // `fetchQuery(e || s, …)` sends the parameter whenever the caller
+        // passed one, so a handle from outside on either side is a handle from
+        // outside. The memoised require the minifier writes - `e !== void 0 ? e
+        // : e = n("X.graphql")` - is not one of those: neither arm came from a
+        // caller, and the undefined one is the memo slot before it is filled.
+        Value::OrElse(a, b)
+        | Value::Coalesce(a, b)
+        | Value::AndThen(a, b)
+        | Value::Either(a, b) => {
+            supplied_from_outside_at(a, scopes, next) || supplied_from_outside_at(b, scopes, next)
+        }
+        _ => false,
+    }
 }
 
 /// Whether an expression is reached through an optional link, so the call it is
@@ -3568,7 +3601,7 @@ impl CallSiteCollector<'_> {
                 .filter(|_| plain)
                 .map(|d| convert(d, 0));
             for ident in item.pattern.get_binding_identifiers() {
-                let value = default.clone().unwrap_or(Value::MaybeUndefined);
+                let value = default.clone().unwrap_or(Value::Given);
                 self.scopes.bind(ident.name.as_str(), value);
             }
         }
@@ -6146,6 +6179,39 @@ mod tests {
             VariablePresence::Undetermined,
             "a handle the module did not require is not its operation"
         );
+    }
+
+    #[test]
+    fn a_handle_from_outside_is_still_outside_behind_a_fallback() {
+        // `fetchQuery(e || s, …)` sends the parameter whenever the caller
+        // passed one, so the module's own operation on the other side of the
+        // fallback does not make the call this operation's.
+        let caller = r#"function m(t,n,r,o,a,i,l){var s=n("WAWebFooQuery.graphql");function d(e){return o("WAWebRelayClient").fetchQuery(e||s,{a:!0})}}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let out = variables_presence(
+            &[(caller, true)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
+        assert_eq!(out["a"].presence, VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_bigint_test_is_read_like_any_other_literal() {
+        // `0n` is the one falsy bigint, so the arm behind it is dead code and
+        // the call written there is not one the client makes.
+        let dead = r#"function f(){if(0n)o("C").fetchQuery(n("WAWebFooQuery.graphql"),{});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, _) = presence_of(dead, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And any other bigint is truthy, so the arm behind THAT one is the
+        // path the code takes.
+        let live = r#"function f(){var x;if(1n)x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(live, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
