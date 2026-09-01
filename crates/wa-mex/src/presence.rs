@@ -1085,8 +1085,11 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
             _ => definedness(rhs, scopes, next),
         },
         // `a && b` is `b` whenever `a` is truthy, and a function always is.
+        // `null && b` is `null`, a value `JSON.stringify` writes, so the right
+        // side never gets to decide there.
         Value::AndThen(lhs, rhs) => match scopes.resolve(lhs, 0) {
             Value::Dropped => definedness(rhs, scopes, next),
+            Value::Null => Definedness::Defined,
             _ => definedness(lhs, scopes, next).max(definedness(rhs, scopes, next)),
         },
         Value::Either(a, b) => definedness(a, scopes, next).max(definedness(b, scopes, next)),
@@ -1142,9 +1145,14 @@ fn may_be_undefined(value: &Value, scopes: &Scopes, depth: usize) -> bool {
             | Value::Dropped => false,
             _ => may_be_undefined(rhs, scopes, next),
         },
-        // `a && b` is `a` when `a` is falsy and `b` when it is not, so either
-        // side reaching `undefined` is enough.
-        Value::AndThen(lhs, rhs) | Value::Either(lhs, rhs) => {
+        // `a && b` is `a` when `a` is falsy and `b` when it is not. `null && b`
+        // is therefore `null`, which is a value and not `undefined`, whatever
+        // the right side holds.
+        Value::AndThen(lhs, rhs) => match scopes.resolve(lhs, 0) {
+            Value::Null => false,
+            _ => may_be_undefined(lhs, scopes, next) || may_be_undefined(rhs, scopes, next),
+        },
+        Value::Either(lhs, rhs) => {
             may_be_undefined(lhs, scopes, next) || may_be_undefined(rhs, scopes, next)
         }
         Value::Ref(name) => match scopes.lookup(name) {
@@ -7255,6 +7263,22 @@ mod tests {
         let caller = r#"function f(){var v={a:!0};var{x=1}={x:v};delete x.a;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_null_left_side_decides_an_and_on_its_own() {
+        // `null && b` is `null` whatever `b` holds: the right side is not
+        // evaluated. A key holding it is on the wire, because `JSON.stringify`
+        // writes `null`, and a parameter holding it keeps it rather than taking
+        // a default. Asking both sides and keeping the worse answer read the
+        // right side where nothing reaches it.
+        let key = r#"function f(t){var v=null;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:v&&t.u})}"#;
+        let (tree, _) = presence_of(key, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        let default = r#"function f(t){var v=null;return(function(x=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(v&&t.u)}"#;
+        let (tree, _) = presence_of(default, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
