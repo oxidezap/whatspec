@@ -725,13 +725,10 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         | Expression::PrivateFieldExpression(_)
         | Expression::ChainExpression(_) => Value::MaybeUndefined,
 
-        Expression::Identifier(id) => {
-            if id.name.as_str() == "undefined" {
-                Value::MaybeUndefined
-            } else {
-                Value::Ref(id.name.as_str().to_string())
-            }
-        }
+        // `undefined` too: it is a name like any other, and a binding of that
+        // spelling holds whatever it was given. With nothing bound to it, the
+        // reference resolves to nothing, which is the value it is named for.
+        Expression::Identifier(id) => Value::Ref(id.name.as_str().to_string()),
 
         // `x++` / `++x` evaluate to a number: `NaN` when the operand was not one,
         // which serializes as `null` with the key still there.
@@ -891,6 +888,16 @@ fn classify_object_reporting(
                 // of them is conditional. An ungated spread of a literal passes
                 // its keys through unchanged.
                 let (source, gated) = spread_source(source, scopes);
+                // `...undefined` where nothing has bound that name spreads
+                // nothing, the same as `...null`. It is read here rather than in
+                // `convert`, which has no scopes to ask with - and a binding of
+                // that spelling holds whatever it was given, so it falls through
+                // to the unreadable arm below.
+                if matches!(source, Value::Ref(name) if name == "undefined")
+                    && scopes.lookup("undefined").is_none()
+                {
+                    continue;
+                }
                 let floor = if gated {
                     VariablePresence::Conditional
                 } else {
@@ -2687,15 +2694,9 @@ impl CallSiteCollector<'_> {
                 ObjectPropertyKind::SpreadProperty(spread) => {
                     self.visit_expression(&spread.argument);
                     // A nullish source spreads nothing, the same as in
-                    // `convert` - plus the name `undefined` where nothing has
-                    // bound it, which here there is a scope to ask.
-                    let bare_undefined = matches!(
-                        &spread.argument,
-                        Expression::Identifier(id)
-                            if id.name.as_str() == "undefined"
-                                && self.scopes.lookup("undefined").is_none()
-                    );
-                    let value = match nullish_sentinel(&spread.argument) || bare_undefined {
+                    // `convert`. The name `undefined` is judged where the keys
+                    // are classified, which is where the scopes are.
+                    let value = match nullish_sentinel(&spread.argument) {
                         true => Value::Object(Vec::new()),
                         false => self.settled(&spread.argument),
                     };
@@ -4660,6 +4661,19 @@ mod tests {
         let bare = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,...undefined})}"#;
         let (tree, _) = presence_of(bare, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // The same one object deeper, where the keys are read against the same
+        // scopes: a nested literal is not a place the name means something else.
+        let nested = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0,...undefined}})}"#;
+        let (tree, _) = presence_of(nested, &["input"]);
+        assert_eq!(tree["input"].fields["a"].presence, VariablePresence::Always);
+
+        let shadowed = r#"function f(undefined){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{a:!0,...undefined}})}"#;
+        let (tree, _) = presence_of(shadowed, &["input"]);
+        assert_eq!(
+            tree["input"].fields["a"].presence,
+            VariablePresence::Undetermined
+        );
     }
 
     #[test]
