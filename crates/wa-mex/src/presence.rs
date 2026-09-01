@@ -3233,7 +3233,19 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             Expression::ArrayExpression(array) => array
                 .elements
                 .iter()
-                .map(|e| e.as_expression().map(|e| convert(e, 0)))
+                .map(|e| {
+                    e.as_expression().map(|e| {
+                        // Taken where the list is evaluated: a name written
+                        // inside the body cannot reach back into an element the
+                        // loop already read. An object keeps its reference, so
+                        // a write through the binding still reaches it.
+                        let value = convert(e, 0);
+                        match self.scopes.resolve(&value, 0) {
+                            Value::Object(_) | Value::Array(_) => value,
+                            _ => settle(&value, &self.scopes, 0),
+                        }
+                    })
+                })
                 .collect::<Option<Vec<Value>>>()
                 .and_then(|values| values.into_iter().reduce(either)),
             _ => None,
@@ -7834,6 +7846,27 @@ mod tests {
         // A list this pass cannot read leaves the binding alone.
         let unknown = r#"function f(t){for(let x of t.list)return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
         let (tree, _) = presence_of(unknown, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_list_element_is_read_where_the_list_is() {
+        // The iterable is evaluated once, before any iteration, so a name
+        // written inside the body cannot reach back into an element the loop
+        // already read.
+        let after = r#"function f(){var y;for(let x of [y]){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});y=!0}}"#;
+        let (tree, _) = presence_of(after, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // What the name held when the list was written is what the binding gets.
+        let before = r#"function f(){var y=!0;for(let x of [y]){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(before, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // An object element keeps its reference, so a write through the binding
+        // reaches the object the call is handed.
+        let object = r#"function f(){var v={a:!0};for(let x of [v]){delete x.a}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(object, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
