@@ -109,7 +109,16 @@ BASELINE = {
     # `conditional` on the empty arm alone. Nothing was known about them, and that is
     # what this number is for. Back to 105 when a caller module indexed twice stopped
     # lending one operation a key that belongs to another.
-    "mex variable with an undetermined presence": 105,
+    #
+    # Rose to 108 when the sole-operation shortcut stopped claiming a handle the module
+    # cannot be shown to require. A caller that depends on exactly one `.graphql` module
+    # was reading every call whose handle it could not follow as that operation's, and a
+    # handle read off something the module was given - `t.handle`, or the binding a `var
+    # h = t.handle` leaves - is not one the dependency says anything about. The three
+    # keys are `DebugLabyrinthRange`, whose handle IS its own memoised require and is
+    # simply not followed that far; they are withdrawn rather than published on a rule
+    # that also claims another operation's variables.
+    "mex variable with an undetermined presence": 108,
     # Operations where the verdict is `undetermined` for EVERY variable - no call site
     # was recovered, or the one that was writes nothing this classifier reads. Pinned
     # beside the per-key count because a single key regaining a verdict moves that number
@@ -117,7 +126,13 @@ BASELINE = {
     # failure from an operation with one unreadable field, and only this sees it.
     # `manifest.diagnostics.mex.dropsByReason` splits the two causes; from the document
     # alone they are indistinguishable, so the name says what is actually measured.
-    "mex operation with no established variable presence": 12,
+    #
+    # Rose to 13 with the same change that took the per-key count to 108: all three of
+    # `DebugLabyrinthRange`'s variables were the withdrawn ones, so the operation joins
+    # the ones a consumer can say nothing about. This is the number to watch if the
+    # handle resolution learns to follow a memoised require through a nested body -
+    # that operation is the one it would win back.
+    "mex operation with no established variable presence": 13,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
     # because the alternative to dropping it is publishing `["regular"]` over a policy WA
     # stated and we failed to read — so a rise here is a channel rule going missing, not

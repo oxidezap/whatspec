@@ -1638,13 +1638,13 @@
       },
       "variablesPresence": {
         "device_id": {
-          "presence": "conditional"
+          "presence": "undetermined"
         },
         "message_count": {
-          "presence": "conditional"
+          "presence": "undetermined"
         },
         "partial_thread_id": {
-          "presence": "conditional"
+          "presence": "undetermined"
         }
       },
       "response": {

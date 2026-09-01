@@ -103,6 +103,12 @@ enum Value {
     /// (a data property that a write DOES change) and `Dropped` (a function,
     /// which a write replaces with a number).
     WriteOnly,
+    /// A property read this pass could not follow: `t.handle`, and the binding a
+    /// `var h = t.handle` leaves behind. Possibly undefined like any read, and
+    /// held apart from [`Value::MaybeUndefined`] for the same reason
+    /// [`Value::Given`] is - what a module requires is not what its caller hands
+    /// it, and an operation handle read off an object is neither.
+    Read,
     /// A parameter's value: possibly undefined like any argument, and chosen by
     /// the caller rather than by this module. Held apart from
     /// [`Value::MaybeUndefined`] for the one question only the origin answers -
@@ -754,7 +760,7 @@ fn convert(expr: &Expression, depth: usize) -> Value {
         Expression::StaticMemberExpression(_)
         | Expression::ComputedMemberExpression(_)
         | Expression::PrivateFieldExpression(_)
-        | Expression::ChainExpression(_) => Value::MaybeUndefined,
+        | Expression::ChainExpression(_) => Value::Read,
 
         // `undefined` too: it is a name like any other, and a binding of that
         // spelling holds whatever it was given. With nothing bound to it, the
@@ -951,7 +957,7 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
         Value::Defined | Value::Truthy | Value::Null | Value::Object(_) | Value::Array(_) => {
             Definedness::Defined
         }
-        Value::MaybeUndefined | Value::Given | Value::Dropped | Value::WriteOnly => {
+        Value::MaybeUndefined | Value::Read | Value::Given | Value::Dropped | Value::WriteOnly => {
             Definedness::MaybeUndefined
         }
         Value::Unjudged | Value::Call(_) | Value::Getter => Definedness::Unjudged,
@@ -2121,7 +2127,11 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
     }
     let next = depth + 1;
     match scopes.resolve(handle, 0) {
-        Value::Given => true,
+        // Neither a parameter nor a property read is a handle the module can be
+        // shown to require, and `var h = e.handle` carries the read into the
+        // binding. A name nothing wrote is not one of those: the memoised
+        // require reads as that on the arm taken before it is filled.
+        Value::Given | Value::Read => true,
         // `fetchQuery(e || s, …)` sends the parameter whenever the caller
         // passed one, so a handle from outside on either side is a handle from
         // outside. The memoised require the minifier writes - `e !== void 0 ? e
@@ -6636,6 +6646,21 @@ mod tests {
         let after = r#"function f(){var x=!0;o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:function(){x=void 0},a:x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
         let (tree, _) = presence_of(after, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn probe_alias_handle() {
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let aliased = r#"function m(t,n,r,o,a,i,l){function d(e){var h=e.handle;return o("WAWebRelayClient").fetchQuery(h,{a:!0})}}"#;
+        let out = variables_presence(
+            &[(aliased, true)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
+        println!("aliased handle: {:?}", out.get("a").map(|n| n.presence));
     }
 
     #[test]
