@@ -2154,6 +2154,25 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
     }
 }
 
+/// What one argument of a direct call hands its parameter: the value it settled
+/// to, or nothing at all when it is written `void 0`, which a default replaces
+/// the same way it replaces an argument that was never passed. `null` is not one
+/// of those: a default does not stand in for it.
+fn argument_value(argument: &Argument, scopes: &Scopes, settled: Option<Value>) -> Option<Value> {
+    let expression = argument.as_expression()?;
+    let undefined = match expression {
+        Expression::Identifier(id) if id.name.as_str() == "undefined" => {
+            scopes.lookup("undefined").is_none()
+        }
+        Expression::UnaryExpression(u) => u.operator == UnaryOperator::Void,
+        _ => false,
+    };
+    match undefined {
+        true => None,
+        false => settled.or(Some(Value::Unjudged)),
+    }
+}
+
 /// Whether an expression only DEFINES a function: building it runs no body, so
 /// what the body writes is not something the code beside it has seen. A class is
 /// one too, through the methods it carries.
@@ -2578,7 +2597,10 @@ struct CallSiteCollector<'d> {
     /// only as far as its first `await` before the call returns.
     suspends: bool,
     /// The values a direct call passes, for the parameters of the body it runs.
-    call_arguments: Option<Vec<Value>>,
+    /// `None` in the slot for an argument written `void 0`: a parameter with a
+    /// default takes the default for that one, exactly as it does for an
+    /// argument that is not there at all.
+    call_arguments: Option<Vec<Option<Value>>>,
     /// Whether this pass is a second reading of a body already walked - a loop
     /// on its way round again. Its call sites are real and are kept; what it
     /// could not read was already counted the first time.
@@ -3405,10 +3427,17 @@ impl CallSiteCollector<'_> {
         // Read where it is passed: the variables object built after it can
         // rebind the name the handle came from, and the call still sends what
         // that name held here.
+        // Each argument's value as it is evaluated, for the parameters of a body
+        // this call runs. Taken here rather than afterwards: `(function(x){…
+        // })(y, y = void 0)` hands `x` the `y` of the moment it was read, and
+        // reading them all at the end would hand it the one the second argument
+        // installed.
+        let mut passed: Vec<Option<Value>> = Vec::with_capacity(call.arguments.len());
         let mut handle = None;
         if let Some(argument) = call.arguments.first() {
             self.visit_argument(argument);
             handle = argument.as_expression().map(|e| self.settled(e));
+            passed.push(argument_value(argument, &self.scopes, handle.clone()));
         }
         let handle = handle.as_ref();
         // The variables object is built property by property, and a later one
@@ -3425,6 +3454,10 @@ impl CallSiteCollector<'_> {
             && let Some(argument) = call.arguments.get(1)
         {
             self.visit_argument(argument);
+        }
+        if let Some(argument) = call.arguments.get(1) {
+            let value = second.map(|expression| self.settled(expression));
+            passed.push(argument_value(argument, &self.scopes, value));
         }
         // The second argument is evaluated HERE, though the call happens after
         // the arguments that follow it: one of those can point the name at
@@ -3445,20 +3478,14 @@ impl CallSiteCollector<'_> {
         // reachable that way and was snapshotted where it was written.
         for argument in call.arguments.iter().skip(2) {
             self.visit_argument(argument);
+            let value = argument
+                .as_expression()
+                .map(|expression| self.settled(expression));
+            passed.push(argument_value(argument, &self.scopes, value));
         }
         if runs_here {
-            // Read after the arguments, which is where they are evaluated, so
-            // each parameter gets the value its own call wrote.
-            let passed: Vec<Value> = call
-                .arguments
-                .iter()
-                .map(|argument| match argument.as_expression() {
-                    Some(expression) => self.settled(expression),
-                    // A spread stands for any number of arguments, so nothing
-                    // after it lines up with a parameter this pass can name.
-                    None => Value::Unjudged,
-                })
-                .collect();
+            // A spread stands for any number of arguments, so nothing after it
+            // lines up with a parameter this pass can name.
             let spread = call
                 .arguments
                 .iter()
@@ -3575,6 +3602,46 @@ impl CallSiteCollector<'_> {
         }
     }
 
+    /// The parts of a class that run where it is written: what it extends, the
+    /// computed keys of its members, its static blocks and the initializers of
+    /// its static fields.
+    fn visit_class_definition<'a>(&mut self, class: &oxc_ast::ast::Class<'a>) {
+        use oxc_ast::ast::ClassElement as E;
+        if let Some(super_class) = &class.super_class {
+            self.visit_expression(super_class);
+        }
+        for element in &class.body.body {
+            match element {
+                E::StaticBlock(block) => self.visit_static_block(block),
+                E::PropertyDefinition(property) if property.r#static => {
+                    if let Some(value) = &property.value {
+                        self.visit_expression(value);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The parts that wait for something to call them: every method body, and
+    /// the initializer of an instance field, which runs on `new`.
+    fn visit_class_bodies<'a>(&mut self, class: &oxc_ast::ast::Class<'a>) {
+        use oxc_ast::ast::ClassElement as E;
+        for element in &class.body.body {
+            match element {
+                E::MethodDefinition(method) => {
+                    self.visit_function(&method.value, oxc_syntax::scope::ScopeFlags::empty())
+                }
+                E::PropertyDefinition(property) if !property.r#static => {
+                    if let Some(value) = &property.value {
+                        self.visit_expression(value);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// A recovered object handed somewhere this pass does not read stops
     /// answering for the keys it carries.
     ///
@@ -3680,13 +3747,23 @@ impl CallSiteCollector<'_> {
                     // stands. What such a body writes is held back and joined
                     // once the object is built, where a later call could have
                     // made it.
-                    match defines_a_function(&p.value) {
-                        true => {
+                    match &p.value {
+                        value if defines_a_function(value) => {
                             self.scopes.enter_branch();
-                            self.visit_expression(&p.value);
+                            self.visit_expression(value);
                             deferred.extend(self.scopes.take_branch());
                         }
-                        false => self.visit_expression(&p.value),
+                        // A class runs its static blocks and static field
+                        // initializers where it is written and nothing else:
+                        // the method bodies wait for a call, and an instance
+                        // field for a `new`.
+                        Expression::ClassExpression(class) => {
+                            self.visit_class_definition(class);
+                            self.scopes.enter_branch();
+                            self.visit_class_bodies(class);
+                            deferred.extend(self.scopes.take_branch());
+                        }
+                        value => self.visit_expression(value),
                     }
                     let value = accessor(p, paired).unwrap_or_else(|| self.hold(&p.value));
                     props.push(match key {
@@ -3844,12 +3921,31 @@ impl CallSiteCollector<'_> {
                 // the parameter is a plain name: a destructured one is a shape
                 // this pass does not take apart, and a missing argument leaves
                 // the default or the `undefined` any call may have passed.
+                // What the call passed for this position, when this is that
+                // call's own body and the parameter is a plain name: a
+                // destructured one is a shape this pass does not take apart.
                 let argument = passed
                     .as_ref()
                     .filter(|_| plain)
                     .and_then(|values| values.get(index))
                     .cloned();
-                let value = argument.or_else(|| default.clone()).unwrap_or(Value::Given);
+                let value = match (argument, default.clone()) {
+                    // `f(void 0)` and `f()` both take the default, which is what
+                    // the empty slot says.
+                    (Some(None) | None, Some(default)) => default,
+                    (Some(Some(passed)), Some(default)) => {
+                        // A value that MAY be undefined is one of the two: the
+                        // argument on the calls that pass something, the default
+                        // on the calls that pass `undefined`.
+                        match definedness(&passed, &self.scopes, 0) {
+                            Definedness::Defined => passed,
+                            _ => either(passed, default),
+                        }
+                    }
+                    (Some(Some(passed)), None) => passed,
+                    (Some(None), None) => Value::MaybeUndefined,
+                    (None, None) => Value::Given,
+                };
                 self.scopes.bind(ident.name.as_str(), value);
             }
         }
@@ -6772,6 +6868,58 @@ mod tests {
             &mut Vec::new(),
         );
         assert_eq!(out["a"].presence, VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn each_argument_is_read_where_it_is_evaluated() {
+        // `(function(x){…})(y, y = void 0)` hands `x` the `y` of the moment it
+        // was read. Reading the arguments after they had all run handed it the
+        // one the second argument installed.
+        let caller = r#"function f(){var y=!0;return(function(x){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(y,y=void 0)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_default_stands_in_for_an_undefined_argument() {
+        // JS substitutes a default for `undefined` and for no argument alike.
+        for caller in [
+            r#"function f(){return(function(x=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(void 0)}"#,
+            r#"function f(){return(function(x=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})()}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+
+        // Not for `null`, which is a value the parameter keeps - and a key on
+        // the wire, since `JSON.stringify` writes it.
+        let null = r#"function f(){return(function(x=void 0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(null)}"#;
+        let (tree, _) = presence_of(null, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // An argument that may or may not be undefined is one of the two.
+        let unknown = r#"function f(t){return(function(x=!0){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(t.maybe)}"#;
+        let (tree, _) = presence_of(unknown, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_class_waits_for_a_call_and_a_new() {
+        // A method body waits for a call and an instance field for a `new`, so
+        // neither has run when the property beside the class is read.
+        let method = r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{m(){x=void 0}},a:x})}"#;
+        let (tree, _) = presence_of(method, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // A static block and a static field initializer run where the class is
+        // written, and what they leave behind IS what the next property reads.
+        for caller in [
+            r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{static{x=void 0}},a:x})}"#,
+            r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{static p=(x=void 0)},a:x})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
     }
 
     #[test]

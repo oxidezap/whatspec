@@ -225,19 +225,22 @@ pub fn extract_mex_from_modules_with_diagnostics(
     // bundles) and the persisted-id strings exported by relay-operation siblings.
     let mut raw_ops: Vec<RawOp> = Vec::new();
     let mut exported_ids: HashMap<String, String> = HashMap::new();
+    let mut seen_relay_ops: HashSet<&str> = HashSet::new();
     let mut seen_modules: HashSet<&str> = HashSet::new();
     for def in module_defs {
         let name = def.name.as_str();
         let slice = &source[def.start..def.end];
         if name.ends_with(RELAY_OP_SUFFIX) {
-            if let Some(id) = module_exported_string(slice) {
-                // First occurrence wins, the rule the operation scan below and
-                // the caller index above both follow: two definitions of one
-                // module in a concatenated bundle can export different ids, and
-                // the first is the one the runtime keeps. Overwriting paired the
-                // first operation with a later shard's id, which is an id for
-                // another version of the document or another document.
-                exported_ids.entry(name.to_string()).or_insert(id);
+            // First occurrence wins, the rule the operation scan below and the
+            // caller index above both follow: two definitions of one module in a
+            // concatenated bundle can export different ids, and the first is the
+            // one the runtime keeps. Read on the NAME rather than on what was
+            // recovered, so a first definition this pass cannot read leaves the
+            // id absent rather than letting a later shard answer for it.
+            if seen_relay_ops.insert(name)
+                && let Some(id) = module_exported_string(slice)
+            {
+                exported_ids.insert(name.to_string(), id);
             }
             continue;
         }
@@ -748,6 +751,21 @@ mod tests {
         }),null);"#;
         let ir = extract_mex(m, "2.3000.1");
         assert_eq!(ir.operations.get("GetThing").unwrap().doc_id, "999111");
+
+        // And a first definition this pass cannot read leaves the id absent
+        // rather than letting the later shard answer for it: the name falls
+        // back to itself, which is what an unresolved id has always done.
+        let unreadable = r#"
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports=q()}),null);
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports="222222"}),null);
+        __d("WAWebGetThingQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"q"}],name:"WAWebGetThingQuery"},operation:{argumentDefinitions:[],name:"WAWebGetThingQuery"},params:{id:n("WAWebGetThingQuery_facebookRelayOperation"),name:"WAWebGetThingQuery",operationKind:"query"}}
+        }),null);"#;
+        let ir = extract_mex(unreadable, "2.3000.1");
+        assert_eq!(
+            ir.operations.get("GetThing").unwrap().doc_id,
+            "WAWebGetThingQuery"
+        );
     }
 
     #[test]
