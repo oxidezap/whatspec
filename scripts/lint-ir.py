@@ -107,7 +107,8 @@ BASELINE = {
     # `isStringNullOrEmpty(t.input) ? {} : t`: one arm is an empty object and the other
     # hands over the whole parameter, so its four variables were published as
     # `conditional` on the empty arm alone. Nothing was known about them, and that is
-    # what this number is for.
+    # what this number is for. Back to 105 when a caller module indexed twice stopped
+    # lending one operation a key that belongs to another.
     "mex variable with an undetermined presence": 105,
     # Operations where the verdict is `undetermined` for EVERY variable - no call site
     # was recovered, or the one that was writes nothing this classifier reads. Pinned
@@ -1316,8 +1317,11 @@ def check_mex(data, domain, errors, counts):
         if not isinstance(op, dict):
             errors.append(f"{domain}/{name}: operation is not an object")
             continue
-        shape = op.get("variablesShape") or {}
-        presence = op.get("variablesPresence") or {}
+        # `.get(key, {})` and not `or {}`: an operation declaring no variables omits
+        # both keys, and a document carrying `[]` or `""` under one of them is
+        # malformed - normalizing that to an empty map reported nothing at all.
+        shape = op.get("variablesShape", {})
+        presence = op.get("variablesPresence", {})
         _check_presence_level(f"{domain}/{name}", shape, presence, errors, counts)
         # An operation nothing is established about: no call site was recovered, or the
         # one that was writes only values this classifier does not read. Which of the two
@@ -1359,7 +1363,7 @@ def _check_presence_level(path, shape, presence, errors, counts):
         # the element of a list, so either on the wrong shape is a verdict about keys that
         # are not there.
         if isinstance(typed, dict):
-            _check_presence_level(here, typed, node.get("fields") or {}, errors, counts)
+            _check_presence_level(here, typed, node.get("fields", {}), errors, counts)
         elif node.get("fields"):
             errors.append(f"{here}: nested field verdicts on a variable that is not an object")
         element = typed[0] if isinstance(typed, list) and typed else None
@@ -1976,12 +1980,14 @@ def main() -> int:
             # A marker only counts when the object HAS a type: an assertion carries
             # `referencePath` too, and flagging those as untyped fields was the first
             # version of this check reporting four contradictions that were not.
-            # `type` has to BE a type name. Mex publishes user data under that key -
-            # a GraphQL variable named `type`, whose presence verdict is an object -
-            # and an unhashable value there aborted the whole run on a `in` test.
+            # A KNOWN type has to be a string: an unhashable value under that key
+            # aborts an `in` test, and a document is data that can carry anything.
+            # The marker clause asks only whether the key is there, so a field whose
+            # `type` is not a string is reported as an unrecognized type rather than
+            # excused from every check below.
             declared = node.get("type")
             known = isinstance(declared, str) and declared in FIELD_TYPES
-            marked = isinstance(declared, str) and any(k in node for k in FIELD_MARKERS)
+            marked = "type" in node and any(k in node for k in FIELD_MARKERS)
             if known or marked:
                 if not known:
                     errors.append(
