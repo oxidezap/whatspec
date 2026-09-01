@@ -3226,6 +3226,18 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.scopes.pop();
             return;
         }
+        // What the list holds, when it is written where it is iterated: every
+        // element folded, since the binding is each of them in turn. A hole or a
+        // spread is an element this pass cannot name, and then it has none.
+        let element = match &stmt.right {
+            Expression::ArrayExpression(array) => array
+                .elements
+                .iter()
+                .map(|e| e.as_expression().map(|e| convert(e, 0)))
+                .collect::<Option<Vec<Value>>>()
+                .and_then(|values| values.into_iter().reduce(either)),
+            _ => None,
+        };
         self.read_until_it_settles(|v| {
             match stmt.left.as_assignment_target() {
                 Some(target) => {
@@ -3238,6 +3250,17 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 None => {
                     if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &stmt.left {
                         v.visit_variable_declaration(decl);
+                        // `for (const x of [!0])` writes `x` with one of the
+                        // list's own elements, and the list is right here. Every
+                        // element, because the body runs once for each of them.
+                        if let Some(element) = element.clone()
+                            && let Some(name) = decl
+                                .declarations
+                                .first()
+                                .and_then(|d| d.id.get_identifier_name())
+                        {
+                            v.scopes.bind(name.as_str(), element);
+                        }
                     }
                 }
             }
@@ -3865,6 +3888,25 @@ impl CallSiteCollector<'_> {
                 .arguments
                 .iter()
                 .any(|argument| argument.as_expression().is_none());
+            // A name that holds a recovered object is handed over as the object
+            // itself, not as a copy of it: `(function (u) { delete u.a })(v)`
+            // takes the key off the one object, and a snapshot of it would hide
+            // that write from the call below.
+            let passed = passed
+                .into_iter()
+                .zip(call.arguments.iter())
+                .map(|(value, argument)| {
+                    let name = match argument.as_expression() {
+                        Some(Expression::Identifier(id)) => id.name.as_str(),
+                        _ => return value,
+                    };
+                    let owner = self.scopes.alias_target(name, 0);
+                    match self.scopes.resolve(&Value::Ref(owner.clone()), 0) {
+                        Value::Object(_) | Value::Array(_) => Some(Value::Ref(owner)),
+                        _ => value,
+                    }
+                })
+                .collect();
             self.call_arguments = (!spread).then_some(passed);
             self.invoked = true;
             self.visit_expression(&call.callee);
@@ -3944,7 +3986,10 @@ impl CallSiteCollector<'_> {
         // body it did not have to. The object stops being evidence. Relay's own
         // methods are the exception: their argument IS the request, read at the
         // point it is passed.
-        if !wa_oxc::callee_method(call).is_some_and(|m| FETCH_METHODS.contains(&m)) {
+        // A body walked right here is not one this pass did not read: whatever
+        // it does to the object is already in the scopes, so taking the object
+        // out of evidence on top of that withdraws keys nothing touched.
+        if !runs_here && !wa_oxc::callee_method(call).is_some_and(|m| FETCH_METHODS.contains(&m)) {
             for argument in call.arguments.iter().filter_map(Argument::as_expression) {
                 // `mutate(v.input)` hands over a part of a recovered object,
                 // and what that body does to it is a change to the one object.
@@ -4180,7 +4225,28 @@ impl CallSiteCollector<'_> {
     /// The value an expression has HERE, with every binding it names resolved,
     /// so a write further along the object cannot reach back into it.
     fn settled(&self, expression: &Expression<'_>) -> Value {
-        settle(&convert(expression, 0), &self.scopes, 0)
+        match self.read_key(expression) {
+            Some(value) => settle(&value, &self.scopes, 0),
+            None => settle(&convert(expression, 0), &self.scopes, 0),
+        }
+    }
+
+    /// What `v.a` reads, when `v` is an object this pass recovered and nothing
+    /// in it can be hiding another write to that key.
+    ///
+    /// A member expression is otherwise a read this pass cannot follow, which is
+    /// the right answer for a property off a parameter and the wrong one for a
+    /// key of a literal written three lines up.
+    fn read_key(&self, expression: &Expression<'_>) -> Option<Value> {
+        let (base, path) = member_path(expression)?;
+        // One step only: what a deeper path reads depends on objects this pass
+        // may hold by reference, and `readable_property` answers for one level.
+        let [key] = path.as_slice() else {
+            return None;
+        };
+        let owner = self.scopes.alias_target(base, 0);
+        let current = self.scopes.lookup(&owner)?;
+        readable_property(current, key, &self.scopes)
     }
 
     /// What a spread copies: the source's own keys as they stand HERE, since
@@ -7708,6 +7774,66 @@ mod tests {
         // that goes to that loop's own update.
         let same = r#"function f(t){var x=!0;outer:for(;t;x=void 0){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});continue outer}}"#;
         let (tree, _) = presence_of(same, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_read_of_a_recovered_key_is_the_value_written_there() {
+        // `v.a` where `v` is a literal three lines up is the value that literal
+        // wrote, not a read this pass cannot follow.
+        let caller = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:v.a})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // A spread beside the key can be supplying it, and a property off a
+        // parameter is a shape this pass does not have. Both stay reads.
+        for caller in [
+            r#"function f(t){var v={a:!0,...t.extra};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:v.a})}"#,
+            r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:t.a})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
+    }
+
+    #[test]
+    fn a_body_this_pass_read_answers_for_what_it_did() {
+        // `(function (u) {…})(v)` is not a body this pass declined to read, so
+        // the object is not taken out of evidence on top of reading it: what the
+        // body does to it is in the scopes already.
+        let empty = r#"function f(){var v={a:!0};(function(u){})(v);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(empty, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // Which means the write inside it has to reach the object: the argument
+        // is handed over as the object itself and not as a copy of it.
+        let clears = r#"function f(){var v={a:!0};(function(u){delete u.a})(v);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(clears, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // A body this pass does NOT read still takes it out of evidence.
+        let helper = r#"function f(t){var v={a:!0};t.clear(v);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(helper, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_for_of_binding_takes_the_elements_of_a_list_written_here() {
+        // `for (const x of [!0])` writes `x` with the list's own element, and
+        // the zero-iteration path makes no call to read it.
+        let caller = r#"function f(){for(let x of [!0])return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // Every element, because the body runs once for each: one that is not
+        // there is a key the client omits.
+        let mixed = r#"function f(){for(let x of [!0,void 0])return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(mixed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // A list this pass cannot read leaves the binding alone.
+        let unknown = r#"function f(t){for(let x of t.list)return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(unknown, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
