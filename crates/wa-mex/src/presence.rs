@@ -1328,6 +1328,15 @@ fn classify_object_reporting(
         Prop::Key(key, value) => key == "toJSON" && may_be_called(value, scopes, depth),
         _ => false,
     });
+    // `JSON.stringify` asks the object for its own serialization before it
+    // enumerates a single key, so the hook takes every sibling with it and not
+    // only the ones written above it. Withdrawing where the key sits published
+    // whatever came after it as always sent.
+    if serialized_whole {
+        for node in out.values_mut() {
+            withdraw(node);
+        }
+    }
     for record in &mut opaque {
         if record.path.is_empty() && !serialized_whole {
             record.written = out.keys().cloned().collect();
@@ -3152,6 +3161,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // rewrites it per element, with whatever the list holds.
         self.scopes.push_block();
         self.visit_expression(&stmt.right);
+        // `for (const x of [])` runs its body no times at all, the same as a
+        // `while (!1)`, so a call written there is not one the client makes.
+        if matches!(&stmt.right, Expression::ArrayExpression(a) if a.elements.is_empty()) {
+            self.scopes.pop();
+            return;
+        }
         self.read_until_it_settles(|v| {
             match stmt.left.as_assignment_target() {
                 Some(target) => {
@@ -3911,14 +3926,17 @@ impl CallSiteCollector<'_> {
         if let Some(super_class) = &class.super_class {
             self.visit_expression(super_class);
         }
+        // Every computed name first, in source order, and only then the elements
+        // that run where the class is written: JS evaluates all of the names
+        // while it builds the class and runs the static parts after. Interleaved,
+        // `class { static p = (x = !0); [(x = void 0)]() {} }` ended on the
+        // cleared `x` where the runtime ends on the written one.
         for element in &class.body.body {
-            // A computed name is an expression the class definition evaluates,
-            // whether it names a method, a static field or an instance one, so
-            // what it writes has happened by the time the property beside the
-            // class is read.
             if let Some(key) = computed_key(element) {
                 self.visit_expression(key);
             }
+        }
+        for element in &class.body.body {
             match element {
                 E::StaticBlock(block) => self.visit_static_block(block),
                 E::PropertyDefinition(property) if property.r#static => {
@@ -7530,6 +7548,46 @@ mod tests {
         let (tree, _) = presence_of(caller, &["items"]);
         let item = tree["items"].items.as_deref().expect("list element node");
         assert_eq!(item.fields["a"].presence, VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_serialization_hook_takes_every_key_beside_it() {
+        // `JSON.stringify` asks the object for its own serialization before it
+        // enumerates a single key, so where the hook is written among them
+        // decides nothing: all of them go.
+        for caller in [
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{toJSON(){return {}},a:!0})}"#,
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0,toJSON(){return {}}})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        }
+    }
+
+    #[test]
+    fn an_empty_list_runs_a_for_of_body_no_times() {
+        // `for (const x of [])` is a body the client never runs, so a call
+        // written there is not a site, exactly as under `while (!1)`.
+        let alone =
+            r#"function f(){for(const x of []){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}}"#;
+        let (tree, diag) = presence_of(alone, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.operations_without_call_site, 1);
+
+        // And it does not weaken the call that IS made.
+        let beside = r#"function f(){for(const x of []){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, _) = presence_of(beside, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn every_computed_class_name_is_read_before_a_static_element_runs() {
+        // JS evaluates all of a class's computed names while it builds the
+        // class and runs the static parts after, so `static p = (x = !0)` above
+        // a `[(x = void 0)]()` still ends on the value the static field wrote.
+        let caller = r#"function f(){var x;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:class{static p=(x=!0);[(x=void 0)](){}},a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
