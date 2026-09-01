@@ -2042,6 +2042,14 @@ fn collect_handed_over(expr: &Expression, out: &mut Vec<String>, depth: usize) {
     }
 }
 
+/// Whether an operation handle was handed to this module rather than required by
+/// it: a parameter, or a name nothing here writes. One `.graphql` dependency says
+/// what this module requires and nothing about what a caller passes in, so such a
+/// handle is not this operation's by elimination.
+fn supplied_from_outside(handle: &Value, scopes: &Scopes) -> bool {
+    matches!(scopes.resolve(handle, 0), Value::MaybeUndefined)
+}
+
 /// Whether an expression is reached through an optional link, so the call it is
 /// the callee of may never happen: `t?.m(…)` runs nothing when `t` is nullish.
 fn optional_link(expr: &Expression) -> bool {
@@ -3587,7 +3595,8 @@ impl CallSiteCollector<'_> {
         let Some(handle) = handle else {
             return false;
         };
-        references_module(handle, &self.module, &self.scopes, 0) || self.sole_operation
+        references_module(handle, &self.module, &self.scopes, 0)
+            || (self.sole_operation && !supplied_from_outside(handle, &self.scopes))
     }
 
     /// A Relay call in a module that sends more than one operation whose handle
@@ -3596,12 +3605,18 @@ impl CallSiteCollector<'_> {
         let Some(method) = wa_oxc::callee_method(call) else {
             return false;
         };
-        if !FETCH_METHODS.contains(&method) || self.sole_operation {
+        if !FETCH_METHODS.contains(&method) {
             return false;
         }
         let Some(handle) = handle else {
             return false;
         };
+        // The sole-operation shortcut has already claimed this call, unless the
+        // handle came from outside the module - in which case it is as
+        // ambiguous as it would be in a module of many operations.
+        if self.sole_operation && !supplied_from_outside(handle, &self.scopes) {
+            return false;
+        }
         // Either the handle is not read whole, or one of the branches it CAN
         // take is this operation while another is not: `cond ? n("Ours") :
         // n("Other")` names a module on both sides and is still a call this
@@ -6109,6 +6124,28 @@ mod tests {
             let (tree, _) = presence_of(caller, &["a", "b"]);
             assert_eq!(at(&tree, "b"), VariablePresence::Always);
         }
+    }
+
+    #[test]
+    fn a_handle_from_outside_is_not_this_operation_by_elimination() {
+        // One `.graphql` dependency says what a module requires and nothing
+        // about what its callers hand it: `function d(e){fetchQuery(e, …)}`
+        // sends whatever operation the argument names.
+        let caller = r#"function m(t,n,r,o,a,i,l){function d(e){return o("WAWebRelayClient").fetchQuery(e,{a:!0})}}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let out = variables_presence(
+            &[(caller, true)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
+        assert_eq!(
+            out["a"].presence,
+            VariablePresence::Undetermined,
+            "a handle the module did not require is not its operation"
+        );
     }
 
     #[test]
