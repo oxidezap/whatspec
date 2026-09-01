@@ -747,7 +747,9 @@ fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
         .iter()
         .map(|p| match p {
             ObjectPropertyKind::ObjectProperty(p) => match static_key(&p.key) {
-                Some(key) => Prop::Key(key, convert(&p.value, depth)),
+                Some(key) => {
+                    Prop::Key(key, accessor(p).unwrap_or_else(|| convert(&p.value, depth)))
+                }
                 None => Prop::Unreadable,
             },
             // `{...null}` and `{...void 0}` are no-ops: object spread ignores a
@@ -761,6 +763,55 @@ fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
             },
         })
         .collect()
+}
+
+/// The names a pattern introduces through a rest element: `{...x}` and
+/// `[...x]`, at any depth of nesting.
+fn rest_names(pattern: &oxc_ast::ast::BindingPattern) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_rest_names(pattern, &mut out);
+    out
+}
+
+fn collect_rest_names(pattern: &oxc_ast::ast::BindingPattern, out: &mut Vec<String>) {
+    match pattern {
+        oxc_ast::ast::BindingPattern::ObjectPattern(object) => {
+            for property in &object.properties {
+                collect_rest_names(&property.value, out);
+            }
+            if let Some(rest) = &object.rest {
+                for ident in rest.argument.get_binding_identifiers() {
+                    out.push(ident.name.as_str().to_string());
+                }
+            }
+        }
+        oxc_ast::ast::BindingPattern::ArrayPattern(array) => {
+            for element in array.elements.iter().flatten() {
+                collect_rest_names(element, out);
+            }
+            if let Some(rest) = &array.rest {
+                for ident in rest.argument.get_binding_identifiers() {
+                    out.push(ident.name.as_str().to_string());
+                }
+            }
+        }
+        oxc_ast::ast::BindingPattern::AssignmentPattern(assignment) => {
+            collect_rest_names(&assignment.left, out);
+        }
+        oxc_ast::ast::BindingPattern::BindingIdentifier(_) => {}
+    }
+}
+
+/// The value an accessor property serializes to, for the two property kinds
+/// that are not the function they are written as: `JSON.stringify` calls a
+/// getter and writes what it RETURNS, which is a body this pass does not read,
+/// and a set-only property reads as `undefined`, which is no key at all.
+fn accessor(property: &oxc_ast::ast::ObjectProperty) -> Option<Value> {
+    match property.kind {
+        oxc_ast::ast::PropertyKind::Get => Some(Value::Unjudged),
+        oxc_ast::ast::PropertyKind::Set => Some(Value::MaybeUndefined),
+        oxc_ast::ast::PropertyKind::Init => None,
+    }
 }
 
 fn static_key(key: &PropertyKey) -> Option<String> {
@@ -1678,11 +1729,18 @@ fn callee_receiver<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b str> {
 }
 
 fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>)> {
-    let Expression::StaticMemberExpression(member) = expr else {
-        return None;
+    let (mut current, key) = match expr {
+        Expression::StaticMemberExpression(member) => {
+            (&member.object, member.property.name.as_str().to_string())
+        }
+        // `v["a"]` names the same key `v.a` does: the minifier writes both, and
+        // a literal subscript is as readable as a dot.
+        Expression::ComputedMemberExpression(member) => {
+            (&member.object, literal_key(&member.expression)?)
+        }
+        _ => return None,
     };
-    let mut path = vec![member.property.name.as_str().to_string()];
-    let mut current = &member.object;
+    let mut path = vec![key];
     loop {
         match current {
             Expression::Identifier(id) => {
@@ -1693,6 +1751,37 @@ fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>
                 path.push(m.property.name.as_str().to_string());
                 current = &m.object;
             }
+            Expression::ComputedMemberExpression(m) => {
+                path.push(literal_key(&m.expression)?);
+                current = &m.object;
+            }
+            Expression::ParenthesizedExpression(p) => current = &p.expression,
+            _ => return None,
+        }
+    }
+}
+
+/// The key a subscript names, when it is written as a literal: `v["a"]` and
+/// `v[0]`. Anything computed at run time names a key this pass cannot read.
+fn literal_key(expr: &Expression) -> Option<String> {
+    match expr {
+        Expression::StringLiteral(s) => Some(s.value.as_str().to_string()),
+        Expression::NumericLiteral(n) => Some(n.value.to_string()),
+        Expression::ParenthesizedExpression(p) => literal_key(&p.expression),
+        _ => None,
+    }
+}
+
+/// The name a member expression reads through, whether or not the keys after it
+/// are readable: `v[k].x` gives `v`. What that key IS may be unknown, and then
+/// the object it belongs to stops being evidence.
+fn member_base<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b str> {
+    let mut current = expr;
+    loop {
+        match current {
+            Expression::Identifier(id) => return Some(id.name.as_str()),
+            Expression::StaticMemberExpression(m) => current = &m.object,
+            Expression::ComputedMemberExpression(m) => current = &m.object,
             Expression::ParenthesizedExpression(p) => current = &p.expression,
             _ => return None,
         }
@@ -2210,6 +2299,11 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
+        // The body runs before the test is ever evaluated, so the first
+        // iteration is on every path through the statement - unlike a `while`,
+        // whose body a falsy test skips entirely.
+        self.visit_statement(&stmt.body);
+        self.visit_expression(&stmt.test);
         self.read_until_it_settles(|v| walk::walk_do_while_statement(v, stmt));
     }
 
@@ -2218,6 +2312,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// `default` makes the set exhaustive - without one, no case may run at all.
     fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
         self.visit_expression(&stmt.discriminant);
+        // The cases share one block: a `let` in a case belongs to the switch and
+        // is gone after it, so without a frame of its own it wrote into the
+        // enclosing function and outlived the statement.
+        self.scopes.push_block();
+        for case in &stmt.cases {
+            for (name, value) in lexical_names(&case.consequent) {
+                self.scopes.bind(&name, value);
+            }
+        }
         let mut arms = Vec::with_capacity(stmt.cases.len());
         let mut has_default = false;
         // A case the one above it falls into is entered from two places: the
@@ -2249,6 +2352,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             arms.push(exits);
         }
         self.scopes.join_all_arms(arms, has_default);
+        self.scopes.pop();
     }
 
     /// The handler runs from wherever the block threw, which is any point in
@@ -2272,7 +2376,11 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.visit_catch_clause(handler);
             arms.push(self.scopes.take_branch());
         }
-        self.scopes.join_all_arms(arms, false);
+        // With a handler, the code after the statement is reached on either arm.
+        // With none, it is reached only by completing the block, so what the
+        // block wrote is what it reads - there is no path around it.
+        let exhaustive = stmt.handler.is_none();
+        self.scopes.join_all_arms(arms, exhaustive);
         if let Some(finalizer) = &stmt.finalizer {
             self.visit_block_statement(finalizer);
         }
@@ -2305,8 +2413,18 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `x` would otherwise resolve to the outer value. What it extracts is not
         // modelled, so those names are passthroughs.
         if d.id.get_identifier_name().is_none() {
+            // A rest binding is a container the destructuring builds: `{...x}`
+            // leaves an object and `[...x]` an array, on every path that gets
+            // past the statement at all. What is IN it is another matter, and
+            // this says nothing about that.
+            let rest = rest_names(&d.id);
             for ident in d.id.get_binding_identifiers() {
-                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
+                let name = ident.name.as_str();
+                let value = match rest.iter().any(|n| n == name) {
+                    true => Value::Defined,
+                    false => Value::MaybeUndefined,
+                };
+                self.scopes.bind(name, value);
             }
         }
         let function_scoped = d.kind.is_var();
@@ -2424,19 +2542,29 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `delete v.a` takes the key off the object both this binding and any
         // alias hold, and the expression itself is only the boolean that says it
         // worked. A key that is gone is a key `JSON.stringify` cannot write.
-        if expr.operator == UnaryOperator::Delete
-            && let Some((base, path)) = member_path(&expr.argument)
-        {
-            let owner = self.scopes.alias_target(base, 0);
-            let updated = self
-                .scopes
-                .lookup(&owner)
-                .cloned()
-                .and_then(|current| {
-                    write_key(&current, &path, Value::MaybeUndefined, &self.scopes, 0)
-                })
-                .unwrap_or(Value::Unjudged);
-            self.scopes.bind_assignment(&owner, updated);
+        if expr.operator == UnaryOperator::Delete {
+            match member_path(&expr.argument) {
+                Some((base, path)) => {
+                    let owner = self.scopes.alias_target(base, 0);
+                    let updated = self
+                        .scopes
+                        .lookup(&owner)
+                        .cloned()
+                        .and_then(|current| {
+                            write_key(&current, &path, Value::MaybeUndefined, &self.scopes, 0)
+                        })
+                        .unwrap_or(Value::Unjudged);
+                    self.scopes.bind_assignment(&owner, updated);
+                }
+                // `delete v[k]` takes off a key this pass cannot name, which
+                // may be any of the ones it recovered.
+                None => {
+                    if let Some(base) = member_base(&expr.argument) {
+                        let owner = self.scopes.alias_target(base, 0);
+                        self.scopes.bind_assignment(&owner, Value::Unjudged);
+                    }
+                }
+            }
         }
         walk::walk_unary_expression(self, expr);
     }
@@ -2534,6 +2662,16 @@ impl CallSiteCollector<'_> {
                 }
                 other => is_nullish_literal(other),
             };
+            // `fetchQuery(op, ...args)` puts an unknown object in the variables
+            // position rather than no object: it is a site whose keys cannot be
+            // read, not one that writes none.
+            if call.arguments.len() > 1 && vars.is_none() {
+                if !self.replaying {
+                    self.diag.unreadable_call_arguments += 1;
+                }
+                self.unreadable_sites += 1;
+                return;
+            }
             // No variables argument at all, or one written `null` / `undefined` /
             // `void 0`: either way the call sends an object carrying no key. That
             // is a site, and one that writes nothing - skipping it would let a
@@ -2685,7 +2823,7 @@ impl CallSiteCollector<'_> {
                     // and what it leaves is the value stored: `{a: (x = void 0,
                     // x)}` stores the `x` the assignment just cleared.
                     self.visit_expression(&p.value);
-                    let value = self.hold(&p.value);
+                    let value = accessor(p).unwrap_or_else(|| self.hold(&p.value));
                     props.push(match key {
                         Some(key) => Prop::Key(key, value),
                         None => Prop::Unreadable,
@@ -2745,8 +2883,9 @@ impl CallSiteCollector<'_> {
                 for property in &object.properties {
                     match property {
                         ObjectPropertyKind::ObjectProperty(p) => {
+                            let value = accessor(p).unwrap_or_else(|| self.hold(&p.value));
                             props.push(match static_key(&p.key) {
-                                Some(key) => Prop::Key(key, self.hold(&p.value)),
+                                Some(key) => Prop::Key(key, value),
                                 None => Prop::Unreadable,
                             });
                         }
@@ -4753,6 +4892,80 @@ mod tests {
         let rebound = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:v},(v={}))}"#;
         let (tree, _) = presence_of(rebound, &["input"]);
         assert_eq!(tree["input"].fields["a"].presence, VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_key_deleted_through_a_subscript_is_still_deleted() {
+        // `v["a"]` names the key `v.a` does, and a subscript the pass cannot
+        // read takes off a key that may be any of them.
+        let literal = r#"function f(){var v={a:!0};delete v["a"];return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(literal, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        let computed = r#"function f(t){var v={a:!0};delete v[t];return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(computed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_getter_is_not_the_function_it_is_written_as() {
+        // `JSON.stringify` calls the getter and writes what it returns, which is
+        // a body this pass does not read - not the function itself, whose key
+        // would be dropped.
+        let caller = r#"function f(){var v={get a(){return !0}};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_spread_variables_argument_is_a_site_that_was_not_read() {
+        // `fetchQuery(op, ...args)` sends an object this pass cannot see, which
+        // is not the same as sending one with no keys in it.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),...t)}"#;
+        let (tree, diag) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+        assert_eq!(diag.unreadable_call_arguments, 1);
+    }
+
+    #[test]
+    fn a_do_while_body_runs_before_its_test() {
+        // Every path through the statement runs the body once, so what it wrote
+        // is what the code after it reads.
+        let caller = r#"function f(t){var x;do{x=!0}while(t);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_try_with_no_handler_leaves_no_path_around_its_block() {
+        // Nothing catches the throw, so reaching the call at all means the block
+        // finished - and what it wrote is what the call reads.
+        let caller = r#"function f(t){var x;try{x=!0}finally{}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_lexical_declaration_in_a_case_ends_with_the_switch() {
+        // `let x` inside a case is the switch's binding, not the function's: the
+        // call after the statement reads the outer one.
+        let caller = r#"function f(t){var x=!0;switch(t){case 0:let x=void 0;break}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_rest_binding_is_a_container_the_destructuring_builds() {
+        // `var {...x} = t` leaves an object on every path that gets past the
+        // statement, whatever the object it was built from held.
+        let caller = r#"function f(t){var {...x}=t;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // An ordinary extracted property is still a passthrough.
+        let plain = r#"function f(t){var {x}=t;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(plain, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
