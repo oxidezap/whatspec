@@ -17,7 +17,7 @@
 //! so "the key is written" and "the key reaches the server" are one question
 //! asked of the value.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -1016,6 +1016,7 @@ fn classify_object_reporting(
     // literal: `{get a(){…}, a: !0}` is a data property by the time anything is
     // serialized, and the body written above it never runs.
     let mut serializing_runs_code = false;
+    let mut already_written: BTreeSet<String> = BTreeSet::new();
     let standing_getters = standing_getters(props);
     // A spread whose source resolves back through itself (`var e = {...e}`)
     // would otherwise descend forever, and an extractor that aborts publishes
@@ -1025,6 +1026,15 @@ fn classify_object_reporting(
         return (out, vec![Opaque::here()]);
     }
     for (index, prop) in props.iter().enumerate() {
+        // A key is serialized where it is first written, so a getter standing on
+        // one written earlier - `{a: !0, get a(){…}}` - runs at THAT point.
+        // Every key below it is written while its body may still be running; the
+        // ones above are on the wire already, and a later write to one of them
+        // changes only its value, not when it was serialized.
+        if !serializing_runs_code && standing_getters.contains(&index) {
+            serializing_runs_code = true;
+            already_written = out.keys().cloned().collect();
+        }
         match prop {
             Prop::Unreadable => {
                 // A computed key names something this pass cannot read, and that
@@ -1055,7 +1065,6 @@ fn classify_object_reporting(
             // wire already - and the getter may add keys as easily as take them
             // away, which is what the opaque path says.
             Prop::Key(key, Value::Getter) => {
-                serializing_runs_code |= standing_getters.contains(&index);
                 opaque.push(Opaque::here());
                 out.insert(
                     key.clone(),
@@ -1074,7 +1083,7 @@ fn classify_object_reporting(
                     nested.path.insert(0, Step::Field(key.clone()));
                     opaque.push(nested);
                 }
-                if serializing_runs_code {
+                if serializing_runs_code && !already_written.contains(key) {
                     withdraw(&mut node);
                 }
                 out.insert(key.clone(), node);
@@ -1115,7 +1124,10 @@ fn classify_object_reporting(
                             node.presence = node.presence.weaker(floor);
                             // A getter above runs while these keys are written,
                             // exactly as it does for the ones written by name.
-                            if serializing_runs_code {
+                            // Except where the spread only overwrites a key
+                            // written above the getter: that one was serialized
+                            // before the body ran.
+                            if serializing_runs_code && !already_written.contains(&k) {
                                 withdraw(&mut node);
                             }
                             // A later spread overwrites the keys it carries, the
@@ -6072,6 +6084,30 @@ mod tests {
         ] {
             let (tree, _) = presence_of(caller, &["a"]);
             assert_ne!(at(&tree, "a"), VariablePresence::Always);
+        }
+    }
+
+    #[test]
+    fn a_getter_standing_on_an_earlier_key_runs_there() {
+        // `{a: !0, get a(){…}, b: !0}` serializes `a` first, because that is
+        // where the key was written, and the accessor standing on it by then is
+        // the getter: its body runs before `b` is reached.
+        let caller = r#"function f(){var v={a:!0,get a(){return!0},b:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a", "b"]);
+        assert_eq!(at(&tree, "b"), VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn a_key_above_the_getter_keeps_its_verdict_through_a_later_write() {
+        // `b` is written above the accessor, so it is on the wire before the
+        // getter's body runs. A later write to it - by name or through a spread -
+        // changes its value and not the point at which it was serialized.
+        for caller in [
+            r#"function f(){var v={b:!0,get a(){return!0},...{b:!0}};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+            r#"function f(){var v={b:!0,get a(){return!0},b:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a", "b"]);
+            assert_eq!(at(&tree, "b"), VariablePresence::Always);
         }
     }
 
