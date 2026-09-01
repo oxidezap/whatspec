@@ -305,6 +305,13 @@ impl Scopes {
     /// Write a name in a frame that is already known, logging what it held when
     /// the branch being walked began.
     fn write_frame(&mut self, index: usize, name: &str, value: Value) {
+        // A frame that has been popped takes its bindings with it: a write
+        // replayed against it - the `finally` case, where what the finalizer
+        // wrote is applied after its own block is gone - belongs to nothing
+        // this pass can still read.
+        if index >= self.frames.len() {
+            return;
+        }
         if let Some(log) = self.branches.last()
             && !log.iter().any(|w| w.frame == index && w.name == name)
         {
@@ -743,12 +750,15 @@ fn convert(expr: &Expression, depth: usize) -> Value {
 }
 
 fn convert_props(obj: &ObjectExpression, depth: usize) -> Vec<Prop> {
+    let getters = getter_keys(obj);
     obj.properties
         .iter()
         .map(|p| match p {
             ObjectPropertyKind::ObjectProperty(p) => match static_key(&p.key) {
                 Some(key) => {
-                    Prop::Key(key, accessor(p).unwrap_or_else(|| convert(&p.value, depth)))
+                    let paired = getters.contains(&key);
+                    let value = accessor(p, paired).unwrap_or_else(|| convert(&p.value, depth));
+                    Prop::Key(key, value)
                 }
                 None => Prop::Unreadable,
             },
@@ -806,12 +816,33 @@ fn collect_rest_names(pattern: &oxc_ast::ast::BindingPattern, out: &mut Vec<Stri
 /// that are not the function they are written as: `JSON.stringify` calls a
 /// getter and writes what it RETURNS, which is a body this pass does not read,
 /// and a set-only property reads as `undefined`, which is no key at all.
-fn accessor(property: &oxc_ast::ast::ObjectProperty) -> Option<Value> {
+fn accessor(property: &oxc_ast::ast::ObjectProperty, paired: bool) -> Option<Value> {
     match property.kind {
         oxc_ast::ast::PropertyKind::Get => Some(Value::Unjudged),
-        oxc_ast::ast::PropertyKind::Set => Some(Value::MaybeUndefined),
+        // A setter beside a getter of the same name is one accessor with both
+        // halves, and `JSON.stringify` reads the getter half: only a set-ONLY
+        // property serializes as `undefined`.
+        oxc_ast::ast::PropertyKind::Set => match paired {
+            true => Some(Value::Unjudged),
+            false => Some(Value::MaybeUndefined),
+        },
         oxc_ast::ast::PropertyKind::Init => None,
     }
+}
+
+/// The keys an object literal defines a getter for, so a setter written beside
+/// one is read as the accessor it completes rather than as a key of its own.
+fn getter_keys(object: &ObjectExpression) -> Vec<String> {
+    object
+        .properties
+        .iter()
+        .filter_map(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p) if p.kind == oxc_ast::ast::PropertyKind::Get => {
+                static_key(&p.key)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn static_key(key: &PropertyKey) -> Option<String> {
@@ -1777,7 +1808,14 @@ fn member_path<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b str, Vec<String>
 fn literal_key(expr: &Expression) -> Option<String> {
     match expr {
         Expression::StringLiteral(s) => Some(s.value.as_str().to_string()),
-        Expression::NumericLiteral(n) => Some(n.value.to_string()),
+        // A number names a key by the string JS turns it into, and the two
+        // languages do not spell every number alike (`1e21` is
+        // `"1000000000000000000000"` here and `"1e+21"` there). Only whole
+        // numbers small enough for both to write the same digits.
+        Expression::NumericLiteral(n) => {
+            let whole = n.value.fract() == 0.0 && n.value.abs() < 1e15;
+            whole.then(|| format!("{}", n.value as i64))
+        }
         Expression::ParenthesizedExpression(p) => literal_key(&p.expression),
         _ => None,
     }
@@ -2427,7 +2465,22 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         let exhaustive = stmt.handler.is_none();
         self.scopes.join_all_arms(arms, exhaustive);
         if let Some(finalizer) = &stmt.finalizer {
+            // A `finally` runs on the way out however the block left: normally,
+            // or on a throw from any point in it. So it is walked from the
+            // states the block passed through as well as the one it ended on -
+            // and then those are taken back, because the code AFTER the
+            // statement is only reached by leaving the block normally.
+            //
+            // What the finalizer itself wrote stands either way: it always runs.
+            self.scopes.enter_branch();
+            self.scopes.carry_values(&passed_through);
+            self.scopes.watch();
             self.visit_block_statement(finalizer);
+            let wrote = self.scopes.watched();
+            self.scopes.take_branch();
+            for (frame, name, value) in wrote {
+                self.scopes.write_frame(frame, &name, value);
+            }
         }
     }
 
@@ -2458,18 +2511,8 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `x` would otherwise resolve to the outer value. What it extracts is not
         // modelled, so those names are passthroughs.
         if d.id.get_identifier_name().is_none() {
-            // A rest binding is a container the destructuring builds: `{...x}`
-            // leaves an object and `[...x]` an array, on every path that gets
-            // past the statement at all. What is IN it is another matter, and
-            // this says nothing about that.
-            let rest = rest_names(&d.id);
             for ident in d.id.get_binding_identifiers() {
-                let name = ident.name.as_str();
-                let value = match rest.iter().any(|n| n == name) {
-                    true => Value::Defined,
-                    false => Value::MaybeUndefined,
-                };
-                self.scopes.bind(name, value);
+                self.scopes.bind(ident.name.as_str(), Value::MaybeUndefined);
             }
         }
         let function_scoped = d.kind.is_var();
@@ -2517,6 +2560,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             } else {
                 self.scopes.bind(name.as_str(), value);
             }
+            return;
+        }
+        // A rest binding is a container the destructuring builds: `{...x}`
+        // leaves an object and `[...x]` an array, on every path that gets past
+        // the statement. Written after the initializer, because until it has
+        // run the name holds the `undefined` it was hoisted with - a call
+        // inside the initializer reads THAT.
+        for name in rest_names(&d.id) {
+            self.scopes.bind_assignment(&name, Value::Defined);
         }
     }
 
@@ -2715,7 +2767,12 @@ impl CallSiteCollector<'_> {
             // `fetchQuery(op, ...args)` puts an unknown object in the variables
             // position rather than no object: it is a site whose keys cannot be
             // read, not one that writes none.
-            if call.arguments.len() > 1 && vars.is_none() {
+            let empty_spread = matches!(
+                call.arguments.get(1),
+                Some(Argument::SpreadElement(s))
+                    if matches!(&s.argument, Expression::ArrayExpression(a) if a.elements.is_empty())
+            );
+            if call.arguments.len() > 1 && vars.is_none() && !empty_spread {
                 if !self.replaying {
                     self.diag.unreadable_call_arguments += 1;
                 }
@@ -2852,6 +2909,7 @@ impl CallSiteCollector<'_> {
         let Expression::ObjectExpression(object) = expression else {
             return None;
         };
+        let getters = getter_keys(object);
         let mut props = Vec::with_capacity(object.properties.len());
         for property in &object.properties {
             match property {
@@ -2873,7 +2931,8 @@ impl CallSiteCollector<'_> {
                     // and what it leaves is the value stored: `{a: (x = void 0,
                     // x)}` stores the `x` the assignment just cleared.
                     self.visit_expression(&p.value);
-                    let value = accessor(p).unwrap_or_else(|| self.hold(&p.value));
+                    let paired = key.as_ref().is_some_and(|key| getters.contains(key));
+                    let value = accessor(p, paired).unwrap_or_else(|| self.hold(&p.value));
                     props.push(match key {
                         Some(key) => Prop::Key(key, value),
                         None => Prop::Unreadable,
@@ -2942,12 +3001,15 @@ impl CallSiteCollector<'_> {
             // properties are values the call receives too, and an identifier
             // among them names an object just as the outer one does.
             Expression::ObjectExpression(object) => {
+                let getters = getter_keys(object);
                 let mut props = Vec::with_capacity(object.properties.len());
                 for property in &object.properties {
                     match property {
                         ObjectPropertyKind::ObjectProperty(p) => {
-                            let value = accessor(p).unwrap_or_else(|| self.hold(&p.value));
-                            props.push(match static_key(&p.key) {
+                            let key = static_key(&p.key);
+                            let paired = key.as_ref().is_some_and(|key| getters.contains(key));
+                            let value = accessor(p, paired).unwrap_or_else(|| self.hold(&p.value));
+                            props.push(match key {
                                 Some(key) => Prop::Key(key, value),
                                 None => Prop::Unreadable,
                             });
@@ -5085,6 +5147,66 @@ mod tests {
         let caller = r#"function f(){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0});return;o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_setter_beside_a_getter_is_one_accessor() {
+        // `JSON.stringify` reads the getter half, so the pair is what a getter
+        // alone is: a body this pass does not read. Only a set-ONLY property
+        // serializes as `undefined`.
+        let pair = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},set a(v){}})}"#;
+        let (tree, _) = presence_of(pair, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
+
+        let write_only =
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{set a(v){}})}"#;
+        let (tree, _) = presence_of(write_only, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_finalizer_runs_from_wherever_the_block_left() {
+        // A throw between the two writes runs the `finally` with `x` cleared,
+        // and that is a path the call inside it is on.
+        let inside = r#"function f(t){var x=!0;try{x=void 0;x=!0}finally{o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(inside, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // The code AFTER the statement is reached only by leaving the block
+        // normally, so it reads what the block finished with.
+        let after = r#"function f(t){var x=!0;try{x=void 0;x=!0}finally{}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(after, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_finalizer_that_declares_its_own_names_still_reads() {
+        // The finalizer's block frame is gone by the time its writes are put
+        // back, and a write recorded against it belongs to nothing this pass
+        // can still read - not to whatever frame now sits at that index.
+        let caller = r#"function f(t){var x=!0;try{t()}finally{let y=x;o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_rest_binding_holds_nothing_until_the_destructuring_runs() {
+        // The initializer runs first, and the name is still the `undefined` it
+        // was hoisted with while it does.
+        let caller =
+            r#"function f(t){var {...x}=(o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x}),t);}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_spread_of_nothing_in_the_variables_position_sends_nothing() {
+        // `fetchQuery(op, ...[])` reaches Relay with one argument: a call that
+        // sends no variables at all, which is a site rather than an unread one.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),...[])}"#;
+        let (tree, diag) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        assert_eq!(diag.unreadable_call_arguments, 0);
     }
 
     #[test]
