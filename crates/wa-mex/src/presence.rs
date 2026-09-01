@@ -1900,8 +1900,11 @@ fn static_truth(expr: &Expression) -> Option<bool> {
     match expr {
         Expression::BooleanLiteral(b) => Some(b.value),
         Expression::NumericLiteral(n) => Some(n.value != 0.0),
-        // `value` is the digits in base ten with the separators taken out, so
-        // `0n` is the one falsy bigint however it was spelled.
+        // Zero is the one falsy bigint, and `0n`, `0_0n` and `0x0n` are all of
+        // it: the digits are what decides, not the spelling.
+        // Zero is the one falsy bigint. The parser hands back the digits in base
+        // ten with the separators taken out, so `0n`, `0x0n` and `0b0n` are all
+        // the same "0" and no spelling has to be read here.
         Expression::BigIntLiteral(b) => Some(b.value != "0"),
         Expression::StringLiteral(s) => Some(!s.value.is_empty()),
         Expression::NullLiteral(_) => Some(false),
@@ -2056,6 +2059,31 @@ fn collect_handed_over(expr: &Expression, out: &mut Vec<String>, depth: usize) {
 /// it: a parameter, or a name nothing here writes. One `.graphql` dependency says
 /// what this module requires and nothing about what a caller passes in, so such a
 /// handle is not this operation's by elimination.
+fn reads_a_property(expr: &Expression) -> bool {
+    match expr {
+        Expression::StaticMemberExpression(_)
+        | Expression::ComputedMemberExpression(_)
+        | Expression::PrivateFieldExpression(_) => true,
+        Expression::ChainExpression(_) => true,
+        Expression::ParenthesizedExpression(p) => reads_a_property(&p.expression),
+        _ => false,
+    }
+}
+
+fn handed_in(call: &CallExpression, handle: &Value, scopes: &Scopes) -> bool {
+    // `fetchQuery(t.handle, …)` reads the handle off something the module was
+    // given, and a property read is not a require this module wrote: whatever
+    // it names, one `.graphql` dependency is no evidence about it. Read from the
+    // expression, because by the time it is a value a property read and a
+    // binding nothing wrote are the same "may be undefined".
+    let reads_a_property = call
+        .arguments
+        .first()
+        .and_then(Argument::as_expression)
+        .is_some_and(reads_a_property);
+    reads_a_property || supplied_from_outside(handle, scopes)
+}
+
 fn supplied_from_outside(handle: &Value, scopes: &Scopes) -> bool {
     supplied_from_outside_at(handle, scopes, 0)
 }
@@ -2187,7 +2215,7 @@ fn member_base<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b str> {
     }
 }
 
-/// The static property path a member assignment writes/// The static property path a member assignment writes, from the binding
+/// The static property path a member assignment writes, from the binding
 /// outward: `v.order.jid = x` gives `["order", "jid"]`. `None` for a computed
 /// key, which names nothing this pass can publish.
 fn static_path(target: &oxc_ast::ast::AssignmentTarget) -> Option<Vec<String>> {
@@ -3629,7 +3657,7 @@ impl CallSiteCollector<'_> {
             return false;
         };
         references_module(handle, &self.module, &self.scopes, 0)
-            || (self.sole_operation && !supplied_from_outside(handle, &self.scopes))
+            || (self.sole_operation && !handed_in(call, handle, &self.scopes))
     }
 
     /// A Relay call in a module that sends more than one operation whose handle
@@ -3645,9 +3673,10 @@ impl CallSiteCollector<'_> {
             return false;
         };
         // The sole-operation shortcut has already claimed this call, unless the
-        // handle came from outside the module - in which case it is as
-        // ambiguous as it would be in a module of many operations.
-        if self.sole_operation && !supplied_from_outside(handle, &self.scopes) {
+        // handle came from outside the module or names none of it - in which
+        // case it is as ambiguous as it would be in a module of many
+        // operations.
+        if self.sole_operation && !handed_in(call, handle, &self.scopes) {
             return false;
         }
         // Either the handle is not read whole, or one of the branches it CAN
@@ -6211,6 +6240,41 @@ mod tests {
         // path the code takes.
         let live = r#"function f(){var x;if(1n)x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
         let (tree, _) = presence_of(live, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_handle_naming_none_of_this_module_is_not_its_operation() {
+        // `fetchQuery(e.handle, …)` reads a handle off something the caller
+        // passed in. One `.graphql` dependency says what this module requires
+        // and nothing about that, so the shortcut does not reach it.
+        let caller = r#"function m(t,n,r,o,a,i,l){function d(e){return o("WAWebRelayClient").fetchQuery(e.handle,{a:!0})}}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let out = variables_presence(
+            &[(caller, true)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
+        assert_eq!(out["a"].presence, VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn every_spelling_of_zero_is_the_falsy_bigint() {
+        // `0x0n` and `0b0n` are the same value as `0n`, and the arm behind any
+        // of them is dead code. Anything else is truthy and the arm runs.
+        for zero in ["0n", "0x0n", "0b0n", "0o0n"] {
+            let caller = format!(
+                r#"function f(){{if({zero})o("C").fetchQuery(n("WAWebFooQuery.graphql"),{{}});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{{a:!0}})}}"#
+            );
+            let (tree, _) = presence_of(&caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always, "{zero}");
+        }
+
+        let truthy = r#"function f(){var x;if(0x10n)x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(truthy, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
