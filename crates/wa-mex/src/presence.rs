@@ -3219,37 +3219,46 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // and the body go round - and a header that writes an EXISTING binding
         // rewrites it per element, with whatever the list holds.
         self.scopes.push_block();
-        self.visit_expression(&stmt.right);
+        // What the list holds, when it is written where it is iterated: every
+        // element folded, since the binding is each of them in turn. A hole or a
+        // spread is an element this pass cannot name, and then it has none.
+        //
+        // Each one taken as it is evaluated, in order, because an element can
+        // write a binding an earlier one read: `[y, (y = !0, 1)]` holds the `y`
+        // from before that write. And because the loop body cannot reach back
+        // into an element the list has already produced. An object keeps its
+        // reference, so a write through the binding still reaches it.
+        let element = match &stmt.right {
+            Expression::ArrayExpression(array) => {
+                let mut values = Some(Vec::with_capacity(array.elements.len()));
+                for element in &array.elements {
+                    let Some(expression) = element.as_expression() else {
+                        values = None;
+                        continue;
+                    };
+                    self.visit_expression(expression);
+                    let value = convert(expression, 0);
+                    let value = match self.scopes.resolve(&value, 0) {
+                        Value::Object(_) | Value::Array(_) => value,
+                        _ => settle(&value, &self.scopes, 0),
+                    };
+                    if let Some(values) = values.as_mut() {
+                        values.push(value);
+                    }
+                }
+                values.and_then(|values| values.into_iter().reduce(either))
+            }
+            other => {
+                self.visit_expression(other);
+                None
+            }
+        };
         // `for (const x of [])` runs its body no times at all, the same as a
         // `while (!1)`, so a call written there is not one the client makes.
         if empty_list(&stmt.right) {
             self.scopes.pop();
             return;
         }
-        // What the list holds, when it is written where it is iterated: every
-        // element folded, since the binding is each of them in turn. A hole or a
-        // spread is an element this pass cannot name, and then it has none.
-        let element = match &stmt.right {
-            Expression::ArrayExpression(array) => array
-                .elements
-                .iter()
-                .map(|e| {
-                    e.as_expression().map(|e| {
-                        // Taken where the list is evaluated: a name written
-                        // inside the body cannot reach back into an element the
-                        // loop already read. An object keeps its reference, so
-                        // a write through the binding still reaches it.
-                        let value = convert(e, 0);
-                        match self.scopes.resolve(&value, 0) {
-                            Value::Object(_) | Value::Array(_) => value,
-                            _ => settle(&value, &self.scopes, 0),
-                        }
-                    })
-                })
-                .collect::<Option<Vec<Value>>>()
-                .and_then(|values| values.into_iter().reduce(either)),
-            _ => None,
-        };
         self.read_until_it_settles(|v| {
             match stmt.left.as_assignment_target() {
                 Some(target) => {
@@ -7868,6 +7877,22 @@ mod tests {
         let object = r#"function f(){var v={a:!0};for(let x of [v]){delete x.a}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
         let (tree, _) = presence_of(object, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_list_element_is_read_before_the_ones_after_it() {
+        // The elements are evaluated left to right, so one that writes a binding
+        // an earlier element read does not reach back into it: `[y, (y = !0, 1)]`
+        // holds the `y` from before that write.
+        let writes = r#"function f(){var y;for(let x of [y,(y=!0,1)]){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(writes, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // And the same the other way: the first element is the value that stood
+        // when it was written, whatever the second one does to the name.
+        let clears = r#"function f(){var y=!0;for(let x of [y,(y=void 0,1)]){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
+        let (tree, _) = presence_of(clears, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
