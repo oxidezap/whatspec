@@ -2066,6 +2066,17 @@ fn reads_a_property(expr: &Expression) -> bool {
         | Expression::PrivateFieldExpression(_) => true,
         Expression::ChainExpression(_) => true,
         Expression::ParenthesizedExpression(p) => reads_a_property(&p.expression),
+        // Any branch the handle can come down: `e.handle || s` sends the
+        // property read whenever it is there, and `t ? e.handle : s` on the
+        // path where `t` holds. One arm out of a module is enough.
+        Expression::LogicalExpression(l) => reads_a_property(&l.left) || reads_a_property(&l.right),
+        Expression::ConditionalExpression(c) => {
+            reads_a_property(&c.consequent) || reads_a_property(&c.alternate)
+        }
+        // A comma expression IS its last operand, and an assignment is its
+        // right side: `h = e.handle` hands the call the property read.
+        Expression::SequenceExpression(s) => s.expressions.last().is_some_and(reads_a_property),
+        Expression::AssignmentExpression(a) => reads_a_property(&a.right),
         _ => false,
     }
 }
@@ -6379,6 +6390,30 @@ mod tests {
         let caller = r#"function f(){var x;(function(){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(x=!0)}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_property_read_is_outside_wherever_it_sits_in_the_handle() {
+        // `e.handle || s` sends the property read whenever it is there, and
+        // `t ? e.handle : s` on the path where `t` holds. Reading only the
+        // outermost expression missed every one of these.
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        for caller in [
+            r#"function m(t,n,r,o,a,i,l){var s=n("WAWebFooQuery.graphql");function d(e){return o("WAWebRelayClient").fetchQuery(e.handle||s,{a:!0})}}"#,
+            r#"function m(t,n,r,o,a,i,l){var s=n("WAWebFooQuery.graphql");function d(e){return o("WAWebRelayClient").fetchQuery(t?e.handle:s,{a:!0})}}"#,
+            r#"function m(t,n,r,o,a,i,l){var s=n("WAWebFooQuery.graphql");function d(e){return o("WAWebRelayClient").fetchQuery(e.handle??s,{a:!0})}}"#,
+            r#"function m(t,n,r,o,a,i,l){var s=n("WAWebFooQuery.graphql");function d(e){return o("WAWebRelayClient").fetchQuery((q(),e.handle),{a:!0})}}"#,
+        ] {
+            let out = variables_presence(
+                &[(caller, true)],
+                MODULE,
+                &names,
+                &mut diag,
+                &mut Vec::new(),
+            );
+            assert_eq!(out["a"].presence, VariablePresence::Undetermined);
+        }
     }
 
     #[test]
