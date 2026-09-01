@@ -2076,7 +2076,12 @@ fn reads_a_property(expr: &Expression) -> bool {
         // A comma expression IS its last operand, and an assignment is its
         // right side: `h = e.handle` hands the call the property read.
         Expression::SequenceExpression(s) => s.expressions.last().is_some_and(reads_a_property),
-        Expression::AssignmentExpression(a) => reads_a_property(&a.right),
+        // `h ||= s` yields what `h` already held whenever that is truthy, so a
+        // member on the left is as much a possible handle as the right side is.
+        Expression::AssignmentExpression(a) => {
+            (a.operator.is_logical() && a.left.as_member_expression().is_some())
+                || reads_a_property(&a.right)
+        }
         _ => false,
     }
 }
@@ -2921,11 +2926,16 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // round - it runs the moment its test matches, before any test
             // below it.
             if case.test.is_none() {
-                for below in stmt.cases.iter().skip(index + 1) {
-                    if let Some(test) = &below.test {
-                        self.visit_expression(test);
+                // On the no-match path they have all run; on a fall-through
+                // from the case above, none of them has. Both reach this body,
+                // so their writes join rather than stand.
+                self.in_branch(|v| {
+                    for below in stmt.cases.iter().skip(index + 1) {
+                        if let Some(test) = &below.test {
+                            v.visit_expression(test);
+                        }
                     }
-                }
+                });
             }
             self.visit_statements(&case.consequent);
             let exits = self.scopes.take_branch();
@@ -3015,7 +3025,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         let decided = match expr.operator {
             LogicalOperator::And => static_truth(&expr.left),
             LogicalOperator::Or => static_truth(&expr.left).map(|truth| !truth),
-            LogicalOperator::Coalesce => match nullish_sentinel(&expr.left) {
+            LogicalOperator::Coalesce => match self.nullish(&expr.left) {
                 true => Some(true),
                 false => static_truth(&expr.left).map(|_| false),
             },
@@ -3449,6 +3459,19 @@ impl CallSiteCollector<'_> {
             if let Some(receiver) = callee_receiver(&call.callee) {
                 self.stops_being_evidence(receiver);
             }
+        }
+    }
+
+    /// Whether an expression is nullish beyond doubt: the two sentinels, and the
+    /// name `undefined` where nothing in scope has shadowed it. A module that
+    /// binds that name is another matter, and this pass has the scopes to ask.
+    fn nullish(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Identifier(id) if id.name.as_str() == "undefined" => {
+                self.scopes.lookup("undefined").is_none()
+            }
+            Expression::ParenthesizedExpression(p) => self.nullish(&p.expression),
+            other => nullish_sentinel(other),
         }
     }
 
@@ -6414,6 +6437,54 @@ mod tests {
             );
             assert_eq!(out["a"].presence, VariablePresence::Undetermined);
         }
+    }
+
+    #[test]
+    fn a_default_reached_by_falling_through_ran_no_test_below_it() {
+        // Two ways into `default`: no test matched, in which case every test
+        // below it has run, or the case above fell into it, in which case none
+        // of them has. The body sees both, so their writes join.
+        let caller = r#"function f(){var x;switch(t){case 1:default:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});break;case (x=!0,2):break}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // With no case above it, the only way in is the no-match path.
+        let alone = r#"function f(){var x;switch(t){default:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});break;case (x=!0,2):break}}"#;
+        let (tree, _) = presence_of(alone, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_logical_assignment_keeps_the_handle_it_may_already_hold() {
+        // `e.handle ||= s` yields whatever `e.handle` held whenever that is
+        // truthy, so the property read is as much a possible handle as the
+        // module's own operation on the right.
+        let caller = r#"function m(t,n,r,o,a,i,l){var s=n("WAWebFooQuery.graphql");function d(e){return o("WAWebRelayClient").fetchQuery(e.handle||=s,{a:!0})}}"#;
+        let names = vec!["a".to_string()];
+        let mut diag = PresenceDiagnostics::default();
+        let out = variables_presence(
+            &[(caller, true)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
+        assert_eq!(out["a"].presence, VariablePresence::Undetermined);
+    }
+
+    #[test]
+    fn the_name_undefined_is_nullish_where_nothing_shadows_it() {
+        // `undefined ?? (x = !0)` always runs its right side, so the write is
+        // not one a path around it misses.
+        let caller = r#"function f(){var x;undefined??(x=!0);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // A module that binds the name is another matter: what it holds is
+        // whatever it was given.
+        let shadowed = r#"function f(undefined){var x;undefined??(x=!0);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(shadowed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
