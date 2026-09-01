@@ -994,9 +994,10 @@ fn classify_object_reporting(
     // `opts` holds. Only the keys it does NOT carry are the ones an unreadable
     // spread might be supplying, and only those are withdrawn once the sites are
     // merged.
-    let serialized_whole = props
-        .iter()
-        .any(|p| matches!(p, Prop::Key(key, _) if key == "toJSON"));
+    let serialized_whole = props.iter().any(|p| match p {
+        Prop::Key(key, value) => key == "toJSON" && may_be_called(value, scopes, depth),
+        _ => false,
+    });
     for record in &mut opaque {
         if record.path.is_empty() && !serialized_whole {
             record.written = out.keys().cloned().collect();
@@ -1700,6 +1701,16 @@ fn is_nullish_literal(expr: &Expression) -> bool {
 /// The binding a member expression reads through and the static path from it:
 /// `v.order.jid` gives `("v", ["order", "jid"])`. `None` for a computed key or
 /// anything but a plain binding at the root.
+/// Whether a call's callee IS a function written at the call: the immediately
+/// invoked expression, whose body runs exactly once, where it stands.
+fn invoked_directly(callee: &Expression) -> bool {
+    match callee {
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_) => true,
+        Expression::ParenthesizedExpression(p) => invoked_directly(&p.expression),
+        _ => false,
+    }
+}
+
 /// Whether an expression is reached through an optional link, so the call it is
 /// the callee of may never happen: `t?.m(…)` runs nothing when `t` is nullish.
 fn optional_link(expr: &Expression) -> bool {
@@ -2067,6 +2078,10 @@ struct CallSiteCollector<'d> {
     /// Paths whose keys a spread or a computed key may still be writing, from
     /// any recovered site. The empty path is the variables object itself.
     opaque_paths: Vec<Opaque>,
+    /// Whether the function about to be walked is the callee of a call: an
+    /// IIFE runs its body where it is written, so what it writes is not
+    /// something the code after it may or may not see.
+    invoked: bool,
     /// Whether this pass is a second reading of a body already walked - a loop
     /// on its way round again. Its call sites are real and are kept; what it
     /// could not read was already counted the first time.
@@ -2101,6 +2116,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         if let Some(id) = &func.id {
             self.scopes.bind(id.name.as_str(), Value::MaybeUndefined);
         }
+        let invoked = std::mem::take(&mut self.invoked);
         self.bind_params(&func.params);
         // A function body is a branch of its own: whether it ever runs is not
         // this pass's to say, so what it writes to an enclosing binding reaches
@@ -2109,7 +2125,10 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `send` may be called without `init` ever having been. And it is walked
         // twice for the same reason a loop body is: a function called again
         // reads what its own last call left behind.
-        self.read_until_it_settles(|v| walk::walk_function(v, func, flags));
+        match invoked {
+            true => walk::walk_function(self, func, flags),
+            false => self.read_until_it_settles(|v| walk::walk_function(v, func, flags)),
+        }
         self.scopes.pop();
     }
 
@@ -2117,9 +2136,13 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         &mut self,
         func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
     ) {
+        let invoked = std::mem::take(&mut self.invoked);
         self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
-        self.read_until_it_settles(|v| walk::walk_arrow_function_expression(v, func));
+        match invoked {
+            true => walk::walk_arrow_function_expression(self, func),
+            false => self.read_until_it_settles(|v| walk::walk_arrow_function_expression(v, func)),
+        }
         self.scopes.pop();
     }
 
@@ -2152,6 +2175,21 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
         walk::walk_catch_clause(self, clause);
         self.scopes.pop();
+    }
+
+    /// A statement list stops where the code does: nothing after a `return`,
+    /// `throw`, `break` or `continue` runs, so a call written there is not one
+    /// the client makes and its variables object is not evidence.
+    fn visit_statements(
+        &mut self,
+        statements: &oxc_allocator::Vec<'a, oxc_ast::ast::Statement<'a>>,
+    ) {
+        for statement in statements {
+            self.visit_statement(statement);
+            if always_leaves(statement) {
+                break;
+            }
+        }
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -2258,6 +2296,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 None => {
                     if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = &stmt.left {
                         v.visit_variable_declaration(decl);
+                        // The declaration has no initializer, and the ordinary
+                        // reading of that is `undefined` - but this header
+                        // writes the name on every iteration, with a property
+                        // NAME, which is a string.
+                        for declarator in &decl.declarations {
+                            if let Some(name) = declarator.id.get_identifier_name() {
+                                v.scopes.bind_assignment(name.as_str(), Value::Defined);
+                            }
+                        }
                     }
                 }
             }
@@ -2341,9 +2388,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.scopes.enter_branch();
             self.scopes.carry(&falls_through);
             // The test was walked above, in the order the switch evaluates it.
-            for statement in &case.consequent {
-                self.visit_statement(statement);
-            }
+            self.visit_statements(&case.consequent);
             let exits = self.scopes.take_branch();
             falls_through = match case.consequent.last().is_some_and(always_leaves) {
                 true => Vec::new(),
@@ -2592,7 +2637,12 @@ impl CallSiteCollector<'_> {
         // object - which is read where it is built, because an argument after it
         // can write a binding it captured. `fetchQuery(op, {a: x}, x = !0)`
         // builds `{a: undefined}` first.
+        // `(function(){…})()` runs its body here and once: the branch a
+        // function definition otherwise sits behind is the uncertainty about
+        // whether anything calls it, and this call is the answer.
+        self.invoked = invoked_directly(&call.callee);
         self.visit_expression(&call.callee);
+        self.invoked = false;
         // Read where it is passed: the variables object built after it can
         // rebind the name the handle came from, and the call still sends what
         // that name held here.
@@ -3100,6 +3150,7 @@ pub(crate) fn variables_presence(
             sites: Vec::new(),
             unreadable_sites: 0,
             opaque_paths: Vec::new(),
+            invoked: false,
             replaying: false,
             variable_arguments: Vec::new(),
             diag,
@@ -4997,6 +5048,43 @@ mod tests {
             tree["input"].fields["a"].presence,
             VariablePresence::Conditional
         );
+    }
+
+    #[test]
+    fn a_hook_that_cannot_be_called_withdraws_nothing_either() {
+        // The opacity pass asked only for the name, so a `{toJSON: null}` beside
+        // an unreadable spread took back the key written after it - which the
+        // classification beside it had already decided is an ordinary key.
+        let caller = r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{input:{...t,a:!0,toJSON:null}})}"#;
+        let (tree, _) = presence_of(caller, &["input"]);
+        assert_eq!(tree["input"].fields["a"].presence, VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_declared_for_in_variable_is_a_property_name_too() {
+        // The declaration has no initializer, but the header writes the name on
+        // every iteration with a string.
+        let caller = r#"function f(t){for(let k in t){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:k})}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_function_invoked_where_it_is_written_runs_there() {
+        // The branch a function definition sits behind is the uncertainty about
+        // whether anything calls it, and an IIFE answers that at the call.
+        let caller = r#"function f(){var x;(function(){x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_call_after_a_return_is_not_a_call() {
+        // Nothing after the `return` runs, so the object written there is not a
+        // site and cannot weaken the one before it.
+        let caller = r#"function f(){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0});return;o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
