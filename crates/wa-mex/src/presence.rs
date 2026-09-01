@@ -3233,6 +3233,14 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 let mut values = Some(Vec::with_capacity(array.elements.len()));
                 for element in &array.elements {
                     let Some(expression) = element.as_expression() else {
+                        // A spread is an element this pass cannot count, but its
+                        // operand is still evaluated where it is written and can
+                        // write a binding the body reads. A hole evaluates
+                        // nothing.
+                        if let oxc_ast::ast::ArrayExpressionElement::SpreadElement(spread) = element
+                        {
+                            self.visit_expression(&spread.argument);
+                        }
                         values = None;
                         continue;
                     };
@@ -7893,6 +7901,16 @@ mod tests {
         let clears = r#"function f(){var y=!0;for(let x of [y,(y=void 0,1)]){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}}"#;
         let (tree, _) = presence_of(clears, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_spread_in_an_iterable_still_runs_its_operand() {
+        // A spread is an element this pass cannot count, but the expression
+        // inside it is evaluated where it is written, and what it writes is
+        // there for the code below to read.
+        let caller = r#"function f(t){var y=!0;for(let x of [...(y=void 0,t.list)]){}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:y})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
