@@ -960,6 +960,11 @@ fn definedness(value: &Value, scopes: &Scopes, depth: usize) -> Definedness {
         Value::Either(a, b) => definedness(a, scopes, next).max(definedness(b, scopes, next)),
         Value::Ref(name) => match scopes.lookup(name) {
             Some(bound) => definedness(bound, scopes, next),
+            // `NaN` and `Infinity` are numbers, and a key holding one is on the
+            // wire - `JSON.stringify` writes both as `null`, key and all. Only
+            // where nothing has bound the name, because a binding of that
+            // spelling is a name like any other.
+            None if name == "NaN" || name == "Infinity" => Definedness::Defined,
             // A binding from outside this module's bodies - a parameter, an
             // import. It is a passthrough, and a passthrough can be `undefined`.
             None => Definedness::MaybeUndefined,
@@ -1799,7 +1804,12 @@ fn is_nullish_literal(expr: &Expression) -> bool {
 /// invoked expression, whose body runs exactly once, where it stands.
 fn invoked_directly(callee: &Expression) -> bool {
     match callee {
-        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_) => true,
+        // A generator body does not run at the call at all - it waits for
+        // `next()` - and an async body stops at its first `await`. Neither is
+        // the "runs here, once" the plain case is, so both keep the branch a
+        // function definition otherwise sits behind.
+        Expression::FunctionExpression(f) => !f.generator && !f.r#async,
+        Expression::ArrowFunctionExpression(f) => !f.r#async,
         Expression::ParenthesizedExpression(p) => invoked_directly(&p.expression),
         _ => false,
     }
@@ -5509,6 +5519,38 @@ mod tests {
         let nested = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{get a(){return !0},...{...{a:!0}},set a(x){}})}"#;
         let (tree, _) = presence_of(nested, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn the_numeric_globals_are_numbers() {
+        // `JSON.stringify` writes `NaN` and `Infinity` as `null`, key and all,
+        // so a key holding one is on the wire.
+        for caller in [
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:NaN})}"#,
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:Infinity})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+
+        // Bound, the name is a name like any other and holds what it was given.
+        let shadowed =
+            r#"function f(NaN){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:NaN})}"#;
+        let (tree, _) = presence_of(shadowed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_suspended_body_does_not_run_at_the_call() {
+        // A generator waits for `next()` and an async body stops at its first
+        // `await`, so neither is the "runs here, once" a plain invocation is.
+        for caller in [
+            r#"function f(){var x;(function*(){x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+            r#"function f(){var x;(async function(){x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+        }
     }
 
     #[test]
