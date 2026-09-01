@@ -2076,15 +2076,27 @@ fn empty_list(expr: &Expression) -> bool {
 /// Whether a statement always ends the loop it is written in, so the update
 /// between iterations never runs. A `continue` does not: it is the jump TO the
 /// update, which is what separates it from a `break` here.
-fn leaves_the_loop(stmt: &oxc_ast::ast::Statement) -> bool {
+fn leaves_the_loop(stmt: &oxc_ast::ast::Statement, own_label: Option<&str>) -> bool {
     match stmt {
         oxc_ast::ast::Statement::BreakStatement(_)
         | oxc_ast::ast::Statement::ReturnStatement(_)
         | oxc_ast::ast::Statement::ThrowStatement(_) => true,
-        oxc_ast::ast::Statement::BlockStatement(b) => b.body.last().is_some_and(leaves_the_loop),
+        // `continue outer` from a loop written inside `outer` ends this one and
+        // goes to the update of that one. Named for this loop, or unnamed, it is
+        // the ordinary `continue` that runs this update.
+        oxc_ast::ast::Statement::ContinueStatement(c) => c
+            .label
+            .as_ref()
+            .is_some_and(|label| Some(label.name.as_str()) != own_label),
+        oxc_ast::ast::Statement::BlockStatement(b) => b
+            .body
+            .last()
+            .is_some_and(|last| leaves_the_loop(last, own_label)),
         oxc_ast::ast::Statement::IfStatement(i) => {
-            leaves_the_loop(&i.consequent)
-                && i.alternate.as_ref().is_some_and(|arm| leaves_the_loop(arm))
+            leaves_the_loop(&i.consequent, own_label)
+                && i.alternate
+                    .as_ref()
+                    .is_some_and(|arm| leaves_the_loop(arm, own_label))
         }
         _ => false,
     }
@@ -2873,6 +2885,10 @@ struct CallSiteCollector<'d> {
     suspend_on_await: bool,
     /// How many such branches are open in the statement being walked.
     suspended: usize,
+    /// The label the loop being walked was written under, for the `continue`
+    /// that names one: `continue outer` from an inner loop leaves that inner
+    /// loop, and from the labelled loop itself it does not.
+    label: Option<String>,
     /// The values a direct call passes, for the parameters of the body it runs.
     /// `None` in the slot for an argument written `void 0`: a parameter with a
     /// default takes the default for that one, exactly as it does for an
@@ -3102,6 +3118,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         }
     }
 
+    fn visit_labeled_statement(&mut self, stmt: &oxc_ast::ast::LabeledStatement<'a>) {
+        let outer = self.label.replace(stmt.label.name.as_str().to_string());
+        self.visit_statement(&stmt.body);
+        self.label = outer;
+    }
+
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
         // `for (let x …)` binds `x` for the loop and nothing after it, so the
         // header needs a block of its own around header and body alike. And the
@@ -3129,6 +3151,8 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 return;
             }
         }
+        // The label belongs to this loop and not to one written inside it.
+        let own_label = self.label.take();
         // Round again: every iteration after the first reads what the body and
         // the update left behind. `for (; t; x = void 0) { fetchQuery(op, {a:
         // x}) }` sends `a` once and omits it thereafter.
@@ -3139,7 +3163,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             // `continue` is the opposite - it goes to the update - so the two
             // cannot be asked with one question.
             if let Some(update) = &stmt.update
-                && !leaves_the_loop(&stmt.body)
+                && !leaves_the_loop(&stmt.body, own_label.as_deref())
             {
                 v.visit_expression(update);
             }
@@ -4486,6 +4510,7 @@ pub(crate) fn variables_presence(
             suspends: false,
             suspend_on_await: false,
             suspended: 0,
+            label: None,
             call_arguments: None,
             replaying: false,
             variable_arguments: Vec::new(),
@@ -7668,6 +7693,22 @@ mod tests {
         let caller = r#"function f(){for(const x of ([])){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{})}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
         let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_labelled_continue_names_which_loop_it_goes_round() {
+        // `continue outer` from a loop written inside `outer` ends the inner
+        // loop, so the inner update never runs and the call keeps reading what
+        // stood before it.
+        let inner = r#"function f(t,u){var x=!0;outer:for(;t;){for(;u;x=void 0){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});continue outer}}}"#;
+        let (tree, _) = presence_of(inner, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // Named for the loop it is written in, it is the ordinary `continue`
+        // that goes to that loop's own update.
+        let same = r#"function f(t){var x=!0;outer:for(;t;x=void 0){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});continue outer}}"#;
+        let (tree, _) = presence_of(same, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
     #[test]
