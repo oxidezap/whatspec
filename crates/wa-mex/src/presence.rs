@@ -726,6 +726,12 @@ fn convert(expr: &Expression, depth: usize) -> Value {
             // job functions around these handles reuse the same letters for
             // their own parameters.
             Some(memo) => convert(memo, next),
+            // A literal test is not a choice at all: `!1 ? void 0 : !0` is the
+            // second arm and nothing else.
+            None if static_truth(&c.test).is_some() => match static_truth(&c.test) {
+                Some(true) => convert(&c.consequent, next),
+                _ => convert(&c.alternate, next),
+            },
             None => Value::Either(
                 Box::new(convert(&c.consequent, next)),
                 Box::new(convert(&c.alternate, next)),
@@ -1462,7 +1468,11 @@ fn collect_hoisted(statements: &[oxc_ast::ast::Statement], out: &mut HashMap<Str
             // the outer name must not answer for the local one.
             S::ClassDeclaration(c) => {
                 if let Some(id) = &c.id {
-                    out.insert(id.name.as_str().to_string(), Value::MaybeUndefined);
+                    // Before the declaration runs the name is in its temporal
+                    // dead zone, which no key can read; after it, the binding is
+                    // the class, and a key holding one is not on the wire. The
+                    // second is what a call below the declaration sees.
+                    out.insert(id.name.as_str().to_string(), Value::Dropped);
                 }
             }
             S::BlockStatement(b) => collect_hoisted(&b.body, out),
@@ -2127,6 +2137,18 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
     }
 }
 
+/// Whether an expression only DEFINES a function: building it runs no body, so
+/// what the body writes is not something the code beside it has seen. A class is
+/// one too, through the methods it carries.
+fn defines_a_function(expr: &Expression) -> bool {
+    matches!(
+        expr,
+        Expression::FunctionExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::ClassExpression(_)
+    )
+}
+
 /// Whether an expression is reached through an optional link, so the call it is
 /// the callee of may never happen: `t?.m(…)` runs nothing when `t` is nullish.
 fn optional_link(expr: &Expression) -> bool {
@@ -2575,6 +2597,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             self.scopes.bind(id.name.as_str(), Value::Dropped);
         }
         let invoked = std::mem::take(&mut self.invoked);
+        // Every ordinary function has its own `arguments`, an object that is
+        // there on every call however few were passed. Bound before the
+        // parameters, so a parameter of that name shadows it as JS does. An
+        // arrow has no `arguments` of its own and reads the enclosing one,
+        // which is why this is not in the arrow's visitor.
+        self.scopes.bind("arguments", Value::Defined);
         self.bind_params(&func.params);
         // A function body is a branch of its own: whether it ever runs is not
         // this pass's to say, so what it writes to an enclosing binding reaches
@@ -2874,6 +2902,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
+        // `while (!1) …` runs its body no times at all, so a call written there
+        // is not one the client makes.
+        if static_truth(&stmt.test) == Some(false) {
+            self.visit_expression(&stmt.test);
+            return;
+        }
         self.read_until_it_settles(|v| walk::walk_while_statement(v, stmt));
     }
 
@@ -3055,6 +3089,15 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// wrote.
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
+        // A literal test takes one arm on every path, so what that arm writes is
+        // not something the code after it may have missed.
+        if let Some(taken) = static_truth(&expr.test) {
+            match taken {
+                true => self.visit_expression(&expr.consequent),
+                false => self.visit_expression(&expr.alternate),
+            }
+            return;
+        }
         self.scopes.enter_branch();
         self.visit_expression(&expr.consequent);
         let first = self.scopes.take_branch();
@@ -3565,6 +3608,9 @@ impl CallSiteCollector<'_> {
         };
         let pairs = accessor_pairs(object);
         let mut props = Vec::with_capacity(object.properties.len());
+        // What the bodies of function-valued properties write, held back until
+        // the object is built.
+        let mut deferred: Vec<ArmExit> = Vec::new();
         for (property, paired) in object.properties.iter().zip(pairs) {
             match property {
                 ObjectPropertyKind::ObjectProperty(p) => {
@@ -3583,8 +3629,21 @@ impl CallSiteCollector<'_> {
                     }
                     // The property's own expression runs first, writes and all,
                     // and what it leaves is the value stored: `{a: (x = void 0,
-                    // x)}` stores the `x` the assignment just cleared.
-                    self.visit_expression(&p.value);
+                    // x)}` stores the `x` the assignment just cleared. A
+                    // function-valued one is the exception: building the object
+                    // creates the function and does not run it, so `{f:
+                    // function(){x = void 0}, a: x}` stores the `x` that still
+                    // stands. What such a body writes is held back and joined
+                    // once the object is built, where a later call could have
+                    // made it.
+                    match defines_a_function(&p.value) {
+                        true => {
+                            self.scopes.enter_branch();
+                            self.visit_expression(&p.value);
+                            deferred.extend(self.scopes.take_branch());
+                        }
+                        false => self.visit_expression(&p.value),
+                    }
                     let value = accessor(p, paired).unwrap_or_else(|| self.hold(&p.value));
                     props.push(match key {
                         Some(key) => Prop::Key(key, value),
@@ -3603,6 +3662,11 @@ impl CallSiteCollector<'_> {
                     props.push(Prop::Spread(value));
                 }
             }
+        }
+        // Whether anything ever calls those bodies is not this pass's to say,
+        // so what they wrote joins with the value the object was built from.
+        if !deferred.is_empty() {
+            self.scopes.join_all_arms(vec![deferred], false);
         }
         Some(Value::Object(props))
     }
@@ -6503,6 +6567,74 @@ mod tests {
         // whatever it was given.
         let shadowed = r#"function f(undefined){var x;undefined??(x=!0);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
         let (tree, _) = presence_of(shadowed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_literal_test_picks_one_arm_of_a_ternary() {
+        // `!1 ? void 0 : !0` is the second arm and nothing else, so the key it
+        // holds is not one of two things.
+        let caller = r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!1?void 0:!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // And what the arm it takes writes is on every path.
+        let writes = r#"function f(){var x;!0?x=!0:x=void 0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(writes, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_loop_a_literal_test_never_enters_is_not_a_call_site() {
+        // `while (!1) …` runs its body no times at all. A `do…while` runs it
+        // once whatever the test says, which is the case below it.
+        let never = r#"function f(){while(!1)o("C").fetchQuery(n("WAWebFooQuery.graphql"),{});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, _) = presence_of(never, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        let once = r#"function f(){var x;do{x=!0}while(!1);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(once, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn an_ordinary_function_has_its_own_arguments() {
+        // `arguments` is there on every call however few were passed, so a key
+        // holding it is a key on the wire.
+        let caller =
+            r#"function f(){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:arguments})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // A parameter of that name shadows it, and what a caller passed is
+        // another matter.
+        let shadowed = r#"function f(arguments){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:arguments})}"#;
+        let (tree, _) = presence_of(shadowed, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_class_declaration_is_the_class_below_it() {
+        // `X || !0` is the class, which `JSON.stringify` drops, so the key is
+        // not one the client sends. Reading the binding as merely possibly
+        // undefined took the fallback and called it unconditional.
+        let caller = r#"function f(){class X{}return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:X||!0})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_ne!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_function_valued_property_is_built_and_not_run() {
+        // Building the object creates the function and does not call it, so the
+        // key beside it stores the value that still stands.
+        let caller = r#"function f(){var x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:function(){x=void 0},a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // Once the object is built, whether anything calls that body is not
+        // this pass's to say, and a later site reads it as either.
+        let after = r#"function f(){var x=!0;o("C").fetchQuery(n("WAWebFooQuery.graphql"),{unused:function(){x=void 0},a:x});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(after, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
     }
 
