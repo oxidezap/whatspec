@@ -231,7 +231,13 @@ pub fn extract_mex_from_modules_with_diagnostics(
         let slice = &source[def.start..def.end];
         if name.ends_with(RELAY_OP_SUFFIX) {
             if let Some(id) = module_exported_string(slice) {
-                exported_ids.insert(name.to_string(), id);
+                // First occurrence wins, the rule the operation scan below and
+                // the caller index above both follow: two definitions of one
+                // module in a concatenated bundle can export different ids, and
+                // the first is the one the runtime keeps. Overwriting paired the
+                // first operation with a later shard's id, which is an id for
+                // another version of the document or another document.
+                exported_ids.entry(name.to_string()).or_insert(id);
             }
             continue;
         }
@@ -726,6 +732,22 @@ mod tests {
         let op = ir.operations.get("GetThing").unwrap();
         assert_eq!(op.doc_id, "999111"); // resolved from the sibling module
         assert_eq!(op.variables, vec!["q"]); // fragment argDefs preferred
+    }
+
+    #[test]
+    fn the_first_definition_of_a_relay_operation_sibling_wins() {
+        // Concatenated bundles can define one module twice. The runtime keeps
+        // the first, and so does the operation scan, so the id has to come from
+        // the same copy - pairing the first operation with a later shard's
+        // export is an id for another document.
+        let m = r#"
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports="999111"}),null);
+        __d("WAWebGetThingQuery_facebookRelayOperation",[],(function(t,n,r,o,a,i){a.exports="222222"}),null);
+        __d("WAWebGetThingQuery.graphql",[],(function(t,n,r,o,a,i){
+            i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"q"}],name:"WAWebGetThingQuery"},operation:{argumentDefinitions:[],name:"WAWebGetThingQuery"},params:{id:n("WAWebGetThingQuery_facebookRelayOperation"),name:"WAWebGetThingQuery",operationKind:"query"}}
+        }),null);"#;
+        let ir = extract_mex(m, "2.3000.1");
+        assert_eq!(ir.operations.get("GetThing").unwrap().doc_id, "999111");
     }
 
     #[test]
