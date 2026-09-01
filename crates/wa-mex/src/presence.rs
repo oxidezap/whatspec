@@ -1805,14 +1805,47 @@ fn is_nullish_literal(expr: &Expression) -> bool {
 fn invoked_directly(callee: &Expression) -> bool {
     match callee {
         // A generator body does not run at the call at all - it waits for
-        // `next()` - and an async body stops at its first `await`. Neither is
-        // the "runs here, once" the plain case is, so both keep the branch a
-        // function definition otherwise sits behind.
-        Expression::FunctionExpression(f) => !f.generator && !f.r#async,
-        Expression::ArrowFunctionExpression(f) => !f.r#async,
+        // `next()` - so it keeps the branch a function definition otherwise sits
+        // behind. An async body does run, synchronously, until its first
+        // `await`; where it stops is `suspends` below.
+        Expression::FunctionExpression(f) => !f.generator,
+        Expression::ArrowFunctionExpression(_) => true,
         Expression::ParenthesizedExpression(p) => invoked_directly(&p.expression),
         _ => false,
     }
+}
+
+/// Whether a statement suspends the async body it is written in: the first
+/// `await` is where the call stops running it and returns. A nested function
+/// carries its own suspension and not this one's, so its body is not searched.
+fn suspends_here(statement: &oxc_ast::ast::Statement) -> bool {
+    struct Awaits {
+        found: bool,
+    }
+    impl<'a> Visit<'a> for Awaits {
+        fn visit_await_expression(&mut self, _expr: &oxc_ast::ast::AwaitExpression<'a>) {
+            self.found = true;
+        }
+        fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+            // `for await (const t of s)` awaits each step of the iteration.
+            self.found |= stmt.r#await;
+            walk::walk_for_of_statement(self, stmt);
+        }
+        fn visit_function(
+            &mut self,
+            _func: &oxc_ast::ast::Function<'a>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+    }
+    let mut awaits = Awaits { found: false };
+    awaits.visit_statement(statement);
+    awaits.found
 }
 
 /// Whether an expression is reached through an optional link, so the call it is
@@ -2222,6 +2255,9 @@ struct CallSiteCollector<'d> {
     /// IIFE runs its body where it is written, so what it writes is not
     /// something the code after it may or may not see.
     invoked: bool,
+    /// Whether the body about to be walked is an invoked async one, which runs
+    /// only as far as its first `await` before the call returns.
+    suspends: bool,
     /// Whether this pass is a second reading of a body already walked - a loop
     /// on its way round again. Its call sites are real and are kept; what it
     /// could not read was already counted the first time.
@@ -2268,10 +2304,14 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `send` may be called without `init` ever having been. And it is walked
         // twice for the same reason a loop body is: a function called again
         // reads what its own last call left behind.
+        // The flag is set here, next to the walk that reads it, so a default
+        // in the parameters cannot spend it on a body of its own.
+        self.suspends = invoked && func.r#async;
         match invoked {
             true => walk::walk_function(self, func, flags),
             false => self.read_until_it_settles(|v| walk::walk_function(v, func, flags)),
         }
+        self.suspends = false;
         self.scopes.pop();
     }
 
@@ -2282,10 +2322,12 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         let invoked = std::mem::take(&mut self.invoked);
         self.scopes.push(hoisted_vars(&func.body));
         self.bind_params(&func.params);
+        self.suspends = invoked && func.r#async;
         match invoked {
             true => walk::walk_arrow_function_expression(self, func),
             false => self.read_until_it_settles(|v| walk::walk_arrow_function_expression(v, func)),
         }
+        self.suspends = false;
         self.scopes.pop();
     }
 
@@ -2323,11 +2365,31 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// A statement list stops where the code does: nothing after a `return`,
     /// `throw`, `break` or `continue` runs, so a call written there is not one
     /// the client makes and its variables object is not evidence.
+    ///
+    /// An invoked async body stops twice over: the call runs it as far as the
+    /// first `await` and returns there, so the statements up to that point are
+    /// as certain as any straight line, and everything from it on is a branch
+    /// the code after the call may or may not have seen.
     fn visit_statements(
         &mut self,
         statements: &oxc_allocator::Vec<'a, oxc_ast::ast::Statement<'a>>,
     ) {
-        for statement in statements {
+        // The flag belongs to this list alone: a nested body inside the prefix
+        // suspends at its own `await`, not at this one's.
+        let suspends = std::mem::take(&mut self.suspends);
+        for (index, statement) in statements.iter().enumerate() {
+            if suspends && suspends_here(statement) {
+                let rest = &statements[index..];
+                self.read_until_it_settles(|v| {
+                    for statement in rest {
+                        v.visit_statement(statement);
+                        if always_leaves(statement) {
+                            break;
+                        }
+                    }
+                });
+                return;
+            }
             self.visit_statement(statement);
             if always_leaves(statement) {
                 break;
@@ -3386,6 +3448,7 @@ pub(crate) fn variables_presence(
             unreadable_sites: 0,
             opaque_paths: Vec::new(),
             invoked: false,
+            suspends: false,
             replaying: false,
             variable_arguments: Vec::new(),
             diag,
@@ -5542,15 +5605,50 @@ mod tests {
 
     #[test]
     fn a_suspended_body_does_not_run_at_the_call() {
-        // A generator waits for `next()` and an async body stops at its first
-        // `await`, so neither is the "runs here, once" a plain invocation is.
+        // A generator waits for `next()`, so nothing in it has happened by the
+        // time the call returns. An async body has run as far as its first
+        // `await` and no further.
         for caller in [
             r#"function f(){var x;(function*(){x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
-            r#"function f(){var x;(async function(){x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+            r#"function f(){var x;(async function(){await q();x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+            r#"function f(){var x;(async()=>{for await(var t of s)x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
         ] {
             let (tree, _) = presence_of(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
         }
+    }
+
+    #[test]
+    fn an_async_body_runs_up_to_its_first_await() {
+        // `(async () => {…})()` is not a deferred body: the call runs it in
+        // place until the first `await`, so a write before that one has already
+        // happened when the variables object is read.
+        for caller in [
+            r#"function f(){var x;(async function(){x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+            r#"function f(){var x;(async()=>{x=!0;await q()})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+            r#"function f(){var x;(async function(){if(t){x=!0}else{x=!0}await q()})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+    }
+
+    #[test]
+    fn an_await_below_the_prefix_still_suspends_it() {
+        // The `await` is nested inside the `if`, and the write after that
+        // statement is on the far side of the suspension all the same.
+        let caller = r#"function f(){var x;(async function(){if(t){await q()}x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_nested_await_is_not_this_bodys_suspension() {
+        // The `await` belongs to the inner async function, which is defined and
+        // not called here: the outer body runs straight past it to the write.
+        let caller = r#"function f(){var x;(async function(){var g=async function(){await q()};x=!0})();return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
     #[test]
