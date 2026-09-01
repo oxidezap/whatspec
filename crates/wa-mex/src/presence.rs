@@ -2836,7 +2836,7 @@ impl CallSiteCollector<'_> {
                     // are classified, which is where the scopes are.
                     let value = match nullish_sentinel(&spread.argument) {
                         true => Value::Object(Vec::new()),
-                        false => self.hold(&spread.argument),
+                        false => self.spread_copy(&spread.argument),
                     };
                     props.push(Prop::Spread(value));
                 }
@@ -2849,6 +2849,19 @@ impl CallSiteCollector<'_> {
     /// so a write further along the object cannot reach back into it.
     fn settled(&self, expression: &Expression<'_>) -> Value {
         settle(&convert(expression, 0), &self.scopes, 0)
+    }
+
+    /// What a spread copies: the source's own keys as they stand HERE, since
+    /// `{...v}` reads them at the spread and a later `delete v.a` cannot reach
+    /// what was already copied. One level only - the values it copied are
+    /// references to the same objects, so a write through one of THOSE does
+    /// reach the request.
+    fn spread_copy(&mut self, expression: &Expression<'_>) -> Value {
+        let source = self.hold(expression);
+        match self.scopes.resolve(&source, 0) {
+            Value::Object(props) => Value::Object(props.clone()),
+            _ => source,
+        }
     }
 
     /// The value the call will receive: a primitive settled where it is
@@ -2892,7 +2905,7 @@ impl CallSiteCollector<'_> {
                         ObjectPropertyKind::SpreadProperty(s) => {
                             let value = match nullish_sentinel(&s.argument) {
                                 true => Value::Object(Vec::new()),
-                                false => self.hold(&s.argument),
+                                false => self.spread_copy(&s.argument),
                             };
                             props.push(Prop::Spread(value));
                         }
@@ -4966,6 +4979,24 @@ mod tests {
         let plain = r#"function f(t){var {x}=t;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
         let (tree, _) = presence_of(plain, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn a_spread_copies_the_keys_it_reads_where_it_reads_them() {
+        // `{...v}` copies `v`'s own keys at the spread, so a later argument
+        // deleting one of them cannot reach what was already copied.
+        let copied = r#"function f(){var v={a:!0};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{...v},delete v.a)}"#;
+        let (tree, _) = presence_of(copied, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+
+        // What it copied are references to the same objects, though: a write
+        // through one of THOSE does reach the request.
+        let shared = r#"function f(){var w={a:!0};var v={input:w};return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{...v},delete w.a)}"#;
+        let (tree, _) = presence_of(shared, &["input"]);
+        assert_eq!(
+            tree["input"].fields["a"].presence,
+            VariablePresence::Conditional
+        );
     }
 
     #[test]
