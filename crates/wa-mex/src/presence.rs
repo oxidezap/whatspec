@@ -2310,6 +2310,12 @@ fn supplied_from_outside_at(handle: &Value, scopes: &Scopes, depth: usize) -> bo
         // binding. A name nothing wrote is not one of those: the memoised
         // require reads as that on the arm taken before it is filled.
         Value::Given | Value::Read => true,
+        // A call whose module this pass could not read hands back whatever it
+        // chose: `fetchQuery(select(t, n("X.graphql")), …)` may be sending an
+        // operation picked at run time, and one `.graphql` dependency says what
+        // the module REQUIRES, not what a helper returns. A require this pass
+        // did read carries its module name and is judged by that name instead.
+        Value::Call(None) => true,
         // `fetchQuery(e || s, …)` sends the parameter whenever the caller
         // passed one, so a handle from outside on either side is a handle from
         // outside. The memoised require the minifier writes - `e !== void 0 ? e
@@ -4586,6 +4592,25 @@ mod tests {
         (out, diag)
     }
 
+    /// The same, for a caller whose only `.graphql` dependency is this operation:
+    /// the reading where a handle the pass cannot tie to a module is decided by
+    /// elimination rather than by name.
+    fn presence_of_sole(
+        caller: &str,
+        vars: &[&str],
+    ) -> (BTreeMap<String, VariablePresenceNode>, PresenceDiagnostics) {
+        let names: Vec<String> = vars.iter().map(|s| s.to_string()).collect();
+        let mut diag = PresenceDiagnostics::default();
+        let out = variables_presence(
+            &[(caller, true)],
+            MODULE,
+            &names,
+            &mut diag,
+            &mut Vec::new(),
+        );
+        (out, diag)
+    }
+
     fn at(tree: &BTreeMap<String, VariablePresenceNode>, key: &str) -> VariablePresence {
         tree.get(key)
             .unwrap_or_else(|| panic!("{key} missing from {tree:?}"))
@@ -5195,18 +5220,26 @@ mod tests {
 
     #[test]
     fn a_handle_a_call_produced_is_not_ours_by_elimination() {
-        // One `.graphql` dependency says what the module requires and nothing
+        // One `.graphql` dependency says what the module REQUIRES and nothing
         // about what a helper hands back: `fetchQuery(select(t, n("X.graphql")),
-        // …)` may be sending an operation chosen at run time, so the shortcut
-        // for a module with a single operation does not reach it.
+        // …)` may be sending an operation chosen at run time. Read with the
+        // shortcut ON, which is the only reading where the question arises.
         for caller in [
             r#"function f(t){return o("C").fetchQuery(select(t,n("WAWebFooQuery.graphql")),{a:!0})}"#,
             r#"function f(t){n("WAWebFooQuery.graphql");return o("C").fetchQuery(pick(t),{a:!0})}"#,
         ] {
-            let (tree, diag) = presence_of(caller, &["a"]);
+            let (tree, diag) = presence_of_sole(caller, &["a"]);
             assert_eq!(at(&tree, "a"), VariablePresence::Undetermined);
             assert_eq!(diag.ambiguous_call_sites, 1);
         }
+
+        // The memoised require the minifier writes is a call too, and that one
+        // names its module, so the shortcut still reaches it.
+        let required =
+            r#"function f(t){return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#;
+        let (tree, diag) = presence_of_sole(required, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        assert_eq!(diag.ambiguous_call_sites, 0);
     }
 
     #[test]

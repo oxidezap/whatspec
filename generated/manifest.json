@@ -60,9 +60,9 @@
       "docIdsFromSibling": 33,
       "docIdsInline": 110,
       "dropsByReason": {
-        "ambiguousCallSite": 1,
+        "ambiguousCallSite": 2,
         "operationWithNoCallSite": 5,
-        "unreadableCallArgument": 2,
+        "unreadableCallArgument": 1,
         "unreadableKey": 0,
         "unreadableSpread": 0
       },
