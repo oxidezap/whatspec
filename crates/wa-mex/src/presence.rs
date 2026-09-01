@@ -2891,7 +2891,7 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
         // `break` ends that case is not read here, and carrying its exit is the
         // half that cannot claim a key the client may omit.
         let mut falls_through: Vec<ArmExit> = Vec::new();
-        for case in &stmt.cases {
+        for (index, case) in stmt.cases.iter().enumerate() {
             has_default |= case.test.is_none();
             // A case's test is evaluated before its body and after the tests of
             // the cases above it, and only up to the one that matches: walking
@@ -2903,6 +2903,19 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
             }
             self.scopes.enter_branch();
             self.scopes.carry(&falls_through);
+            // `default` is where the switch goes when NO test matched, so every
+            // test below it has already run by the time its body does: `switch
+            // (t) { default: …x…; break; case (x = void 0, 1): break }` reaches
+            // the default with `x` cleared. A case's own body is the other way
+            // round - it runs the moment its test matches, before any test
+            // below it.
+            if case.test.is_none() {
+                for below in stmt.cases.iter().skip(index + 1) {
+                    if let Some(test) = &below.test {
+                        self.visit_expression(test);
+                    }
+                }
+            }
             self.visit_statements(&case.consequent);
             let exits = self.scopes.take_branch();
             // Whether the case LEFT, not what its last line is: the walk stops
@@ -2983,7 +2996,24 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
     /// does, exactly like one inside an `if`.
     fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
         self.visit_expression(&expr.left);
-        self.in_branch(|v| v.visit_expression(&expr.right));
+        // A literal left side decides the operator: `!1 && fetchQuery(…)` runs
+        // nothing on the right, and `!1 || fetchQuery(…)` runs it on every path
+        // rather than on a branch. `??` asks about nullish rather than truth,
+        // and a literal that is neither `null` nor `undefined` settles it the
+        // same way.
+        let decided = match expr.operator {
+            LogicalOperator::And => static_truth(&expr.left),
+            LogicalOperator::Or => static_truth(&expr.left).map(|truth| !truth),
+            LogicalOperator::Coalesce => match nullish_sentinel(&expr.left) {
+                true => Some(true),
+                false => static_truth(&expr.left).map(|_| false),
+            },
+        };
+        match decided {
+            Some(true) => self.visit_expression(&expr.right),
+            Some(false) => {}
+            None => self.in_branch(|v| v.visit_expression(&expr.right)),
+        }
     }
 
     /// Both arms from the state before the ternary, the same as an `if`: only
@@ -3117,7 +3147,18 @@ impl<'a> Visit<'a> for CallSiteCollector<'_> {
                 let written = match key_value(&current, &path, &self.scopes, 0) {
                     Some(Value::Getter) => Value::Getter,
                     Some(Value::WriteOnly) => Value::WriteOnly,
-                    _ => assignment_value(n, 0),
+                    // Taken where it is written: `v.a = x; x = !0` stores the
+                    // `undefined` `x` held at the assignment, and following the
+                    // name afterwards handed the key a value it never saw. An
+                    // object keeps its reference, because a write through either
+                    // name reaches the one object.
+                    _ => {
+                        let value = assignment_value(n, 0);
+                        match self.scopes.resolve(&value, 0) {
+                            Value::Object(_) | Value::Array(_) => value,
+                            _ => settle(&value, &self.scopes, 0),
+                        }
+                    }
                 };
                 write_key(&current, &path, written, &self.scopes, 0)
             });
@@ -3250,9 +3291,14 @@ impl CallSiteCollector<'_> {
         // `(function(){…})()` runs its body here and once: the branch a
         // function definition otherwise sits behind is the uncertainty about
         // whether anything calls it, and this call is the answer.
-        self.invoked = invoked_directly(&call.callee);
-        self.visit_expression(&call.callee);
-        self.invoked = false;
+        // An IIFE's body runs after the arguments are evaluated, not before:
+        // `(function(){…})(x = !0)` has made that write by the time anything in
+        // the body reads `x`. A callee that is not invoked here is a definition
+        // and is walked where it is written.
+        let runs_here = invoked_directly(&call.callee);
+        if !runs_here {
+            self.visit_expression(&call.callee);
+        }
         // Read where it is passed: the variables object built after it can
         // rebind the name the handle came from, and the call still sends what
         // that name held here.
@@ -3296,6 +3342,11 @@ impl CallSiteCollector<'_> {
         // reachable that way and was snapshotted where it was written.
         for argument in call.arguments.iter().skip(2) {
             self.visit_argument(argument);
+        }
+        if runs_here {
+            self.invoked = true;
+            self.visit_expression(&call.callee);
+            self.invoked = false;
         }
         if !self.is_operation_call(call, handle) && self.is_ambiguous_call(call, handle) {
             // A Relay call in a module that sends several operations, whose
@@ -6275,6 +6326,58 @@ mod tests {
 
         let truthy = r#"function f(){var x;if(0x10n)x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
         let (tree, _) = presence_of(truthy, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_key_takes_the_value_the_write_had_in_hand() {
+        // `v.a = x; x = !0` stores the `undefined` `x` held at the assignment.
+        // Following the name afterwards handed the key a value it never saw.
+        let caller = r#"function f(){var v={},x;v.a=x;x=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+
+        // An object still keeps its reference: a write through either name
+        // reaches the one object.
+        let shared = r#"function f(){var v={},w={};v.a=w;w.b=!0;return o("C").fetchQuery(n("WAWebFooQuery.graphql"),v)}"#;
+        let (tree, _) = presence_of(shared, &["a"]);
+        assert_eq!(tree["a"].fields["b"].presence, VariablePresence::Always);
+    }
+
+    #[test]
+    fn a_literal_settles_its_short_circuit() {
+        // `!1 && fetchQuery(…)` runs nothing on the right, so there is no call
+        // there to merge; `!1 || fetchQuery(…)` runs it on every path, which is
+        // not a branch either.
+        for caller in [
+            r#"function f(){!1&&o("C").fetchQuery(n("WAWebFooQuery.graphql"),{});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#,
+            r#"function f(){!0||o("C").fetchQuery(n("WAWebFooQuery.graphql"),{});return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:!0})}"#,
+        ] {
+            let (tree, _) = presence_of(caller, &["a"]);
+            assert_eq!(at(&tree, "a"), VariablePresence::Always);
+        }
+
+        // A left side this pass cannot read keeps the right on a branch.
+        let unknown = r#"function f(){var x;t&&(x=!0);return o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})}"#;
+        let (tree, _) = presence_of(unknown, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn the_default_case_is_reached_after_every_test_has_run() {
+        // A switch goes to `default` only when NO test matched, so a test
+        // written below it has already run by the time its body does.
+        let caller = r#"function f(){var x=!0;switch(t){default:o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x});break;case (x=void 0,1):break}}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
+        assert_eq!(at(&tree, "a"), VariablePresence::Conditional);
+    }
+
+    #[test]
+    fn an_invoked_body_runs_after_the_arguments() {
+        // `(function(){…})(x = !0)` evaluates the argument first, so the write
+        // has happened before anything in the body reads it.
+        let caller = r#"function f(){var x;(function(){o("C").fetchQuery(n("WAWebFooQuery.graphql"),{a:x})})(x=!0)}"#;
+        let (tree, _) = presence_of(caller, &["a"]);
         assert_eq!(at(&tree, "a"), VariablePresence::Always);
     }
 
