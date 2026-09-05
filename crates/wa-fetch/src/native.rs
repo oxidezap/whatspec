@@ -103,15 +103,16 @@ impl HttpClient for UreqClient {
             .get("location")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
-        // The body of a 3xx is a stub, but it is still remote input: read it under the
-        // caller's cap and drop it, so a server that answers a redirect probe with a
-        // large body cannot make this allocate without bound.
-        let _ = resp
+        let body = resp
             .into_body()
             .into_with_config()
             .limit(max_bytes)
             .read_to_vec()
             .map_err(|e| FetchError::new(format!("read body of {url}: {e}")))?;
-        Ok(RedirectResponse { status, location })
+        Ok(RedirectResponse {
+            status,
+            location,
+            body,
+        })
     }
 }

@@ -271,6 +271,7 @@ mod tests {
             Ok(RedirectResponse {
                 status: self.status,
                 location: self.location.clone(),
+                body: Vec::new(),
             })
         }
     }

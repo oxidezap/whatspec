@@ -51,6 +51,11 @@ struct Asset {
     created_at: String,
 }
 
+struct ArchiveSelection {
+    remaining: BTreeMap<String, WasmCapture>,
+    files: Vec<(PathBuf, Vec<u8>)>,
+}
+
 impl WasmCapture {
     fn validate(&self) -> Result<()> {
         ensure!(
@@ -114,11 +119,20 @@ fn github_headers(token: Option<&str>) -> Vec<(String, String)> {
 }
 
 fn get(url: &str, headers: &[(String, String)], max: u64) -> Result<Vec<u8>> {
+    get_with(&UreqClient::new(), url, headers, max)
+}
+
+fn get_with(
+    client: &impl HttpClient,
+    url: &str,
+    headers: &[(String, String)],
+    max: u64,
+) -> Result<Vec<u8>> {
     let borrowed = headers
         .iter()
         .map(|(name, value)| (name.as_str(), value.as_str()))
         .collect::<Vec<_>>();
-    let response = UreqClient::new()
+    let response = client
         .get(url, &borrowed, max)
         .with_context(|| format!("GET {url}"))?;
     ensure!(
@@ -129,7 +143,7 @@ fn get(url: &str, headers: &[(String, String)], max: u64) -> Result<Vec<u8>> {
     Ok(response.body)
 }
 
-fn release(repo: &str, tag: &str, token: Option<&str>) -> Result<Release> {
+fn release_url(repo: &str, tag: &str) -> Result<url::Url> {
     ensure!(
         repo.split_once('/').is_some_and(|(owner, name)| {
             !owner.is_empty()
@@ -142,19 +156,39 @@ fn release(repo: &str, tag: &str, token: Option<&str>) -> Result<Release> {
         "invalid GitHub repository {repo:?}"
     );
     ensure!(
-        !tag.is_empty()
-            && tag
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')),
+        !tag.is_empty() && !tag.chars().any(char::is_control),
         "invalid GitHub release tag {tag:?}"
     );
-    let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
-    serde_json::from_slice(&get(&url, &github_headers(token), 8 * 1024 * 1024)?)
-        .context("decode GitHub release metadata")
+    let (owner, name) = repo.split_once('/').context("validated repository")?;
+    let mut endpoint = url::Url::parse("https://api.github.com")?;
+    endpoint
+        .path_segments_mut()
+        .map_err(|_| anyhow::anyhow!("GitHub API URL cannot hold path segments"))?
+        .extend(["repos", owner, name, "releases", "tags", tag]);
+    Ok(endpoint)
+}
+
+fn release(repo: &str, tag: &str, token: Option<&str>) -> Result<Release> {
+    let endpoint = release_url(repo, tag)?;
+    serde_json::from_slice(&get(
+        endpoint.as_str(),
+        &github_headers(token),
+        8 * 1024 * 1024,
+    )?)
+    .context("decode GitHub release metadata")
 }
 
 fn asset_bytes(asset: &Asset, token: Option<&str>) -> Result<Vec<u8>> {
-    if let Ok(bytes) = get(
+    asset_bytes_with(&UreqClient::new(), asset, token)
+}
+
+fn asset_bytes_with(
+    client: &impl HttpClient,
+    asset: &Asset,
+    token: Option<&str>,
+) -> Result<Vec<u8>> {
+    if let Ok(bytes) = get_with(
+        client,
         &asset.browser_download_url,
         &[("User-Agent".to_owned(), "wa-store".to_owned())],
         MAX_ARCHIVE_BYTES,
@@ -177,15 +211,18 @@ fn asset_bytes(asset: &Asset, token: Option<&str>) -> Result<Vec<u8>> {
         .iter()
         .map(|(name, value)| (name.as_str(), value.as_str()))
         .collect::<Vec<_>>();
-    let redirect = UreqClient::new()
-        .get_redirect(&asset.url, &borrowed, 64 * 1024)
+    let response = client
+        .get_redirect(&asset.url, &borrowed, MAX_ARCHIVE_BYTES)
         .context("request private GitHub asset")?;
+    if response.status == 200 {
+        return Ok(response.body);
+    }
     ensure!(
-        (300..400).contains(&redirect.status),
+        (300..400).contains(&response.status),
         "GitHub asset API returned HTTP {}",
-        redirect.status
+        response.status
     );
-    let location = redirect
+    let location = response
         .location
         .context("GitHub asset redirect missing Location")?;
     ensure!(
@@ -199,7 +236,8 @@ fn asset_bytes(asset: &Asset, token: Option<&str>) -> Result<Vec<u8>> {
             .any(|host| url_host(&location) == *host),
         "refusing untrusted GitHub asset redirect"
     );
-    get(
+    get_with(
+        client,
         &location,
         &[("User-Agent".to_owned(), "wa-store".to_owned())],
         MAX_ARCHIVE_BYTES,
@@ -260,16 +298,13 @@ fn persist(directory: &Path, selected: Vec<(PathBuf, Vec<u8>)>) -> Result<()> {
     Ok(())
 }
 
-fn apply_archive(
+fn select_archive(
     archive: &[u8],
-    missing: &mut BTreeMap<String, WasmCapture>,
-    directory: &Path,
-) -> Result<()> {
+    missing: &BTreeMap<String, WasmCapture>,
+) -> Result<ArchiveSelection> {
     let mut remaining = missing.clone();
-    let selected = take_archive(archive, &mut remaining)?;
-    persist(directory, selected)?;
-    *missing = remaining;
-    Ok(())
+    let files = take_archive(archive, &mut remaining)?;
+    Ok(ArchiveSelection { remaining, files })
 }
 
 /// Restore every requested payload from its CDN URL or a configured release archive.
@@ -331,9 +366,11 @@ pub fn restore_captures(
             let Ok(bytes) = asset_bytes(&asset, token.as_deref()) else {
                 continue;
             };
-            if apply_archive(&bytes, &mut missing, directory).is_err() {
+            let Ok(selection) = select_archive(&bytes, &missing) else {
                 continue;
-            }
+            };
+            persist(directory, selection.files)?;
+            missing = selection.remaining;
         }
     }
     ensure!(
@@ -373,6 +410,57 @@ mod tests {
             )
             .validate()
             .is_err()
+        );
+    }
+
+    #[test]
+    fn release_tags_are_encoded_as_one_api_path_segment() {
+        let url = release_url("owner/repository", "releases/v1.2+build").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.github.com/repos/owner/repository/releases/tags/releases%2Fv1.2+build"
+        );
+    }
+
+    #[test]
+    fn authenticated_asset_api_may_stream_the_body_directly() {
+        struct Direct;
+        impl HttpClient for Direct {
+            fn get(
+                &self,
+                _url: &str,
+                _headers: &[(&str, &str)],
+                _max_bytes: u64,
+            ) -> std::result::Result<wa_fetch::HttpResponse, wa_fetch::FetchError> {
+                Ok(wa_fetch::HttpResponse {
+                    status: 404,
+                    body: Vec::new(),
+                })
+            }
+
+            fn get_redirect(
+                &self,
+                _url: &str,
+                _headers: &[(&str, &str)],
+                _max_bytes: u64,
+            ) -> std::result::Result<wa_fetch::RedirectResponse, wa_fetch::FetchError> {
+                Ok(wa_fetch::RedirectResponse {
+                    status: 200,
+                    location: None,
+                    body: b"archive".to_vec(),
+                })
+            }
+        }
+        let asset = Asset {
+            name: "wasm-test.tar.xz".into(),
+            url: "https://api.github.com/repos/owner/repository/releases/assets/1".into(),
+            browser_download_url: "https://github.com/owner/repository/releases/download/tag/asset"
+                .into(),
+            created_at: String::new(),
+        };
+        assert_eq!(
+            asset_bytes_with(&Direct, &asset, Some("token")).unwrap(),
+            b"archive"
         );
     }
 
@@ -417,7 +505,7 @@ mod tests {
         };
         let mut missing = BTreeMap::from([("x.wasm".into(), pin.clone())]);
         let directory = tempfile::tempdir().unwrap();
-        assert!(apply_archive(b"not an archive", &mut missing, directory.path()).is_err());
+        assert!(select_archive(b"not an archive", &missing).is_err());
         assert_eq!(missing, BTreeMap::from([("x.wasm".into(), pin)]));
 
         let mut builder = tar::Builder::new(Vec::new());
@@ -431,7 +519,9 @@ mod tests {
         let tar = builder.into_inner().unwrap();
         let mut compressed = Vec::new();
         lzma_rs::xz_compress(&mut tar.as_slice(), &mut compressed).unwrap();
-        apply_archive(&compressed, &mut missing, directory.path()).unwrap();
+        let selection = select_archive(&compressed, &missing).unwrap();
+        persist(directory.path(), selection.files).unwrap();
+        missing = selection.remaining;
         assert!(missing.is_empty());
         assert_eq!(
             std::fs::read(directory.path().join("x.wasm")).unwrap(),
