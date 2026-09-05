@@ -14,6 +14,7 @@ members = [
     "crates/wa-oxc",
     "crates/wa-proto",
     "crates/wa-scan",
+    "crates/wa-store",
     "crates/wa-text",
     "crates/wa-tokens",
     "crates/wa-transform",
@@ -36,12 +37,11 @@ anyhow = "1"
 
 # Bundle-archive (de)compression for `whatspec restore`. Pure-Rust only:
 # flate2's `rust_backend` (miniz_oxide) keeps the C-free guarantee — no libz-sys.
-# flate2 stays for reading legacy `.tar.gz` assets; new assets are xz (see lzma-rs).
+# flate2 stays for reading legacy `.tar.gz` assets; new assets are xz.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tar = "0.4"
-# Pure-Rust xz decoder — decompresses the durable-store `.tar.xz` assets (roughly half
-# the size of gzip) without liblzma C, preserving the C-free guarantee.
-lzma-rs = "0.3"
+# Pure-Rust xz decoder with an explicit dictionary-memory limit.
+lzma-rust2 = { version = "0.20", default-features = false, features = ["std", "xz"] }
 
 # oxc (native JS parsing/AST) — tooling crates only, never the WASM build.
 oxc_allocator = "0.133"
@@ -67,6 +67,7 @@ wa-notif = { path = "crates/wa-notif" }
 wa-oxc = { path = "crates/wa-oxc" }
 wa-proto = { path = "crates/wa-proto" }
 wa-scan = { path = "crates/wa-scan" }
+wa-store = { path = "crates/wa-store", default-features = false }
 wa-text = { path = "crates/wa-text" }
 wa-tokens = { path = "crates/wa-tokens" }
 wa-transform = { path = "crates/wa-transform" }

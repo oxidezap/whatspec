@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   check:
@@ -65,12 +69,14 @@ jobs:
           echo "C-free OK"
 
       # Catch dependencies declared in a Cargo.toml but no longer used in code.
-      - name: Install cargo-shear
-        uses: taiki-e/install-action@v2
+      - name: Install dependency checks
+        uses: taiki-e/install-action@7b8d4719ee4aaa279bdf55df38dacb9ebfe12a6c # v2
         with:
-          tool: cargo-shear
+          tool: cargo-shear@1.13.4,cargo-deny@0.20.2
       - name: Unused dependencies
         run: cargo shear
+      - name: Dependency advisories
+        run: cargo deny --locked --workspace --all-features check advisories
 
       # Drift guard: the committed `generated/*/index.json` must still conform to
       # the committed `generated/schema/*.json`. Network-free and deterministic.

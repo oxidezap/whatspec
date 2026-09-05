@@ -1,0 +1,11 @@
+[advisories]
+version = 2
+ignore = [
+    # OxiTLS includes RSA signing for server/private-key consumers. wa-fetch is
+    # a client with no client certificate or private key, so this timing path
+    # is unreachable. RustCrypto has not published a fixed RSA release.
+    "RUSTSEC-2023-0071",
+    # Compile-time macro used by the current pure-Rust TLS provider. It adds no
+    # runtime code and the provider has no replacement release without it.
+    "RUSTSEC-2024-0436",
+]

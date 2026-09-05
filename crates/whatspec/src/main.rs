@@ -11,11 +11,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-mod lock;
-use lock::{BundleId, BundleLock, WasmLock, WasmLockEntry};
-
+use wa_store::lock::{self, BundleId, BundleLock, WasmLock, WasmLockEntry};
 #[cfg(feature = "fetch")]
-mod restore;
+use wa_store::restore;
 
 /// The committed bundle lockfile, written next to the domain artifacts.
 const BUNDLE_LOCK_NAME: &str = "bundles.lock.json";

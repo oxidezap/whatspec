@@ -47,8 +47,8 @@ impl fmt::Display for FetchError {
 
 impl Error for FetchError {}
 
-/// A 3xx observed *without* following it: the status plus the raw `Location`
-/// header, exactly as the server sent it (absolute or relative, unvalidated).
+/// A response observed *without* following redirects: status, raw `Location`
+/// and the bounded response body.
 ///
 /// A caller that treats `Location` as a fetchable URL is trusting remote input,
 /// so the value is handed over unparsed and the policy stays with the caller
@@ -57,6 +57,7 @@ impl Error for FetchError {}
 pub struct RedirectResponse {
     pub status: u16,
     pub location: Option<String>,
+    pub body: Vec<u8>,
 }
 
 /// A blocking HTTP GET. Implementors are the *adapters* (native `ureq` today,

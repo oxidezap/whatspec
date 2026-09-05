@@ -19,10 +19,12 @@
 //! gate depends on, so adding payloads to it would mutate an already-published archive.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
+use std::io::Read;
+#[cfg(test)]
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use wa_fetch::{Bundle, BundleCache, HttpClient, UreqClient, bundle_file_name};
 
 use crate::lock::BundleLock;
@@ -39,6 +41,8 @@ const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
 /// decompressor is chosen by content (not a filename/extension a caller controls).
 const XZ_MAGIC: &[u8] = &[0xfd, b'7', b'z', b'X', b'Z', 0x00];
 const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
+// xz -9 uses a 64 MiB dictionary; leave room for the decoder's fixed state.
+const MAX_XZ_MEMORY_KIB: u32 = 65 * 1024;
 /// Hard ceiling on the *decompressed* bundle set (the real set is ~71 MB; slack for
 /// growth). It bounds the decompressed **output**, stopping a classic decompression bomb
 /// (a tiny archive that inflates enormously) before the tar is even parsed.
@@ -47,11 +51,6 @@ const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
 /// envelopes share one path that holds the whole tar in memory and then copies each entry
 /// out, making peak *output* memory ~2× the decompressed size, which this cap bounds.
 ///
-/// Caveat: this caps output only. lzma-rs's xz API exposes no `memlimit`, so the decoder
-/// still allocates its LZMA2 dictionary (size read from the archive header) up front,
-/// unbounded by this cap. That residual is accepted for the untrusted `--archive` path —
-/// a deliberate, local action — since the release path restore normally uses is our own
-/// published, content-addressed archive.
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -424,15 +423,10 @@ fn release_asset_base_url(repo: &str, asset_stem: &str) -> String {
 /// after the last `@`), so `https://github.com@evil.com/…` correctly resolves to
 /// `evil.com`.
 fn url_host(url: &str) -> String {
-    let authority = url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(url)
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("");
-    let host = authority.rsplit('@').next().unwrap_or(authority);
-    host.split(':').next().unwrap_or(host).to_ascii_lowercase()
+    url::Url::parse(url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .unwrap_or_default()
 }
 
 /// Whether `url`'s host is GitHub itself. Host-only — see [`may_send_github_token`]
@@ -448,7 +442,12 @@ fn is_github_host(url: &str) -> bool {
 /// leak it, and sending it over plaintext `http://` (even to `github.com`) would put
 /// it on the wire in the clear. Both are refused.
 fn may_send_github_token(url: &str) -> bool {
-    url.starts_with("https://") && is_github_host(url)
+    url::Url::parse(url).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && is_github_host(url.as_str())
+    })
 }
 
 /// Download `url`, returning `Ok(None)` on a 404 so callers can try a fallback name.
@@ -458,10 +457,11 @@ fn download_opt(url: &str) -> Result<Option<Vec<u8>>> {
     // the asset itself is public, so the token is a courtesy, not a requirement. Only
     // send it to GitHub over HTTPS — never to a caller-supplied `--archive` host, and
     // never over plaintext http.
-    let bearer = std::env::var("GITHUB_TOKEN")
-        .ok()
-        .filter(|t| !t.is_empty() && may_send_github_token(url))
-        .map(|t| format!("Bearer {t}"));
+    let bearer = ["GH_TOKEN", "GITHUB_TOKEN"]
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok().filter(|token| !token.is_empty()))
+        .filter(|_| may_send_github_token(url))
+        .map(|token| format!("Bearer {token}"));
     let mut headers: Vec<(&str, &str)> = vec![("User-Agent", "whatspec-restore")];
     if let Some(b) = &bearer {
         headers.push(("Authorization", b.as_str()));
@@ -503,13 +503,9 @@ fn unpack_archive(
 /// Decompress a whole archive into memory, capped at `max_unpacked` (bounds a
 /// decompression bomb before the tar is even parsed). The compressor is picked by magic
 /// bytes so a caller can't mislabel the payload via a filename/extension.
-fn decompress(archive: &[u8], max_unpacked: u64) -> Result<Vec<u8>> {
+pub(crate) fn decompress(archive: &[u8], max_unpacked: u64) -> Result<Vec<u8>> {
     if archive.starts_with(XZ_MAGIC) {
-        let mut out = CapWriter::new(max_unpacked);
-        let res = lzma_rs::xz_decompress(&mut std::io::Cursor::new(archive), &mut out);
-        bomb_guard(out.overflowed, max_unpacked)?;
-        res.context("decompress xz archive")?;
-        Ok(out.buf)
+        decompress_xz(archive, max_unpacked, MAX_XZ_MEMORY_KIB)
     } else if archive.starts_with(GZIP_MAGIC) {
         let mut buf = Vec::new();
         // +1 so a stream that fills exactly to the cap and keeps going is caught.
@@ -524,6 +520,32 @@ fn decompress(archive: &[u8], max_unpacked: u64) -> Result<Vec<u8>> {
     }
 }
 
+fn decompress_xz(archive: &[u8], max_unpacked: u64, memory_limit_kib: u32) -> Result<Vec<u8>> {
+    let mut decoder = lzma_rust2::XzStream::new_mem_limit(false, memory_limit_kib);
+    let mut input = archive;
+    let mut out = Vec::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let result = decoder
+            .process(input, &mut buffer, lzma_rust2::Action::Finish)
+            .context("decompress xz archive")?;
+        input = &input[result.bytes_consumed..];
+        bomb_guard(
+            out.len() as u64 + result.bytes_produced as u64 > max_unpacked,
+            max_unpacked,
+        )?;
+        out.extend_from_slice(&buffer[..result.bytes_produced]);
+        if result.status == lzma_rust2::Status::StreamEnd {
+            ensure!(input.is_empty(), "xz archive has trailing data");
+            return Ok(out);
+        }
+        ensure!(
+            result.bytes_consumed != 0 || result.bytes_produced != 0,
+            "xz decoder made no progress"
+        );
+    }
+}
+
 fn bomb_guard(overflowed: bool, max_unpacked: u64) -> Result<()> {
     if overflowed {
         bail!(
@@ -531,41 +553,6 @@ fn bomb_guard(overflowed: bool, max_unpacked: u64) -> Result<()> {
         );
     }
     Ok(())
-}
-
-/// A `Write` sink that buffers into a `Vec` but hard-stops once `cap` bytes are
-/// exceeded, flagging `overflowed` and erroring so an eager decompressor (lzma-rs
-/// writes the whole stream) can't allocate past the cap.
-struct CapWriter {
-    buf: Vec<u8>,
-    cap: u64,
-    overflowed: bool,
-}
-
-impl CapWriter {
-    fn new(cap: u64) -> Self {
-        Self {
-            buf: Vec::new(),
-            cap,
-            overflowed: false,
-        }
-    }
-}
-
-impl Write for CapWriter {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        if self.buf.len() as u64 + data.len() as u64 > self.cap {
-            self.overflowed = true;
-            // A hard stop, not a "wrote zero / try again" condition — use `Other`.
-            return Err(std::io::Error::other("unpacked size cap exceeded"));
-        }
-        self.buf.extend_from_slice(data);
-        Ok(data.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }
 
 /// Read regular-file entries from an (already decompressed) tar into `(name, bytes)`.
@@ -1073,6 +1060,18 @@ mod tests {
         assert!(err.to_string().contains("decompression bomb"), "{err}");
         // The same archive unpacks fine under a sufficient cap.
         assert_eq!(unpack_archive(&tar_gz(files), 1 << 20, 8).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn xz_dictionary_memory_is_capped() {
+        let archive = tar_xz(&[("a.js", b"alpha")]);
+        let error = decompress_xz(&archive, 1 << 20, 1).unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::OutOfMemory)
+        );
     }
 
     #[test]

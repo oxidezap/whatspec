@@ -11,7 +11,7 @@
 //!   WASM-safe. The download loop (`std::thread::scope`) and `save_bundles`
 //!   (`std::fs`) are native-only and feature-gated.
 //! - [`UreqClient`] is the native *adapter* (feature `native`, on by default):
-//!   `ureq` over rustls with the pure-Rust RustCrypto `CryptoProvider` — no
+//!   `ureq` over rustls with the pure-Rust OxiTLS/RustCrypto `CryptoProvider` — no
 //!   `ring`, so the whole tree is C-free.
 //! - A future web build can implement [`HttpClient`] over the browser `fetch`
 //!   API as a second adapter, reusing the discovery parser unchanged, and
