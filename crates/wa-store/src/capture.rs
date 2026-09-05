@@ -11,6 +11,7 @@ use wa_fetch::{HttpClient, UreqClient, is_cdn_payload};
 const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ARCHIVE_FILES: usize = 4096;
+const MAX_WASM_BYTES: u64 = 64 * 1024 * 1024;
 
 /// One immutable wasm payload required by a downstream tool.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -68,6 +69,12 @@ impl WasmCapture {
                     .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
             "capture {} has an invalid SHA-256",
             self.file_name
+        );
+        ensure!(
+            self.size.is_none_or(|size| size <= MAX_WASM_BYTES),
+            "capture {} exceeds the {} byte limit",
+            self.file_name,
+            MAX_WASM_BYTES
         );
         if let Some(url) = &self.url {
             ensure!(
@@ -253,6 +260,18 @@ fn persist(directory: &Path, selected: Vec<(PathBuf, Vec<u8>)>) -> Result<()> {
     Ok(())
 }
 
+fn apply_archive(
+    archive: &[u8],
+    missing: &mut BTreeMap<String, WasmCapture>,
+    directory: &Path,
+) -> Result<()> {
+    let mut remaining = missing.clone();
+    let selected = take_archive(archive, &mut remaining)?;
+    persist(directory, selected)?;
+    *missing = remaining;
+    Ok(())
+}
+
 /// Restore every requested payload from its CDN URL or a configured release archive.
 ///
 /// Existing files are accepted only after the same size/hash/magic checks. Release
@@ -282,7 +301,7 @@ pub fn restore_captures(
             && let Ok(bytes) = get(
                 url,
                 &[("User-Agent".to_owned(), "wa-store".to_owned())],
-                capture.size.unwrap_or(64 * 1024 * 1024) + 1,
+                capture.size.unwrap_or(MAX_WASM_BYTES) + 1,
             )
             && capture.matches(&bytes)
         {
@@ -312,8 +331,9 @@ pub fn restore_captures(
             let Ok(bytes) = asset_bytes(&asset, token.as_deref()) else {
                 continue;
             };
-            let selected = take_archive(&bytes, &mut missing)?;
-            persist(directory, selected)?;
+            if apply_archive(&bytes, &mut missing, directory).is_err() {
+                continue;
+            }
         }
     }
     ensure!(
@@ -342,6 +362,9 @@ mod tests {
                 .is_err()
         );
         assert!(capture("x.wasm", "AA", None).validate().is_err());
+        let mut oversized = capture("x.wasm", &"a".repeat(64), None);
+        oversized.size = Some(MAX_WASM_BYTES + 1);
+        assert!(oversized.validate().is_err());
         assert!(
             capture(
                 "x.wasm",
@@ -381,5 +404,38 @@ mod tests {
         let selected = take_archive(&compressed, &mut missing).unwrap();
         assert!(missing.is_empty());
         assert_eq!(selected, [(PathBuf::from("x.wasm"), payload.to_vec())]);
+    }
+
+    #[test]
+    fn malformed_archive_does_not_consume_matches_from_later_archives() {
+        let payload = b"\0asmgood";
+        let pin = WasmCapture {
+            file_name: "x.wasm".into(),
+            sha256: wa_text::sha256_hex(payload),
+            size: Some(payload.len() as u64),
+            url: None,
+        };
+        let mut missing = BTreeMap::from([("x.wasm".into(), pin.clone())]);
+        let directory = tempfile::tempdir().unwrap();
+        assert!(apply_archive(b"not an archive", &mut missing, directory.path()).is_err());
+        assert_eq!(missing, BTreeMap::from([("x.wasm".into(), pin)]));
+
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "x.wasm", payload.as_slice())
+            .unwrap();
+        let tar = builder.into_inner().unwrap();
+        let mut compressed = Vec::new();
+        lzma_rs::xz_compress(&mut tar.as_slice(), &mut compressed).unwrap();
+        apply_archive(&compressed, &mut missing, directory.path()).unwrap();
+        assert!(missing.is_empty());
+        assert_eq!(
+            std::fs::read(directory.path().join("x.wasm")).unwrap(),
+            payload
+        );
     }
 }
