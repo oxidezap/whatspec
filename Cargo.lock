@@ -60,9 +60,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "autocfg"
@@ -78,9 +78,9 @@ checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
 name = "base64"
-version = "0.22.1"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64ct"
@@ -1027,6 +1027,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxitls-rustcrypto-provider"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18bd3866bdaa054b6f018b47b01baac05f8b6a8d789ebfb341d0e909e34917c5"
+dependencies = [
+ "aead",
+ "aes-gcm",
+ "chacha20",
+ "chacha20poly1305",
+ "crypto-common",
+ "der",
+ "digest",
+ "ecdsa",
+ "ed25519-dalek",
+ "hmac",
+ "p256",
+ "p384",
+ "paste",
+ "pkcs8",
+ "rand_core",
+ "rsa",
+ "rustls",
+ "rustls-pki-types",
+ "sec1",
+ "sha2",
+ "signature",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "p256"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1435,14 +1465,14 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.40"
+version = "0.23.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
+checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
 dependencies = [
  "log",
  "once_cell",
  "rustls-pki-types",
- "rustls-webpki 0.103.13",
+ "rustls-webpki",
  "subtle",
  "zeroize",
 ]
@@ -1454,47 +1484,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30a7197ae7eb376e574fe940d068c30fe0462554a3ddbe4eca7838e049c937a9"
 dependencies = [
  "zeroize",
-]
-
-[[package]]
-name = "rustls-rustcrypto"
-version = "0.0.2-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f12052947763ab8515f753315357599e9b0b4dab3b8ba15f30f725fe6d025557"
-dependencies = [
- "aead",
- "aes-gcm",
- "chacha20poly1305",
- "crypto-common",
- "der",
- "digest",
- "ecdsa",
- "ed25519-dalek",
- "hmac",
- "p256",
- "p384",
- "paste",
- "pkcs8",
- "rand_core",
- "rsa",
- "rustls",
- "rustls-pki-types",
- "rustls-webpki 0.102.8",
- "sec1",
- "sha2",
- "signature",
- "x25519-dalek",
-]
-
-[[package]]
-name = "rustls-webpki"
-version = "0.102.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64ca1bc8749bd4cf37b5ce386cc146580777b4e8572c7b97baf22c83f444bee9"
-dependencies = [
- "ring",
- "rustls-pki-types",
- "untrusted",
 ]
 
 [[package]]
@@ -1830,9 +1819,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "ureq"
-version = "3.3.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dea7109cdcd5864d4eeb1b58a1648dc9bf520360d7af16ec26d0a9354bafcfc0"
+checksum = "972d7902c8735f2695410b8aed7df6ed12a47394aa1c8d7af49f0497b731a94d"
 dependencies = [
  "base64",
  "log",
@@ -1846,9 +1835,9 @@ dependencies = [
 
 [[package]]
 name = "ureq-proto"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e994ba84b0bd1b1b0cf92878b7ef898a5c1760108fe7b6010327e274917a808c"
+checksum = "da5f78b09e6941e1a0f2e30e695e4b120377b54d5e0aec11b594bb57b3971613"
 dependencies = [
  "base64",
  "http",
@@ -1922,7 +1911,7 @@ name = "wa-fetch"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rustls-rustcrypto",
+ "oxitls-rustcrypto-provider",
  "serde",
  "serde_json",
  "ureq",
@@ -2095,9 +2084,9 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.7"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52f5ee44c96cf55f1b349600768e3ece3a8f26010c05265ab73f945bb1a2eb9d"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -2107,7 +2096,6 @@ name = "whatspec"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "serde",
  "serde_json",
  "wa-abprops",
  "wa-appstate",
