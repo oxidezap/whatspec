@@ -40,7 +40,7 @@ pub struct ReleaseSource {
 
 #[derive(Debug, Deserialize)]
 struct Release {
-    assets: Vec<Asset>,
+    assets_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,14 +92,15 @@ impl WasmCapture {
     }
 
     fn matches(&self, bytes: &[u8]) -> bool {
-        bytes.starts_with(b"\0asm")
+        bytes.len() as u64 <= MAX_WASM_BYTES
+            && bytes.starts_with(b"\0asm")
             && self.size.is_none_or(|size| size == bytes.len() as u64)
             && wa_text::sha256_hex(bytes) == self.sha256
     }
 }
 
 fn token() -> Option<String> {
-    ["GITHUB_TOKEN", "GH_TOKEN"]
+    ["GH_TOKEN", "GITHUB_TOKEN"]
         .into_iter()
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
 }
@@ -168,14 +169,66 @@ fn release_url(repo: &str, tag: &str) -> Result<url::Url> {
     Ok(endpoint)
 }
 
-fn release(repo: &str, tag: &str, token: Option<&str>) -> Result<Release> {
+fn release_with(
+    client: &impl HttpClient,
+    repo: &str,
+    tag: &str,
+    token: Option<&str>,
+) -> Result<Release> {
     let endpoint = release_url(repo, tag)?;
-    serde_json::from_slice(&get(
+    serde_json::from_slice(&get_with(
+        client,
         endpoint.as_str(),
         &github_headers(token),
         8 * 1024 * 1024,
     )?)
     .context("decode GitHub release metadata")
+}
+
+fn release_assets(repo: &str, tag: &str, token: Option<&str>) -> Result<Vec<Asset>> {
+    release_assets_with(&UreqClient::new(), repo, tag, token)
+}
+
+fn release_assets_with(
+    client: &impl HttpClient,
+    repo: &str,
+    tag: &str,
+    token: Option<&str>,
+) -> Result<Vec<Asset>> {
+    const MAX_ASSET_PAGES: u32 = 100;
+    let release = release_with(client, repo, tag, token)?;
+    let mut endpoint = url::Url::parse(&release.assets_url).context("parse GitHub assets URL")?;
+    ensure!(
+        endpoint.scheme() == "https"
+            && endpoint.host_str() == Some("api.github.com")
+            && endpoint.username().is_empty()
+            && endpoint.password().is_none(),
+        "refusing untrusted GitHub assets URL"
+    );
+    let mut assets = Vec::new();
+    for page in 1..=MAX_ASSET_PAGES {
+        endpoint
+            .query_pairs_mut()
+            .clear()
+            .append_pair("per_page", "100")
+            .append_pair("page", &page.to_string());
+        let batch: Vec<Asset> = serde_json::from_slice(&get_with(
+            client,
+            endpoint.as_str(),
+            &github_headers(token),
+            8 * 1024 * 1024,
+        )?)
+        .context("decode GitHub release assets")?;
+        let complete = batch.len() < 100;
+        assets.extend(batch);
+        if complete {
+            return Ok(assets);
+        }
+    }
+    bail!(
+        "GitHub release has more than {} assets",
+        MAX_ASSET_PAGES * 100
+    )
 }
 
 fn asset_bytes(asset: &Asset, token: Option<&str>) -> Result<Vec<u8>> {
@@ -226,14 +279,7 @@ fn asset_bytes_with(
         .location
         .context("GitHub asset redirect missing Location")?;
     ensure!(
-        location.starts_with("https://")
-            && [
-                "github.com",
-                "objects.githubusercontent.com",
-                "release-assets.githubusercontent.com",
-            ]
-            .iter()
-            .any(|host| url_host(&location) == *host),
+        trusted_asset_redirect(&location),
         "refusing untrusted GitHub asset redirect"
     );
     get_with(
@@ -244,12 +290,19 @@ fn asset_bytes_with(
     )
 }
 
-fn url_host(url: &str) -> &str {
-    url.strip_prefix("https://")
-        .unwrap_or_default()
-        .split(['/', ':'])
-        .next()
-        .unwrap_or_default()
+fn trusted_asset_redirect(location: &str) -> bool {
+    url::Url::parse(location).is_ok_and(|redirect| {
+        redirect.scheme() == "https"
+            && redirect.username().is_empty()
+            && redirect.password().is_none()
+            && [
+                "github.com",
+                "objects.githubusercontent.com",
+                "release-assets.githubusercontent.com",
+            ]
+            .iter()
+            .any(|host| redirect.host_str() == Some(*host))
+    })
 }
 
 fn take_archive(
@@ -349,17 +402,15 @@ pub fn restore_captures(
         if missing.is_empty() {
             break;
         }
-        let Ok(mut release) = release(&source.repo, &source.release, token.as_deref()) else {
+        let Ok(mut assets) = release_assets(&source.repo, &source.release, token.as_deref()) else {
             continue;
         };
-        release.assets.retain(|asset| {
+        assets.retain(|asset| {
             asset.name.starts_with("wasm-")
                 && (asset.name.ends_with(".tar.xz") || asset.name.ends_with(".tar.gz"))
         });
-        release
-            .assets
-            .sort_by(|left, right| right.created_at.cmp(&left.created_at));
-        for asset in release.assets {
+        assets.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        for asset in assets {
             if missing.is_empty() {
                 break;
             }
@@ -383,6 +434,8 @@ pub fn restore_captures(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
 
     #[test]
@@ -420,6 +473,66 @@ mod tests {
             url.as_str(),
             "https://api.github.com/repos/owner/repository/releases/tags/releases%2Fv1.2+build"
         );
+    }
+
+    #[test]
+    fn release_assets_are_paginated() {
+        struct Pages(Mutex<Vec<String>>);
+        impl HttpClient for Pages {
+            fn get(
+                &self,
+                url: &str,
+                _headers: &[(&str, &str)],
+                _max_bytes: u64,
+            ) -> std::result::Result<wa_fetch::HttpResponse, wa_fetch::FetchError> {
+                self.0.lock().unwrap().push(url.to_owned());
+                let body = if url.contains("/releases/tags/") {
+                    br#"{"assets_url":"https://api.github.com/repos/owner/repository/releases/1/assets"}"#.to_vec()
+                } else if url::Url::parse(url).is_ok_and(|url| {
+                    url.query_pairs()
+                        .any(|(name, value)| name == "page" && value == "1")
+                }) {
+                    serde_json::to_vec(
+                        &(0..100)
+                            .map(|index| serde_json::json!({
+                                "name": format!("wasm-{index}.tar.xz"),
+                                "url": format!("https://api.github.com/assets/{index}"),
+                                "browser_download_url": format!("https://github.com/assets/{index}"),
+                                "created_at": "2026-01-01T00:00:00Z"
+                            }))
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap()
+                } else {
+                    b"[]".to_vec()
+                };
+                Ok(wa_fetch::HttpResponse { status: 200, body })
+            }
+        }
+
+        let client = Pages(Mutex::new(Vec::new()));
+        assert_eq!(
+            release_assets_with(&client, "owner/repository", "tag", None)
+                .unwrap()
+                .len(),
+            100
+        );
+        let requested = client.0.into_inner().unwrap();
+        assert!(requested.iter().any(|url| url.contains("page=1")));
+        assert!(requested.iter().any(|url| url.contains("page=2")));
+    }
+
+    #[test]
+    fn asset_redirect_rejects_credentials_and_untrusted_hosts() {
+        assert!(trusted_asset_redirect(
+            "https://release-assets.githubusercontent.com/file"
+        ));
+        assert!(!trusted_asset_redirect(
+            "https://release-assets.githubusercontent.com@evil.example/file"
+        ));
+        assert!(!trusted_asset_redirect(
+            "https://github.com:secret@evil.example/file"
+        ));
     }
 
     #[test]
