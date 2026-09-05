@@ -14,6 +14,7 @@ members = [
     "crates/wa-oxc",
     "crates/wa-proto",
     "crates/wa-scan",
+    "crates/wa-store",
     "crates/wa-text",
     "crates/wa-tokens",
     "crates/wa-transform",
@@ -67,6 +68,7 @@ wa-notif = { path = "crates/wa-notif" }
 wa-oxc = { path = "crates/wa-oxc" }
 wa-proto = { path = "crates/wa-proto" }
 wa-scan = { path = "crates/wa-scan" }
+wa-store = { path = "crates/wa-store", default-features = false }
 wa-text = { path = "crates/wa-text" }
 wa-tokens = { path = "crates/wa-tokens" }
 wa-transform = { path = "crates/wa-transform" }

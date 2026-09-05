@@ -140,6 +140,12 @@ cargo run --release -p whatspec -- diff old-generated/ generated/
 
 ## Reproducibility
 
+The reusable storage boundary lives in the `wa-store` crate. It owns JS/wasm
+lock identities, exact-set restoration and selected historical wasm recovery;
+consumers can pin this crate by Git revision without depending on the protocol
+extractors or the `whatspec` CLI. `wa-fetch` remains the transport/discovery
+layer. Codec recipes and execution hosts do not belong in either crate.
+
 WhatsApp only serves the *current* bundle version — old bundle URLs 404 — so the inputs that produced a past `generated/` can't be re-fetched from source. To keep the "same bundle → byte-identical output" promise checkable by anyone at any time, each generation pins and preserves its exact inputs:
 
 - **`generated/bundles.lock.json`** records the content SHA-256 (+ size, and origin URL when known) of every bundle that produced the committed `generated/`, plus a one-line, order-invariant `setHash` fingerprint of the whole set.

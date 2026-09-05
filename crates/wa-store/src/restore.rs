@@ -503,7 +503,7 @@ fn unpack_archive(
 /// Decompress a whole archive into memory, capped at `max_unpacked` (bounds a
 /// decompression bomb before the tar is even parsed). The compressor is picked by magic
 /// bytes so a caller can't mislabel the payload via a filename/extension.
-fn decompress(archive: &[u8], max_unpacked: u64) -> Result<Vec<u8>> {
+pub(crate) fn decompress(archive: &[u8], max_unpacked: u64) -> Result<Vec<u8>> {
     if archive.starts_with(XZ_MAGIC) {
         let mut out = CapWriter::new(max_unpacked);
         let res = lzma_rs::xz_decompress(&mut std::io::Cursor::new(archive), &mut out);
