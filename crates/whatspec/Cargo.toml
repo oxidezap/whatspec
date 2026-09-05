@@ -22,7 +22,6 @@ fetch = ["dep:wa-fetch", "wa-store/restore"]
 
 [dependencies]
 anyhow = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 wa-abprops = { workspace = true }
 wa-appstate = { workspace = true }
