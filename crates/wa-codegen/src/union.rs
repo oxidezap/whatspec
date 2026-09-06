@@ -69,18 +69,22 @@ pub(crate) enum UnionShape {
 }
 
 /// A tag-discriminated arm: a variant whose payload is read by [`emit_struct_parser`]
-/// off the shared node, gated by `attr_values` (pinned discriminator attrs).
+/// off the shared node, gated by `attr_values` (pinned discriminator attrs) and
+/// `children` (required child tags — a node without one is never this variant).
 pub(crate) struct TagArm {
     pub variant: String,
     pub attr_values: Vec<(String, String)>,
+    pub children: Vec<String>,
     pub fields: Vec<ParsedField>,
 }
 
 /// An attr-discriminated arm: the discriminator holding `value` selects `variant`,
 /// which carries the leaves that arm reads (none, for an accepted-but-empty name).
+/// `children` are required child tags, enforced alongside the payload.
 pub(crate) struct AttrArm {
     pub variant: String,
     pub value: String,
+    pub children: Vec<String>,
     pub fields: Vec<ParsedField>,
 }
 
@@ -184,6 +188,12 @@ fn classify_tag_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Opt
                 .filter(|a| a.kind == AssertionKind::Attr)
                 .filter_map(|a| Some((a.name.clone()?, a.value.clone()?)))
                 .collect(),
+            children: v
+                .assertions
+                .iter()
+                .filter(|a| a.kind == AssertionKind::Child)
+                .filter_map(|a| a.name.clone())
+                .collect(),
             fields: v.fields.clone(),
         })
         .collect();
@@ -205,6 +215,14 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
             AssertionKind::Content => {
                 if let Some(val) = &a.value {
                     s.insert(format!("CONTENT:{val}"));
+                }
+            }
+            // A required child is a necessary condition on the arm: a node without it
+            // is never this variant. In the signature so separability accounts for it —
+            // an arm gated on a child no longer subsets a sibling that is not.
+            AssertionKind::Child => {
+                if let Some(n) = &a.name {
+                    s.insert(format!("CHILD:{n}"));
                 }
             }
             _ => {}
@@ -369,19 +387,30 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
             return None;
         }
 
-        // Exactly one assertion, and it pins an attr to a value. Anything else the arm
+        // One attr pin plus any number of required-child gates. Anything else the arm
         // enforces — a presence-only pin, a tag, a content literal — is not carried into
         // the match this shape emits, and accepting the variant anyway would construct it
         // for elements the parser rejects.
-        let [only] = &v.assertions[..] else {
-            return None;
-        };
-        let (Some(name), Some(value)) = (only.name.as_deref(), only.value.as_deref()) else {
-            return None;
-        };
-        if only.kind != AssertionKind::Attr {
-            return None;
+        let mut attr_pin: Option<(&str, &str)> = None;
+        let mut children: Vec<String> = Vec::new();
+        for a in &v.assertions {
+            match a.kind {
+                AssertionKind::Attr => {
+                    let (Some(name), Some(value)) = (a.name.as_deref(), a.value.as_deref()) else {
+                        return None;
+                    };
+                    if attr_pin.is_some() {
+                        return None;
+                    }
+                    attr_pin = Some((name, value));
+                }
+                AssertionKind::Child => {
+                    children.push(a.name.as_deref()?.to_string());
+                }
+                _ => return None,
+            }
         }
+        let (name, value) = attr_pin?;
         match &attr {
             Some(a) if a != name => return None,
             Some(_) => {}
@@ -396,6 +425,7 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
         arms.push(AttrArm {
             variant: v.name.clone(),
             value: value.to_string(),
+            children,
             fields: v.fields.clone(),
         });
     }
@@ -411,11 +441,11 @@ fn classify_same_node(f: &ParsedField, variants: &[UnionVariant]) -> Option<Unio
         // parser does — an attr dispatch [`classify_attr_discriminated`] declined (two arms
         // pinning `kind` AND `mode`) landed here and was emitted as a presence union over
         // the payloads alone, reading neither attribute. An attr pin the guard CAN spell is
-        // kept and enforced; anything else declines the shape.
-        if v.assertions
-            .iter()
-            .any(|a| a.kind != AssertionKind::Attr || a.name.is_none())
-        {
+        // kept and enforced; anything else declines the shape. A required-child gate is
+        // spellable too (presence on the node), so it is kept and enforced as well.
+        if v.assertions.iter().any(|a| {
+            a.name.is_none() || !(a.kind == AssertionKind::Attr || a.kind == AssertionKind::Child)
+        }) {
             return None;
         }
         if v.fields.is_empty() || !v.fields.iter().all(is_simple_leaf) {
@@ -696,17 +726,20 @@ fn emit_tag_cascade(
         // failed parse IS the miss and moving on is the whole mechanism. Making that fatal
         // dropped every arm after the first, which is how a fix for the first kind broke the
         // second: the same generalize-past-what-it-supports shape as round twenty-five.
-        let conds: Vec<String> = a
-            .attr_values
-            .iter()
-            .map(|(n, val)| {
-                format!(
-                    "{read_var}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
-                    rust_lit(n),
-                    rust_lit(val)
-                )
-            })
-            .collect();
+        let conds: Vec<String> =
+            a.attr_values
+                .iter()
+                .map(|(n, val)| {
+                    format!(
+                        "{read_var}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
+                        rust_lit(n),
+                        rust_lit(val)
+                    )
+                })
+                .chain(a.children.iter().map(|tag| {
+                    format!("{read_var}.get_optional_child({}).is_some()", rust_lit(tag))
+                }))
+                .collect();
         // …and only when that pin set picks THIS arm alone. Two arms may share a pin and be told
         // apart by their required fields, in which case the pin is not the discriminator and a
         // failed payload is still the miss. The response-root cascade had exactly that pair in
@@ -860,7 +893,7 @@ fn emit_attr_discriminated(
     for a in arms {
         // The IR marks a leaf required; without it the arm is not that variant. Reading it
         // anyway would default the field and fabricate a value the element never carried.
-        let required: Vec<String> = a
+        let mut required: Vec<String> = a
             .fields
             .iter()
             // Content counts too: an arm carrying a required `contentBytes` was selected on
@@ -884,6 +917,14 @@ fn emit_attr_discriminated(
             })
             .filter_map(|f| leaf_guard(f, node_var))
             .collect();
+        // Required children gate the arm the same way required leaves do: the
+        // discriminator value alone selects a variant the source parser rejects
+        // without the child.
+        required.extend(
+            a.children
+                .iter()
+                .map(|tag| format!("{node_var}.get_optional_child({}).is_some()", rust_lit(tag))),
+        );
         let payload = value_payload(enum_name, &a.variant, &a.fields, node_var);
         if required.is_empty() {
             lines.push(format!(
@@ -969,12 +1010,23 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
     let mut conds: Vec<String> = Vec::new();
     let mut pinned: BTreeSet<&str> = BTreeSet::new();
     for a in &arm.assertions {
-        // Attribute assertions only. `name` is not always an attribute's: an `AssertionKind::Tag`
-        // carries the ELEMENT's name, and rendering it as `get_attr(tag)` asks for an attribute
-        // named after the tag — a test nothing satisfies. Harmless while only the same-node
-        // shape asked, whose arms carry attribute pins; the moment a content fallback was routed
-        // through here it turned every unmatched value into `None`. Reading `kind` is what the
-        // field is for.
+        // Attribute assertions and required-child gates. `name` is not always an
+        // attribute's: an `AssertionKind::Tag` carries the ELEMENT's name, and
+        // rendering it as `get_attr(tag)` asks for an attribute named after the tag —
+        // a test nothing satisfies. Harmless while only the same-node shape asked,
+        // whose arms carry attribute pins; the moment a content fallback was routed
+        // through here it turned every unmatched value into `None`. Reading `kind`
+        // is what the field is for. A `Child` gate names the element, so it renders
+        // as a presence test on the child, not the attribute.
+        if a.kind == AssertionKind::Child {
+            if let Some(tag) = a.name.as_deref() {
+                conds.push(format!(
+                    "{node_var}.get_optional_child({}).is_some()",
+                    rust_lit(tag)
+                ));
+            }
+            continue;
+        }
         if a.kind != AssertionKind::Attr {
             continue;
         }
@@ -2822,6 +2874,80 @@ mod tests {
         assert!(
             code.contains("Some(SpecMemberAddModeMemberAddModes::UnknownAddMode"),
             "so the fallback is still reachable: {code}"
+        );
+    }
+
+    #[test]
+    fn tag_cascade_guards_on_required_children() {
+        // The gated arm must not take a node without the child the source parser
+        // requires, and the childless sibling must stay reachable for it.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "status_dispatch", "type": "union", "parserRequired": true,
+            "unionVariants": [
+                {"name": "revoke",
+                 "assertions": [
+                   {"kind": "tag", "name": "status"},
+                   {"kind": "attr", "name": "type", "value": "reaction"},
+                   {"kind": "child", "name": "reaction"}],
+                 "fields": [{"method": "attrString", "name": "edit",
+                             "wireName": "edit", "type": "string", "parserRequired": true}]},
+                {"name": "plain",
+                 "assertions": [
+                   {"kind": "tag", "name": "status"},
+                   {"kind": "attr", "name": "type", "value": "text"}],
+                 "fields": [{"method": "attrString", "name": "edit",
+                             "wireName": "edit", "type": "string", "parserRequired": true}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let code = lines.join("\n");
+        assert!(
+            code.contains("node.get_optional_child(\"reaction\").is_some()"),
+            "the gated arm requires its child: {code}"
+        );
+        assert!(
+            code.contains("Some(\"text\")"),
+            "the childless sibling stays reachable: {code}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_arm_enforces_a_required_child() {
+        // A discriminator value alone selects a variant the source parser rejects
+        // without the child, so the child joins the arm's payload ensure.
+        let mut f = category_union();
+        f.union_variants.as_mut().unwrap()[1]
+            .assertions
+            .push(ResponseAssertion {
+                kind: AssertionKind::Child,
+                name: Some("reaction".to_string()),
+                value: None,
+                reference_path: None,
+            });
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("still classified");
+        let code = lines.join("\n");
+        assert!(
+            code.contains("node.get_optional_child(\"reaction\").is_some()"),
+            "the child gates its arm: {code}"
+        );
+    }
+
+    #[test]
+    fn same_node_guard_enforces_a_required_child() {
+        let arm = ValueArm {
+            variant: "Gated".into(),
+            fields: vec![],
+            assertions: vec![ResponseAssertion {
+                kind: AssertionKind::Child,
+                name: Some("reaction".to_string()),
+                value: None,
+                reference_path: None,
+            }],
+        };
+        let guard = same_node_guard(&arm, "n").expect("a guard");
+        assert!(
+            guard.contains("n.get_optional_child(\"reaction\").is_some()"),
+            "presence on the node, not the attributes: {guard}"
         );
     }
 }

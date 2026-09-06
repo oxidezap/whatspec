@@ -499,6 +499,34 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                     ));
                 }
             }
+            AssertionKind::Child => {
+                if let Some(name) = &a.name {
+                    // Union semantics: this parser mirrors the whole success set, not
+                    // one variant, so it accepts whatever ANY success variant accepts.
+                    // A child gate belongs here only when every success variant
+                    // requires that child; otherwise (e.g. a bare `<iq type="result">`
+                    // success beside a gated one) emitting it rejects a legitimate
+                    // response.
+                    let required_by_all = op
+                        .response
+                        .variants
+                        .iter()
+                        .filter(|v| v.kind == ResponseVariantKind::Success)
+                        .all(|v| {
+                            v.assertions.iter().any(|o| {
+                                o.kind == AssertionKind::Child
+                                    && o.name.as_deref() == Some(name.as_str())
+                            })
+                        });
+                    if required_by_all {
+                        lines.push(format!(
+                            "{indent}if response.get_optional_child({}).is_none() {{ anyhow::bail!(\"not a success response: missing <{}>\"); }}",
+                            rust_lit(name),
+                            fmt_lit_inner(name),
+                        ));
+                    }
+                }
+            }
             // Tag (the `<iq>` root) / FromServer are not success-vs-error discriminators.
             // Neither is a Reference echo (`from` == the request's `to`): every outcome
             // of the same request satisfies it identically, so it separates nothing —
@@ -1373,6 +1401,122 @@ mod tests {
         );
         // A pure single-shape op (no variants) adds no guard.
         assert!(emit_success_guards(&stanza("WAWebThing", Some("getThing")), "    ").is_empty());
+    }
+
+    fn success_variant(tag: &str, assertions: Vec<wa_ir::ResponseAssertion>) -> ResponseVariant {
+        ResponseVariant {
+            tag: tag.into(),
+            module_name: format!("M{tag}"),
+            kind: ResponseVariantKind::Success,
+            assertions,
+            fields: vec![],
+            ..Default::default()
+        }
+    }
+
+    fn child_assert(tag: &str) -> wa_ir::ResponseAssertion {
+        wa_ir::ResponseAssertion {
+            kind: AssertionKind::Child,
+            name: Some(tag.into()),
+            value: None,
+            reference_path: None,
+        }
+    }
+
+    #[test]
+    fn success_guard_requires_a_child_only_when_every_success_does() {
+        // The fallback parser mirrors the whole success SET, so it accepts whatever
+        // any success variant accepts. A gate beside a childless success (the
+        // AcceptGroupAdd shape) must not be emitted, or the fallback rejects the
+        // legitimate bare response.
+        let mut s = stanza("WASmaxOutThing", Some("getThing"));
+        s.response.variants = vec![
+            success_variant(
+                "GetThingResponseGatedSuccess",
+                vec![child_assert("m_child")],
+            ),
+            success_variant("GetThingResponseSuccess", vec![]),
+        ];
+        assert!(
+            !emit_success_guards(&s, "    ")
+                .iter()
+                .any(|g| g.contains("m_child")),
+            "a childless sibling keeps the fallback open"
+        );
+        // …while a gate every success variant carries is enforced.
+        let mut s = stanza("WASmaxOutThing", Some("getThing"));
+        s.response.variants = vec![success_variant(
+            "GetThingResponseGatedSuccess",
+            vec![child_assert("m_child")],
+        )];
+        let guards = emit_success_guards(&s, "    ");
+        assert!(
+            guards
+                .iter()
+                .any(|g| g.contains("get_optional_child(\"m_child\")")),
+            "unanimous gate enforced: {guards:?}"
+        );
+    }
+    #[test]
+    fn fallback_parser_keeps_a_childless_success_reachable() {
+        // End to end on the AcceptGroupAdd shape: a gated success beside a bare
+        // one falls back to a single-shape parser, which mirrors the union and
+        // must not require the gated variant's child.
+        use wa_ir::ResponseAssertion;
+        use wa_ir::{ParsedField, ParsedFieldType};
+        fn typ() -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: "typ".into(),
+                field_type: ParsedFieldType::String,
+                parser_required: true,
+                ..Default::default()
+            }
+        }
+        fn gated() -> ResponseVariant {
+            ResponseVariant {
+                tag: "AcceptGroupAddResponseGroupJoinRequestSuccess".into(),
+                module_name: "m".into(),
+                kind: ResponseVariantKind::Success,
+                assertions: vec![
+                    ResponseAssertion {
+                        kind: AssertionKind::Attr,
+                        name: Some("type".into()),
+                        value: Some("result".into()),
+                        reference_path: None,
+                    },
+                    ResponseAssertion {
+                        kind: AssertionKind::Child,
+                        name: Some("membership_approval_request".into()),
+                        value: None,
+                        reference_path: None,
+                    },
+                ],
+                fields: vec![typ()],
+                ..Default::default()
+            }
+        }
+        fn bare() -> ResponseVariant {
+            let mut v = gated();
+            v.tag = "AcceptGroupAddResponseSuccess".into();
+            v.assertions.pop();
+            v
+        }
+        let mut op = stanza(
+            "WASmaxOutGroupsAcceptGroupAddRequest",
+            Some("makeAcceptGroupAddRequest"),
+        );
+        op.response = ParsedResponse {
+            parser_name: "GroupsAcceptGroupAddRPC".into(),
+            variants: vec![gated(), bare()],
+            fields: vec![typ()],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "W_G2_NAMESPACE", "MakeAcceptGroupAddRequestSpec");
+        assert!(
+            !code.contains("get_optional_child"),
+            "the flattened parser must accept the bare success: {code}"
+        );
     }
 
     #[test]

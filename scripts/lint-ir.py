@@ -1929,6 +1929,16 @@ def check_assertion(a, path, errors):
     # it from `name`. Without it the assertion can neither enforce nor dispatch a shape.
     if a.get("kind") == "tag" and not a.get("name"):
         errors.append(f"{path}: tag assertion with no tag name")
+    # A `child` assertion IS the required child tag; it is how a variant gated on a
+    # presence check (`flattenedChildWithTag` with an unread value) tells itself apart
+    # from the childless variant tried after it. Without the tag a consumer cannot
+    # know which child gates the variant, and `value`/`referencePath` have no meaning
+    # on it — the gate pins no value and echoes nothing from the request.
+    if a.get("kind") == "child":
+        if not a.get("name"):
+            errors.append(f"{path}: child assertion with no child tag")
+        if a.get("value") is not None or a.get("referencePath") is not None:
+            errors.append(f"{path}: child assertion carries a value it never pins")
 
 
 def main() -> int:

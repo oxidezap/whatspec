@@ -167,6 +167,11 @@ fn emit(assertions: &[ResponseAssertion], fields: &[ParsedField]) -> Stanza {
                 }
             }
             AssertionKind::FromServer => {}
+            AssertionKind::Child => {
+                if let Some(tag) = &a.name {
+                    s.nodes.entry(vec![tag.clone()]).or_default();
+                }
+            }
         }
     }
     // A required pin must be emitted; an optional one may be omitted (and this emitter
@@ -235,6 +240,13 @@ fn violations(s: &Stanza, assertions: &[ResponseAssertion], fields: &[ParsedFiel
                 }
             }
             AssertionKind::FromServer => {}
+            AssertionKind::Child => {
+                if let Some(tag) = &a.name
+                    && !s.nodes.contains_key(&vec![tag.clone()])
+                {
+                    out.push(format!("child: expected <{tag}> to be present"));
+                }
+            }
         }
     }
     walk_pinned(fields, &root, &mut |f, path| {
@@ -572,5 +584,57 @@ fn the_motivating_constraints_are_still_recorded_by_name() {
     assert!(
         echoes > 100,
         "only {echoes} `from` -> request `to` echoes recorded; the rule is collapsing"
+    );
+}
+
+/// A presence gate must keep its variant apart from the childless one: the
+/// `AcceptGroupAdd` join succeeds with a bare `<iq type="result">` too, and
+/// without the recorded gate the two success variants read identically — which
+/// is how a join that succeeded surfaced as a parse error downstream.
+#[test]
+fn join_response_variants_stay_distinguishable_by_presence_gate() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../generated/iq/index.json");
+    if !path.exists() {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{} absent under CI",
+            path.display()
+        );
+        return;
+    }
+    let ir: IqIr = serde_json::from_str(&std::fs::read_to_string(&path).expect("read"))
+        .expect("parse the committed IQ IR");
+
+    let stanza = ir
+        .stanzas
+        .iter()
+        .find(|s| s.parser_name == "WASmaxGroupsAcceptGroupAddRPC")
+        .expect("AcceptGroupAdd RPC present in the IR");
+    let gated = stanza
+        .response
+        .variants
+        .iter()
+        .find(|v| v.tag == "AcceptGroupAddResponseGroupJoinRequestSuccess")
+        .expect("join-request success variant present");
+    assert!(
+        gated
+            .assertions
+            .iter()
+            .any(|a| a.kind == AssertionKind::Child
+                && a.name.as_deref() == Some("membership_approval_request")),
+        "the join-request variant must gate on <membership_approval_request>"
+    );
+    let bare = stanza
+        .response
+        .variants
+        .iter()
+        .find(|v| v.tag == "AcceptGroupAddResponseSuccess")
+        .expect("bare success variant present");
+    assert!(
+        !bare
+            .assertions
+            .iter()
+            .any(|a| a.kind == AssertionKind::Child),
+        "the bare success variant must require no child"
     );
 }

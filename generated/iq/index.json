@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "4.2.0",
+  "schemaVersion": "4.3.0",
   "waVersion": "2.3000.1045368834",
   "stanzas": [
     {
@@ -16444,6 +16444,10 @@
                             "kind": "attr",
                             "name": "type",
                             "value": "text"
+                          },
+                          {
+                            "kind": "child",
+                            "name": "plaintext"
                           }
                         ]
                       },
@@ -17335,6 +17339,10 @@
                           {
                             "kind": "tag",
                             "name": "message"
+                          },
+                          {
+                            "kind": "child",
+                            "name": "plaintext"
                           }
                         ]
                       }
@@ -19216,6 +19224,10 @@
                                 "kind": "attr",
                                 "name": "type",
                                 "value": "text"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "plaintext"
                               }
                             ]
                           },
@@ -20107,6 +20119,10 @@
                               {
                                 "kind": "tag",
                                 "name": "message"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "plaintext"
                               }
                             ]
                           }
@@ -22592,6 +22608,10 @@
                             "kind": "attr",
                             "name": "type",
                             "value": "text"
+                          },
+                          {
+                            "kind": "child",
+                            "name": "plaintext"
                           }
                         ]
                       },
@@ -23483,6 +23503,10 @@
                           {
                             "kind": "tag",
                             "name": "message"
+                          },
+                          {
+                            "kind": "child",
+                            "name": "plaintext"
                           }
                         ]
                       }
@@ -25361,6 +25385,10 @@
                                 "kind": "attr",
                                 "name": "type",
                                 "value": "text"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "plaintext"
                               }
                             ]
                           },
@@ -26252,6 +26280,10 @@
                               {
                                 "kind": "tag",
                                 "name": "message"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "plaintext"
                               }
                             ]
                           }
@@ -28099,6 +28131,10 @@
                                 "kind": "attr",
                                 "name": "type",
                                 "value": "text"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "plaintext"
                               }
                             ]
                           },
@@ -28287,6 +28323,10 @@
                                 "kind": "attr",
                                 "name": "type",
                                 "value": "reaction"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "reaction"
                               }
                             ]
                           }
@@ -28666,6 +28706,10 @@
                                     "kind": "attr",
                                     "name": "type",
                                     "value": "text"
+                                  },
+                                  {
+                                    "kind": "child",
+                                    "name": "plaintext"
                                   }
                                 ]
                               },
@@ -28854,6 +28898,10 @@
                                     "kind": "attr",
                                     "name": "type",
                                     "value": "reaction"
+                                  },
+                                  {
+                                    "kind": "child",
+                                    "name": "reaction"
                                   }
                                 ]
                               }
@@ -29837,6 +29885,10 @@
                                 "kind": "attr",
                                 "name": "type",
                                 "value": "text"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "plaintext"
                               }
                             ]
                           },
@@ -30025,6 +30077,10 @@
                                 "kind": "attr",
                                 "name": "type",
                                 "value": "reaction"
+                              },
+                              {
+                                "kind": "child",
+                                "name": "reaction"
                               }
                             ]
                           }
@@ -30401,6 +30457,10 @@
                                     "kind": "attr",
                                     "name": "type",
                                     "value": "text"
+                                  },
+                                  {
+                                    "kind": "child",
+                                    "name": "plaintext"
                                   }
                                 ]
                               },
@@ -30589,6 +30649,10 @@
                                     "kind": "attr",
                                     "name": "type",
                                     "value": "reaction"
+                                  },
+                                  {
+                                    "kind": "child",
+                                    "name": "reaction"
                                   }
                                 ]
                               }
@@ -34739,6 +34803,10 @@
                 "kind": "attr",
                 "name": "type",
                 "value": "result"
+              },
+              {
+                "kind": "child",
+                "name": "active"
               }
             ],
             "fields": [
@@ -34826,6 +34894,10 @@
                 "kind": "attr",
                 "name": "type",
                 "value": "result"
+              },
+              {
+                "kind": "child",
+                "name": "passive"
               }
             ],
             "fields": [
@@ -69788,6 +69860,10 @@
                 "kind": "attr",
                 "name": "type",
                 "value": "result"
+              },
+              {
+                "kind": "child",
+                "name": "membership_approval_request"
               }
             ],
             "fields": [
@@ -79754,6 +79830,10 @@
                 "kind": "attr",
                 "name": "type",
                 "value": "result"
+              },
+              {
+                "kind": "child",
+                "name": "membership_approval_request"
               }
             ],
             "fields": [
