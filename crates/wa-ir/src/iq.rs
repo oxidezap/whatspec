@@ -544,6 +544,14 @@ pub enum AssertionKind {
     /// node, "admin_add")`) — a discriminator for marker union variants. The value is
     /// in [`ResponseAssertion::value`]; `name` is unused.
     Content,
+    /// A child with the tag named by [`ResponseAssertion::name`] must be present —
+    /// `var r = flattenedChildWithTag(node, "tag"); if (!r.success) return r;` where
+    /// `r.value` is never read. A pure presence gate: the parser branches on the
+    /// child without decoding anything off it, so no [`ParsedField`] is emitted for
+    /// it and without this assertion two variants collapse into one shape (a bare
+    /// `<iq type="result">` and one carrying the child read identically). `value`
+    /// and `reference_path` are unused.
+    Child,
     /// The attribute named by [`ResponseAssertion::name`] must **echo a value taken
     /// from the request** — `literal(attrString, node, "from",
     /// attrStringFromReference(request, ["to"]))`. The expected value is not a

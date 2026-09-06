@@ -499,6 +499,15 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                     ));
                 }
             }
+            AssertionKind::Child => {
+                if let Some(name) = &a.name {
+                    lines.push(format!(
+                        "{indent}if response.get_optional_child({}).is_none() {{ anyhow::bail!(\"not a success response: missing <{}>\"); }}",
+                        rust_lit(name),
+                        fmt_lit_inner(name),
+                    ));
+                }
+            }
             // Tag (the `<iq>` root) / FromServer are not success-vs-error discriminators.
             // Neither is a Reference echo (`from` == the request's `to`): every outcome
             // of the same request satisfies it identically, so it separates nothing —

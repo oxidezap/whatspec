@@ -36,7 +36,8 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Argument, CallExpression, Expression, Function, Statement};
+use oxc_ast::ast::{Argument, CallExpression, Expression, Function, FunctionBody, Statement};
+use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 use wa_ir::wap;
 use wa_ir::{
@@ -514,6 +515,19 @@ fn analyze_function(
     // The tail names the output fields. Resolve each against the bindings.
     let tail = tail?;
     let fields = resolve_tail(tail, &bindings)?;
+    for tag in presence_gated_children(body, &guarded, &bindings) {
+        if !assertions
+            .iter()
+            .any(|a| a.kind == AssertionKind::Child && a.name.as_deref() == Some(tag.as_str()))
+        {
+            assertions.push(ResponseAssertion {
+                kind: AssertionKind::Child,
+                name: Some(tag),
+                value: None,
+                reference_path: None,
+            });
+        }
+    }
     Some((assertions, fields))
 }
 
@@ -1767,6 +1781,66 @@ fn guarded_success_vars(body: &oxc_ast::ast::FunctionBody) -> HashSet<String> {
     out
 }
 
+/// Vars whose `.value` is read anywhere in the body — as a call argument, a
+/// `makeResult` value, or any other member access. A guarded child descend whose
+/// value is read decodes payload off the child (its fields carry the constraint);
+/// one never read is a pure presence gate (see [`presence_gated_children`]).
+fn value_read_vars(body: &FunctionBody) -> HashSet<String> {
+    struct Reads {
+        vars: HashSet<String>,
+    }
+    impl<'a> Visit<'a> for Reads {
+        fn visit_static_member_expression(&mut self, e: &oxc_ast::ast::StaticMemberExpression<'a>) {
+            if e.property.name.as_str() == "value"
+                && let Some(var) = as_identifier(&e.object)
+            {
+                self.vars.insert(var.to_string());
+            }
+            walk::walk_static_member_expression(self, e);
+        }
+    }
+    let mut reads = Reads {
+        vars: HashSet::new(),
+    };
+    reads.visit_function_body(body);
+    reads.vars
+}
+
+/// The leaf tags of pure presence gates, in statement order: hard-guarded
+/// (`if (!X.success) return X`) child descends (`flattenedChildWithTag`) whose
+/// `.value` is never read. The parser branches on the child's presence without
+/// decoding anything off it, so field resolution emits nothing for it — without
+/// recording the gate, a variant requiring the child reads identically to the
+/// childless variant the RPC tries after it.
+fn presence_gated_children(
+    body: &FunctionBody,
+    guarded: &HashSet<String>,
+    bindings: &HashMap<String, Binding>,
+) -> Vec<String> {
+    let value_read = value_read_vars(body);
+    let mut gates: Vec<String> = Vec::new();
+    for stmt in &body.statements {
+        let Statement::VariableDeclaration(decl) = stmt else {
+            continue;
+        };
+        for d in &decl.declarations {
+            let Some(name) = d.id.get_identifier_name() else {
+                continue;
+            };
+            if !guarded.contains(name.as_str()) || value_read.contains(name.as_str()) {
+                continue;
+            }
+            if let Some(Binding::ChildNode { path }) = bindings.get(name.as_str())
+                && let Some(leaf) = path.last()
+                && !gates.iter().any(|g| g == leaf)
+            {
+                gates.push(leaf.clone());
+            }
+        }
+    }
+    gates
+}
+
 /// `!X.success` → `"X"` (the negated railway-success test of an `if` guard).
 fn negated_success_var<'a>(e: &'a Expression<'a>) -> Option<&'a str> {
     let Expression::UnaryExpression(u) = e else {
@@ -2187,6 +2261,52 @@ mod tests {
         let slices = HashMap::new();
         let resolver = Resolver::new(&slices);
         analyze_module_exports(module, &resolver)
+    }
+
+    #[test]
+    fn a_guarded_unread_child_is_a_presence_gate() {
+        // `var r = flattenedChildWithTag(e, "tag"); if (!r.success) return r;`
+        // with `r.value` never read constrains the shape — the child must be
+        // present — while emitting no field. Without recording it, a variant
+        // gated on a child reads identically to the childless variant tried
+        // after it (WASmaxGroupsAcceptGroupAddRPC's two successes did).
+        let (assertions, fields) = analyze_one(
+            r#"function e(node, ref){
+                 var n = o("WASmaxParseUtils").assertTag(node, "iq"); if(!n.success) return n;
+                 var r = o("WASmaxParseUtils").flattenedChildWithTag(node, "membership_approval_request"); if(!r.success) return r;
+                 return n.success ? o("WAResultOrError").makeResult({}) : n;
+               }"#,
+        )
+        .expect("analyzed");
+        assert!(
+            assertions.iter().any(|a| a.kind == AssertionKind::Child
+                && a.name.as_deref() == Some("membership_approval_request")),
+            "gate recorded, got: {assertions:?}"
+        );
+        assert!(fields.is_empty(), "a gate decodes nothing: {fields:?}");
+    }
+
+    #[test]
+    fn a_guarded_read_child_is_payload_not_a_gate() {
+        // The same gate with `r.value` read decodes off the child: its fields
+        // carry the constraint and no presence assertion is recorded.
+        let (assertions, fields) = analyze_one(
+            r#"function e(node, ref){
+                 var n = o("WASmaxParseUtils").assertTag(node, "iq"); if(!n.success) return n;
+                 var r = o("WASmaxParseUtils").flattenedChildWithTag(node, "membership_approval_request"); if(!r.success) return r;
+                 var j = o("WASmaxParseUtils").attrString(r.value, "jid"); if(!j.success) return j;
+                 return n.success ? o("WAResultOrError").makeResult({jid: j.value}) : n;
+               }"#,
+        )
+        .expect("analyzed");
+        assert!(
+            !assertions.iter().any(|a| a.kind == AssertionKind::Child),
+            "no gate for a read child, got: {assertions:?}"
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "jid"),
+            "child payload kept: {fields:?}"
+        );
     }
 
     #[test]
