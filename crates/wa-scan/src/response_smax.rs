@@ -1785,6 +1785,15 @@ fn guarded_success_vars(body: &oxc_ast::ast::FunctionBody) -> HashSet<String> {
 /// `makeResult` value, or any other member access. A guarded child descend whose
 /// value is read decodes payload off the child (its fields carry the constraint);
 /// one never read is a pure presence gate (see [`presence_gated_children`]).
+///
+/// Scoped to the analyzed function itself: nested function bodies are not
+/// descended into. A read there cannot feed field resolution (which only sees
+/// top-level bindings), while an unrelated nested function — or a shadowed
+/// parameter — reading `r.value` would otherwise mark an outer guarded `r` as
+/// payload and suppress a genuine gate. Every recorded gate also carries a
+/// top-level hard guard, so the presence requirement itself is never in doubt;
+/// only the gate/payload distinction is at stake, and that is decided where the
+/// fields are decided.
 fn value_read_vars(body: &FunctionBody) -> HashSet<String> {
     struct Reads {
         vars: HashSet<String>,
@@ -1797,6 +1806,19 @@ fn value_read_vars(body: &FunctionBody) -> HashSet<String> {
                 self.vars.insert(var.to_string());
             }
             walk::walk_static_member_expression(self, e);
+        }
+        fn visit_function(
+            &mut self,
+            _it: &oxc_ast::ast::Function<'a>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+            // Do not cross into nested functions (see above).
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _it: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            // Do not cross into nested closures (see above).
         }
     }
     let mut reads = Reads {
@@ -2284,6 +2306,28 @@ mod tests {
             "gate recorded, got: {assertions:?}"
         );
         assert!(fields.is_empty(), "a gate decodes nothing: {fields:?}");
+    }
+
+    #[test]
+    fn a_nested_shadowed_read_does_not_suppress_the_gate() {
+        // A nested function (never invoked here) whose parameter shadows `r` and
+        // reads `r.value` refers to its own binding, not the outer guarded
+        // descend. The read scan stays in the analyzed function, so the outer
+        // gate is still recorded.
+        let (assertions, _) = analyze_one(
+            r#"function e(node, ref){
+                 var n = o("WASmaxParseUtils").assertTag(node, "iq"); if(!n.success) return n;
+                 var r = o("WASmaxParseUtils").flattenedChildWithTag(node, "membership_approval_request"); if(!r.success) return r;
+                 var f = function(r){ return r.value; };
+                 return n.success ? o("WAResultOrError").makeResult({}) : n;
+               }"#,
+        )
+        .expect("analyzed");
+        assert!(
+            assertions.iter().any(|a| a.kind == AssertionKind::Child
+                && a.name.as_deref() == Some("membership_approval_request")),
+            "shadowed nested read must not suppress the gate, got: {assertions:?}"
+        );
     }
 
     #[test]
