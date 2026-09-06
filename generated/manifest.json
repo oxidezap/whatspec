@@ -150,7 +150,7 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "ad1c222f3740fa39ffa7c37cf0b2906811794aa86afcd4e563116273125948bf"
+      "sha256": "84f8460e64043bf63a0a71e565ed5b658367eff1a3677bc9c8ba6fd6b884a8e7"
     },
     "stanza": {
       "file": "stanza/index.json",

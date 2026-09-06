@@ -3047,6 +3047,10 @@
                             "kind": "attr",
                             "name": "type",
                             "value": "text"
+                          },
+                          {
+                            "kind": "child",
+                            "name": "plaintext"
                           }
                         ]
                       },
@@ -3938,6 +3942,10 @@
                           {
                             "kind": "tag",
                             "name": "message"
+                          },
+                          {
+                            "kind": "child",
+                            "name": "plaintext"
                           }
                         ]
                       }
@@ -4219,6 +4227,10 @@
             "kind": "attr",
             "name": "type",
             "value": "psa"
+          },
+          {
+            "kind": "child",
+            "name": "reset_smb_last_qp_prefetch_timestamp"
           }
         ],
         "fields": [
@@ -7610,6 +7622,10 @@
                     "kind": "attr",
                     "name": "type",
                     "value": "text"
+                  },
+                  {
+                    "kind": "child",
+                    "name": "plaintext"
                   }
                 ]
               },
@@ -7975,6 +7991,10 @@
                     "kind": "attr",
                     "name": "type",
                     "value": "reaction"
+                  },
+                  {
+                    "kind": "child",
+                    "name": "reaction"
                   }
                 ]
               },
@@ -8637,6 +8657,10 @@
                   {
                     "kind": "tag",
                     "name": "message"
+                  },
+                  {
+                    "kind": "child",
+                    "name": "plaintext"
                   }
                 ]
               }
@@ -13421,6 +13445,10 @@
                     "kind": "attr",
                     "name": "type",
                     "value": "text"
+                  },
+                  {
+                    "kind": "child",
+                    "name": "plaintext"
                   }
                 ]
               },
@@ -13609,6 +13637,10 @@
                     "kind": "attr",
                     "name": "type",
                     "value": "reaction"
+                  },
+                  {
+                    "kind": "child",
+                    "name": "reaction"
                   }
                 ]
               }

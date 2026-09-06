@@ -41,6 +41,11 @@
           "const": "content"
         },
         {
+          "description": "A child with the tag named by [`ResponseAssertion::name`] must be present —\n`var r = flattenedChildWithTag(node, \"tag\"); if (!r.success) return r;` where\n`r.value` is never read. A pure presence gate: the parser branches on the\nchild without decoding anything off it, so no [`ParsedField`] is emitted for\nit and without this assertion two variants collapse into one shape (a bare\n`<iq type=\"result\">` and one carrying the child read identically). `value`\nand `reference_path` are unused.",
+          "type": "string",
+          "const": "child"
+        },
+        {
           "description": "The attribute named by [`ResponseAssertion::name`] must **echo a value taken\nfrom the request** — `literal(attrString, node, \"from\",\nattrStringFromReference(request, [\"to\"]))`. The expected value is not a\nconstant, so [`ResponseAssertion::value`] is absent; where it comes from is in\n[`ResponseAssertion::reference_path`].\n\nThis is the rule 17 of the 26 namespace `IQError…Mixin`s (and every success\nparser) enforce: an answer's `id` must equal the request's `id` and its `from`\nthe request's `to`. An emitter that hardcodes `from=\"s.whatsapp.net\"` produces\nstanzas a real client cannot parse whenever the request went to `g.us`.",
           "type": "string",
           "const": "reference"
