@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.3.0",
-  "waVersion": "2.3000.1045368834",
+  "waVersion": "2.3000.1047483476",
   "requests": [
     {
       "tag": "notification",
@@ -993,6 +993,68 @@
     },
     {
       "tag": "notification",
+      "module": "WASmaxInCoexistenceSyncNotificationRequest",
+      "shape": {
+        "parserName": "parseSyncNotificationRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "hosted"
+          },
+          {
+            "kind": "child",
+            "name": "sync"
+          }
+        ],
+        "fields": [
+          {
+            "method": "literalJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "hosted"
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "parserRequired": false,
+            "intMin": 0,
+            "intMax": 1024
+          }
+        ]
+      }
+    },
+    {
+      "tag": "notification",
       "module": "WASmaxInGroupsGroupsDirtyNotificationRequest",
       "shape": {
         "parserName": "parseGroupsDirtyNotificationRequest",
@@ -1138,6 +1200,23 @@
                 "parserRequired": true,
                 "byteMin": 1,
                 "byteMax": 4096
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "dbscRegistration",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "dbsc_registration",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "elementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "byteLength": 32
               }
             ],
             "repeats": false
@@ -5146,7 +5225,7 @@
             "type": "integer",
             "parserRequired": true,
             "intMin": 1,
-            "intMax": 7,
+            "intMax": 9,
             "sourcePath": [
               "notification_metadata"
             ]
@@ -5249,6 +5328,26 @@
             ]
           },
           {
+            "method": "maybeAttrInt",
+            "name": "notificationMetadataWfNotifTs",
+            "wireName": "wf_notif_ts",
+            "type": "timestamp_millis",
+            "parserRequired": false,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "notificationMetadataWfNotifId",
+            "wireName": "wf_notif_id",
+            "type": "string",
+            "parserRequired": false,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
             "method": "attrInt",
             "name": "t",
             "wireName": "t",
@@ -5312,6 +5411,28 @@
             "literalValue": "md"
           },
           {
+            "method": "attrString",
+            "name": "pairSuccessJurisdictionIso",
+            "wireName": "iso",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "pair-success",
+              "jurisdiction"
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "pairSuccessJurisdictionCc",
+            "wireName": "cc",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "pair-success",
+              "jurisdiction"
+            ]
+          },
+          {
             "method": "contentBytes",
             "name": "pairSuccessDeviceIdentityElementValue",
             "type": "bytes",
@@ -5339,7 +5460,7 @@
             "name": "pairSuccessDeviceLid",
             "wireName": "lid",
             "type": "device_jid",
-            "parserRequired": false,
+            "parserRequired": true,
             "sourcePath": [
               "pair-success",
               "device"
@@ -5502,6 +5623,25 @@
                 "sourcePath": [
                   "auth_tag"
                 ]
+              }
+            ],
+            "repeats": false,
+            "sourcePath": [
+              "pair-success"
+            ]
+          },
+          {
+            "method": "child",
+            "name": "pairSuccessCompanionRecoveryServerToken",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "companion_recovery_server_token",
+            "children": [
+              {
+                "method": "contentString",
+                "name": "elementValue",
+                "type": "string",
+                "parserRequired": true
               }
             ],
             "repeats": false,

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.3.0",
-  "waVersion": "2.3000.1045368834",
+  "waVersion": "2.3000.1047483476",
   "stanzas": [
     {
       "stanzaType": "message",
@@ -2172,7 +2172,7 @@
       "moduleName": "WAWebEncryptAndSendStatusMsg",
       "exportedFunction": null,
       "allExports": [
-        "content",
+        "attrs",
         "calculateRevokeSenderList",
         "encryptAndSendStatusMsg",
         "genStatusBroadcastPublishRequest",
@@ -2180,6 +2180,7 @@
         "genStatusEncryptedParts",
         "genMessageBody",
         "maybeApplyStatusTag",
+        "buildStatusMetaNode",
         "encryptAndSendStatusDirectMsg"
       ],
       "namespace": null,
@@ -2674,7 +2675,43 @@
           "required": true
         }
       ],
-      "children": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "status_setting",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "session_scope",
+              "kind": "optional",
+              "required": false,
+              "enumRef": {
+                "name": "SessionScope",
+                "module": "WAWebSessionScope",
+                "variants": [
+                  {
+                    "name": "DEFAULT",
+                    "value": "default"
+                  },
+                  {
+                    "name": "STATUS",
+                    "value": "status"
+                  },
+                  {
+                    "name": "PQ",
+                    "value": "pq"
+                  }
+                ]
+              }
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
       "response": null
     },
     {
@@ -2710,7 +2747,70 @@
           "required": true
         }
       ],
-      "children": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "origin",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "destination_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "sender_intent",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "polltype",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "event_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_sender_jid",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "appdata",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "view_once",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "conversation_thread_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "tag_reason",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
       "response": null
     },
     {
@@ -3518,6 +3618,16 @@
               ]
             },
             {
+              "name": "persona_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "agent_engagement_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
               "name": "local_automated_type",
               "kind": "optional",
               "required": false
@@ -3916,6 +4026,8 @@
         "genReceiptMetaModeNode",
         "sendBotInvokeResponseAcks",
         "sendCoexV2SenderReceipt",
+        "sendCoexV2DeliveryReceipt",
+        "sendCoexV2ReadReceipt",
         "sendAggregateReceipts"
       ],
       "namespace": null,
@@ -4516,6 +4628,48 @@
       "children": [],
       "response": null,
       "fragment": true
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutNotificationFallbackGenericNotificationResponseAck",
+      "exportedFunction": null,
+      "allExports": [
+        "makeGenericNotificationResponseAck"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
     },
     {
       "stanzaType": "ack",
@@ -6045,12 +6199,22 @@
         {
           "name": "to",
           "kind": "user_jid",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "from"
+            }
+          ]
         },
         {
           "name": "id",
           "kind": "string",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "stanzaId"
+            }
+          ]
         },
         {
           "name": "class",
@@ -6061,7 +6225,12 @@
         {
           "name": "type",
           "kind": "dynamic",
-          "required": true
+          "required": true,
+          "argPath": [
+            {
+              "key": "ackString"
+            }
+          ]
         }
       ],
       "children": [],
@@ -6382,6 +6551,8 @@
         "genReceiptMetaModeNode",
         "sendBotInvokeResponseAcks",
         "sendCoexV2SenderReceipt",
+        "sendCoexV2DeliveryReceipt",
+        "sendCoexV2ReadReceipt",
         "sendAggregateReceipts"
       ],
       "namespace": null,
@@ -6445,6 +6616,8 @@
         "genReceiptMetaModeNode",
         "sendBotInvokeResponseAcks",
         "sendCoexV2SenderReceipt",
+        "sendCoexV2DeliveryReceipt",
+        "sendCoexV2ReadReceipt",
         "sendAggregateReceipts"
       ],
       "namespace": null,
@@ -17093,7 +17266,49 @@
               ]
             }
           ],
-          "children": [],
+          "children": [
+            {
+              "tag": "user",
+              "attrs": [
+                {
+                  "name": "action",
+                  "kind": "string",
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "users",
+                      "list": true
+                    },
+                    {
+                      "key": "action"
+                    }
+                  ]
+                },
+                {
+                  "name": "jid",
+                  "kind": "user_jid",
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "users",
+                      "list": true
+                    },
+                    {
+                      "key": "wid"
+                    }
+                  ]
+                }
+              ],
+              "children": [],
+              "repeats": true,
+              "argPath": [
+                {
+                  "key": "users",
+                  "list": true
+                }
+              ]
+            }
+          ],
           "repeats": false
         }
       ],
@@ -17119,17 +17334,32 @@
             {
               "name": "name",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "name"
+                }
+              ]
             },
             {
               "name": "value",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "value"
+                }
+              ]
             },
             {
               "name": "dhash",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "dhash"
+                }
+              ]
             }
           ],
           "children": [
@@ -17139,16 +17369,40 @@
                 {
                   "name": "action",
                   "kind": "string",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "users",
+                      "list": true
+                    },
+                    {
+                      "key": "action"
+                    }
+                  ]
                 },
                 {
                   "name": "jid",
                   "kind": "user_jid",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "users",
+                      "list": true
+                    },
+                    {
+                      "key": "wid"
+                    }
+                  ]
                 }
               ],
               "children": [],
-              "repeats": true
+              "repeats": true,
+              "argPath": [
+                {
+                  "key": "users",
+                  "list": true
+                }
+              ]
             }
           ],
           "repeats": false

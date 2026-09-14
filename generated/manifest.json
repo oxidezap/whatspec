@@ -1,5 +1,5 @@
 {
-  "abPropsConfigs": 2660,
+  "abPropsConfigs": 2861,
   "appstateActions": 66,
   "diagnostics": {
     "incoming": {
@@ -10,18 +10,18 @@
     },
     "iq": {
       "builder": {
-        "argPathAttrs": 218,
-        "argPathAttrsMissing": 55,
-        "argPathChildren": 108,
-        "argPathChildrenMissing": 12,
+        "argPathAttrs": 219,
+        "argPathAttrsMissing": 49,
+        "argPathChildren": 110,
+        "argPathChildrenMissing": 10,
         "argPathContents": 44,
         "argPathContentsMissing": 23,
         "elementValues": 67,
-        "optionalChildren": 33,
+        "optionalChildren": 34,
         "presenceFlagChildren": 31,
         "repeatBounds": 35
       },
-      "candidateModules": 207,
+      "candidateModules": 206,
       "constraints": {
         "errorArms": 645,
         "errorTexts": 577,
@@ -35,7 +35,7 @@
         "requestsEnriched": 11,
         "requestsWithMixins": 93
       },
-      "degradedResponses": 4,
+      "degradedResponses": 3,
       "dropsByReason": {
         "incompatibleRepeatedRead": 1,
         "iq builder substring present but no AST iq call": 5,
@@ -43,12 +43,12 @@
         "shadowedCallbackRead": 5
       },
       "excludedFragments": 66,
-      "stanzas": 143,
+      "stanzas": 142,
       "targets": {
         "groupJid": 26,
         "groupServer": 6,
-        "resolved": 138,
-        "server": 106,
+        "resolved": 137,
+        "server": 105,
         "unknown": 5,
         "unset": 0
       },
@@ -57,21 +57,21 @@
     },
     "mex": {
       "docIdsFromName": 0,
-      "docIdsFromSibling": 33,
-      "docIdsInline": 110,
+      "docIdsFromSibling": 30,
+      "docIdsInline": 107,
       "dropsByReason": {
-        "ambiguousCallSite": 2,
-        "operationWithNoCallSite": 5,
+        "ambiguousCallSite": 1,
+        "operationWithNoCallSite": 6,
         "unreadableCallArgument": 1,
         "unreadableKey": 0,
         "unreadableSpread": 0
       },
-      "operations": 143,
+      "operations": 137,
       "operationsFullyDetermined": 7,
-      "operationsWithVariables": 128,
-      "presenceAlways": 123,
-      "presenceConditional": 181,
-      "presenceUndetermined": 108
+      "operationsWithVariables": 122,
+      "presenceAlways": 122,
+      "presenceConditional": 177,
+      "presenceUndetermined": 106
     },
     "notif": {
       "actionShapes": 184,
@@ -88,21 +88,21 @@
       "types": 27
     },
     "wam": {
-      "callSiteFieldValues": 784,
-      "callSiteFields": 3293,
-      "callSites": 807,
+      "callSiteFieldValues": 790,
+      "callSiteFields": 3289,
+      "callSites": 810,
       "constants": 6,
-      "constructions": 883,
+      "constructions": 874,
       "dropsByReason": {
-        "construction of an event with no catalog entry": 41,
+        "construction of an event with no catalog entry": 29,
         "unreadConstructionArgument.call": 1,
-        "unreadConstructionArgument.identifier": 100,
+        "unreadConstructionArgument.identifier": 89,
         "unreadConstructionArgument.member": 3
       },
       "duplicateCallSites": 35,
-      "events": 436,
+      "events": 439,
       "globals": 46,
-      "partialCallSites": 121,
+      "partialCallSites": 126,
       "privateStatsIds": 9,
       "samplingWeightOverrides": 4
     }
@@ -111,83 +111,83 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "512535103698d5c3d59dcaca0b9778dcdd37e1fffd421e0d1606091535ad79fe"
+      "sha256": "63e1bff0e0e31c1a64e2ac94d671789b220f1522447605d1d1c63ad623f5e5d6"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "a2aae2d3d7a40315fc27a67db9445f2f5349229f7149a97c7315d8fb9ce250a7"
+      "sha256": "f2653d2fe43c07a06edf01dcde426cf822be96684bceea49feff197abcc9c699"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "68f48fc7e67ab9e5a8070ce437b0ac7c099f29b7b69c0b6e3535530c0b84808b"
+      "sha256": "43f320d46d739a22b1d23a332c3e9e88743f88a4e640dfc4b07627e5d1afc697"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "2716fab490087565841fca26ee8f6097e8423c2004bac06de2cebab93d5d8436"
+      "sha256": "0367940465a8cc81e50e385834327ad995c1afa8b0436c1a50e495e97c3e0220"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "209d5d5468892bda7671e7fae77b581a9890cbd02f4d47c0de83dc7f0af7c81c"
+      "sha256": "f7251fd9aaa07062495e431a80d40dcdb44ffd8fb68b1776d65c41b92e29aafd"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "4a6cc3f735f3e71481801abeb5edd351d4f20a9836dea616903064a890f00335"
+      "sha256": "947598a2e611a63702547473a86345d182707d257c0e2ccd4a21c963edf7e946"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "349b580bcf27a76f5b7b36227c81ae9ac93531751767f367fc3e91e2598e28a6"
+      "sha256": "f51755b1591366ec09c924ce2f6814f1e5540677c28de12fa38c84d21ac9f110"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "f3da4ba028402ea225747dc40247a5d55473012da9c4ef0c4b9de5c443117e2f"
+      "sha256": "6ae95b8601b39ca0c4804abef9d58643a1bb1b451828b880bf022b8276501a68"
     },
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "84f8460e64043bf63a0a71e565ed5b658367eff1a3677bc9c8ba6fd6b884a8e7"
+      "sha256": "d3c58057c970a73fe4d8cf0862bd9c576119158025a6bf23de14543314b27315"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "735c93fc261298cac74f03d748901747a0eb9681d5c5f3e064f7aaba50520ece"
+      "sha256": "55bd73333bfdf1448f07df02b715db20db390dfa68cc968b20745b2982707bbe"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "0e6e8165d9fdda5b876d125b9710787ea7ec0f2a4ada22ba330728dea2bb9ee0"
+      "sha256": "ee12376073131d9a197b37ab0735551d86486e1f13510a34bc89fcfe958f70cd"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "9503ca9c02b9d2cfa5a3be802fde7fc44d27bb5aece545930c981b389ffaf37a"
+      "sha256": "8fb471e36f1054dff25bf78acbe1bcf4163fab22909a0c756753a9400b093047"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "8fd2e17bd340af0bfe62a3a7beef7ab064fbfe6d8188dd7dfc206161e6f16664"
+      "sha256": "509bcfb6e6c70d24bf37062af711c3b7d26db3db1fec10429180857930ef4992"
     }
   },
-  "enumDefs": 416,
+  "enumDefs": 399,
   "generatorVersion": "0.1.0",
   "incomingDefs": 18,
   "iqModules": 33,
-  "mexOperations": 143,
+  "mexOperations": 137,
   "notifTypes": 27,
-  "protoEntities": 356,
+  "protoEntities": 241,
   "schemaVersion": "4.3.0",
-  "serverRequestDefs": 23,
-  "stanzaDefs": 198,
+  "serverRequestDefs": 24,
+  "stanzaDefs": 199,
   "tokenDoubleByte": 1024,
   "tokenSingleByte": 236,
-  "waVersion": "2.3000.1045368834",
-  "wamEvents": 436,
+  "waVersion": "2.3000.1047483476",
+  "wamEvents": 439,
   "wasmBinaries": 7,
-  "wasmResources": 54,
-  "wasmWasmHandles": 15
+  "wasmResources": 69,
+  "wasmWasmHandles": 30
 }

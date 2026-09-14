@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.3.0",
-  "waVersion": "2.3000.1045368834",
+  "waVersion": "2.3000.1047483476",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -102,6 +102,25 @@
         "xwa2_newsletter_admin_invite_accept": {
           "__typename": "string",
           "id": "string"
+        }
+      }
+    },
+    "AccountLinkingAPIGetCerts": {
+      "originalName": "WAWebAccountLinkingAPIGetCertsQuery",
+      "docId": "28704962082445420",
+      "operationKind": "query",
+      "response": {
+        "waffle_get_certs": {
+          "password_encryption": {
+            "cert_chain_pem": "string",
+            "key_id": "string",
+            "ttl_seconds": "number"
+          },
+          "payload_encryption": {
+            "cert_chain_pem": "string",
+            "key_id": "string",
+            "ttl_seconds": "number"
+          }
         }
       }
     },
@@ -1184,17 +1203,21 @@
     },
     "ContactManagerCustomerProfiles": {
       "originalName": "WAWebContactManagerCustomerProfilesQuery",
-      "docId": "27747880408206174",
+      "docId": "27796221486653417",
       "operationKind": "query",
       "variables": [
         "input"
       ],
       "variablesShape": {
         "input": {
-          "candidate_lids": [
-            "string"
-          ],
+          "candidate_lids": "string",
           "cursor": "string",
+          "filters": [
+            {
+              "field_name": "string",
+              "filter_text": "string"
+            }
+          ],
           "page_size": "number",
           "sort_column": "string",
           "sort_descending": "string"
@@ -1205,16 +1228,30 @@
           "presence": "always",
           "fields": {
             "candidate_lids": {
-              "presence": "always"
+              "presence": "conditional"
             },
             "cursor": {
               "presence": "conditional"
+            },
+            "filters": {
+              "presence": "undetermined",
+              "items": {
+                "presence": "always",
+                "fields": {
+                  "field_name": {
+                    "presence": "undetermined"
+                  },
+                  "filter_text": {
+                    "presence": "undetermined"
+                  }
+                }
+              }
             },
             "page_size": {
               "presence": "always"
             },
             "sort_column": {
-              "presence": "always"
+              "presence": "conditional"
             },
             "sort_descending": {
               "presence": "always"
@@ -1229,6 +1266,7 @@
             {
               "acquisition_source": "string",
               "email": "string",
+              "last_order_date": "string",
               "last_updates": [
                 {
                   "ts": "string"
@@ -1275,34 +1313,6 @@
       "response": {
         "xwa2_growth_create_invite_code": {
           "code": "string"
-        }
-      }
-    },
-    "CreateLabyrinthBackup": {
-      "originalName": "WAWebCreateLabyrinthBackupJobMutation",
-      "docId": "27515507191403198",
-      "operationKind": "mutation",
-      "variables": [
-        "input"
-      ],
-      "variablesShape": {
-        "input": "string"
-      },
-      "variablesPresence": {
-        "input": {
-          "presence": "undetermined"
-        }
-      },
-      "response": {
-        "wa_labyrinth_create_backup": {
-          "__typename": "string",
-          "backup_id": "string",
-          "device_id": "string",
-          "epoch_id": "string",
-          "mailbox_id": "string",
-          "message": "string",
-          "status": "string",
-          "vd_device_id": "string"
         }
       }
     },
@@ -1563,116 +1573,6 @@
         ]
       }
     },
-    "DebugLabyrinthInboxSnapshot": {
-      "originalName": "WAWebDebugLabyrinthInboxSnapshotQuery",
-      "docId": "26544537655223129",
-      "operationKind": "query",
-      "variables": [
-        "params"
-      ],
-      "variablesShape": {
-        "params": {
-          "lower_timestamp": "number",
-          "num_msgs": "string",
-          "num_threads": "string",
-          "upper_timestamp": "number"
-        }
-      },
-      "variablesPresence": {
-        "params": {
-          "presence": "always",
-          "fields": {
-            "lower_timestamp": {
-              "presence": "conditional"
-            },
-            "num_msgs": {
-              "presence": "conditional"
-            },
-            "num_threads": {
-              "presence": "conditional"
-            },
-            "upper_timestamp": {
-              "presence": "conditional"
-            }
-          }
-        }
-      },
-      "response": {
-        "get_wa_mailbox": {
-          "__typename": "string",
-          "id": "string",
-          "snapshot_threads_with_messages": {
-            "items_with_messages": [
-              {
-                "item": {
-                  "__typename": "string",
-                  "id": "string"
-                },
-                "messages": [
-                  {
-                    "__typename": "string",
-                    "encrypted_payload": "string",
-                    "encryption_version": "number",
-                    "id": "string"
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "DebugLabyrinthRange": {
-      "originalName": "WAWebDebugLabyrinthRangeQuery",
-      "docId": "27219778391054922",
-      "operationKind": "query",
-      "variables": [
-        "device_id",
-        "message_count",
-        "partial_thread_id"
-      ],
-      "variablesShape": {
-        "device_id": "string",
-        "message_count": "number",
-        "partial_thread_id": "string"
-      },
-      "variablesPresence": {
-        "device_id": {
-          "presence": "undetermined"
-        },
-        "message_count": {
-          "presence": "undetermined"
-        },
-        "partial_thread_id": {
-          "presence": "undetermined"
-        }
-      },
-      "response": {
-        "get_WAMessagingViewerThreadByORF": {
-          "__typename": "string",
-          "id": "string",
-          "messages": {
-            "__typename": "string",
-            "edges": [
-              {
-                "__typename": "string",
-                "cursor": "string",
-                "node": {
-                  "__typename": "string",
-                  "encrypted_payload": "string",
-                  "encryption_version": "number",
-                  "id": "string"
-                }
-              }
-            ],
-            "page_info": {
-              "has_next_page": "boolean",
-              "has_previous_page": "boolean"
-            }
-          }
-        }
-      }
-    },
     "DeleteNewsletter": {
       "originalName": "WAWebMexDeleteNewsletterJobMutation",
       "docId": "30062808666639665",
@@ -1721,40 +1621,6 @@
         "xwa2_newsletter_admin_demote": {
           "__typename": "string",
           "id": "string"
-        }
-      }
-    },
-    "EBMessageMetadataQuery": {
-      "originalName": "EBMessageMetadataQueryQuery",
-      "docId": "28525853583670706",
-      "operationKind": "query",
-      "variables": [
-        "data"
-      ],
-      "variablesShape": {
-        "data": "string"
-      },
-      "variablesPresence": {
-        "data": {
-          "presence": "undetermined"
-        }
-      },
-      "response": {
-        "viewer": {
-          "encrypted_backup": {
-            "id": "string",
-            "mailbox": {
-              "deanon_messages_metadata": [
-                {
-                  "admin_message": "string",
-                  "is_admin_message": "boolean",
-                  "offline_threading_id": "string",
-                  "sender_id": "string",
-                  "sort_order_ms": "number"
-                }
-              ]
-            }
-          }
         }
       }
     },
@@ -6187,30 +6053,6 @@
         }
       }
     },
-    "RotateLabyrinthEpoch": {
-      "originalName": "WAWebRotateLabyrinthEpochJobMutation",
-      "docId": "27545094465170765",
-      "operationKind": "mutation",
-      "variables": [
-        "input"
-      ],
-      "variablesShape": {
-        "input": "string"
-      },
-      "variablesPresence": {
-        "input": {
-          "presence": "undetermined"
-        }
-      },
-      "response": {
-        "wa_labyrinth_rotate_epoch": {
-          "__typename": "string",
-          "message": "string",
-          "new_epoch_id": "string",
-          "status": "string"
-        }
-      }
-    },
     "SetUsername": {
       "originalName": "WAWebMexSetUsernameJobMutation",
       "docId": "25757341163897635",
@@ -6369,74 +6211,6 @@
         }
       }
     },
-    "TeamLinkCreateInvitation": {
-      "originalName": "WAWebTeamLinkCreateInvitationMutation",
-      "docId": "27693700016951648",
-      "operationKind": "mutation",
-      "variables": [
-        "employeeName",
-        "lid"
-      ],
-      "variablesShape": {
-        "employeeName": "string",
-        "lid": "string"
-      },
-      "variablesPresence": {
-        "employeeName": {
-          "presence": "conditional"
-        },
-        "lid": {
-          "presence": "conditional"
-        }
-      },
-      "response": {
-        "whatsapp_teamlink_create_agent_invitation": {
-          "employee_lid": "string",
-          "employee_name": "string",
-          "expires_at": "number",
-          "invitation_status": "string",
-          "nonce_code": "string"
-        }
-      }
-    },
-    "TeamLinkListInvitations": {
-      "originalName": "WAWebTeamLinkListInvitationsQuery",
-      "docId": "27966540672965115",
-      "operationKind": "query",
-      "response": {
-        "whatsapp_teamlink_list_agent_invitations": [
-          {
-            "employee_lid": "string",
-            "employee_name": "string",
-            "expires_at": "number",
-            "invitation_status": "string",
-            "nonce_code": "string"
-          }
-        ]
-      }
-    },
-    "TeamLinkRemoveInvitation": {
-      "originalName": "WAWebTeamLinkRemoveInvitationMutation",
-      "docId": "27015637738109068",
-      "operationKind": "mutation",
-      "variables": [
-        "lid"
-      ],
-      "variablesShape": {
-        "lid": "string"
-      },
-      "variablesPresence": {
-        "lid": {
-          "presence": "conditional"
-        }
-      },
-      "response": {
-        "whatsapp_teamlink_remove_agent_invitation": {
-          "removed": "string",
-          "was_onboarded": "boolean"
-        }
-      }
-    },
     "TransferCommunityOwnership": {
       "originalName": "WAWebMexTransferCommunityOwnershipJobMutation",
       "docId": "29643783178598899",
@@ -6567,6 +6341,49 @@
         }
       }
     },
+    "UpdateNewsletterAdminProfileSetting": {
+      "originalName": "WAWebMexUpdateNewsletterAdminProfileSettingJobMutation",
+      "docId": "28226671310350649",
+      "operationKind": "mutation",
+      "variables": [
+        "newsletter_id",
+        "updates"
+      ],
+      "variablesShape": {
+        "newsletter_id": "string",
+        "updates": {
+          "settings": {
+            "admin_profiles_enabled": "boolean"
+          }
+        }
+      },
+      "variablesPresence": {
+        "newsletter_id": {
+          "presence": "conditional"
+        },
+        "updates": {
+          "presence": "always",
+          "fields": {
+            "settings": {
+              "presence": "always",
+              "fields": {
+                "admin_profiles_enabled": {
+                  "presence": "conditional"
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa2_newsletter_update": {
+          "id": "string",
+          "state": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "UpdateNewsletterUserSetting": {
       "originalName": "WAWebMexUpdateNewsletterUserSettingJobMutation",
       "docId": "31938993655691868",
@@ -6609,36 +6426,6 @@
       "response": {
         "xwa2_update_text_status": {
           "result": "string"
-        }
-      }
-    },
-    "UploadLabyrinthMessages": {
-      "originalName": "WAWebUploadLabyrinthMessagesJobMutation",
-      "docId": "28023438937253549",
-      "operationKind": "mutation",
-      "variables": [
-        "input"
-      ],
-      "variablesShape": {
-        "input": "string"
-      },
-      "variablesPresence": {
-        "input": {
-          "presence": "conditional"
-        }
-      },
-      "response": {
-        "wa_labyrinth_upload_messages": {
-          "__typename": "string",
-          "message": "string",
-          "results": [
-            {
-              "error": "string",
-              "offline_threading_id": "string",
-              "success": "string"
-            }
-          ],
-          "status": "string"
         }
       }
     },
@@ -6953,6 +6740,27 @@
               }
             ]
           }
+        }
+      }
+    },
+    "useWAWebSmartComposerCoachSuggestedReply": {
+      "originalName": "useWAWebSmartComposerCoachSuggestedReplyMutation",
+      "docId": "29123261517274723",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xfb_meta_ai_biz_agent_wa_coach_suggested_reply": {
+          "success": "string"
         }
       }
     },

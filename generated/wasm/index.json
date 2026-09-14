@@ -1,9 +1,9 @@
 {
   "schemaVersion": "4.3.0",
-  "waVersion": "2.3000.1045368834",
+  "waVersion": "2.3000.1047483476",
   "binaries": [
     {
-      "name": "/wasm/whatsapp/versioned/7a95296c8a5531948c6de53a23221f8c24dc6c8bcae94597122f081f776e9828/wa_voip_shared.wasm",
+      "name": "/wasm/whatsapp/versioned/86e6f277efc16c955c75733317a50b43d9033d22de3bc2d34518a44563f2fcdb/wa_voip_shared.wasm",
       "modules": [
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ]
@@ -96,6 +96,36 @@
       "wasmHint": []
     },
     {
+      "bxId": "24757",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "24833",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "24838",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
       "bxId": "25218",
       "consumers": [
         "WAWebThemeContext"
@@ -115,6 +145,16 @@
         "WAWebThemeContext"
       ],
       "wasmHint": []
+    },
+    {
+      "bxId": "2608",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
     },
     {
       "bxId": "30933",
@@ -161,16 +201,6 @@
       "wasmHint": []
     },
     {
-      "bxId": "31853",
-      "consumers": [
-        "EBGetMinosWasm"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmModuleCacheDep"
-      ]
-    },
-    {
       "bxId": "32107",
       "consumers": [
         "WAWebIntroPanel.react"
@@ -204,16 +234,6 @@
       ]
     },
     {
-      "bxId": "47418",
-      "consumers": [
-        "WAWebEBGetLabyrinthWaWasm"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmModuleCacheDep"
-      ]
-    },
-    {
       "bxId": "47437",
       "consumers": [
         "WAGetLiboqsWasm"
@@ -233,86 +253,6 @@
       ]
     },
     {
-      "bxId": "47500",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "47501",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "47509",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "47516",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "47526",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "47528",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "47537",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "47538",
-      "consumers": [
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
       "bxId": "482",
       "consumers": [
         "WAWebIntroPanel.react"
@@ -329,7 +269,6 @@
     {
       "bxId": "78755",
       "consumers": [
-        "WAWebAuraRingtoneDropdown.react",
         "WAWebAuraRingtonePlayback"
       ],
       "wasmHint": []
@@ -365,6 +304,36 @@
       "wasmHint": []
     },
     {
+      "bxId": "88734",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "88736",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "88746",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
       "bxId": "89515",
       "consumers": [
         "WAWebChatThemeCanvas.react",
@@ -383,6 +352,183 @@
       "wasmHint": []
     },
     {
+      "bxId": "90549",
+      "consumers": [
+        "WAWebAgentsSettingsDrawer.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "90619",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90622",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90633",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90647",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90671",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90676",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90677",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90759",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90760",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90765",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90766",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90778",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90779",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90785",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90786",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90794",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "90795",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
       "bxId": "9547",
       "consumers": [
         "WAWebThemeContext"
@@ -393,13 +539,6 @@
       "bxId": "9548",
       "consumers": [
         "WAWebThemeContext"
-      ],
-      "wasmHint": []
-    },
-    {
-      "bxId": "9550",
-      "consumers": [
-        "WAWebEmojiPanelContentEmojiSearchEmpty.react"
       ],
       "wasmHint": []
     },
@@ -475,6 +614,16 @@
         "WAWebLinkPreviewGroupUtils"
       ],
       "wasmHint": []
+    },
+    {
+      "bxId": "9870",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
     }
   ]
 }

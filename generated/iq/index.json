@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.3.0",
-  "waVersion": "2.3000.1045368834",
+  "waVersion": "2.3000.1047483476",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -13645,16 +13645,6 @@
             "tag": "link_code_companion_reg",
             "attrs": [
               {
-                "name": "jid",
-                "kind": "user_jid",
-                "required": true,
-                "argPath": [
-                  {
-                    "key": "linkCodeCompanionRegJid"
-                  }
-                ]
-              },
-              {
                 "name": "stage",
                 "kind": "const",
                 "value": "companion_finish",
@@ -13922,16 +13912,6 @@
           {
             "tag": "link_code_companion_reg",
             "attrs": [
-              {
-                "name": "jid",
-                "kind": "user_jid",
-                "required": true,
-                "argPath": [
-                  {
-                    "key": "linkCodeCompanionRegJid"
-                  }
-                ]
-              },
               {
                 "name": "stage",
                 "kind": "const",
@@ -36254,17 +36234,32 @@
                   {
                     "name": "name",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "name"
+                      }
+                    ]
                   },
                   {
                     "name": "value",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "value"
+                      }
+                    ]
                   },
                   {
                     "name": "dhash",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "dhash"
+                      }
+                    ]
                   }
                 ],
                 "children": [
@@ -36277,7 +36272,8 @@
                         "required": true,
                         "argPath": [
                           {
-                            "key": "name"
+                            "key": "users",
+                            "list": true
                           },
                           {
                             "key": "action"
@@ -36290,7 +36286,8 @@
                         "required": true,
                         "argPath": [
                           {
-                            "key": "name"
+                            "key": "users",
+                            "list": true
                           },
                           {
                             "key": "wid"
@@ -36299,7 +36296,13 @@
                       }
                     ],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "users",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
                 "repeats": false
@@ -39464,8 +39467,9 @@
       "iqType": "set",
       "target": "s.whatsapp.net",
       "parserName": "aboutResponse",
-      "exportedFunction": "setAbout",
+      "exportedFunction": "sendSetAbout",
       "allExports": [
+        "sendSetAbout",
         "setAbout"
       ],
       "request": {
@@ -39478,12 +39482,7 @@
             "attrs": [],
             "children": [],
             "content": {
-              "kind": "dynamic",
-              "argPath": [
-                {
-                  "key": "content"
-                }
-              ]
+              "kind": "dynamic"
             },
             "repeats": false
           }
@@ -46848,8 +46847,9 @@
       "iqType": "get",
       "target": "s.whatsapp.net",
       "parserName": "productListResponse",
-      "exportedFunction": "QueryProductListCatalog",
+      "exportedFunction": "queryProductListCatalog",
       "allExports": [
+        "queryProductListCatalog",
         "QueryProductListCatalog"
       ],
       "request": {
@@ -102262,68 +102262,6 @@
       }
     },
     {
-      "moduleName": "WAWebKmpSyncdRequestBuilder",
-      "namespace": "w:sync:app:state",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "buildOutgoingRequestWithKmp",
-      "allExports": [
-        "buildOutgoingRequestWithKmp"
-      ],
-      "request": {
-        "namespace": "w:sync:app:state",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": [
-          {
-            "tag": "sync",
-            "attrs": [],
-            "children": [
-              {
-                "tag": "collection",
-                "attrs": [
-                  {
-                    "name": "name",
-                    "kind": "string",
-                    "required": true
-                  },
-                  {
-                    "name": "return_snapshot",
-                    "kind": "dynamic",
-                    "required": true
-                  },
-                  {
-                    "name": "version",
-                    "kind": "integer",
-                    "required": true
-                  }
-                ],
-                "children": [
-                  {
-                    "tag": "patch",
-                    "attrs": [],
-                    "children": [],
-                    "content": {
-                      "kind": "dynamic"
-                    },
-                    "repeats": false
-                  }
-                ],
-                "repeats": true
-              }
-            ],
-            "repeats": false
-          }
-        ]
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
       "moduleName": "WAWebSyncdRequestBuilderBuild",
       "namespace": "w:sync:app:state",
       "iqType": "set",
@@ -105141,8 +105079,9 @@
       "iqType": "get",
       "target": "s.whatsapp.net",
       "parserName": "WASmaxWaffleGenerateWAEntACUserRPC",
-      "exportedFunction": "makeGenerateWAEntACUserRequest",
+      "exportedFunction": "makeGenerateWAEntACUserRequestSource",
       "allExports": [
+        "makeGenerateWAEntACUserRequestSource",
         "makeGenerateWAEntACUserRequest"
       ],
       "request": {
@@ -105216,6 +105155,29 @@
             ],
             "children": [],
             "repeats": false
+          },
+          {
+            "tag": "source",
+            "attrs": [],
+            "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "sourceArgs"
+                },
+                {
+                  "key": "sourceElementValue"
+                }
+              ]
+            },
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "sourceArgs"
+              }
+            ]
           }
         ]
       },
@@ -105300,6 +105262,24 @@
             "type": "string",
             "parserRequired": true,
             "literalValue": "result"
+          },
+          {
+            "method": "child",
+            "name": "wfNotifId",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "wf_notif_id",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "elementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "byteMin": 1,
+                "byteMax": 64
+              }
+            ],
+            "repeats": false
           }
         ],
         "variants": [
@@ -105410,6 +105390,24 @@
                 "type": "string",
                 "parserRequired": true,
                 "literalValue": "result"
+              },
+              {
+                "method": "child",
+                "name": "wfNotifId",
+                "type": "string",
+                "parserRequired": false,
+                "tag": "wf_notif_id",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "elementValue",
+                    "type": "bytes",
+                    "parserRequired": true,
+                    "byteMin": 1,
+                    "byteMax": 64
+                  }
+                ],
+                "repeats": false
               }
             ]
           },

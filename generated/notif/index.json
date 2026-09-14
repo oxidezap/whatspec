@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.3.0",
-  "waVersion": "2.3000.1045368834",
+  "waVersion": "2.3000.1047483476",
   "dispatcherModules": [
     "WAWebCommsHandleLoggedInStanza",
     "WAWebCommsHandleWorkerCompatibleStanza"
@@ -1058,6 +1058,23 @@
                 "parserRequired": true,
                 "byteMin": 1,
                 "byteMax": 4096
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "dbscRegistration",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "dbsc_registration",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "elementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "byteLength": 32
               }
             ],
             "repeats": false
@@ -3481,7 +3498,7 @@
             "type": "integer",
             "parserRequired": true,
             "intMin": 1,
-            "intMax": 7,
+            "intMax": 9,
             "sourcePath": [
               "notification_metadata"
             ]
@@ -3579,6 +3596,26 @@
                 }
               ]
             },
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "notificationMetadataWfNotifTs",
+            "wireName": "wf_notif_ts",
+            "type": "timestamp_millis",
+            "parserRequired": false,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "notificationMetadataWfNotifId",
+            "wireName": "wf_notif_id",
+            "type": "string",
+            "parserRequired": false,
             "sourcePath": [
               "notification_metadata"
             ]

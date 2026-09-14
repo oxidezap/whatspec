@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.3.0",
-  "waVersion": "2.3000.1045368834",
+  "waVersion": "2.3000.1047483476",
   "collections": [
     "regular",
     "regular_low",
@@ -241,6 +241,7 @@
       "valueField": "businessBroadcastCampaignAction",
       "valueProtoType": "SyncActionValue.BusinessBroadcastCampaignAction",
       "valueEnumFields": {
+        "bbProStatus": "BusinessBroadcastCampaignBBProStatus",
         "status": "BusinessBroadcastCampaignStatus"
       },
       "chatJidIndex": null,
@@ -969,9 +970,7 @@
       "baseClass": "AccountSyncdActionBase",
       "valueField": "noteEditAction",
       "valueProtoType": "SyncActionValue.NoteEditAction",
-      "valueEnumFields": {
-        "type": "NoteEditAction.NoteType"
-      },
+      "valueEnumFields": null,
       "chatJidIndex": null,
       "indexParts": [
         {
@@ -1331,7 +1330,10 @@
       "baseClass": "AccountSyncdActionBase",
       "valueField": "statusPrivacy",
       "valueProtoType": "SyncActionValue.StatusPrivacyAction",
-      "valueEnumFields": null,
+      "valueEnumFields": {
+        "mode": "StatusPrivacyAction.StatusDistributionMode",
+        "modes": "StatusPrivacyAction.StatusDistributionMode"
+      },
       "chatJidIndex": null,
       "indexParts": [
         {
