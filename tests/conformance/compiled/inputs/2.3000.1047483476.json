@@ -1,0 +1,1674 @@
+{
+  "schemaVersion": "4.3.0",
+  "waVersion": "2.3000.1047483476",
+  "stanzas": [
+    {
+      "moduleName": "WASmaxOutGroupsAcceptGroupAddRequest",
+      "namespace": "w:g2",
+      "iqType": "set",
+      "target": "group_jid",
+      "parserName": "WASmaxGroupsAcceptGroupAddRPC",
+      "exportedFunction": "makeAcceptGroupAddRequest",
+      "allExports": [
+        "makeAcceptGroupAddRequest"
+      ],
+      "request": {
+        "namespace": "w:g2",
+        "iqType": "set",
+        "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
+        "children": [
+          {
+            "tag": "accept",
+            "attrs": [
+              {
+                "name": "code",
+                "kind": "string",
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "acceptCode"
+                  }
+                ]
+              },
+              {
+                "name": "expiration",
+                "kind": "integer",
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "acceptExpiration"
+                  }
+                ]
+              },
+              {
+                "name": "admin",
+                "kind": "user_jid",
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "acceptAdmin"
+                  }
+                ]
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxGroupsAcceptGroupAddRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "result"
+          }
+        ],
+        "variants": [
+          {
+            "tag": "AcceptGroupAddResponseGroupJoinRequestSuccess",
+            "moduleName": "WASmaxInGroupsAcceptGroupAddResponseGroupJoinRequestSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "reference",
+                "name": "id",
+                "referencePath": [
+                  "id"
+                ]
+              },
+              {
+                "kind": "reference",
+                "name": "from",
+                "referencePath": [
+                  "to"
+                ]
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              },
+              {
+                "kind": "child",
+                "name": "membership_approval_request"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "parserRequired": true,
+                "literalValue": "result"
+              }
+            ]
+          },
+          {
+            "tag": "AcceptGroupAddResponseSuccess",
+            "moduleName": "WASmaxInGroupsAcceptGroupAddResponseSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "reference",
+                "name": "id",
+                "referencePath": [
+                  "id"
+                ]
+              },
+              {
+                "kind": "reference",
+                "name": "from",
+                "referencePath": [
+                  "to"
+                ]
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "parserRequired": true,
+                "literalValue": "result"
+              }
+            ]
+          },
+          {
+            "tag": "AcceptGroupAddResponseClientError",
+            "moduleName": "WASmaxInGroupsAcceptGroupAddResponseClientError",
+            "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorAlreadyExists",
+                "code": 304,
+                "text": "already-exists"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorGone",
+                "code": 410,
+                "text": "gone"
+              },
+              {
+                "name": "IQErrorResourceLimit",
+                "code": 419,
+                "text": "resource-limit"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorResourceConstraint",
+                "code": 500,
+                "text": "resource-constraint"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorParentLinkedGroupsParticipantsResourceLimit",
+                "code": 412,
+                "text": "linked-groups-participants-resource-limit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "reference",
+                "name": "id",
+                "referencePath": [
+                  "id"
+                ]
+              },
+              {
+                "kind": "reference",
+                "name": "from",
+                "referencePath": [
+                  "to"
+                ]
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "parserRequired": true,
+                "literalValue": "error"
+              },
+              {
+                "method": "",
+                "name": "errorAcceptGroupAddClientErrors",
+                "type": "union",
+                "parserRequired": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorAlreadyExists",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "already-exists"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "304"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "already-exists"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "304"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "bad-request"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "400"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "bad-request"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "400"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAuthorized",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "not-authorized"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "401"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-authorized"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "401"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorForbidden",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "forbidden"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "403"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "forbidden"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "403"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorItemNotFound",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "item-not-found"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "404"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "item-not-found"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "404"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorConflict",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "conflict"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "409"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "conflict"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "409"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorGone",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "gone"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "410"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "gone"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "410"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorResourceLimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "resource-limit"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "419"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "resource-limit"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "419"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorLocked",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "locked"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "423"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "locked"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "423"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorResourceConstraint",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "resource-constraint"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "500"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "resource-constraint"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "500"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAllowed",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "not-allowed"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "405"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-allowed"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "405"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorParentLinkedGroupsParticipantsResourceLimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "linked-groups-participants-resource-limit"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "412"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "linked-groups-participants-resource-limit"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "412"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackClient",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "intMin": 400,
+                        "intMax": 499
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "AcceptGroupAddResponseServerError",
+            "moduleName": "WASmaxInGroupsAcceptGroupAddResponseServerError",
+            "kind": "server_error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "reference",
+                "name": "id",
+                "referencePath": [
+                  "id"
+                ]
+              },
+              {
+                "kind": "reference",
+                "name": "from",
+                "referencePath": [
+                  "to"
+                ]
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "parserRequired": true,
+                "literalValue": "error"
+              },
+              {
+                "method": "",
+                "name": "errorServerErrors",
+                "type": "union",
+                "parserRequired": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "internal-server-error"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "500"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "internal-server-error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "500"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "service-unavailable"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "503"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "service-unavailable"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "503"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPartialServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "partial-server-error"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "530"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "partial-server-error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "530"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackServer",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "intMin": 500,
+                        "intMax": 599
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "moduleName": "WASmaxOutGroupsSetSubjectRequest",
+      "namespace": "w:g2",
+      "iqType": "set",
+      "target": "group_jid",
+      "parserName": "WASmaxGroupsSetSubjectRPC",
+      "exportedFunction": "makeSetSubjectRequest",
+      "allExports": [
+        "makeSetSubjectRequest"
+      ],
+      "request": {
+        "namespace": "w:g2",
+        "iqType": "set",
+        "target": "group_jid",
+        "targetArgPath": [
+          {
+            "key": "iqTo"
+          }
+        ],
+        "children": [
+          {
+            "tag": "subject",
+            "attrs": [],
+            "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "subjectElementValue"
+                }
+              ]
+            },
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxGroupsSetSubjectRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "result"
+          }
+        ],
+        "variants": [
+          {
+            "tag": "SetSubjectResponseSuccess",
+            "moduleName": "WASmaxInGroupsSetSubjectResponseSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "reference",
+                "name": "id",
+                "referencePath": [
+                  "id"
+                ]
+              },
+              {
+                "kind": "reference",
+                "name": "from",
+                "referencePath": [
+                  "to"
+                ]
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "parserRequired": true,
+                "literalValue": "result"
+              }
+            ]
+          },
+          {
+            "tag": "SetSubjectResponseClientError",
+            "moduleName": "WASmaxInGroupsSetSubjectResponseClientError",
+            "kind": "client_error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "reference",
+                "name": "id",
+                "referencePath": [
+                  "id"
+                ]
+              },
+              {
+                "kind": "reference",
+                "name": "from",
+                "referencePath": [
+                  "to"
+                ]
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "parserRequired": true,
+                "literalValue": "error"
+              },
+              {
+                "method": "",
+                "name": "errorSetSubjectClientErrors",
+                "type": "union",
+                "parserRequired": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "bad-request"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "400"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "bad-request"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "400"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorItemNotFound",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "item-not-found"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "404"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "item-not-found"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "404"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAuthorized",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "not-authorized"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "401"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-authorized"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "401"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorForbidden",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "forbidden"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "403"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "forbidden"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "403"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAcceptable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "not-acceptable"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "406"
+                      },
+                      {
+                        "method": "child",
+                        "name": "field",
+                        "type": "string",
+                        "parserRequired": false,
+                        "tag": "field",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "name",
+                            "wireName": "name",
+                            "type": "string",
+                            "parserRequired": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "reason",
+                            "wireName": "reason",
+                            "type": "string",
+                            "parserRequired": true
+                          }
+                        ],
+                        "repeats": false
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-acceptable"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "406"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorLocked",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "locked"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "423"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "locked"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "423"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "rate-overlimit"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "429"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "rate-overlimit"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "429"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackClient",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "intMin": 400,
+                        "intMax": 499
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "SetSubjectResponseServerError",
+            "moduleName": "WASmaxInGroupsSetSubjectResponseServerError",
+            "kind": "server_error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "reference",
+                "name": "id",
+                "referencePath": [
+                  "id"
+                ]
+              },
+              {
+                "kind": "reference",
+                "name": "from",
+                "referencePath": [
+                  "to"
+                ]
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "parserRequired": true,
+                "literalValue": "error"
+              },
+              {
+                "method": "",
+                "name": "errorServerErrors",
+                "type": "union",
+                "parserRequired": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "internal-server-error"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "500"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "internal-server-error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "500"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "service-unavailable"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "503"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "service-unavailable"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "503"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPartialServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true,
+                        "literalValue": "partial-server-error"
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "literalValue": "530"
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "partial-server-error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "code",
+                        "value": "530"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackServer",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "parserRequired": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "parserRequired": true,
+                        "intMin": 500,
+                        "intMax": 599
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "unparseable": []
+}

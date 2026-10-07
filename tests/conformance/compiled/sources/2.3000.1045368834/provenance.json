@@ -1,0 +1,141 @@
+{
+  "waVersion": "2.3000.1045368834",
+  "setHash": "99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00",
+  "bundleCount": 516,
+  "bundleBytes": 77347149,
+  "modules": [
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddClientErrors",
+      "bundleSha256": "91d65febb587cea7283313c48528407fce6e949cdcb7a29cd2e0d9df1d21b1a8",
+      "start": 19,
+      "end": 3490,
+      "sourceSha256": "0bf34d35f47688d83e1703ff785f033e74974a5bb6b27fcc13dfd9a202b10604"
+    },
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddResponseClientError",
+      "bundleSha256": "91d65febb587cea7283313c48528407fce6e949cdcb7a29cd2e0d9df1d21b1a8",
+      "start": 3492,
+      "end": 4227,
+      "sourceSha256": "0a34c41c5e0bdc020ddac5ea1a75ea3f957803f66651a477f96e2234447c80a4"
+    },
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddResponseServerError",
+      "bundleSha256": "91d65febb587cea7283313c48528407fce6e949cdcb7a29cd2e0d9df1d21b1a8",
+      "start": 4730,
+      "end": 5096,
+      "sourceSha256": "0786f985a20352044f3f00cec811911fce0f002f4dedafdf3b37e1cd087cbab6"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorAlreadyExistsMixin",
+      "bundleSha256": "cf6197f616a43cf9004101d911d5643e8fa63972b2d27a54e8bba8db062abb8f",
+      "start": 68535,
+      "end": 69050,
+      "sourceSha256": "0c207f6532b9d3ab012f556fd7725de77bfdd36289665e3b8e013f31f2c42f6d"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorBadRequestMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 29804,
+      "end": 30310,
+      "sourceSha256": "fc526eb6a0bb5f2d142d2215e61946163ffc0939eb67ea42a64f0d5aecf4e710"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorFallbackClientMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 85970,
+      "end": 86419,
+      "sourceSha256": "2cf97c340ea2ebfac9c4c6b94933ebc71a7874ee249ac33ae68d920a60e5813f"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorFallbackServerMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 33089,
+      "end": 33538,
+      "sourceSha256": "c6ddb72b768a67e8fdaee58b037b2de66c896c4ecb95d67d7d8bed6a64af0bf7"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorInternalServerErrorMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 33540,
+      "end": 34074,
+      "sourceSha256": "3f728f0545d258df831a6c1a01f9f39c3040c3a4a04b931ee509ccbbc080b4a2"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorNotAcceptableMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 88946,
+      "end": 89886,
+      "sourceSha256": "88e536fc9040f47de39a3f98ed5f299e9bffb37baa0590ec43ee619061802d56"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorPartialServerErrorMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 34076,
+      "end": 34607,
+      "sourceSha256": "175917f45fe458ff9b1c229cb025661a7c0fac5664dc0ce983e5f8df44b5da67"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorResourceConstraintMixin",
+      "bundleSha256": "cf6197f616a43cf9004101d911d5643e8fa63972b2d27a54e8bba8db062abb8f",
+      "start": 69656,
+      "end": 70186,
+      "sourceSha256": "00381d7ab0263c85d58b2c01f4f3bf446cc127c51322bbbd04fa3baf07fc3317"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorResponseMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 31534,
+      "end": 32332,
+      "sourceSha256": "867cb414eafa8d1ddfec085c39696220e7fa07894dd27b8404a9c2ff7f3408e6"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorServiceUnavailableMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 34609,
+      "end": 35139,
+      "sourceSha256": "6d1e9bb5f7a3f4afb0a1bc90f2f6e1a94f96c305d9813540e9a2cf917196b713"
+    },
+    {
+      "module": "WASmaxInGroupsServerErrors",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 35141,
+      "end": 36408,
+      "sourceSha256": "4ff5d583d148680474bb75b36a6c8fc431d303ddd952e49b94d02d93a3a480d8"
+    },
+    {
+      "module": "WASmaxInGroupsSetSubjectClientErrors",
+      "bundleSha256": "ed2f08bc12a1128a06ddafe25fc62e5d102593245a8b5e818fd8f2eedab3ffb9",
+      "start": 24289,
+      "end": 26417,
+      "sourceSha256": "0ee8d5ffc0942026ba3ebda66d9db617364e9c0ef5b2741290e2379866531ca4"
+    },
+    {
+      "module": "WASmaxInGroupsSetSubjectResponseClientError",
+      "bundleSha256": "ed2f08bc12a1128a06ddafe25fc62e5d102593245a8b5e818fd8f2eedab3ffb9",
+      "start": 26419,
+      "end": 27130,
+      "sourceSha256": "b13f00ad281c8006568ebe8d992939686ce0ee849f4f38eef86ace0f556383e2"
+    },
+    {
+      "module": "WASmaxInGroupsSetSubjectResponseServerError",
+      "bundleSha256": "ed2f08bc12a1128a06ddafe25fc62e5d102593245a8b5e818fd8f2eedab3ffb9",
+      "start": 27132,
+      "end": 27490,
+      "sourceSha256": "4acd4e98757ade26c0f22e539c73cb0000dedbfe326342ad6a339527039b0672"
+    },
+    {
+      "module": "WASmaxParseReference",
+      "bundleSha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
+      "start": 174246,
+      "end": 175353,
+      "sourceSha256": "e27311d25f3d328658355ab0c619b71b007d68ee2e83a7c5ae508a86e05e8aee"
+    },
+    {
+      "module": "WASmaxParseUtils",
+      "bundleSha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
+      "start": 165556,
+      "end": 172278,
+      "sourceSha256": "a2bbd76df3740e48f0f5c979c5ecc94d30217e726c7b42f2b23490161bcc42e6"
+    }
+  ]
+}
