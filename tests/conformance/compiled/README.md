@@ -134,3 +134,20 @@ No change to their emitter is made here. After their fix, rerun this same failin
 case and the complete matrix before proposing a stacked qualification PR with
 explicit dependencies on both #51 and #53. Do not weaken the expected fallback
 or turn the failure into an ignored test.
+
+## IQ fix qualification
+
+Composition updated with IQ-owned fix
+`9e609d4dee4c80ec50bc42a75110e69db13400d8` from #53.
+The original seven case groups were rerun without changing their expectations:
+both snapshots changed from six passing / one failing to seven passing / zero
+failing. The binary 406 error now selects `IQErrorFallbackClient`.
+
+An additional independent group checks absent content versus empty binary
+content and confirms attribute-only fallback accepts empty and nonempty bytes
+for both pilots. The existing valid `field` child case still selects the specific
+406 payload with its original name/reason. Both snapshots now pass all eight
+groups, including deterministic regeneration and compiled execution. The combined
+independent test phase took 0.79 s after build; #53's compiled runtime test also
+passed. No original expected outcome was changed, no emitter was edited here,
+and no test was disabled. Earlier failure evidence above refers to a863bfb.

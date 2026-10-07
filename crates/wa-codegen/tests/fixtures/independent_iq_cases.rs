@@ -290,3 +290,31 @@ fn binary_error_content_reaches_fallback() {
         "binary error content must reach fallback: {value:?}"
     );
 }
+
+#[test]
+fn absent_and_empty_binary_error_content_remain_distinct() {
+    let subject = specs().0;
+    for binary in [None, Some(vec![])] {
+        let mut response = error("406", Some("not-acceptable"));
+        response.children[0].bytes = binary.clone();
+        let MakeSetSubjectRequestResponse::ClientError(value) = subject
+            .parse_response_with_request(&response.as_ref(), "req-1", "123@g.us")
+            .unwrap()
+        else {
+            panic!("client error required")
+        };
+        let specific = matches!(value.error_set_subject_client_errors,
+            Some(MakeSetSubjectRequestClientErrorErrorSetSubjectClientErrors::IQErrorNotAcceptable(_)));
+        let fallback = matches!(value.error_set_subject_client_errors,
+            Some(MakeSetSubjectRequestClientErrorErrorSetSubjectClientErrors::IQErrorFallbackClient(_)));
+        assert_eq!(specific, binary.is_none(), "{value:?}");
+        assert_eq!(fallback, binary.is_some(), "{value:?}");
+    }
+    // Parsers that inspect only attributes must still accept binary content.
+    for bytes in [vec![], b"opaque".to_vec()] {
+        let mut response = error("499", Some("unknown"));
+        response.children[0].bytes = Some(bytes);
+        assert_eq!(subject_class(&response).unwrap(), "client");
+        assert_eq!(accept_class(&response).unwrap(), "client");
+    }
+}
