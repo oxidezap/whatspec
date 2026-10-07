@@ -279,3 +279,45 @@ Using exactly those bytes without a trailing newline yields setHash
 no implementation was duplicated in this workstream.
 
 The integrated CLI also passes the locked current-snapshot `--check`, reproducing all 27 committed artifacts after the WAM changes.
+
+## Final quality integration d067d60
+
+Integrated #52 `d067d60b4042455aa9fb1c0fa4850b7e93fff214` without
+conflicts. The delta retains conservative WAM values after opaque setters,
+property overwrites and merge operands, and explicitly represents incomplete
+provenance instead of implying verification.
+
+Independent CLI reproductions close the remaining review findings:
+
+- With identical artifact/manifest bytes and two different self-consistent locks
+  sharing one WA version, report v2 returns `sameInputs: null`,
+  `sameDeclaredInputs: false` and `inputBinding.status: unverified` on both sides.
+  Comparing the same snapshot also leaves actual input identity unknown.
+- A changed artifact and a matching v2 review retain `inputBinding: unverified`
+  on the delta. Applying an assessment does not promote declared inputs into
+  verified inputs. Version-1 review evidence is rejected explicitly.
+- The exact global-channel fixture recorded above now returns two total gaps and
+  two `unlocatedDropsByReason` gaps, with an empty site list. No location is
+  fabricated and no counted gap disappears.
+
+The final composition passes 1,671 workspace tests, zero failures/ignored tests,
+including eight compiled independent groups per snapshot and the IQ runtime
+suite. All-feature/all-target Clippy, formatting, 12/12 committed schemas, lint,
+15 quality Python tests and five fixture tests pass. These checks use the final
+quality head; older generation size/timing observations above remain historical.
+
+Residual limits do not block the two bounded IQ pilots: historical manifests
+cannot prove which declared bundle set generated their artifacts; unreadable
+WAM global channel lists have counted but unlocated gaps; incomplete dynamic
+JavaScript semantics remain explicit diagnostics. This conformance harness uses
+an in-memory adapter and static source evidence, so it does not certify an
+external binary codec, server behavior, all IQ operations or complete MEX/WAM
+coverage. Report v2 requires consumers of the optional diff/review format to
+migrate; no schema version or downstream-client contract was silently changed.
+
+The final locked `--check` passes for all 27 committed artifacts. The additional
+Greptile merge-order finding is covered by the integrated seven-case
+`constructor_merges_follow_operand_order_without_overstating_unknown_overrides`
+regression: later unknown operands clear earlier constants while later explicit
+writes can restore a known value. Its object-property and opaque-setter neighbor
+regressions also pass. No further implementation was added in this workstream.
