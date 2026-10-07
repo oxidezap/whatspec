@@ -52,6 +52,9 @@ impl<'a> NodeRef<'a> {
             .filter(move |n| n.tag == tag)
             .map(Node::as_ref)
     }
+    pub fn content_bytes(&self) -> Option<&'a [u8]> {
+        self.node.bytes.as_deref()
+    }
     pub fn content_str(&self) -> Option<&'a str> {
         self.node
             .bytes
@@ -340,6 +343,46 @@ fn main() {
             }
             _ => panic!("unexpected error arm"),
         }
+    }
+    // optionalChildWithTag first calls maybeChildren: binary content fails
+    // even when empty. The surrounding disjunction then reaches fallback.
+    for bytes in [vec![], b"opaque".to_vec(), vec![0xff]] {
+        let mut node = error("406", Some("not-acceptable"));
+        node.children[0].bytes = Some(bytes.clone());
+        let MakeSetSubjectRequestResponse::ClientError(value) = subject
+            .parse_response_with_request(&node.as_ref(), "req-1", "123@g.us")
+            .unwrap()
+        else {
+            panic!("expected client error");
+        };
+        assert!(matches!(
+            value.error_set_subject_client_errors.unwrap(),
+            MakeSetSubjectRequestClientErrorErrorSetSubjectClientErrors::IQErrorFallbackClient(_)
+        ));
+
+        // Attribute-only error arms do not call maybeChildren. Their binary
+        // body must not trigger a blanket rejection or forced fallback.
+        let mut node = error("400", Some("bad-request"));
+        node.children[0].bytes = Some(bytes.clone());
+        let MakeSetSubjectRequestResponse::ClientError(value) = subject
+            .parse_response_with_request(&node.as_ref(), "req-1", "123@g.us")
+            .unwrap()
+        else {
+            panic!("expected client error");
+        };
+        assert!(matches!(
+            value.error_set_subject_client_errors.unwrap(),
+            MakeSetSubjectRequestClientErrorErrorSetSubjectClientErrors::IQErrorBadRequest(_)
+        ));
+
+        let mut node = error("500", Some("resource-constraint"));
+        node.children[0].bytes = Some(bytes);
+        assert!(matches!(
+            accept
+                .parse_response_with_request(&node.as_ref(), "req-1", "123@g.us")
+                .unwrap(),
+            MakeAcceptGroupAddRequestResponse::ClientError(_)
+        ));
     }
     for wire in ["id", "from"] {
         let mut invalid = bare.clone();

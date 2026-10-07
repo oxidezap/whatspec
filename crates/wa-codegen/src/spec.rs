@@ -463,6 +463,12 @@ fn emit_direct_error_parser(
             .cloned()
             .collect();
         let mut conditions = vec![error_arm_condition(arm)];
+        // optionalChildWithTag calls maybeChildren before looking up a tag;
+        // any binary body (including empty bytes) fails this arm. Attribute-only
+        // arms do not inspect content and must remain eligible for fallback.
+        if fields.iter().any(|f| f.method == "child") {
+            conditions.push("error.content_bytes().is_none()".to_string());
+        }
         for child in fields.iter().filter(|f| f.method == "child") {
             conditions.push(format!(
                 "error.get_children_by_tag({}).count() <= 1",
