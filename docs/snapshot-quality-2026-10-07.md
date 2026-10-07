@@ -165,6 +165,15 @@ A further 20-case regression checks property order within direct/local objects
 and merge operands: unknown writes invalidate only preceding values; explicit
 properties after a spread or computed key establish their final values. This
 fix avoids both stale local values and unnecessary loss of later literals.
+Opaque later `event.set(...)` writes also invalidate preceding constants while
+retaining their known field names. A before/after regression covers unknown
+objects, computed keys and a spread followed by a known setter field. This
+prevents newly recovered local constants from surviving an unproven overwrite.
+On the locked snapshot this withdraws three values (connectionType, networkStack
+and overallMmsVersion) in `WAWebCreateMediaDownloadMetrics`, whose event receives
+`set(babelHelpers.extends({},e.imageDimensions))`. Those operand keys are not
+recovered. Its source is included in the focused sidecar; site, field and
+construction counts remain unchanged, and all other generated domains are identical.
 
 On the exact current bundle set, this correction changes ten module/event
 pairs. Ignoring values, their field/write shapes are identical before and after;
@@ -179,7 +188,7 @@ conditional objects and logical expressions. This is a conservative correction
 to extraction certainty, not an upstream removal. Resolving those operand key
 sets could recover values later; the current extractor does not prove them.
 
-The final totals are 807 sites, 3,453 field occurrences, 769 values and 107
+The final totals are 807 sites, 3,453 field occurrences, 766 values and 107
 partial sites. The write guard caught 813 → 807; an isolated generation and the
 field/write-shape comparison established the six deduplications before replacing
 the generated WAM/manifest. No guard, floor or diagnostic baseline was lowered.
@@ -212,9 +221,9 @@ cargo test -p wa-transform -p wa-wam -p whatspec --all-features
 ```
 
 Source indexes are generated on demand (~14.2 MB each), not committed wholesale.
-The focused source and gap ledgers are ~104.6 KB and ~21.4 KB. Two real WAM fixtures
+The focused source and gap ledgers are ~106.7 KB and ~21.4 KB. Two real WAM fixtures
 retain exact source slices, with bundle hashes and offsets in their headers.
-The WAM document grows from 2,794,121 to 2,807,208 bytes by recovering existing
+The WAM document grows from 2,794,121 to 2,806,768 bytes by recovering existing
 field semantics; optional provenance adds no per-field IR metadata. WAM gap evidence incurs extra parsing only
 when requested. At the initial local-object revision, regeneration checks reproduce all 27 artifacts for the repaired current
 snapshot and a separately regenerated old snapshot. Observed check times were
@@ -230,7 +239,7 @@ occurrence, with the field name, rather than a counter without source evidence.
 Filtered source sidecars now explicitly record their requested module names;
 absence findings are limited to that selection.
 
-The generic contract report contains 495 deltas (2,725,481 bytes), keeps ordered
+The generic contract report contains 495 deltas (2,725,041 bytes), keeps ordered
 arrays and does not infer renames.
 The [review ledger](snapshot-quality-2026-10-07.reviews.json) classifies the privacy
 improvement and persisted-ID change; the remaining 493 deltas stay indeterminate until

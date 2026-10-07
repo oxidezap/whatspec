@@ -88,7 +88,7 @@
       "types": 27
     },
     "wam": {
-      "callSiteFieldValues": 769,
+      "callSiteFieldValues": 766,
       "callSiteFields": 3453,
       "callSites": 807,
       "constants": 6,
@@ -165,7 +165,7 @@
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "01e97057758f1a148e8c9f6613d7de9b061410df863cc671aaf9dded69a2e248"
+      "sha256": "333a1f4d1f9581fc45266dabb4b8df90c66226c74f722c04135f94dfb4d727ee"
     },
     "wasm": {
       "file": "wasm/index.json",

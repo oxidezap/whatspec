@@ -989,3 +989,43 @@ fn object_properties_preserve_only_values_after_the_last_unknown_write() {
         }
     }
 }
+
+#[test]
+fn opaque_post_constructor_writes_invalidate_preceding_constants() {
+    for write in [
+        "e.set(runtimeFields)",
+        "e.set({[runtimeKey]:7})",
+        "e.set({...runtimeFields,deviceCount:4})",
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={{retryCount:3}};var e=new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent(fields);{write};}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert!(site.partial, "{write}");
+        assert_eq!(
+            site.fields
+                .iter()
+                .find(|f| f.name == "retryCount")
+                .unwrap()
+                .value,
+            None,
+            "{write}"
+        );
+        if write.contains("deviceCount") {
+            assert_eq!(
+                site.fields
+                    .iter()
+                    .find(|f| f.name == "deviceCount")
+                    .unwrap()
+                    .value,
+                Some(WamCallSiteValue::Int { value: 4 })
+            );
+        }
+    }
+}

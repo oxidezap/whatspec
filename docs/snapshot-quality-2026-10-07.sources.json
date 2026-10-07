@@ -167,6 +167,29 @@
           "start": 241411
         }
       ],
+      "WAWebCreateMediaDownloadMetrics": [
+        {
+          "bundleSha256": "ffe69f61924eb23c1d65cb89a152e4ce35ee404bd52a7edcced9c037b236f490",
+          "dependencies": [
+            "WAWebAppTracker",
+            "WAWebCoreActionsODS",
+            "WAWebMediaCryptoEligibilityUtils",
+            "WAWebMediaDownload2WamEvent",
+            "WAWebMmsDownloadUploadCrashLogger",
+            "WAWebMmsMediaTypes",
+            "WAWebWamEnumConnectionType",
+            "WAWebWamEnumMediaDownloadResultType",
+            "WAWebWamEnumNetworkStackType",
+            "WAWebWamGroupMetricCache",
+            "WAWebWamMediaMetricUtils",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 3715179,
+          "factorySha256": "28049201a39821e258bb82e57a46e2ead4bfc9c56d0864dc8a3dba8c27325396",
+          "moduleSha256": "b5983d980dc5ac9db3c9c9512bac87958a0f794d42b722761ea44a393f5e3bc9",
+          "start": 3710612
+        }
+      ],
       "WAWebDebugLabyrinthInboxSnapshotQuery": [
         {
           "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
@@ -1436,6 +1459,7 @@
         "WAWebContactManagerCustomerProfilesQuery_facebookRelayOperation",
         "WAWebCreateLabyrinthBackupJob",
         "WAWebCreateLabyrinthBackupJobMutation.graphql",
+        "WAWebCreateMediaDownloadMetrics",
         "WAWebDebugLabyrinthInboxSnapshotQuery",
         "WAWebDebugLabyrinthInboxSnapshotQuery.graphql",
         "WAWebDebugLabyrinthRangeQuery",
@@ -1614,6 +1638,30 @@
           "factorySha256": "8ad8f73b1a267fb2b3e43ac1c801326dd5a667f104e3a45fb33b81b01bc99b4c",
           "moduleSha256": "0edd9a4622782763c39f80764decf75406cbec76925a80622cfd1ee90436ec81",
           "start": 252637
+        }
+      ],
+      "WAWebCreateMediaDownloadMetrics": [
+        {
+          "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+          "dependencies": [
+            "WAWebAppTracker",
+            "WAWebCoreActionsODS",
+            "WAWebExperienceIdWamFields",
+            "WAWebMediaCryptoEligibilityUtils",
+            "WAWebMediaDownload2WamEvent",
+            "WAWebMmsDownloadUploadCrashLogger",
+            "WAWebMmsMediaTypes",
+            "WAWebWamEnumConnectionType",
+            "WAWebWamEnumMediaDownloadResultType",
+            "WAWebWamEnumNetworkStackType",
+            "WAWebWamGroupMetricCache",
+            "WAWebWamMediaMetricUtils",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 2094305,
+          "factorySha256": "92ec9196bb03ec55ca551494cf9688ee3a1cc3c7feb431c9e878f4feb80e72c6",
+          "moduleSha256": "58e2dd068081ba0b7312da568963dde22059085eac557ae8b0c11a90bdc3f55a",
+          "start": 2089600
         }
       ],
       "WAWebEditFormLogEvents": [
@@ -2518,6 +2566,7 @@
         "WAWebContactManagerCustomerProfilesQuery_facebookRelayOperation",
         "WAWebCreateLabyrinthBackupJob",
         "WAWebCreateLabyrinthBackupJobMutation.graphql",
+        "WAWebCreateMediaDownloadMetrics",
         "WAWebDebugLabyrinthInboxSnapshotQuery",
         "WAWebDebugLabyrinthInboxSnapshotQuery.graphql",
         "WAWebDebugLabyrinthRangeQuery",

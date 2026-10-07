@@ -23572,12 +23572,7 @@
           "fields": [
             {
               "name": "connectionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumConnectionType",
-                "key": "HOSTNAME"
-              }
+              "write": "constructor"
             },
             {
               "name": "deviceCount",
@@ -23601,12 +23596,7 @@
             },
             {
               "name": "networkStack",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumNetworkStackType",
-                "key": "NATIVE"
-              }
+              "write": "constructor"
             },
             {
               "name": "overallAttemptCount",
@@ -23654,11 +23644,7 @@
             },
             {
               "name": "overallMmsVersion",
-              "write": "constructor",
-              "value": {
-                "kind": "int",
-                "value": 4
-              }
+              "write": "constructor"
             },
             {
               "name": "overallRetryCount",

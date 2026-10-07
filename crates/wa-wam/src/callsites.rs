@@ -123,9 +123,14 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
         };
         match w.field {
             Some(field) => site.fields.push((field, WamFieldWrite::Assigned, w.value)),
-            // A key the scan could not read still writes a field, so the site's list
-            // stops being the whole of what it writes.
-            None => site.partial = true,
+            // An opaque setter can overwrite any preceding value, even though
+            // the names already observed remain useful lower-bound evidence.
+            None => {
+                for (_, _, value) in &mut site.fields {
+                    *value = None;
+                }
+                site.partial = true;
+            }
         }
     }
     sites
@@ -303,16 +308,6 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                 None,
             );
             let declared_in = binding_name(&base).and_then(|n| self.resolve(n));
-            for (field, _, value) in fields {
-                self.writes.push(RawWrite {
-                    binding: base.clone(),
-                    field: Some(field),
-                    value,
-                    start: call.span.start,
-                    scope: self.scope_chain(),
-                    declared_in,
-                });
-            }
             // One unnamed write stands for everything the argument writes and the scan
             // could not name, whether that is a spread, a computed key, or an object
             // assembled somewhere else entirely.
@@ -321,6 +316,19 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                     binding: base.clone(),
                     field: None,
                     value: None,
+                    start: call.span.start,
+                    scope: self.scope_chain(),
+                    declared_in,
+                });
+            }
+            // read_argument already accounts for unknown writes within this
+            // operand. Apply its remaining known values after invalidating earlier
+            // event values; later event writes still merge conservatively.
+            for (field, _, value) in fields {
+                self.writes.push(RawWrite {
+                    binding: base.clone(),
+                    field: Some(field),
+                    value,
                     start: call.span.start,
                     scope: self.scope_chain(),
                     declared_in,
