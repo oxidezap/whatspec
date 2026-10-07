@@ -96,6 +96,9 @@ cargo fmt --all -- --check
 The two Python tests check fixture span/hash identity and rejection of changed,
 missing, extra bundles, wrong setHash and wrong bundle count. They need no
 network or compiled extractor. The Rust tests use only committed fixtures.
+The independent CI job `conformance-fixtures` runs
+`python3 tests/conformance/test_capture.py -v` on every workflow run, including
+when dependency checks fail in the separate `check` job.
 
 To review a new snapshot, first restore its exact lock from bundle-store, then:
 
@@ -175,5 +178,6 @@ Current lint remains red on six *improved* exact baselines: unresolved IQ
 attribute paths 49 vs 55, child paths 10 vs 12, MEX operations without established
 presence 10 vs 13, undetermined MEX variables 106 vs 108, WAM constructions with
 no catalog entry 29 vs 41, and unread WAM arguments 93 vs 104. Baselines and CI
-were not changed here. Published-SHA CI and combined emitter qualification are
+were not changed here, apart from adding the independent fixture-test job.
+Published-SHA CI and combined emitter qualification are
 still required before declaring the repository qualified.

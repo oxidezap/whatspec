@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  conformance-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      # Uses only the standard library and committed fixtures. No bundle restore
+      # or compiled extractor is needed for integrity and rejection checks.
+      - name: Verify conformance fixture integrity and capture rejection
+        run: python3 tests/conformance/test_capture.py -v
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
