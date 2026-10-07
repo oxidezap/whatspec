@@ -177,9 +177,9 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
 /// Emit, for an RPC outcome-union response, a `#[derive(Default)]` struct per
 /// variant (and its child item structs) plus an `enum` wrapping them. Returns
 /// `(variant_name, struct_name)` per variant for the parser — but only when EVERY
-/// variant's parser validates ([`parser_is_valid`]); otherwise `None` (and nothing
-/// emitted), so the caller falls back to the single-shape/`()` path rather than
-/// generating an invalid parser. Models the IR's outcome wire shape, not domain types.
+/// variant's parser validates ([`parser_is_valid`]); otherwise an error identifies
+/// the variant and nothing is emitted. The caller retains legacy response types
+/// but emits a diagnostic error instead of silently dropping outcomes.
 /// A value a response variant pins before it will accept a node.
 ///
 /// Two kinds, because an outcome root has two things to pin: an ATTRIBUTE by name, and the
@@ -212,7 +212,7 @@ fn variant_pins(v: &ResponseVariant) -> Vec<Pin<'_>> {
 
 /// The same pins as generated conditions.
 fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
-    variant_pins(v)
+    let mut conditions: Vec<String> = variant_pins(v)
         .into_iter()
         .map(|pin| match pin {
             Pin::Attr(name, value) => format!(
@@ -225,7 +225,33 @@ fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
                 rust_lit(value),
             ),
         })
-        .collect()
+        .collect();
+    // flattenedChildWithTag is a presence guard even when no payload is read.
+    // Keep it in both the admission signature and the emitted selector.
+    conditions.extend(v.assertions.iter().filter_map(|a| {
+        (a.kind == AssertionKind::Child)
+            .then_some(a.name.as_deref())
+            .flatten()
+            .map(|name| {
+                format!(
+                    "{node}.get_children_by_tag({}).count() == 1",
+                    rust_lit(name)
+                )
+            })
+    }));
+    conditions.extend(v.assertions.iter().filter_map(|a| {
+        if a.kind == AssertionKind::Tag {
+            a.name
+                .as_ref()
+                .map(|name| format!("{node}.tag == {}", rust_lit(name)))
+        } else {
+            None
+        }
+    }));
+    if let Some(error) = error_selection(v, node) {
+        conditions.push(error);
+    }
+    conditions
 }
 
 /// Whether a node satisfying `mine` could satisfy `other` as well.
@@ -248,13 +274,285 @@ fn pins_can_coincide(mine: &[Pin<'_>], other: &[Pin<'_>]) -> bool {
     })
 }
 
+/// Error predicates are sets of (integer code, optional text pin). Compare unions
+/// of intervals only; this does not model arbitrary parser control flow.
+fn error_arms_cover(earlier: &[wa_ir::ErrorArm], later: &[wa_ir::ErrorArm]) -> bool {
+    fn band(arm: &wa_ir::ErrorArm) -> (i128, i128) {
+        let min = arm.code.or(arm.code_min).unwrap_or(i64::MIN);
+        let max = arm.code.or(arm.code_max).unwrap_or(i64::MAX);
+        (i128::from(min), i128::from(max))
+    }
+    later.iter().all(|arm| {
+        let (mut cursor, end) = band(arm);
+        let mut bands: Vec<_> = earlier
+            .iter()
+            .filter(|a| a.text.is_none() || (arm.text.is_some() && a.text == arm.text))
+            .map(band)
+            .collect();
+        bands.sort_unstable();
+        for (lo, hi) in bands {
+            if lo > cursor {
+                break;
+            }
+            cursor = cursor.max(hi + 1);
+            if cursor > end {
+                return true;
+            }
+        }
+        cursor > end
+    })
+}
+
+/// The direct, bounded code/text error union observed in the pilots. Unknown
+/// payload structures use the ordinary admission path, never this specialization.
+fn direct_error_payload(v: &ResponseVariant) -> Option<&wa_ir::ParsedField> {
+    use wa_ir::ParsedFieldType;
+    if v.error_arms.is_empty() || v.error_envelope.is_some() || v.fields.len() != 2 {
+        return None;
+    }
+    let payload = v.fields.iter().find(|f| {
+        f.parser_required
+            && f.source_path.as_deref() == Some(&["error".to_string()])
+            && f.field_type == ParsedFieldType::Union
+    })?;
+    if !v.fields.iter().any(|f| {
+        f.method == "attrString"
+            && f.parser_required
+            && f.wire_name.as_deref().unwrap_or(&f.name) == "type"
+            && f.literal_value.as_deref() == Some("error")
+    }) {
+        return None;
+    }
+    let variants = payload.union_variants.as_ref()?;
+    if crate::union::classify_union(payload).is_none() || variants.len() != v.error_arms.len() {
+        return None;
+    }
+    for (variant, arm) in variants.iter().zip(&v.error_arms) {
+        let lo = arm.code.or(arm.code_min)?;
+        let hi = arm.code.or(arm.code_max)?;
+        // This decoder only needs exact small integers. Values outside the band
+        // cannot round into it under the source's JS parseInt/Number semantics.
+        if lo < 0
+            || hi > i64::from(i32::MAX)
+            || lo > hi
+            || arm.name.as_deref() != Some(&variant.name)
+        {
+            return None;
+        }
+        let code = variant
+            .fields
+            .iter()
+            .find(|f| f.wire_name.as_deref().unwrap_or(&f.name) == "code")?;
+        let text = variant
+            .fields
+            .iter()
+            .find(|f| f.wire_name.as_deref().unwrap_or(&f.name) == "text")?;
+        if code.method != "attrInt"
+            || !code.parser_required
+            || code.field_type != ParsedFieldType::Integer
+            || code
+                .literal_value
+                .as_ref()
+                .and_then(|s| s.parse::<i64>().ok())
+                != arm.code
+            || code.int_min != arm.code_min
+            || code.int_max != arm.code_max
+            || text.method != "attrString"
+            || !text.parser_required
+            || text.literal_value != arm.text
+        {
+            return None;
+        }
+        // Apart from code/text, the pilot has optional <field name=… reason=…>.
+        // No unbounded coercion, repeated tree or opaque union is inferred here.
+        if variant.fields.iter().any(|f| {
+            let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+            if wire == "code" || wire == "text" {
+                return false;
+            }
+            !(f.method == "child"
+                && !f.parser_required
+                && f.repeats != Some(true)
+                && f.source_path.is_none()
+                && f.children.as_ref().is_some_and(|children| {
+                    children.iter().all(|c| {
+                        c.method == "attrString" && c.source_path.is_none() && c.children.is_none()
+                    })
+                }))
+        }) {
+            return None;
+        }
+    }
+    Some(payload)
+}
+
+fn error_arm_condition(arm: &wa_ir::ErrorArm) -> String {
+    let mut terms = Vec::new();
+    if let Some(code) = arm.code {
+        terms.push(format!("code == {code}i64"));
+    }
+    if let Some(min) = arm.code_min {
+        terms.push(format!("code >= {min}i64"));
+    }
+    if let Some(max) = arm.code_max {
+        terms.push(format!("code <= {max}i64"));
+    }
+    if let Some(text) = &arm.text {
+        terms.push(format!(
+            "error.get_attr(\"text\").map(|v| v.as_str()).as_deref() == Some({})",
+            rust_lit(text)
+        ));
+    }
+    format!("({})", terms.join(" && "))
+}
+
+fn error_selection(v: &ResponseVariant, node: &str) -> Option<String> {
+    direct_error_payload(v)?;
+    let arms: Vec<_> = v.error_arms.iter().map(error_arm_condition).collect();
+    Some(format!(
+        "({node}.get_children_by_tag(\"error\").count() == 1 && {node}.get_optional_child(\"error\").is_some_and(|error| error.get_attr(\"text\").is_some() && error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str())).is_some_and(|code| {})))",
+        arms.join(" || ")
+    ))
+}
+
+/// Source WASmaxParseUtils uses parseInt(value, 10), not Rust's whole-string
+/// integer parse. Overflow is outside every admitted error-code band.
+fn emit_error_code_decoder(indent: &str) -> Vec<String> {
+    r#"fn __iq_error_code(value: &str) -> Option<i64> {
+    let value = value.trim_start_matches(|c| matches!(c, '\u{0009}'..='\u{000d}' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'));
+    let offset = usize::from(matches!(value.as_bytes().first(), Some(b'+') | Some(b'-')));
+    let end = offset + value.bytes().skip(offset).take_while(u8::is_ascii_digit).count();
+    if end == offset { None } else { value[..end].parse().ok() }
+}"#.lines().map(|line| format!("{indent}{line}")).collect()
+}
+
+fn emit_direct_error_parser(
+    v: &ResponseVariant,
+    payload: &wa_ir::ParsedField,
+    sname: &str,
+    indent: &str,
+) -> Vec<String> {
+    let ename = crate::union::enum_name(payload, sname);
+    let mut lines = vec![
+        format!(
+            "{indent}let error = response.get_optional_child(\"error\").ok_or_else(|| anyhow::anyhow!(\"missing error\"))?;"
+        ),
+        format!(
+            "{indent}let code = error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str())).ok_or_else(|| anyhow::anyhow!(\"invalid error code\"))?;"
+        ),
+        format!("{indent}let payload = (|| -> Result<{ename}, anyhow::Error> {{"),
+    ];
+    for (variant, arm) in payload
+        .union_variants
+        .as_ref()
+        .unwrap()
+        .iter()
+        .zip(&v.error_arms)
+    {
+        let vname = pascal_case(&variant.name);
+        let struct_name = format!("{ename}{vname}");
+        let code_field = variant
+            .fields
+            .iter()
+            .find(|f| f.wire_name.as_deref().unwrap_or(&f.name) == "code")
+            .unwrap();
+        let fields: Vec<_> = variant
+            .fields
+            .iter()
+            .filter(|f| f.wire_name.as_deref().unwrap_or(&f.name) != "code")
+            .cloned()
+            .collect();
+        let mut conditions = vec![error_arm_condition(arm)];
+        for child in fields.iter().filter(|f| f.method == "child") {
+            conditions.push(format!(
+                "error.get_children_by_tag({}).count() <= 1",
+                rust_lit(child.tag.as_deref().unwrap_or(&child.name))
+            ));
+        }
+        lines.push(format!("{indent}    if {} {{", conditions.join(" && ")));
+        lines.push(format!(
+            "{indent}        let parsed = (|| -> Result<{struct_name}, anyhow::Error> {{"
+        ));
+        lines.extend(crate::emit::emit_struct_parser(
+            &fields,
+            "error",
+            &struct_name,
+            &format!("{indent}            "),
+            &struct_name,
+        ));
+        lines.push(format!("{indent}        }})();"));
+        // The source disjunction tries the next parser after *any* failure,
+        // including a malformed specific payload. Do not commit on code/text:
+        // SetSubject 406/not-acceptable can still reach the 400..499 fallback.
+        lines.push(format!("{indent}        if let Ok(mut value) = parsed {{ value.{} = code as {}; return Ok({ename}::{vname}(value)); }}", rust_ident(&code_field.name), crate::fields::integer_width(code_field)));
+        lines.push(format!("{indent}    }}"));
+    }
+    lines.push(format!(
+        "{indent}    anyhow::bail!(\"no error payload matched\")"
+    ));
+    lines.push(format!("{indent}}})()?;"));
+    let header = v
+        .fields
+        .iter()
+        .find(|f| f.field_type != wa_ir::ParsedFieldType::Union)
+        .unwrap();
+    lines.push(format!(
+        "{indent}Ok({sname} {{ {}: \"error\".to_string(), {}: Some(payload) }})",
+        rust_ident(&header.name),
+        rust_ident(&payload.name)
+    ));
+    lines
+}
+
+/// The context entry point currently supports the two direct wire echoes proven
+/// by the pilots. Other reference paths are diagnosed rather than guessed.
+fn correlation_requirements(op: &IqStanzaDef) -> Result<Vec<(&str, &str)>, String> {
+    fn references(assertions: &[wa_ir::ResponseAssertion]) -> Result<Vec<(&str, &str)>, String> {
+        let mut out = Vec::new();
+        for a in assertions
+            .iter()
+            .filter(|a| a.kind == AssertionKind::Reference)
+        {
+            match (a.name.as_deref(), a.reference_path.as_deref()) {
+                (Some("id"), Some(path)) if path == ["id"] => out.push(("id", "request_id")),
+                (Some("from"), Some(path)) if path == ["to"] => out.push(("from", "request_to")),
+                _ => {
+                    return Err(
+                        "guards.reference_unsupported: expected id=request.id or from=request.to"
+                            .into(),
+                    );
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+    let mut common = references(&op.response.assertions)?;
+    if let Some(first) = op.response.variants.first() {
+        let required = references(&first.assertions)?;
+        for variant in &op.response.variants[1..] {
+            if references(&variant.assertions)? != required {
+                return Err(
+                    "guards.reference_nonuniform: outcome references require distinct contexts"
+                        .into(),
+                );
+            }
+        }
+        common.extend(required);
+    }
+    common.sort_unstable();
+    common.dedup();
+    Ok(common)
+}
+
 fn emit_outcome_types(
     op: &IqStanzaDef,
     spec_base: &str,
     enum_name: &str,
     doc: &str,
     out: &mut Vec<String>,
-) -> Option<Vec<(String, String)>> {
+) -> Result<Vec<(String, String)>, String> {
     let tags: Vec<String> = op.response.variants.iter().map(|v| v.tag.clone()).collect();
     let plen = variant_tag_prefix(&tags);
 
@@ -279,14 +577,22 @@ fn emit_outcome_types(
         }
         names.push((vname.clone(), format!("{spec_base}{vname}")));
     }
-    let all_valid = op
-        .response
-        .variants
-        .iter()
-        .zip(&names)
-        .all(|(v, (_, sname))| parser_is_valid(&v.fields, sname, sname));
-    if !all_valid {
-        return None;
+    for (index, (variant, (_, name))) in op.response.variants.iter().zip(&names).enumerate() {
+        if variant.fields.iter().any(|field| {
+            field.field_type == wa_ir::ParsedFieldType::Union
+                && crate::union::classify_union(field).is_none()
+        }) {
+            return Err(format!(
+                "outcomes.unemittable: response.variants[{index}] {} has an unsupported payload union",
+                variant.tag
+            ));
+        }
+        if !parser_is_valid(&variant.fields, name, name) {
+            return Err(format!(
+                "outcomes.unemittable: response.variants[{index}] {} has an unemittable payload parser",
+                variant.tag
+            ));
+        }
     }
 
     // Bail if the try-each would still be ambiguous. A variant's parser accepts a
@@ -294,15 +600,24 @@ fn emit_outcome_types(
     // its captured discriminator assertions (e.g. `type:"result"`). An earlier variant
     // shadows a later one only when its required fields are a subset AND no conflicting
     // assertion sets them apart — then a later-response would match the earlier arm
-    // first (misclassification). When that can happen, fall back to the single-shape
-    // path rather than emit a parser that lies. (Variants distinguished only by an
-    // uncaptured discriminator — e.g. two errors differing by `<error>` code — stay
-    // here; recovering those needs deeper child-discriminator capture.)
+    // first (misclassification). Reject fully covered later outcomes. The bounded
+    // direct error payload admits demonstrated code/text discrimination; other
+    // overlapping payload shapes remain unsupported.
     let req: Vec<std::collections::BTreeSet<String>> = op
         .response
         .variants
         .iter()
-        .map(|v| fail_required_fields(&v.fields))
+        .map(|v| {
+            let mut required = fail_required_fields(&v.fields);
+            for assertion in &v.assertions {
+                if assertion.kind == AssertionKind::Child
+                    && let Some(name) = &assertion.name
+                {
+                    required.insert(format!("/child:{name}"));
+                }
+            }
+            required
+        })
         .collect();
     for i in 0..req.len() {
         for j in (i + 1)..req.len() {
@@ -311,9 +626,43 @@ fn emit_outcome_types(
             // assertion, e.g. `type:"result"` vs `type:"error"`) sets them apart.
             if req[i].is_subset(&req[j])
                 && !assertions_conflict(&op.response.variants[i], &op.response.variants[j])
+                && !(error_selection(&op.response.variants[i], "response").is_some()
+                    && error_selection(&op.response.variants[j], "response").is_some()
+                    && !error_arms_cover(
+                        &op.response.variants[i].error_arms,
+                        &op.response.variants[j].error_arms,
+                    ))
             {
-                return None;
+                return Err(format!(
+                    "outcomes.unemittable: response.variants[{i}] {} can shadow response.variants[{j}] {}",
+                    op.response.variants[i].tag, op.response.variants[j].tag
+                ));
             }
+        }
+    }
+
+    // Several preceding error outcomes can collectively cover a later one even
+    // when no single outcome does. Only combine roots with the same assertions.
+    for j in 1..op.response.variants.len() {
+        let later = &op.response.variants[j];
+        if error_selection(later, "response").is_none() {
+            continue;
+        }
+        let preceding: Vec<_> = op.response.variants[..j]
+            .iter()
+            .enumerate()
+            .filter(|(i, earlier)| {
+                req[*i].is_subset(&req[j])
+                    && earlier.assertions == later.assertions
+                    && error_selection(earlier, "response").is_some()
+            })
+            .flat_map(|(_, earlier)| earlier.error_arms.iter().cloned())
+            .collect();
+        if !preceding.is_empty() && error_arms_cover(&preceding, &later.error_arms) {
+            return Err(format!(
+                "outcomes.unemittable: preceding error outcomes cover response.variants[{j}] {}",
+                later.tag
+            ));
         }
     }
 
@@ -368,7 +717,7 @@ fn emit_outcome_types(
     }
     out.push("}".to_string());
     out.push(String::new());
-    Some(info)
+    Ok(info)
 }
 
 /// Whether `op` actually generates an RPC outcome-union `enum` (vs falling back to the
@@ -381,7 +730,7 @@ pub(crate) fn op_uses_outcome_union(op: &IqStanzaDef, child_prefix: &str) -> boo
     }
     let enum_name = format!("{child_prefix}Response");
     let mut sink = Vec::new();
-    emit_outcome_types(op, child_prefix, &enum_name, "", &mut sink).is_some()
+    emit_outcome_types(op, child_prefix, &enum_name, "", &mut sink).is_ok()
 }
 
 /// Emit the `parse_response` body for an outcome union: try each variant in order
@@ -394,6 +743,14 @@ fn emit_outcome_parse(
     indent: &str,
 ) -> Vec<String> {
     let mut lines = Vec::new();
+    if op
+        .response
+        .variants
+        .iter()
+        .any(|v| direct_error_payload(v).is_some())
+    {
+        lines.extend(emit_error_code_decoder(indent));
+    }
     for (i, (v, (vname, sname))) in op.response.variants.iter().zip(info).enumerate() {
         // The discriminator SELECTS; it does not bail. Spelled as a bail inside the payload
         // closure, a pin miss and a malformed payload were one `Err` and both moved on — so a
@@ -436,13 +793,29 @@ fn emit_outcome_parse(
         lines.push(format!(
             "{body}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
         ));
-        lines.extend(emit_response_parser(
-            &v.fields,
-            sname,
-            &format!("{body}    "),
-            sname,
-        ));
+        if let Some(payload) = direct_error_payload(v) {
+            lines.extend(emit_direct_error_parser(
+                v,
+                payload,
+                sname,
+                &format!("{body}    "),
+            ));
+        } else {
+            lines.extend(emit_response_parser(
+                &v.fields,
+                sname,
+                &format!("{body}    "),
+                sname,
+            ));
+        }
         lines.push(format!("{body}}})();"));
+        for field in v
+            .fields
+            .iter()
+            .filter(|f| f.parser_required && f.field_type == wa_ir::ParsedFieldType::Union)
+        {
+            lines.push(format!("{body}let __r = __r.and_then(|value| {{ if value.{}.is_none() {{ anyhow::bail!({}); }} Ok(value) }});", rust_ident(&field.name), rust_lit(&format!("{}: required payload {} did not match", v.tag, field.name))));
+        }
         if unique {
             lines.push(format!("{body}return Ok({enum_name}::{vname}(__r?));"));
         } else {
@@ -682,23 +1055,27 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     let child_prefix = spec_name.trim_end_matches("Spec");
     // An RPC outcome union (`response.variants`) becomes an `enum` over per-variant
     // structs — the wire-shape outcomes (success/error) the IR records, which the
-    // single-struct path below can't express. Falls through to that path when any
-    // variant's parser can't be generated cleanly (`emit_outcome_types` → None).
+    // single-struct path below can't express. When any variant cannot be emitted,
+    // retain the old fallback type but refuse parsing with a generation diagnostic.
     let mut outcome_info: Vec<(String, String)> = Vec::new();
     let mut use_union = false;
+    let mut outcome_error = None;
     let mut response_type_name: String = "()".to_string();
     if !op.response.variants.is_empty() {
         let enum_name = format!("{child_prefix}Response");
-        if let Some(info) = emit_outcome_types(
+        match emit_outcome_types(
             op,
             child_prefix,
             &enum_name,
             &format!("{doc_owner}:{iq}"),
             &mut lines,
         ) {
-            response_type_name = enum_name;
-            outcome_info = info;
-            use_union = true;
+            Ok(info) => {
+                response_type_name = enum_name;
+                outcome_info = info;
+                use_union = true;
+            }
+            Err(reason) => outcome_error = Some(reason),
         }
     }
     if !use_union {
@@ -734,53 +1111,12 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
 
     // parse_response — validate the parser can produce all struct fields. Skipped
     // for outcome unions, which generate their own per-variant try-each parser.
-    let mut can_generate = !effectively_confirmation && !use_union;
-    if can_generate {
-        let (check_fields, check_child_structs, _) =
-            collect_response_fields(&op.response.fields, child_prefix);
-        let names: Vec<&str> = check_fields.iter().map(|f| f.name.as_str()).collect();
-        if names.iter().collect::<HashSet<_>>().len() != names.len() {
-            can_generate = false;
-        }
-        if can_generate {
-            let parser_code = emit_response_parser(
-                &op.response.fields,
-                &response_type_name,
-                "        ",
-                child_prefix,
-            )
-            .join("\n");
-            for f in &check_fields {
-                if !parser_code.contains(&format!("{},", f.name))
-                    && !parser_code.contains(&format!("{}:", f.name))
-                {
-                    can_generate = false;
-                    break;
-                }
-            }
-            if can_generate && LET_KEYWORD.is_match(&parser_code) {
-                can_generate = false;
-            }
-            if can_generate {
-                'outer: for cs in &check_child_structs {
-                    let required: HashSet<&str> =
-                        cs.fields.iter().map(|f| f.name.as_str()).collect();
-                    for body in struct_init_bodies(&parser_code, &cs.name) {
-                        let inited: HashSet<&str> = INIT_FIELD
-                            .captures_iter(body)
-                            .map(|c| c.get(1).unwrap().as_str())
-                            .collect();
-                        if !required.iter().all(|r| inited.contains(r)) {
-                            can_generate = false;
-                            break 'outer;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let can_generate = !effectively_confirmation
+        && !use_union
+        && parser_is_valid(&op.response.fields, &response_type_name, child_prefix);
 
-    // Fall back to () if the parser can't be generated cleanly (non-union path).
+    // Retain the legacy associated type when no parser can be emitted. The parse
+    // method below returns an explicit generation error instead of confirming success.
     if !can_generate && !effectively_confirmation && !use_union {
         let marker = format!("/// Response from {doc_owner}:{iq}.");
         if let Some(start) = lines.iter().rposition(|l| *l == marker) {
@@ -797,12 +1133,69 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         }
     }
 
-    let resp_param = if effectively_confirmation || response_type_name == "()" {
-        "_response"
+    // A missing shape is not evidence of an empty successful result. Preserve the
+    // existing associated type for source compatibility, but make degradation an
+    // explicit error. An explicit empty outcome still uses its admitted union.
+    let correlation = correlation_requirements(op);
+    let rejection = if let Err(reason) = &correlation {
+        Some(reason.as_str())
+    } else if let Some(reason) = outcome_error.as_deref() {
+        Some(reason)
+    } else if !use_union && op.response.fields.is_empty() {
+        Some("response.contract_missing: no recovered response fields or outcomes")
+    } else if !use_union && effectively_confirmation {
+        Some("response.payload_unemittable: recovered fields produced no response payload")
+    } else if !use_union && !can_generate {
+        Some("response.parser_unemittable: parser cannot initialize the recovered payload")
     } else {
-        "response"
+        None
     };
-    if use_union {
+
+    let resp_param =
+        if rejection.is_some() || effectively_confirmation || response_type_name == "()" {
+            "_response"
+        } else {
+            "response"
+        };
+    let needs_context = correlation.as_ref().is_ok_and(|refs| !refs.is_empty());
+    if needs_context && rejection.is_none() {
+        lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
+        lines.push(format!(
+            "        anyhow::bail!({})",
+            rust_lit(&format!(
+                "{}: guards.request_context_required: use parse_response_with_request",
+                op.module_name
+            ))
+        ));
+        lines.push("    }".into());
+        lines.push("}".into());
+        lines.push(format!("impl {spec_name} {{"));
+        lines.push(format!("    pub fn parse_response_with_request(&self, response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, anyhow::Error> {{"));
+        for (wire, value) in correlation.as_ref().unwrap() {
+            lines.push(format!("        if response.get_attr({}).map(|v| v.as_str()).as_deref() != Some({value}) {{ anyhow::bail!({}); }}", rust_lit(wire), rust_lit(&format!("{}: response.{wire} does not match {value}", op.module_name))));
+        }
+        if use_union {
+            lines.extend(emit_outcome_parse(
+                op,
+                &outcome_info,
+                &response_type_name,
+                "        ",
+            ));
+        } else {
+            lines.extend(emit_response_parser(
+                &op.response.fields,
+                &response_type_name,
+                "        ",
+                child_prefix,
+            ));
+        }
+    } else if let Some(reason) = rejection {
+        lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
+        lines.push(format!(
+            "        anyhow::bail!({})",
+            rust_lit(&format!("{}: {reason}", op.module_name)),
+        ));
+    } else if use_union {
         lines.push(
             "    #[allow(clippy::needless_update, unused_variables, clippy::redundant_closure_call)]"
                 .to_string(),
@@ -816,11 +1209,6 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
             &response_type_name,
             "        ",
         ));
-    } else if effectively_confirmation || response_type_name == "()" {
-        lines.push(format!(
-            "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {{"
-        ));
-        lines.push("        Ok(())".to_string());
     } else {
         lines.push("    #[allow(clippy::needless_update, unused_variables)]".to_string());
         lines.push(format!(
@@ -839,6 +1227,17 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     }
     lines.push("    }".to_string());
     lines.push("}".to_string());
+
+    if let Some(reason) = rejection {
+        lines.push(String::new());
+        lines.push(format!("impl {spec_name} {{"));
+        lines.push("    /// Why this reference parser always returns an error. This is a codegen limitation, not a wire rejection policy.".to_string());
+        lines.push(format!(
+            "    pub const RESPONSE_GENERATION_ERROR: &'static str = {};",
+            rust_lit(reason)
+        ));
+        lines.push("}".to_string());
+    }
 
     fix_unused_vars(lines.join("\n"))
 }
@@ -1458,10 +1857,9 @@ mod tests {
         );
     }
     #[test]
-    fn fallback_parser_keeps_a_childless_success_reachable() {
-        // End to end on the AcceptGroupAdd shape: a gated success beside a bare
-        // one falls back to a single-shape parser, which mirrors the union and
-        // must not require the gated variant's child.
+    fn ordered_child_guard_keeps_both_success_outcomes_reachable() {
+        // The gated success must be tried before the bare success. Flattening the
+        // two loses the approval outcome even though both stanzas still parse.
         use wa_ir::ResponseAssertion;
         use wa_ir::{ParsedField, ParsedFieldType};
         fn typ() -> ParsedField {
@@ -1514,8 +1912,23 @@ mod tests {
         };
         let code = generate_spec(&op, "W_G2_NAMESPACE", "MakeAcceptGroupAddRequestSpec");
         assert!(
-            !code.contains("get_optional_child"),
-            "the flattened parser must accept the bare success: {code}"
+            code.contains("pub enum MakeAcceptGroupAddRequestResponse"),
+            "the two success outcomes must remain distinguishable: {code}"
+        );
+        assert!(
+            code.contains(
+                "response.get_children_by_tag(\"membership_approval_request\").count() == 1"
+            ),
+            "{code}"
+        );
+        assert!(
+            code.find("::GroupJoinRequestSuccess(").unwrap() < code.find("::Success(").unwrap()
+        );
+        op.response.variants.reverse();
+        let reversed = generate_spec(&op, "W_G2_NAMESPACE", "MakeAcceptGroupAddRequestSpec");
+        assert!(
+            reversed.contains("outcomes.unemittable"),
+            "a broad first arm shadows the gated one: {reversed}"
         );
     }
 
@@ -2079,6 +2492,195 @@ mod tests {
             !code.contains("pub enum MakeGetThingRequestResponse"),
             "ambiguous union must not generate an enum: {code}"
         );
+    }
+
+    #[test]
+    fn error_admission_preserves_text_pairs_ranges_and_fallback_order() {
+        fn exact(code: i64, text: &str) -> wa_ir::ErrorArm {
+            wa_ir::ErrorArm {
+                code: Some(code),
+                text: Some(text.into()),
+                ..Default::default()
+            }
+        }
+        fn range(lo: i64, hi: i64) -> wa_ir::ErrorArm {
+            wa_ir::ErrorArm {
+                code_min: Some(lo),
+                code_max: Some(hi),
+                ..Default::default()
+            }
+        }
+        let client = vec![
+            exact(304, "already-exists"),
+            exact(500, "resource-constraint"),
+            range(400, 499),
+        ];
+        let server = vec![exact(500, "internal-server-error"), range(500, 599)];
+        assert!(!error_arms_cover(&client, &server));
+        assert!(!error_arms_cover(&server, &client));
+        assert!(error_arms_cover(
+            &[range(500, 599)],
+            &[exact(500, "resource-constraint")]
+        ));
+        assert!(!error_arms_cover(
+            &[exact(500, "resource-constraint")],
+            &[range(500, 599)]
+        ));
+        assert!(error_arms_cover(
+            &[range(400, 449), range(450, 499)],
+            &[range(400, 499)]
+        ));
+        assert!(!error_arms_cover(
+            &[range(400, 449), range(451, 499)],
+            &[range(400, 499)]
+        ));
+        assert!(error_arms_cover(
+            &[range(i64::MIN, i64::MAX)],
+            &[range(i64::MIN, i64::MAX)]
+        ));
+    }
+
+    #[test]
+    fn unknown_reference_paths_are_diagnosed_not_ignored() {
+        let mut op = stanza("UnknownReference", None);
+        op.response.assertions.push(wa_ir::ResponseAssertion {
+            kind: AssertionKind::Reference,
+            name: Some("from".into()),
+            value: None,
+            reference_path: Some(vec!["account".into(), "to".into()]),
+        });
+        let code = generate_spec(&op, "TEST_NAMESPACE", "UnknownReferenceSpec");
+        assert!(code.contains("guards.reference_unsupported"));
+        assert!(!code.contains("pub fn parse_response_with_request"));
+    }
+
+    #[test]
+    fn missing_response_contract_is_not_a_confirmation() {
+        let op = stanza("MissingResponse", None);
+        let code = generate_spec(&op, "TEST_NAMESPACE", "MissingResponseSpec");
+        assert!(
+            !code.contains("Ok(())"),
+            "unrecovered response must fail: {code}"
+        );
+        assert!(code.contains("response.contract_missing"), "{code}");
+    }
+
+    #[test]
+    fn discarded_response_payload_is_not_a_confirmation() {
+        let mut op = stanza("DiscardedPayload", None);
+        op.response.fields = vec![wa_ir::ParsedField {
+            name: "unresolvedPayload".into(),
+            ..Default::default()
+        }];
+        let code = generate_spec(&op, "TEST_NAMESPACE", "DiscardedPayloadSpec");
+        assert!(
+            !code.contains("Ok(())"),
+            "discarded payload must fail: {code}"
+        );
+        assert!(code.contains("response.payload_unemittable"), "{code}");
+    }
+
+    #[test]
+    fn invalid_response_parser_is_not_a_confirmation() {
+        // Real nested optional/repeated shape whose emitted initializer is incomplete.
+        let ir: wa_ir::IqIr =
+            serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
+        let op = ir
+            .stanzas
+            .iter()
+            .find(|op| op.module_name == "WAWebQueryBusinessCategoriesJob")
+            .unwrap();
+        assert!(!parser_is_valid(
+            &op.response.fields,
+            "CategoriesResponse",
+            "Categories"
+        ));
+        let code = generate_spec(op, "TEST_NAMESPACE", "CategoriesSpec");
+        assert!(!code.contains("Ok(())"), "invalid parser must fail: {code}");
+        assert!(code.contains("response.parser_unemittable"), "{code}");
+    }
+
+    #[test]
+    fn real_pilots_emit_ordered_outcomes_with_required_request_context() {
+        let ir: wa_ir::IqIr =
+            serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
+        for pilot in ["SetSubject", "AcceptGroupAdd"] {
+            let module = format!("WASmaxOutGroups{pilot}Request");
+            let op = ir
+                .stanzas
+                .iter()
+                .find(|op| op.module_name == module)
+                .unwrap();
+            assert_eq!(op.request.target, IqTarget::GroupJid);
+            assert_eq!(op.request.target_arg_path.as_ref().unwrap()[0].key, "iqTo");
+            for variant in &op.response.variants {
+                for (wire, request) in [("id", "id"), ("from", "to")] {
+                    assert!(
+                        variant
+                            .assertions
+                            .iter()
+                            .any(|a| a.kind == AssertionKind::Reference
+                                && a.name.as_deref() == Some(wire)
+                                && a.reference_path.as_deref() == Some(&[request.to_string()]))
+                    );
+                }
+            }
+            let code = generate_spec(op, "W_G2_NAMESPACE", &format!("{pilot}Spec"));
+            assert!(code.contains("self.target.clone()"));
+            assert!(!code.contains("outcomes.unemittable"), "{code}");
+            assert!(code.contains("pub fn parse_response_with_request"));
+            assert!(code.contains("guards.request_context_required"));
+            assert!(code.contains("Some(request_id)"));
+            assert!(code.contains("Some(request_to)"));
+            assert!(code.contains("::ClientError("));
+            assert!(code.contains("::ServerError("));
+            if pilot == "SetSubject" {
+                assert_eq!(
+                    op.request.children[0]
+                        .content
+                        .as_ref()
+                        .unwrap()
+                        .arg_path
+                        .as_ref()
+                        .unwrap()[0]
+                        .key,
+                    "subjectElementValue"
+                );
+                assert!(code.contains("subject_node.bytes(self.subject_content.clone())"));
+            } else {
+                assert!(
+                    op.response.variants[0]
+                        .tag
+                        .ends_with("GroupJoinRequestSuccess")
+                );
+                assert!(op.response.variants[1].tag.ends_with("ResponseSuccess"));
+                assert!(
+                    op.response.variants[0]
+                        .assertions
+                        .iter()
+                        .any(|a| a.kind == AssertionKind::Child
+                            && a.name.as_deref() == Some("membership_approval_request"))
+                );
+                for wire in ["code", "expiration", "admin"] {
+                    assert!(code.contains(&format!("accept_node.attr(\"{wire}\"")));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_empty_outcome_remains_a_success() {
+        let mut op = stanza("EmptyOutcome", None);
+        op.response.variants = vec![success_variant(
+            "EmptySuccess",
+            vec![conflict_attr("type", Some("result"))],
+        )];
+        op.response.variants[0].fields.clear();
+        let code = generate_spec(&op, "TEST_NAMESPACE", "EmptyOutcomeSpec");
+        assert!(code.contains("pub enum EmptyOutcomeResponse"), "{code}");
+        assert!(code.contains("return Ok(EmptyOutcomeResponse::"), "{code}");
+        assert!(code.contains("Some(\"result\")"), "{code}");
+        assert!(!code.contains("response.contract_missing"), "{code}");
     }
 
     #[test]
