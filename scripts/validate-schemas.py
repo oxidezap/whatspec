@@ -65,6 +65,8 @@ def validate(root: Path) -> int:
                 print(f"  …and {len(errors) - 20} more")
         else:
             print(f"ok   {doc_rel} conforms to {schema_rel}")
+    print(f"{len(DOMAINS) - failures}/{len(DOMAINS)} schema/document pairs validated; "
+          f"{failures} failed")
     return 1 if failures else 0
 
 

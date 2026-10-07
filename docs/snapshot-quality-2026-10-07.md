@@ -28,7 +28,8 @@ All 12 real JSON documents in each snapshot pass their emitted schemas with
 `jsonschema 4.26.0`. The validator previously returned success for an entirely
 empty directory, printing 12 `skip` lines. It now fails missing documents,
 missing schemas, malformed JSON, invalid schemas, and unresolved external
-references. Eight offline regression tests cover those cases and valid input.
+references. Nine offline regression tests cover those cases, valid input, and an explicit
+count of successfully validated pairs.
 
 Both snapshots reproduce all 27 checked artifacts with the same release binary
 and `update --bundles ... --wa-version ... --check`. The old run took 13.970 s

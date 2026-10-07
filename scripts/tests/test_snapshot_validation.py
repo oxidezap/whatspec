@@ -31,6 +31,14 @@ class SnapshotValidation(unittest.TestCase):
     def test_complete_snapshot(self):
         self.assertEqual(self.validate(), 0)
 
+    def test_summary_counts_only_successful_pairs(self):
+        (self.root / validator.DOMAINS[0][0]).unlink()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = validator.validate(self.root)
+        self.assertEqual(result, 1)
+        self.assertIn("11/12 schema/document pairs validated; 1 failed", output.getvalue())
+
     def test_missing_document_is_failure(self):
         (self.root / validator.DOMAINS[0][0]).unlink()
         self.assertEqual(self.validate(), 1)
