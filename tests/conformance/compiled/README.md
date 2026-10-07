@@ -243,3 +243,39 @@ those four targets and passes after the rename. `cargo build --workspace --examp
 --message-format=json` reports four distinct executable paths. Parallel
 `cargo test --workspace` passes 1,657 tests with zero failures/ignored tests and no
 output-collision warning. Parallelism was not reduced.
+
+## Quality follow-up 106c762
+
+Integrated #52 at `106c7621348935daa343edf73ebc6ad50ad798a8` with
+ancestry intact and no conflicts. Its nested-module, local-merge, unknown-field
+site and schema-diff regressions pass. The workspace now passes 1,663 tests,
+including the compiled pilot suites, with zero failures or ignored tests.
+All-feature/all-target Clippy, formatting, 12/12 committed schemas, exact lint,
+15 quality Python tests and five capture tests pass.
+
+Review dispositions remain separate:
+
+- PRRT_kwDOSxmno86qIUij: the nested-definition regression establishes the same
+  counted definitions and diagnostic totals as production extraction. The full
+  nested source index is retained for provenance lookup.
+- PRRT_kwDOSxmno86qIUin: unknown-field sites are fixed, but global-channel gaps
+  remain unlocated. The independently built CLI reproduces a counter of two with
+  an empty site list and no explicit unlocated-counter field. Keep this open.
+- PRRT_kwDOSxmno86qIUie: manifest-to-lock identity is still owned by quality and
+  remains open; a matching version alone does not bind the input bundle set.
+
+The remaining global-channel reproduction uses a synthetic single-bundle lock,
+verified by the normal CLI path, without executing JavaScript:
+
+```javascript
+__d("WAWebWamGlobals",["WAWebWamCodegenUtils"],function(t,n,r,o,a,i,l){var e=o("WAWebWamCodegenUtils");l.Global=e.defineGlobal({computed:[3,e.TYPES.STRING,[CHANNEL]],empty:[4,e.TYPES.STRING,[]]})});
+```
+
+Using exactly those bytes without a trailing newline yields setHash
+`840dfc3f996afcfac451f80043580175b4443db0487ec4c056ffb02bc9fd57be`.
+`whatspec quality-gaps LOCK BUNDLE_DIR` returns
+`dropsByReason: {"global with an unreadable channel list": 2}` and
+`wamGapSites: []`. The review thread records this evidence for the quality owner;
+no implementation was duplicated in this workstream.
+
+The integrated CLI also passes the locked current-snapshot `--check`, reproducing all 27 committed artifacts after the WAM changes.
