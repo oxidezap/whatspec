@@ -24,7 +24,14 @@ The `gh` API returned `Forbidden`; connected GitHub tools handled PR operations.
 Both historical snapshots pass all 12 emitted JSON schemas. The old validator
 incorrectly passed an empty directory; it now fails missing documents/schemas,
 invalid JSON/schema, and external references. It reports the number actually
-validated. Nine validator regression tests cover those cases.
+validated. Eleven validator regression tests cover those cases.
+
+A follow-up review reproduced another false success: an external `$ref` inside
+an absent optional property or unused `$defs` passed with `{}`. Both new cases
+fail on the previous validator. Validation now checks the complete structural
+reference closure before checking the instance, using only embedded resources.
+Draft-aware positive cases cover local pointers, anchors, nested IDs and recursive
+references; annotation data remains opaque unless a reference targets it.
 
 Before the WAM extraction fix, the same release binary reproduced all 27 checked
 artifacts of both historical commits. Warm runs took 13.970 s / 13.114 s, with

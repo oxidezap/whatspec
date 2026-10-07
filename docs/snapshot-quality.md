@@ -3,7 +3,15 @@
 The existing text `whatspec diff OLD NEW` is a count and name summary. Use
 `whatspec diff OLD NEW --json` for contract deltas across every manifest domain.
 The report checks domain hashes, document versions, and lock self-consistency.
-It fails on missing declared artifacts. Run schema validation separately, because
+It fails on missing declared artifacts. Schema validation preflights every
+schema-valued location and referenced target against an in-memory registry,
+including unused definitions and absent optional properties. Local pointers,
+anchors and embedded resource IDs follow the declared draft; data in annotations
+is not treated as a schema unless referenced. References needing an external
+resource fail without network access. Unknown explicit drafts fail rather than
+being silently interpreted as 2020-12.
+
+Run schema validation separately, because
 matching a manifest hash does not establish schema conformance.
 
 ```sh
