@@ -1,0 +1,422 @@
+{
+  "evidenceVersion": 1,
+  "scope": "Static source and extraction observations, not server behavior or guaranteed rename identities.",
+  "snapshots": {
+    "old": {
+      "waVersion": "2.3000.1045368834",
+      "bundleCount": 516,
+      "setHash": "99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00",
+      "coverage": "parsed-static-definitions"
+    },
+    "new": {
+      "waVersion": "2.3000.1047483476",
+      "bundleCount": 579,
+      "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+      "coverage": "parsed-static-definitions"
+    }
+  },
+  "wam": {
+    "originalCounters": {
+      "old": {
+        "construction of an event with no catalog entry": 41,
+        "unreadConstructionArgument.call": 1,
+        "unreadConstructionArgument.identifier": 100,
+        "unreadConstructionArgument.member": 3
+      },
+      "new": {
+        "construction of an event with no catalog entry": 29,
+        "unreadConstructionArgument.call": 1,
+        "unreadConstructionArgument.identifier": 89,
+        "unreadConstructionArgument.member": 3
+      }
+    },
+    "fixedCounters": {
+      "old": {
+        "construction of an event with no catalog entry": 41,
+        "unreadConstructionArgument.call": 1,
+        "unreadConstructionArgument.identifier": 86,
+        "unreadConstructionArgument.member": 3
+      },
+      "new": {
+        "construction of an event with no catalog entry": 29,
+        "unreadConstructionArgument.call": 1,
+        "unreadConstructionArgument.identifier": 75,
+        "unreadConstructionArgument.member": 3
+      }
+    },
+    "bridgeModuleDepartures": [
+      "WAWebWindowsHybridBridgeWam.v2589",
+      "WAWebWindowsHybridBridgeWam.v2590",
+      "WAWebWindowsHybridBridgeWam.v2591",
+      "WAWebWindowsHybridBridgeWam.v2601",
+      "WAWebWindowsHybridBridgeWam.v2602",
+      "WAWebWindowsHybridBridgeWam.v2603",
+      "WAWebWindowsHybridBridgeWam.v2604",
+      "WAWebWindowsHybridBridgeWam.v2608",
+      "WAWebWindowsHybridBridgeWam.v2609",
+      "WAWebWindowsHybridBridgeWam.v2610",
+      "WAWebWindowsHybridBridgeWam.v2617",
+      "WAWebWindowsHybridBridgeWam.v2618",
+      "WAWebWindowsHybridBridgeWam.v2619",
+      "WAWebWindowsHybridBridgeWam.v2621",
+      "WAWebWindowsHybridBridgeWam.v2624"
+    ],
+    "bridgeModuleAdditions": [
+      "WAWebWindowsHybridBridgeWam.v2634",
+      "WAWebWindowsHybridBridgeWam.v2635",
+      "WAWebWindowsHybridBridgeWam.v2636"
+    ],
+    "bridgeReason": "Each exact module has one generic RawWamEvent construction with an unread runtime object. Complete parse coverage proves these static definitions depart/arrive, not feature removal.",
+    "newUnreadArgumentBeforeFix": "WAWebStatusSubtitle.react",
+    "recoveredWithLocalObjectFix": {
+      "old": [
+        {
+          "constructionSha256": "074551c9a63866a6e33995c969fbb7249ddb191b34ff7cefa1b6c6d17d596eb7",
+          "end": 402,
+          "eventExport": "ThreadInteractionDataAiWamEvent",
+          "eventModule": "WAWebThreadInteractionDataAiWamEvent",
+          "module": "WAWebThreadLoggingAi",
+          "moduleSha256": "b145e75b68163c093af2109db48aab201cb09b58bf6117e2903e424b33d42720",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 321,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebThreadLoggingAi"
+        },
+        {
+          "constructionSha256": "18d20452c8692bc73b60abf0acf82dc24a0cbbdd20fc770eb0977f6ae632b5e2",
+          "end": 7144,
+          "eventExport": "ChatFilterEventWamEvent",
+          "eventModule": "WAWebChatFilterEventWamEvent",
+          "module": "WAWebFilterLogging",
+          "moduleSha256": "0da3d9c081cbf3b3372af10aa04da2f768a58c316caf63676456e2104fbe7783",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 7079,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebFilterLogging"
+        },
+        {
+          "constructionSha256": "1a6bebc04cfb9fddbd70c448eaf19fa2dfd7919df5219256602be7b1486c349b",
+          "end": 1137,
+          "eventExport": "MexEventV2WamEvent",
+          "eventModule": "WAWebMexEventV2WamEvent",
+          "module": "WAWebMexLogging",
+          "moduleSha256": "e6d862350fb96e5beb62395ed2f4742252b959cc7970a342b66b24c84e99b621",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 1082,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebMexLogging"
+        },
+        {
+          "constructionSha256": "24a0165bb666db71ad908eed55707840333ad3932b2fb5ec26fb1e5c66b435ea",
+          "end": 450,
+          "eventExport": "PaymentsUserActionWamEvent",
+          "eventModule": "WAWebPaymentsUserActionWamEvent",
+          "module": "WAWebPaymentsUserActionLogging",
+          "moduleSha256": "725c3fec4cba9a60a82dcb9c2a433194b770beb121fe235bee5bd3a5d3b8d70f",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 379,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebPaymentsUserActionLogging"
+        },
+        {
+          "constructionSha256": "24a0165bb666db71ad908eed55707840333ad3932b2fb5ec26fb1e5c66b435ea",
+          "end": 854,
+          "eventExport": "PaymentsUserActionWamEvent",
+          "eventModule": "WAWebPaymentsUserActionWamEvent",
+          "module": "WAWebPaymentsUserActionLogging",
+          "moduleSha256": "725c3fec4cba9a60a82dcb9c2a433194b770beb121fe235bee5bd3a5d3b8d70f",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 783,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebPaymentsUserActionLogging"
+        },
+        {
+          "constructionSha256": "432c4b5c3405ea761b0ef66f632545ed9e3812b745a0ed8b2fae44d5a66a3b4e",
+          "end": 332,
+          "eventExport": "ThreadInteractionDataIntegrityWamEvent",
+          "eventModule": "WAWebThreadInteractionDataIntegrityWamEvent",
+          "module": "WAWebThreadLoggingIntegrity",
+          "moduleSha256": "35589ea4523873fe91790e9bd6f73589e1886b53eb5fc6f8f1a391d9d5b69531",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 237,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebThreadLoggingIntegrity"
+        },
+        {
+          "constructionSha256": "63219d354832b0c9d52c6f8cda776751d8ff66a465fd941835ba5239db7083b3",
+          "end": 3084,
+          "eventExport": "ThreadInteractionDataCoreConsumerWamEvent",
+          "eventModule": "WAWebThreadInteractionDataCoreConsumerWamEvent",
+          "module": "WAWebThreadLoggingCoreConsumer",
+          "moduleSha256": "5a69f324b23edd70ceaa5fe6c1252f56a493b61fadb5f55f5764dd16c2d0661e",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 2983,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebThreadLoggingCoreConsumer"
+        },
+        {
+          "constructionSha256": "64c650bc28604bac1e25891dabb740fff21e12d0d30f7eeb70dbc18b48a95ab1",
+          "end": 837,
+          "eventExport": "ThreadInteractionDataBizWamEvent",
+          "eventModule": "WAWebThreadInteractionDataBizWamEvent",
+          "module": "WAWebThreadLoggingBiz",
+          "moduleSha256": "c131f7f32bcb77192abfc0542045221c12f75e2da33c2594063d999105050d65",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 754,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebThreadLoggingBiz"
+        },
+        {
+          "constructionSha256": "6b7a1d2b67c21a76ed60b5327c68513211be395dcc7152ef59f20894e231adf0",
+          "end": 937,
+          "eventExport": "PaymentsUserActionWamEvent",
+          "eventModule": "WAWebPaymentsUserActionWamEvent",
+          "module": "WAWebPixWamLogger",
+          "moduleSha256": "eb24e5bee24de5260c8b6bb504fdf8cf163d20a763f19fd6acf808d805966ad3",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 866,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebPixWamLogger"
+        },
+        {
+          "constructionSha256": "70f605e3cdcca05956caeaa0cebf4fd1a705533b91945f8ff929a4a4602a6983",
+          "end": 2044,
+          "eventExport": "Ctwa3pdAggregatedConversionWamEvent",
+          "eventModule": "WAWebCtwa3pdAggregatedConversionWamEvent",
+          "module": "WAWebSmb3pdAggregatedConversionSignalAction",
+          "moduleSha256": "5ac74826aadb1c4e9aa1d9b02f5bdbc514eb95ff7b5104d38d29d0fefc3f9725",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 1955,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebSmb3pdAggregatedConversionSignalAction"
+        },
+        {
+          "constructionSha256": "9613c96822ea8a8b5acd8334a3538b61bc38ce9ebc7e0898ec7e0fae152c5d4b",
+          "end": 2949,
+          "eventExport": "StickerSendWamEvent",
+          "eventModule": "WAWebStickerSendWamEvent",
+          "module": "WAWebSendStickerAction",
+          "moduleSha256": "52d2433b889bdfc527fcf4923a500be1b30648d6a7ffdc68f2f639179bfdfdeb",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 2892,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebSendStickerAction"
+        },
+        {
+          "constructionSha256": "9a62d614b7b1ad5c4f3bc26bea79da24bc656d9ec2ac9052e044ce1e13cf521f",
+          "end": 1607,
+          "eventExport": "WebcFingerprintWamEvent",
+          "eventModule": "WAWebWebcFingerprintWamEvent",
+          "module": "WAWebWamFingerprintReporter",
+          "moduleSha256": "3a2452fcfc9277edf7761595c092341f3ca70594087fbce930759a9322854972",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 1542,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebWamFingerprintReporter"
+        },
+        {
+          "constructionSha256": "e7f3ca9f64782510d5ef70a38e262b5669c12b3a16c4f22c6689bcd93be32b9c",
+          "end": 381,
+          "eventExport": "ThreadInteractionDataNotificationWamEvent",
+          "eventModule": "WAWebThreadInteractionDataNotificationWamEvent",
+          "module": "WAWebThreadLoggingNotification",
+          "moduleSha256": "33b01e6054497198f4b082a7a7b63724d26ae37eb0cbdf16941ebf46a52fc5d9",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 280,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebThreadLoggingNotification"
+        },
+        {
+          "constructionSha256": "f722bd819821b887453e0ac2c3eaba1b0961a54426e9443c55323927d1a661a4",
+          "end": 432,
+          "eventExport": "ThreadInteractionDataVoipWamEvent",
+          "eventModule": "WAWebThreadInteractionDataVoipWamEvent",
+          "module": "WAWebThreadLoggingVoip",
+          "moduleSha256": "524103e748da6c43badf73f0062a2b873b1042822a04f95671e6a325f716fdef",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 347,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/old/modules/WAWebThreadLoggingVoip"
+        }
+      ],
+      "new": [
+        {
+          "constructionSha256": "074551c9a63866a6e33995c969fbb7249ddb191b34ff7cefa1b6c6d17d596eb7",
+          "end": 402,
+          "eventExport": "ThreadInteractionDataAiWamEvent",
+          "eventModule": "WAWebThreadInteractionDataAiWamEvent",
+          "module": "WAWebThreadLoggingAi",
+          "moduleSha256": "b145e75b68163c093af2109db48aab201cb09b58bf6117e2903e424b33d42720",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 321,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebThreadLoggingAi"
+        },
+        {
+          "constructionSha256": "18d20452c8692bc73b60abf0acf82dc24a0cbbdd20fc770eb0977f6ae632b5e2",
+          "end": 7189,
+          "eventExport": "ChatFilterEventWamEvent",
+          "eventModule": "WAWebChatFilterEventWamEvent",
+          "module": "WAWebFilterLogging",
+          "moduleSha256": "85cbd606e0574186e121e596c1470e1f97ec3afe3fee67bdce69d9e309082669",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 7124,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebFilterLogging"
+        },
+        {
+          "constructionSha256": "1a6bebc04cfb9fddbd70c448eaf19fa2dfd7919df5219256602be7b1486c349b",
+          "end": 1137,
+          "eventExport": "MexEventV2WamEvent",
+          "eventModule": "WAWebMexEventV2WamEvent",
+          "module": "WAWebMexLogging",
+          "moduleSha256": "e6d862350fb96e5beb62395ed2f4742252b959cc7970a342b66b24c84e99b621",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 1082,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebMexLogging"
+        },
+        {
+          "constructionSha256": "24a0165bb666db71ad908eed55707840333ad3932b2fb5ec26fb1e5c66b435ea",
+          "end": 450,
+          "eventExport": "PaymentsUserActionWamEvent",
+          "eventModule": "WAWebPaymentsUserActionWamEvent",
+          "module": "WAWebPaymentsUserActionLogging",
+          "moduleSha256": "725c3fec4cba9a60a82dcb9c2a433194b770beb121fe235bee5bd3a5d3b8d70f",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 379,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebPaymentsUserActionLogging"
+        },
+        {
+          "constructionSha256": "24a0165bb666db71ad908eed55707840333ad3932b2fb5ec26fb1e5c66b435ea",
+          "end": 854,
+          "eventExport": "PaymentsUserActionWamEvent",
+          "eventModule": "WAWebPaymentsUserActionWamEvent",
+          "module": "WAWebPaymentsUserActionLogging",
+          "moduleSha256": "725c3fec4cba9a60a82dcb9c2a433194b770beb121fe235bee5bd3a5d3b8d70f",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 783,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebPaymentsUserActionLogging"
+        },
+        {
+          "constructionSha256": "432c4b5c3405ea761b0ef66f632545ed9e3812b745a0ed8b2fae44d5a66a3b4e",
+          "end": 332,
+          "eventExport": "ThreadInteractionDataIntegrityWamEvent",
+          "eventModule": "WAWebThreadInteractionDataIntegrityWamEvent",
+          "module": "WAWebThreadLoggingIntegrity",
+          "moduleSha256": "35589ea4523873fe91790e9bd6f73589e1886b53eb5fc6f8f1a391d9d5b69531",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 237,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebThreadLoggingIntegrity"
+        },
+        {
+          "constructionSha256": "575f8ae4397f34807d6b782bd9be69a62dc3adfc31edbe5f792f62bada8f57d7",
+          "end": 2873,
+          "eventExport": "StatusViewerActionWamEvent",
+          "eventModule": "WAWebStatusViewerActionWamEvent",
+          "module": "WAWebStatusSubtitle.react",
+          "moduleSha256": "e3bd54e8504c4749609e0d99d9ed4f425065deb6ccc7a98a6a0c1ed24f91a591",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 2802,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebStatusSubtitle.react"
+        },
+        {
+          "constructionSha256": "63219d354832b0c9d52c6f8cda776751d8ff66a465fd941835ba5239db7083b3",
+          "end": 3084,
+          "eventExport": "ThreadInteractionDataCoreConsumerWamEvent",
+          "eventModule": "WAWebThreadInteractionDataCoreConsumerWamEvent",
+          "module": "WAWebThreadLoggingCoreConsumer",
+          "moduleSha256": "5a69f324b23edd70ceaa5fe6c1252f56a493b61fadb5f55f5764dd16c2d0661e",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 2983,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebThreadLoggingCoreConsumer"
+        },
+        {
+          "constructionSha256": "64c650bc28604bac1e25891dabb740fff21e12d0d30f7eeb70dbc18b48a95ab1",
+          "end": 837,
+          "eventExport": "ThreadInteractionDataBizWamEvent",
+          "eventModule": "WAWebThreadInteractionDataBizWamEvent",
+          "module": "WAWebThreadLoggingBiz",
+          "moduleSha256": "c131f7f32bcb77192abfc0542045221c12f75e2da33c2594063d999105050d65",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 754,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebThreadLoggingBiz"
+        },
+        {
+          "constructionSha256": "70f605e3cdcca05956caeaa0cebf4fd1a705533b91945f8ff929a4a4602a6983",
+          "end": 2044,
+          "eventExport": "Ctwa3pdAggregatedConversionWamEvent",
+          "eventModule": "WAWebCtwa3pdAggregatedConversionWamEvent",
+          "module": "WAWebSmb3pdAggregatedConversionSignalAction",
+          "moduleSha256": "5ac74826aadb1c4e9aa1d9b02f5bdbc514eb95ff7b5104d38d29d0fefc3f9725",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 1955,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebSmb3pdAggregatedConversionSignalAction"
+        },
+        {
+          "constructionSha256": "9613c96822ea8a8b5acd8334a3538b61bc38ce9ebc7e0898ec7e0fae152c5d4b",
+          "end": 2987,
+          "eventExport": "StickerSendWamEvent",
+          "eventModule": "WAWebStickerSendWamEvent",
+          "module": "WAWebSendStickerAction",
+          "moduleSha256": "9357b5727a22496e1630d342ca87220f8288c6e18bf81a98a8f4db05e47db6a5",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 2930,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebSendStickerAction"
+        },
+        {
+          "constructionSha256": "9a62d614b7b1ad5c4f3bc26bea79da24bc656d9ec2ac9052e044ce1e13cf521f",
+          "end": 1607,
+          "eventExport": "WebcFingerprintWamEvent",
+          "eventModule": "WAWebWebcFingerprintWamEvent",
+          "module": "WAWebWamFingerprintReporter",
+          "moduleSha256": "3a2452fcfc9277edf7761595c092341f3ca70594087fbce930759a9322854972",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 1542,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebWamFingerprintReporter"
+        },
+        {
+          "constructionSha256": "e7f3ca9f64782510d5ef70a38e262b5669c12b3a16c4f22c6689bcd93be32b9c",
+          "end": 381,
+          "eventExport": "ThreadInteractionDataNotificationWamEvent",
+          "eventModule": "WAWebThreadInteractionDataNotificationWamEvent",
+          "module": "WAWebThreadLoggingNotification",
+          "moduleSha256": "33b01e6054497198f4b082a7a7b63724d26ae37eb0cbdf16941ebf46a52fc5d9",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 280,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebThreadLoggingNotification"
+        },
+        {
+          "constructionSha256": "f722bd819821b887453e0ac2c3eaba1b0961a54426e9443c55323927d1a661a4",
+          "end": 432,
+          "eventExport": "ThreadInteractionDataVoipWamEvent",
+          "eventModule": "WAWebThreadInteractionDataVoipWamEvent",
+          "module": "WAWebThreadLoggingVoip",
+          "moduleSha256": "524103e748da6c43badf73f0062a2b873b1042822a04f95671e6a325f716fdef",
+          "reason": "unreadConstructionArgument.identifier",
+          "start": 347,
+          "sourceReference": "snapshot-quality-2026-10-07.sources.json#/new/modules/WAWebThreadLoggingVoip"
+        }
+      ]
+    }
+  },
+  "mex": {
+    "departures": [
+      "CreateLabyrinthBackup",
+      "DebugLabyrinthInboxSnapshot",
+      "DebugLabyrinthRange",
+      "EBMessageMetadataQuery",
+      "RotateLabyrinthEpoch",
+      "TeamLinkCreateInvitation",
+      "TeamLinkListInvitations",
+      "TeamLinkRemoveInvitation",
+      "UploadLabyrinthMessages"
+    ],
+    "additions": [
+      "AccountLinkingAPIGetCerts",
+      "UpdateNewsletterAdminProfileSetting",
+      "useWAWebSmartComposerCoachSuggestedReply"
+    ],
+    "presenceArithmetic": {
+      "removedUndeterminedKeys": 6,
+      "removedWhollyUndeterminedOperations": 4,
+      "newContactManagerUndeterminedKeys": 3,
+      "newSmartComposerUndeterminedKeys": 1,
+      "newSmartComposerWhollyUndeterminedOperations": 1
+    },
+    "remainingLimits": {
+      "ContactManagerCustomerProfiles": "filters .map return and nested presence remain undetermined; candidate_lids conditional/string inference is not a proven upstream type change.",
+      "useWAWebSmartComposerCoachSuggestedReply": "The call uses a mutation function obtained from CometRelay.useMutation(...)[0], not a recovered direct Relay fetch. The fallback input shape/presence does not recover visible nested input fields."
+    }
+  },
+  "iq": {
+    "attributeArithmetic": "55 - 3 privacy recovered - 3 absent KMP module = 49",
+    "childArithmetic": "12 - 1 privacy recovered - 1 absent KMP module = 10",
+    "contentArithmetic": "23 - 1 absent KMP module + 1 SetAbout positional entry = 23",
+    "moduleDeparture": "WAWebKmpSyncdRequestBuilder",
+    "limits": "Exact static module absence only; no assertion that the wire operation vanished or was renamed."
+  }
+}

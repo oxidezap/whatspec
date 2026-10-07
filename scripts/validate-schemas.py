@@ -12,6 +12,9 @@ from pathlib import Path
 
 try:
     from jsonschema import Draft202012Validator
+    from jsonschema.exceptions import SchemaError
+    from referencing import Registry
+    from referencing.exceptions import Unresolvable
 except ImportError:
     sys.exit("jsonschema not installed — `pip install jsonschema`")
 
@@ -32,18 +35,26 @@ DOMAINS = [
 ]
 
 
-def main() -> int:
-    root = Path(sys.argv[1] if len(sys.argv) > 1 else "generated")
+def validate(root: Path) -> int:
     failures = 0
     for doc_rel, schema_rel in DOMAINS:
         doc_path, schema_path = root / doc_rel, root / schema_rel
         if not doc_path.exists() or not schema_path.exists():
-            print(f"skip {doc_rel}: missing document or schema")
+            failures += 1
+            print(f"FAIL {doc_rel}: missing document or schema")
             continue
-        schema = json.loads(schema_path.read_text())
-        document = json.loads(doc_path.read_text())
-        validator = Draft202012Validator(schema)
-        errors = sorted(validator.iter_errors(document), key=lambda e: e.path)
+        try:
+            schema = json.loads(schema_path.read_text())
+            document = json.loads(doc_path.read_text())
+            Draft202012Validator.check_schema(schema)
+            # No remote schema retrieval: emitted schemas must be self-contained.
+            validator = Draft202012Validator(schema, registry=Registry())
+            errors = sorted(validator.iter_errors(document),
+                            key=lambda e: tuple(str(p) for p in e.path))
+        except (OSError, ValueError, SchemaError, Unresolvable) as err:
+            failures += 1
+            print(f"FAIL {doc_rel} (against {schema_rel}): {err}")
+            continue
         if errors:
             failures += 1
             print(f"FAIL {doc_rel} (against {schema_rel}):")
@@ -54,8 +65,10 @@ def main() -> int:
                 print(f"  …and {len(errors) - 20} more")
         else:
             print(f"ok   {doc_rel} conforms to {schema_rel}")
+    print(f"{len(DOMAINS) - failures}/{len(DOMAINS)} schema/document pairs validated; "
+          f"{failures} failed")
     return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(validate(Path(sys.argv[1] if len(sys.argv) > 1 else "generated")))

@@ -133,6 +133,8 @@ cargo run --release -p whatspec -- restore --wasm --from-lock generated/wasm.loc
 
 # Compare two generated outputs (e.g. across a WhatsApp version bump):
 cargo run --release -p whatspec -- diff old-generated/ generated/
+# Full contract deltas, hashed source pointers, and evidence classifications:
+cargo run --release -p whatspec -- diff old-generated/ generated/ --json
 
 # Deterministically reproduce & verify generated/ from its pinned inputs (no live fetch):
 ./scripts/regen.sh
@@ -197,3 +199,10 @@ A Rust consumer can instead use the committed reference modules directly; they d
 ## License
 
 MIT © 2025 João Lucas de Oliveira Lopes — see [LICENSE](LICENSE).
+
+### Reviewing snapshot quality
+
+Use the [snapshot quality workflow](docs/snapshot-quality.md) to compare full contracts,
+locate operations in verified bundles, and record evidence for upstream or extraction
+changes. The [September snapshot investigation](docs/snapshot-quality-2026-10-07.md)
+explains why falling lint counts alone cannot justify lowering a baseline.
