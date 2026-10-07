@@ -3,6 +3,9 @@
 The existing text `whatspec diff OLD NEW` is a count and name summary. Use
 `whatspec diff OLD NEW --json` for contract deltas across every manifest domain.
 The report checks domain hashes, document versions, and lock self-consistency.
+It also loads every declared schema and reports schema-only changes with
+`artifactKind: schema`, separate content hashes, and JSON Pointers. Schema hashes
+are computed from the snapshot files; the manifest currently does not pin them.
 It fails on missing declared artifacts. Schema validation preflights every
 schema-valued location and referenced target against an in-memory registry,
 including unused definitions and absent optional properties. Local pointers,
@@ -56,7 +59,9 @@ whatspec source-index generated/bundles.lock.json bundles WAWebSetPrivacyJob > s
 with a checked AST entry point and emits a separate optional sidecar containing
 bundle SHA-256, module and factory hashes, dependency names, and byte offsets.
 It never evaluates JavaScript. Source names may be selected after the two paths;
-omit them to index all recovered modules. Offsets are UTF-8 bytes with an
+omit them to index all recovered modules. `selection.mode` records `all` or
+`selected`; the latter also records every requested name, including missing ones.
+An absent name outside that selection is not evidence of source absence. Offsets are UTF-8 bytes with an
 exclusive end, so invalid UTF-8 is rejected rather than decoded lossily.
 Every recovered occurrence remains visible, including conflicting definitions.
 The index is deterministic and contains no workspace-specific file paths.
@@ -72,10 +77,13 @@ For a field-level review, cite both its IR pointer and the relevant module span.
 This keeps recoverable provenance outside every repeated field of the IR.
 
 `whatspec quality-gaps LOCK BUNDLE_DIR` emits counted WAM gap locations with
-module-relative constructor byte spans, constructor/module hashes, and matching
+module-relative constructor byte spans, constructor/module hashes, optional
+unknown-field names, and matching
 bundle locations. It checks the same complete bundle set and parse coverage.
 Two reasons may point at one construction; repeated copies of a module follow
-the extractor's existing deduplication. The optional sidecar does not enlarge the
+the extractor's existing deduplication. Counted diagnostics use the same outer
+module selection as normal extraction, avoiding overlapping scans of nested
+definitions. The provenance index still retains nested definitions. The optional sidecar does not enlarge the
 IR or change the existing `WamDiagnostics` API. Compare reports from the same
 extractor revision for upstream changes, and from two revisions on one locked
 set for extraction changes. Neither module names nor minified offsets establish

@@ -88,9 +88,9 @@
       "types": 27
     },
     "wam": {
-      "callSiteFieldValues": 796,
-      "callSiteFields": 3446,
-      "callSites": 812,
+      "callSiteFieldValues": 804,
+      "callSiteFields": 3478,
+      "callSites": 813,
       "constants": 6,
       "constructions": 874,
       "dropsByReason": {
@@ -99,10 +99,10 @@
         "unreadConstructionArgument.identifier": 75,
         "unreadConstructionArgument.member": 3
       },
-      "duplicateCallSites": 33,
+      "duplicateCallSites": 32,
       "events": 439,
       "globals": 46,
-      "partialCallSites": 114,
+      "partialCallSites": 113,
       "privateStatsIds": 9,
       "samplingWeightOverrides": 4
     }
@@ -165,7 +165,7 @@
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "d92a4cc88baeeaa9a2a9d8695371d01969b8025de589a605f8f33569a87abbbd"
+      "sha256": "9c6b0dd3069c3d84b6bedd6223f502b4bfa36be236340b4a08f2c2ed61483bec"
     },
     "wasm": {
       "file": "wasm/index.json",

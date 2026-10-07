@@ -27,6 +27,7 @@ struct Snapshot {
     manifest: Value,
     lock: wa_store::lock::BundleLock,
     files: BTreeMap<String, (String, String, Value)>,
+    schemas: BTreeMap<String, (String, String, Value)>,
 }
 
 impl Snapshot {
@@ -44,6 +45,7 @@ impl Snapshot {
             .context("manifest.domains missing")?;
         ensure!(!domains.is_empty(), "manifest.domains empty");
         let mut files = BTreeMap::new();
+        let mut schemas = BTreeMap::new();
         for (domain, entry) in domains {
             let rel = entry["file"].as_str().context("domain file missing")?;
             let bytes = local_file(root, rel)?;
@@ -69,11 +71,24 @@ impl Snapshot {
                 json!({"artifactSha256": hash})
             };
             files.insert(domain.clone(), (rel.to_string(), hash, value));
+            if let Some(schema) = entry.get("schema") {
+                let rel = schema
+                    .as_str()
+                    .context("declared schema path is not a string")?;
+                let bytes = local_file(root, rel)?;
+                let value: Value =
+                    serde_json::from_slice(&bytes).with_context(|| format!("parse {rel}"))?;
+                schemas.insert(
+                    domain.clone(),
+                    (rel.to_string(), wa_text::sha256_hex(&bytes), value),
+                );
+            }
         }
         Ok(Self {
             manifest,
             lock,
             files,
+            schemas,
         })
     }
 
@@ -263,39 +278,46 @@ pub fn report(old: &Path, new: &Path, evidence: Option<&Path>) -> Result<Value> 
     let old = Snapshot::read(old)?;
     let new = Snapshot::read(new)?;
     let mut changes = Vec::new();
-    for domain in old
-        .files
-        .keys()
-        .chain(new.files.keys())
-        .collect::<BTreeSet<_>>()
-    {
-        let a = old.files.get(domain);
-        let b = new.files.get(domain);
-        let deltas = match (a, b) {
-            (Some((_, _, av)), Some((_, _, bv))) => document_diff(domain, av, bv),
-            _ => {
-                let mut d = Vec::new();
-                walk(a.map(|v| &v.2), b.map(|v| &v.2), "", "", &mut d);
-                d
+    for (is_schema, old_files, new_files) in [
+        (false, &old.files, &new.files),
+        (true, &old.schemas, &new.schemas),
+    ] {
+        for domain in old_files
+            .keys()
+            .chain(new_files.keys())
+            .collect::<BTreeSet<_>>()
+        {
+            let a = old_files.get(domain);
+            let b = new_files.get(domain);
+            let deltas = match (a, b) {
+                (Some((_, _, av)), Some((_, _, bv))) if !is_schema => document_diff(domain, av, bv),
+                _ => {
+                    let mut d = Vec::new();
+                    walk(a.map(|v| &v.2), b.map(|v| &v.2), "", "", &mut d);
+                    d
+                }
+            };
+            for mut change in deltas {
+                change["domain"] = json!(domain);
+                if is_schema {
+                    change["artifactKind"] = json!("schema");
+                }
+                change["oldSource"] = reference(a, &change["oldPath"]);
+                change["newSource"] = reference(b, &change["newPath"]);
+                // A missing field still belongs to a concrete domain document. Bind
+                // that document even though there is no field pointer to reference.
+                change["oldArtifactSha256"] = json!(a.map(|(_, hash, _)| hash));
+                change["newArtifactSha256"] = json!(b.map(|(_, hash, _)| hash));
+                // Bind a review to exact artifact contents AND inputs, not just a name
+                // that can survive an unrelated future snapshot.
+                change["oldSetHash"] = json!(old.lock.set_hash);
+                change["newSetHash"] = json!(new.lock.set_hash);
+                change["id"] = json!(wa_text::sha256_hex(
+                    serde_json::to_string(&change)?.as_bytes()
+                ));
+                change["assessment"] = json!({"classification": "indeterminate", "basis": "Contract delta only; inspect pinned sources and same-input regeneration."});
+                changes.push(change);
             }
-        };
-        for mut change in deltas {
-            change["domain"] = json!(domain);
-            change["oldSource"] = reference(a, &change["oldPath"]);
-            change["newSource"] = reference(b, &change["newPath"]);
-            // A missing field still belongs to a concrete domain document. Bind
-            // that document even though there is no field pointer to reference.
-            change["oldArtifactSha256"] = json!(a.map(|(_, hash, _)| hash));
-            change["newArtifactSha256"] = json!(b.map(|(_, hash, _)| hash));
-            // Bind a review to exact artifact contents AND inputs, not just a name
-            // that can survive an unrelated future snapshot.
-            change["oldSetHash"] = json!(old.lock.set_hash);
-            change["newSetHash"] = json!(new.lock.set_hash);
-            change["id"] = json!(wa_text::sha256_hex(
-                serde_json::to_string(&change)?.as_bytes()
-            ));
-            change["assessment"] = json!({"classification": "indeterminate", "basis": "Contract delta only; inspect pinned sources and same-input regeneration."});
-            changes.push(change);
         }
     }
     if let Some(path) = evidence {
@@ -468,6 +490,35 @@ mod tests {
                 .to_string()
                 .contains("waVersion mismatch")
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn schema_only_changes_are_reported_and_missing_declared_schemas_fail() {
+        let dir =
+            std::env::temp_dir().join(format!("whatspec-schema-delta-{}", std::process::id()));
+        let write = |name: &str, schema: Value| {
+            let root = dir.join(name);
+            std::fs::create_dir_all(&root).unwrap();
+            let lock = wa_store::lock::BundleLock::new("test", vec![]);
+            std::fs::write(root.join("bundles.lock.json"), lock.to_pretty_json()).unwrap();
+            let doc = json!({"waVersion":"test", "schemaVersion":"4.3.0"}).to_string();
+            std::fs::write(root.join("index.json"), &doc).unwrap();
+            let manifest = json!({"waVersion":"test", "schemaVersion":"4.3.0", "domains":{"test":{"file":"index.json", "schema":"schema.json", "sha256":wa_text::sha256_hex(doc.as_bytes())}}});
+            std::fs::write(root.join("manifest.json"), manifest.to_string()).unwrap();
+            std::fs::write(root.join("schema.json"), schema.to_string()).unwrap();
+            root
+        };
+        let old = write("old", json!({"type":"object", "required":[]}));
+        let new = write("new", json!({"type":"object", "required":["added"]}));
+        let report = report(&old, &new, None).unwrap();
+        assert_eq!(report["changes"].as_array().unwrap().len(), 1);
+        let delta = &report["changes"][0];
+        assert_eq!(delta["oldSource"]["file"], "schema.json");
+        assert_eq!(delta["oldPath"], "/required");
+        assert_ne!(delta["oldArtifactSha256"], delta["newArtifactSha256"]);
+        std::fs::remove_file(new.join("schema.json")).unwrap();
+        assert!(Snapshot::read(&new).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

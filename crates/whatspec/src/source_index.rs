@@ -61,9 +61,11 @@ pub fn index(lock_path: &Path, bundles: &Path, selected: &BTreeSet<&str>) -> Res
         json!({"sourceIndexVersion":1,"waVersion":lock.wa_version,"setHash":lock.set_hash,
         "bundleCount":lock.bundle_count,"modules":definitions,
         "coverage":"parsed-static-definitions",
+        "selection": if selected.is_empty() { json!({"mode":"all"}) } else { json!({"mode":"selected","modules":selected}) },
         "limits":["Offsets are UTF-8 byte offsets, end exclusive, in the bundle identified by SHA-256.",
             "Every bundle parsed without recovery. Absence only establishes that this exact static module name was not defined in these inputs; it does not prove feature removal or a rename.",
-            "All recovered occurrences are retained. Equal module names with different hashes need review.",
+            "When selection.mode is selected, absence conclusions apply only to names in selection.modules. Other names were not requested.",
+            "All recovered occurrences of selected names are retained. Equal module names with different hashes need review.",
             "Module provenance locates code; field-level semantics may require following dependencies."]}),
     )
 }
@@ -104,6 +106,12 @@ mod tests {
         assert!(index(&lock_path, &dir, &BTreeSet::new()).is_err());
         std::fs::write(dir.join("one.js"), bytes).unwrap();
         assert!(index(&lock_path, &dir, &BTreeSet::new()).is_ok());
+        let selected = index(&lock_path, &dir, &BTreeSet::from(["Missing"])).unwrap();
+        assert_eq!(
+            selected["selection"],
+            json!({"mode":"selected", "modules":["Missing"]})
+        );
+        assert!(selected["modules"].as_object().unwrap().is_empty());
         std::fs::write(dir.join("duplicate.js"), bytes).unwrap();
         assert!(index(&lock_path, &dir, &BTreeSet::new()).is_err());
         std::fs::remove_file(dir.join("duplicate.js")).unwrap();

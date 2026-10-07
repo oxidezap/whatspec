@@ -294,7 +294,14 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
             let mut fields = Vec::new();
             let mut partial = false;
             let mut unread = None;
-            read_argument(arg, &mut fields, &mut partial, &mut unread, self.aliases);
+            read_argument(
+                arg,
+                &mut fields,
+                &mut partial,
+                &mut unread,
+                self.aliases,
+                None,
+            );
             let declared_in = binding_name(&base).and_then(|n| self.resolve(n));
             for (field, _, value) in fields {
                 self.writes.push(RawWrite {
@@ -331,17 +338,13 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
             match n.arguments.first().and_then(wa_oxc::arg_expr) {
                 // `new (…)(…)` with no argument: a real, complete field set of zero.
                 None => {}
-                Some(arg) if self.arguments.contains_key(&arg.span().start) => {
-                    let recovered = &self.arguments[&arg.span().start];
-                    fields = recovered.fields.clone();
-                    partial = recovered.partial;
-                }
                 Some(arg) => read_argument(
                     arg,
                     &mut fields,
                     &mut partial,
                     &mut unread_argument,
                     self.aliases,
+                    Some(self.arguments),
                 ),
             }
             self.sites.push(RawSite {
@@ -368,7 +371,13 @@ fn read_argument(
     partial: &mut bool,
     unread: &mut Option<&'static str>,
     aliases: &RequireAliases,
+    locals: Option<&BTreeMap<u32, arguments::Fields>>,
 ) {
+    if let Some(recovered) = locals.and_then(|values| values.get(&arg.span().start)) {
+        fields.extend(recovered.fields.iter().cloned());
+        *partial |= recovered.partial;
+        return;
+    }
     if let Some(obj) = as_object(arg) {
         for prop in &obj.properties {
             match prop {
@@ -394,8 +403,11 @@ fn read_argument(
     {
         for a in &call.arguments {
             match a.as_expression() {
-                Some(e) if as_object(e).is_some() => {
-                    read_argument(e, fields, partial, unread, aliases)
+                Some(e)
+                    if as_object(e).is_some()
+                        || locals.is_some_and(|values| values.contains_key(&e.span().start)) =>
+                {
+                    read_argument(e, fields, partial, unread, aliases, locals)
                 }
                 _ => *partial = true,
             }

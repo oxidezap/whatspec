@@ -92,6 +92,7 @@ impl Collector<'_> {
                         &mut partial,
                         &mut unread,
                         self.aliases,
+                        None,
                     );
                     self.candidates.insert(
                         (start, name.to_string()),
@@ -168,7 +169,7 @@ impl<'a> Visit<'a> for Collector<'_> {
     }
     fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
         // Direct eval could mutate any visible binding without an AST reference.
-        if wa_oxc::as_identifier(&c.callee) == Some("eval") {
+        if wa_oxc::as_identifier(super::unparen(&c.callee)) == Some("eval") {
             for candidate in self.candidates.values_mut() {
                 candidate.valid = false;
             }

@@ -21,8 +21,7 @@ pub fn run(args: &[String]) -> Result<()> {
         observed.set_hash == lock.set_hash && observed.bundle_count == lock.bundle_count,
         "bundle set differs from lock"
     );
-    let defs = wa_transform::extract_module_definitions_checked(&source)
-        .map_err(|errors| anyhow::anyhow!("bundle set parse failed: {}", errors.join("; ")))?;
+    let defs = counted_definitions(&source)?;
     let by_start: BTreeMap<_, _> = defs.iter().map(|d| (d.start, d)).collect();
     let (_, diag, gaps) = wa_wam::extract_wam_with_gap_sites(&source, &defs, &lock.wa_version);
     let mut sites = Vec::new();
@@ -42,7 +41,7 @@ pub fn run(args: &[String]) -> Result<()> {
             "construction module is absent from verified source index"
         );
         sites.push(json!({"sources":sources,"module":gap.module,"moduleSha256":wa_text::sha256_hex(module.as_bytes()),
-            "start":gap.start,"end":gap.end,"eventModule":gap.event_module,"eventExport":gap.event_export,"reason":gap.reason,
+            "start":gap.start,"end":gap.end,"eventModule":gap.event_module,"eventExport":gap.event_export,"reason":gap.reason,"field":gap.field,
             "constructionSha256":wa_text::sha256_hex(&module.as_bytes()[gap.start as usize..gap.end as usize])}));
     }
     sites.sort_by_key(|v| serde_json::to_string(v).unwrap());
@@ -53,4 +52,38 @@ pub fn run(args: &[String]) -> Result<()> {
         )?
     );
     Ok(())
+}
+
+fn counted_definitions(source: &str) -> Result<Vec<wa_transform::ModuleDefinition>> {
+    let mut defs = wa_transform::extract_module_definitions_checked(source)
+        .map_err(|errors| anyhow::anyhow!("bundle set parse failed: {}", errors.join("; ")))?;
+    // Match normal extraction's outer definitions: the WAM scanner already visits
+    // nested bodies. Keep the full nested index separately for source lookup.
+    let mut end = 0;
+    defs.retain(|definition| {
+        if definition.start < end {
+            false
+        } else {
+            end = definition.end;
+            true
+        }
+    });
+    Ok(defs)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn nested_definitions_do_not_double_count_wam_gaps() {
+        let source = r#"__d("Outer",["WAWebRawWamEvent"],function(){__d("Inner",["WAWebRawWamEvent"],function(){new(o("WAWebRawWamEvent")).RawWamEvent(unknown);});});"#;
+        let normal = wa_transform::extract_module_definitions(source);
+        let complete = wa_transform::extract_module_definitions_checked(source).unwrap();
+        assert_eq!(complete.len(), 2);
+        let counted = super::counted_definitions(source).unwrap();
+        let (_, expected) = wa_wam::extract_wam_from_modules(source, &normal, "test");
+        let (_, observed, gaps) = wa_wam::extract_wam_with_gap_sites(source, &counted, "test");
+        assert_eq!(observed.drops_by_reason, expected.drops_by_reason);
+        assert_eq!(gaps.len(), 2);
+        assert_eq!(counted, normal);
+    }
 }

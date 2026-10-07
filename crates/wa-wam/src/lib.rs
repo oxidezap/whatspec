@@ -66,6 +66,8 @@ pub struct WamGapSite {
     pub event_module: String,
     pub event_export: String,
     pub reason: String,
+    /// Written key when this location describes a catalog mismatch.
+    pub field: Option<String>,
 }
 
 /// What the scan recovered and, more importantly, what it did not.
@@ -363,6 +365,7 @@ fn collect_call_sites(
                 event_module: raw.event_module.clone(),
                 event_export: raw.export.clone(),
                 reason,
+                field: None,
             };
             if let Some(form) = raw.unread_argument {
                 if let Some(sites) = gap_sites.as_deref_mut() {
@@ -422,6 +425,11 @@ fn collect_call_sites(
                     // Anything else is a write we attributed wrongly, or a field the
                     // catalog does not know. Either way it is not schema to publish, and
                     // the site does write something this list cannot name.
+                    if let Some(sites) = gap_sites.as_deref_mut() {
+                        let mut site = gap(WRITTEN_KEY_NO_FIELD.to_string());
+                        site.field = Some(name.clone());
+                        sites.push(site);
+                    }
                     *diag
                         .drops_by_reason
                         .entry(WRITTEN_KEY_NO_FIELD.to_string())
