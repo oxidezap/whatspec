@@ -383,17 +383,31 @@ fn read_argument(
             match prop {
                 ObjectPropertyKind::ObjectProperty(p) => {
                     match wa_oxc::property_key_name(&p.key) {
-                        Some(name) => fields.push((
-                            name.to_string(),
-                            WamFieldWrite::Constructor,
-                            literal_value(&p.value, aliases),
-                        )),
-                        // A computed key writes a field whose name is a runtime value.
-                        None => *partial = true,
+                        Some(name) => {
+                            let value = literal_value(&p.value, aliases);
+                            for (previous_name, _, previous_value) in fields.iter_mut() {
+                                if previous_name == name {
+                                    *previous_value = value.clone();
+                                }
+                            }
+                            fields.push((name.to_string(), WamFieldWrite::Constructor, value));
+                        }
+                        // An unknown key may overwrite any preceding property.
+                        None => {
+                            for (_, _, value) in fields.iter_mut() {
+                                *value = None;
+                            }
+                            *partial = true;
+                        }
                     }
                 }
-                // A spread merges keys from elsewhere.
-                ObjectPropertyKind::SpreadProperty(_) => *partial = true,
+                // Preserve order: later explicit properties re-establish values.
+                ObjectPropertyKind::SpreadProperty(_) => {
+                    for (_, _, value) in fields.iter_mut() {
+                        *value = None;
+                    }
+                    *partial = true;
+                }
             }
         }
         return;
@@ -418,9 +432,9 @@ fn read_argument(
                         locals,
                     );
                     if operand_partial {
-                        // An unresolved key or spread can overwrite any earlier value,
-                        // including a value within this operand.
-                        for (_, _, value) in fields.iter_mut().chain(operand.iter_mut()) {
+                        // Unresolved keys can overwrite preceding operands. Values
+                        // within this operand already respect its property order.
+                        for (_, _, value) in fields.iter_mut() {
                             *value = None;
                         }
                         *partial = true;

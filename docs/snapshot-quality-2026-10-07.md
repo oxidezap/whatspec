@@ -161,6 +161,10 @@ operands now follow overwrite order; later event writes retain their existing
 conservative treatment. An unread later operand may overwrite earlier values,
 so those values are withdrawn until its keys can be established. Seven fixture
 cases cover both operand orders, unknown calls, computed keys and spreads.
+A further 20-case regression checks property order within direct/local objects
+and merge operands: unknown writes invalidate only preceding values; explicit
+properties after a spread or computed key establish their final values. This
+fix avoids both stale local values and unnecessary loss of later literals.
 
 On the exact current bundle set, this correction changes ten module/event
 pairs. Ignoring values, their field/write shapes are identical before and after;

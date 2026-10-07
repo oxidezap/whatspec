@@ -954,3 +954,38 @@ fn constructor_merges_follow_operand_order_without_overstating_unknown_overrides
         );
     }
 }
+
+#[test]
+fn object_properties_preserve_only_values_after_the_last_unknown_write() {
+    for (object, expected) in [
+        ("{retryCount:3,...runtimeFields}", None),
+        ("{...runtimeFields,retryCount:4}", Some(4)),
+        ("{retryCount:3,[runtimeKey]:7}", None),
+        ("{[runtimeKey]:7,retryCount:4}", Some(4)),
+        ("{retryCount:3,...runtimeFields,retryCount:4}", Some(4)),
+    ] {
+        for argument in [
+            "fields".to_string(),
+            object.to_string(),
+            "babelHelpers.extends({},fields)".to_string(),
+            format!("babelHelpers.extends({{}},{object})"),
+        ] {
+            let source = format!(
+                "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={object};new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent({argument});}}}});"
+            );
+            let (ir, _) = run_full(&source);
+            let site = &ir
+                .events
+                .iter()
+                .find(|e| e.name == "MessageSend")
+                .unwrap()
+                .call_sites[0];
+            assert!(site.partial, "{object} / {argument}");
+            assert_eq!(
+                site.fields[0].value,
+                expected.map(|value| WamCallSiteValue::Int { value }),
+                "{object} / {argument}"
+            );
+        }
+    }
+}
