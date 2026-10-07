@@ -171,3 +171,45 @@ Both verified bundle sets were recaptured with `WASmaxInGroupsBaseServerErrorMix
 added, giving 20 modules per snapshot. Its body shows the unique error child,
 IQ error response correlation and ordered ServerErrors parser delegation. All
 20 module bodies are identical between snapshots. No JavaScript was executed.
+
+## Joint qualification through schema closure fix
+
+Quality #52 at `eaea5f9e5d864ee9d5ef4074709eddb9aba51735` is now
+integrated with original ancestry. The follow-up changes Python validation and
+its tests/docs, not Rust extraction or code generation. Its 15 Python tests pass,
+including references in unvisited branches. The composition workflow now runs
+`python3 -m unittest discover -s scripts/tests -v` after installing jsonschema;
+the separate conformance-fixtures job remains unchanged.
+
+Local workspace tests with all features passed: 1,657 tests, none failed or
+ignored. This includes the two compiled independent snapshot suites and the IQ
+owner's runtime suite. All-feature/all-target Clippy and formatting passed.
+The committed 12 schema/document pairs, all exact lint baselines and five fixture
+tests pass. The current snapshot regenerated twice with all 35 files identical:
+15,384,513 bytes, 45.132 s and 51.543 s. The committed 27-artifact `--check` passed
+in 53.467 s. These are development-build observations, not comparable performance
+benchmarks against the earlier release-build baseline.
+
+CI run 37698190460 on 7ea45e4 passed determinism and fixture checks, but failed
+before running Rust tests: Cargo could not remove `target/debug/examples/gen`
+with ENOENT. Its log also identifies output-name collisions among the existing
+`gen` examples in wa-appstate, wa-codegen, wa-mex and wa-proto. This is not a
+conformance assertion failure; it remains an infrastructure issue to coordinate.
+A local default-feature build separately exhausted disk space; only this
+composition's build cache was removed, and the retry disables debug symbols.
+
+The three fixture-review threads have evidence replies and are resolved.
+Further quality findings about local objects in merges and overlapping module
+definitions remain under investigation by their owner. Do not declare complete
+stability from this qualification. No other PR branch has been modified.
+
+The default-feature retry completed with 1,657 passing tests, zero failures and
+zero ignored tests. Both snapshots still pass all eight independent compiled
+case groups. The old snapshot also regenerated twice identically: 35 files,
+15,307,071 bytes. Runs took 43.237 s and 83.053 s; the latter overlapped the clean
+Rust build after disk recovery. Its 12 schema/document pairs pass the updated
+validator. The interrupted generation was not counted as a successful repeat.
+
+Recommended integration order is #54, #52, #51 and #53, followed by #55's remaining
+qualification changes after retargeting/reviewing its diff. Preserve ancestry and
+avoid redistributing the composition commits into the individual workstreams.
