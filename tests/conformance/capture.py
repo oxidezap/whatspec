@@ -45,10 +45,12 @@ def capture(lock_path, bundles, output):
     executable = Path(__file__).resolve().parents[2] / 'target/debug/examples/module_spans'
     captured = {}
     evidence = []
-    for path, data in raw:
-        if not any(('"' + name + '"').encode() in data for name in MODULES):
-            continue
-        spans = subprocess.check_output([str(executable), str(path), *MODULES], text=True)
+    for _, data in raw:
+        # Parse precisely the bytes verified above. A path reread can race with
+        # changes to the input files. Let the AST handle all string spellings.
+        spans = subprocess.check_output(
+            [str(executable), '-', *MODULES], input=data
+        ).decode('utf-8')
         for row in spans.splitlines():
             name, start, end = row.split('\t')
             start, end = int(start), int(end)

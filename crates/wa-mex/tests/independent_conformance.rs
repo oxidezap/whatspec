@@ -29,8 +29,8 @@ fn verified_call_sites_keep_presence_separate_from_boolean_type() {
                 op.variables_presence[key].presence, expected,
                 "{version}: {key}"
             );
-            // All four are used as Relay Condition keys. That does not establish
-            // whether a call-site value can be null or undefined.
+            // The scalar-name heuristic types these fetch_* names as boolean.
+            // That does not establish call-site nullability or key presence.
             assert_eq!(op.variables_shape[key], TypeNode::Leaf("boolean".into()));
         }
         assert_eq!(

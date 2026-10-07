@@ -75,7 +75,9 @@ undefined; `fetch_pinned_messages` remains undetermined because its external
 call is not analyzed. Nested input.type is always present while input.key and
 input.view_role can be omitted.
 
-All these flag variables have inferred boolean type from Relay conditions.
+All these flag variables have inferred boolean type from their `fetch_` names.
+The extractor's scalar-name heuristic supplies that type; these tests do not
+establish inference from Relay conditions.
 That type does not prove nullability or presence. Synthetic callers of the real
 GraphQL operation separately test null, false, undefined, a property read, a
 comparison and an unresolved call. Null survives JSON object-key serialization;
@@ -93,9 +95,12 @@ python3 -m unittest discover -s tests/conformance -p 'test_*.py'
 cargo fmt --all -- --check
 ```
 
-The two Python tests check fixture span/hash identity and rejection of changed,
+The Python tests check fixture span/hash identity and rejection of changed,
 missing, extra bundles, wrong setHash and wrong bundle count. They need no
-network or compiled extractor. The Rust tests use only committed fixtures.
+network or compiled extractor. Instrumented subprocess tests also cover input
+mutation and single-quoted or escaped module names reaching the AST. Those tests
+check the subprocess boundary, not AST correctness. The Rust tests use only
+committed fixtures.
 The independent CI job `conformance-fixtures` runs
 `python3 tests/conformance/test_capture.py -v` on every workflow run, including
 when dependency checks fail in the separate `check` job.
@@ -111,8 +116,10 @@ python3 tests/conformance/capture.py LOCK_JSON VERIFIED_BUNDLE_DIRECTORY NEW_CAP
 `target/debug/examples/module_spans`. If using a custom Cargo target directory,
 copy that executable there or build the example with the default target first.
 Review all changed definitions and dependency paths before changing expected
-outcomes. The raw substring prefilter only selects candidate bundle files;
-AST module definitions supply the actual byte spans.
+outcomes. Every bundle is parsed without a substring prefilter, so valid string
+spellings are not silently excluded. The helper receives the already verified
+bytes on stdin; it does not reread the input file. AST module definitions supply
+the actual byte spans.
 
 The 2026-10-07 cloud executor's `whatspec restore` failed with
 `invalid peer certificate: UnknownIssuer`. Downloading the *same* release asset
@@ -144,6 +151,9 @@ All 13 provenance locations changed. Updating this selected baseline required
 zero semantic expectation changes and zero source overrides. The two fixture
 sets, including provenance, occupy 16,901 and 16,905 bytes. This observation does
 not establish stability of the rest of either bundle or eliminate future review.
+Recapture with verified bytes on stdin and no lexical prefilter reproduced both
+sets byte-for-byte. It took 23.265 s for the old snapshot and 18.812 s for the
+current snapshot on this executor, excluding download and compilation.
 
 Generation used baseline HEAD, the release-profile CLI, rustc 1.99.0, x86_64
 Linux, offline restored bundles, and separate initially empty output directories.
