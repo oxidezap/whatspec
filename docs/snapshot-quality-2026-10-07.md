@@ -131,17 +131,35 @@ local-object fix. A smaller synthetic refactor also fails before and passes afte
 Recovery accepts only a uniquely bound, directly initialized function-local
 object, with all uses accounted for as recognized constructor reads or sources
 of a fresh-target `babelHelpers.extends`. Mutation, escape, rebinding, conditional
-initialization, pre-initialization reads, direct eval, shadowing and outer closure
+initialization, pre-initialization reads, direct eval (including parenthesized
+callees), shadowing and outer closure
 reads remain unresolved. The pinned `WAWebWamTypeHash` constructor copies input
 fields through `set`; it does not mutate the source object. The async closure's
 inherited fields remain partial because invocation timing is not established.
 
-The fix recovers 14 unread arguments on the current set and 14 on the old set
+The initial local-object fix (`58afb2e`) recovers 14 unread arguments on the current set and 14 on the old set
 (the memberships differ; the ledger lists both). On the current snapshot it adds
 157 field occurrences, six field values, and two distinct call sites; partial
 sites fall from 126 to 114. Remaining unread arguments are 75 identifiers, one
 call and three members. Only `generated/wam/index.json` and
 `generated/manifest.json` change. No IQ, `spec.rs`, or IR schema redesign occurs.
+A review follow-up also recovers approved locals used inside fresh-target merges.
+`WAWebKeepInChatMsgAction` supplies nine fields through its local object in each
+of two constructors. `WAWebSmbMarkAsXOrderAction` supplies seven in each of two
+constructors; their additional call operands remain unread, so those sites stay
+partial. The follow-up adds 32 field occurrences and eight values, and separates
+two previously identical partial sites. Totals become 813 sites, 3,478 field
+occurrences, 804 values and 113 partial sites. All six baseline pins remain
+unchanged. Both source modules are in the focused sidecar. Regression tests
+reproduce the omitted merge fields and preserve partial status for unknown
+operands, escaped locals, mutated targets and outer closure reads.
+
+The nested-definition provenance review separately exposed overlapping WAM
+scans. Its regression counted each gap twice before the fix. `quality-gaps` now
+uses the normal extractor's outer module selection, while the source index
+continues to include nested definitions. Neither locked snapshot contains such
+nested definitions, so their reviewed gap ledgers are unchanged.
+
 Existing extraction entry points and `WamDiagnostics` retain their API; the gap
 sidecar uses a new optional function. IR schema stays 4.3.0 because this fills
 existing field semantics and makes no consumer contract change.
@@ -164,11 +182,11 @@ cargo test -p wa-transform -p wa-wam -p whatspec --all-features
 ```
 
 Source indexes are generated on demand (~14.2 MB each), not committed wholesale.
-The focused source and gap ledgers are ~66.6 KB and ~21.4 KB. Two real WAM fixtures
+The focused source and gap ledgers are ~86.5 KB and ~21.4 KB. Two real WAM fixtures
 retain exact source slices, with bundle hashes and offsets in their headers.
-The WAM document grows from 2,794,121 to 2,812,306 bytes by recovering existing
+The WAM document grows from 2,794,121 to 2,816,845 bytes by recovering existing
 field semantics; optional provenance adds no per-field IR metadata. WAM gap evidence incurs extra parsing only
-when requested. Final regeneration checks reproduce all 27 artifacts for the repaired current
+when requested. At the initial local-object revision, regeneration checks reproduce all 27 artifacts for the repaired current
 snapshot and a separately regenerated old snapshot. Observed check times were
 26.063 s (new) and 18.561 s (old); peak child RSS across the sequence was
 2,390,792 KiB. Compilation overlapped these runs, so they are cost observations,
@@ -177,9 +195,14 @@ not an isolated performance comparison.
 Changes to snapshot membership require reviewing these ledgers;
 count arithmetic alone is insufficient.
 
-The generic contract report contains 484 deltas (2,637,575 bytes), keeps ordered
+Unknown catalog-field writes also receive one gap location per counted
+occurrence, with the field name, rather than a counter without source evidence.
+Filtered source sidecars now explicitly record their requested module names;
+absence findings are limited to that selection.
+
+The generic contract report contains 486 deltas (2,652,610 bytes), keeps ordered
 arrays and does not infer renames.
 The [review ledger](snapshot-quality-2026-10-07.reviews.json) classifies the privacy
-improvement and persisted-ID change; the remaining 482 deltas stay indeterminate until
+improvement and persisted-ID change; the remaining 484 deltas stay indeterminate until
 reviewed. `--evidence` binds each review to both artifact hashes. The baseline
 dispositions above concern those six counters, not all contract differences.
