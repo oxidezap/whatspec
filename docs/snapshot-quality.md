@@ -24,12 +24,26 @@ python3 -m unittest discover -s scripts/tests -v
 cargo run --release -p whatspec -- diff old-generated generated --json > contracts.json
 ```
 
-The JSON report has its own `reportVersion: 1`. It is an additive CLI output,
-not a change to IR `schemaVersion`. No runtime consumer policy changes. In
+The JSON report has its own `reportVersion: 2`. Version 2 separates declared
+locks from verified input provenance. Historical manifests do not bind their
+artifacts to a bundle-set hash: matching `waVersion`, valid artifact hashes, and
+a self-consistent lock cannot prove which bundle set produced the artifacts.
+Accordingly `inputBinding.status` is `unverified` and `sameInputs` is `null`, even
+when the two declared locks match. `declaredInputs` and `sameDeclaredInputs`
+report those lock declarations explicitly; delta IDs bind `oldDeclaredSetHash`
+and `newDeclaredSetHash` without presenting them as verified build inputs.
+
+Historical snapshots remain comparable without fabricated bindings. No manifest
+field is backfilled, and no IR or generator schema changes. A future verified
+binding needs a coordinated producer/manifest contract. Version-1 review ledgers
+are rejected; regenerate IDs and use `reportVersion: 2` when migrating.
+
+This changes only the optional report contract,
+not IR `schemaVersion`. No runtime consumer policy changes. In
 particular, strict maintenance checks do not require clients to reject unknown
 extensions in received traffic.
 
-Each delta includes before/after values, document SHA-256, JSON Pointers, bundle
+Each delta includes before/after values, document SHA-256, JSON Pointers, declared bundle
 set hashes, and a stable ID bound to those values. Enums use `(module, name)`.
 MEX and app-state use the document's map keys. Other recognized top-level
 collections use explicit keys listed in `contract_diff.rs`. Duplicate keys stay
@@ -83,7 +97,9 @@ bundle locations. It checks the same complete bundle set and parse coverage.
 Two reasons may point at one construction; repeated copies of a module follow
 the extractor's existing deduplication. Counted diagnostics use the same outer
 module selection as normal extraction, avoiding overlapping scans of nested
-definitions. The provenance index still retains nested definitions. The optional sidecar does not enlarge the
+definitions. The provenance index still retains nested definitions. Counters without construction locations (such as unreadable global channel
+lists) are explicitly separated in `unlocatedDropsByReason`; an empty site list
+is not a claim of full source attribution. The optional sidecar does not enlarge the
 IR or change the existing `WamDiagnostics` API. Compare reports from the same
 extractor revision for upstream changes, and from two revisions on one locked
 set for extraction changes. Neither module names nor minified offsets establish
@@ -108,7 +124,7 @@ Store reviewed assessments in a small JSON file:
 
 ```json
 {
-  "reportVersion": 1,
+  "reportVersion": 2,
   "reviews": [{
     "id": "exact ID from contracts.json",
     "classification": "upstream-change",

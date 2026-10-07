@@ -1,5 +1,5 @@
 //! Optional WAM gap evidence tied to a verified bundle set.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -44,11 +44,12 @@ pub fn run(args: &[String]) -> Result<()> {
             "start":gap.start,"end":gap.end,"eventModule":gap.event_module,"eventExport":gap.event_export,"reason":gap.reason,"field":gap.field,
             "constructionSha256":wa_text::sha256_hex(&module.as_bytes()[gap.start as usize..gap.end as usize])}));
     }
+    let unlocated = unlocated_counts(&diag.drops_by_reason, &sites)?;
     sites.sort_by_key(|v| serde_json::to_string(v).unwrap());
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"qualityReportVersion":1,"waVersion":lock.wa_version,"setHash":lock.set_hash,"dropsByReason":diag.drops_by_reason,"wamGapSites":sites})
+            &json!({"qualityReportVersion":1,"waVersion":lock.wa_version,"setHash":lock.set_hash,"dropsByReason":diag.drops_by_reason,"unlocatedDropsByReason":unlocated,"wamGapSites":sites})
         )?
     );
     Ok(())
@@ -85,5 +86,67 @@ mod tests {
         assert_eq!(observed.drops_by_reason, expected.drops_by_reason);
         assert_eq!(gaps.len(), 2);
         assert_eq!(counted, normal);
+    }
+}
+
+fn unlocated_counts(
+    counts: &BTreeMap<String, usize>,
+    sites: &[serde_json::Value],
+) -> Result<BTreeMap<String, usize>> {
+    let mut unlocated = counts.clone();
+    for site in sites {
+        let reason = site["reason"].as_str().context("gap site reason missing")?;
+        let count = unlocated
+            .get_mut(reason)
+            .with_context(|| format!("uncounted gap site: {reason}"))?;
+        ensure!(*count > 0, "more located sites than counted gaps: {reason}");
+        *count -= 1;
+    }
+    unlocated.retain(|_, count| *count != 0);
+    Ok(unlocated)
+}
+
+#[cfg(test)]
+mod unlocated_tests {
+    #[test]
+    fn extracted_global_gap_is_not_presented_as_located() {
+        let source = r#"__d("Globals",["WAWebWamCodegenUtils"],function(t,n,r,o,a,i,l){var e=o("WAWebWamCodegenUtils");l.Global=e.defineGlobal({computed:[3,e.TYPES.STRING,[CHANNEL]],empty:[4,e.TYPES.STRING,[]]});});"#;
+        let defs = super::counted_definitions(source).unwrap();
+        let (_, diag, sites) = wa_wam::extract_wam_with_gap_sites(source, &defs, "test");
+        assert!(sites.is_empty());
+        assert_eq!(
+            diag.drops_by_reason["global with an unreadable channel list"],
+            2
+        );
+        assert_eq!(
+            super::unlocated_counts(&diag.drops_by_reason, &[]).unwrap(),
+            diag.drops_by_reason
+        );
+    }
+
+    #[test]
+    fn overlocated_counts_are_rejected_instead_of_clamped() {
+        let counts = std::collections::BTreeMap::from([("reason".to_string(), 1)]);
+        let sites = vec![serde_json::json!({"reason":"reason"}); 2];
+        assert!(super::unlocated_counts(&counts, &sites).is_err());
+    }
+
+    #[test]
+    fn global_gaps_are_explicitly_unlocated() {
+        let counts = std::collections::BTreeMap::from([
+            ("global with an unreadable channel list".to_string(), 1),
+            ("written key naming no field of the event".to_string(), 2),
+        ]);
+        let sites = vec![
+            serde_json::json!({"reason":"written key naming no field of the event"}),
+            serde_json::json!({"reason":"written key naming no field of the event"}),
+        ];
+        assert_eq!(
+            super::unlocated_counts(&counts, &sites).unwrap(),
+            std::collections::BTreeMap::from([(
+                "global with an unreadable channel list".to_string(),
+                1
+            ),])
+        );
     }
 }

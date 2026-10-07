@@ -924,3 +924,108 @@ fn unknown_field_gaps_have_one_location_per_counted_write() {
         std::collections::BTreeSet::from(["notInCatalog", "alsoUnknown"])
     );
 }
+
+#[test]
+fn constructor_merges_follow_operand_order_without_overstating_unknown_overrides() {
+    for (operands, expected, partial) in [
+        ("{},fields,{retryCount:4}", Some(4), false),
+        ("{},{retryCount:4},fields", Some(3), false),
+        ("{},fields,unknown(),{retryCount:4}", Some(4), true),
+        ("{},fields,unknown()", None, true),
+        ("{},fields,{...unknown()}", None, true),
+        ("{},fields,{[unknown()]:4}", None, true),
+        ("{},fields,{...unknown()},{retryCount:4}", Some(4), true),
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={{retryCount:3}};new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent(babelHelpers.extends({operands}));}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert_eq!(site.partial, partial, "{operands}");
+        assert_eq!(
+            site.fields[0].value,
+            expected.map(|value| WamCallSiteValue::Int { value }),
+            "{operands}"
+        );
+    }
+}
+
+#[test]
+fn object_properties_preserve_only_values_after_the_last_unknown_write() {
+    for (object, expected) in [
+        ("{retryCount:3,...runtimeFields}", None),
+        ("{...runtimeFields,retryCount:4}", Some(4)),
+        ("{retryCount:3,[runtimeKey]:7}", None),
+        ("{[runtimeKey]:7,retryCount:4}", Some(4)),
+        ("{retryCount:3,...runtimeFields,retryCount:4}", Some(4)),
+    ] {
+        for argument in [
+            "fields".to_string(),
+            object.to_string(),
+            "babelHelpers.extends({},fields)".to_string(),
+            format!("babelHelpers.extends({{}},{object})"),
+        ] {
+            let source = format!(
+                "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={object};new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent({argument});}}}});"
+            );
+            let (ir, _) = run_full(&source);
+            let site = &ir
+                .events
+                .iter()
+                .find(|e| e.name == "MessageSend")
+                .unwrap()
+                .call_sites[0];
+            assert!(site.partial, "{object} / {argument}");
+            assert_eq!(
+                site.fields[0].value,
+                expected.map(|value| WamCallSiteValue::Int { value }),
+                "{object} / {argument}"
+            );
+        }
+    }
+}
+
+#[test]
+fn opaque_post_constructor_writes_invalidate_preceding_constants() {
+    for write in [
+        "e.set(runtimeFields)",
+        "e.set({[runtimeKey]:7})",
+        "e.set({...runtimeFields,deviceCount:4})",
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={{retryCount:3}};var e=new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent(fields);{write};}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert!(site.partial, "{write}");
+        assert_eq!(
+            site.fields
+                .iter()
+                .find(|f| f.name == "retryCount")
+                .unwrap()
+                .value,
+            None,
+            "{write}"
+        );
+        if write.contains("deviceCount") {
+            assert_eq!(
+                site.fields
+                    .iter()
+                    .find(|f| f.name == "deviceCount")
+                    .unwrap()
+                    .value,
+                Some(WamCallSiteValue::Int { value: 4 })
+            );
+        }
+    }
+}

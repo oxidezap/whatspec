@@ -154,6 +154,45 @@ unchanged. Both source modules are in the focused sidecar. Regression tests
 reproduce the omitted merge fields and preserve partial status for unknown
 operands, escaped locals, mutated targets and outer closure reads.
 
+
+A second merge regression reproduces a lost final value: merging the approved
+local `{retryCount:3}` before `{retryCount:4}` must retain `4`. Constructor
+operands now follow overwrite order; later event writes retain their existing
+conservative treatment. An unread later operand may overwrite earlier values,
+so those values are withdrawn until its keys can be established. Seven fixture
+cases cover both operand orders, unknown calls, computed keys and spreads.
+A further 20-case regression checks property order within direct/local objects
+and merge operands: unknown writes invalidate only preceding values; explicit
+properties after a spread or computed key establish their final values. This
+fix avoids both stale local values and unnecessary loss of later literals.
+Opaque later `event.set(...)` writes also invalidate preceding constants while
+retaining their known field names. A before/after regression covers unknown
+objects, computed keys and a spread followed by a known setter field. This
+prevents newly recovered local constants from surviving an unproven overwrite.
+On the locked snapshot this withdraws three values (connectionType, networkStack
+and overallMmsVersion) in `WAWebCreateMediaDownloadMetrics`, whose event receives
+`set(babelHelpers.extends({},e.imageDimensions))`. Those operand keys are not
+recovered. Its source is included in the focused sidecar; site, field and
+construction counts remain unchanged, and all other generated domains are identical.
+
+On the exact current bundle set, this correction changes ten module/event
+pairs. Ignoring values, their field/write shapes are identical before and after;
+all 874 constructions remain counted. Six sites become duplicates after value
+withdrawal: WebcMemoryStat loses one duplicate, EditBusinessProfile two,
+CtwaOrderSignal one and PaidMessagingUserInteractionsLogger two. The other six
+changed groups are StatusReply, ChatMute, AttachmentTrayActions,
+PsGroupExitExperienceExitDialogInteraction, SmbQpCallHealth and
+CompanionInviteContact. All ten modules have exact source locators in the
+focused sidecar. Their unsupported later operands include calls, identifiers,
+conditional objects and logical expressions. This is a conservative correction
+to extraction certainty, not an upstream removal. Resolving those operand key
+sets could recover values later; the current extractor does not prove them.
+
+The final totals are 807 sites, 3,453 field occurrences, 766 values and 107
+partial sites. The write guard caught 813 → 807; an isolated generation and the
+field/write-shape comparison established the six deduplications before replacing
+the generated WAM/manifest. No guard, floor or diagnostic baseline was lowered.
+
 The nested-definition provenance review separately exposed overlapping WAM
 scans. Its regression counted each gap twice before the fix. `quality-gaps` now
 uses the normal extractor's outer module selection, while the source index
@@ -182,9 +221,9 @@ cargo test -p wa-transform -p wa-wam -p whatspec --all-features
 ```
 
 Source indexes are generated on demand (~14.2 MB each), not committed wholesale.
-The focused source and gap ledgers are ~86.5 KB and ~21.4 KB. Two real WAM fixtures
+The focused source and gap ledgers are ~106.7 KB and ~21.4 KB. Two real WAM fixtures
 retain exact source slices, with bundle hashes and offsets in their headers.
-The WAM document grows from 2,794,121 to 2,816,845 bytes by recovering existing
+The WAM document grows from 2,794,121 to 2,806,768 bytes by recovering existing
 field semantics; optional provenance adds no per-field IR metadata. WAM gap evidence incurs extra parsing only
 when requested. At the initial local-object revision, regeneration checks reproduce all 27 artifacts for the repaired current
 snapshot and a separately regenerated old snapshot. Observed check times were
@@ -200,9 +239,27 @@ occurrence, with the field name, rather than a counter without source evidence.
 Filtered source sidecars now explicitly record their requested module names;
 absence findings are limited to that selection.
 
-The generic contract report contains 486 deltas (2,652,610 bytes), keeps ordered
+The generic contract report contains 495 deltas (2,725,041 bytes), keeps ordered
 arrays and does not infer renames.
 The [review ledger](snapshot-quality-2026-10-07.reviews.json) classifies the privacy
-improvement and persisted-ID change; the remaining 484 deltas stay indeterminate until
+improvement and persisted-ID change; the remaining 493 deltas stay indeterminate until
 reviewed. `--evidence` binds each review to both artifact hashes. The baseline
 dispositions above concern those six counters, not all contract differences.
+
+
+## Manifest/lock binding limitation
+
+A same-version lock-swap regression confirms that the historical manifest does
+not bind its document hashes to the lock's bundle set. A valid replacement lock
+was accepted and previously gave an authoritative-looking `sameInputs` verdict.
+Report version 2 retains historical comparison but marks the input binding
+unverified, reports declared lock identities separately, and returns unknown
+(`null`) for `sameInputs`. No hashes are fabricated or backfilled into manifests;
+the existing manual restore/regeneration evidence remains distinct from what the
+comparison command can verify on its own. Version-1 review ledgers must migrate.
+
+The exact global-channel fixture recorded in #55 (set hash
+`840dfc3f996afcfac451f80043580175b4443db0487ec4c056ffb02bc9fd57be`)
+reproduces two drops with zero construction sites. These remain unlocated and
+are now explicitly reported as one `unlocatedDropsByReason` counter of two;
+no complete source-attribution claim is made for them.

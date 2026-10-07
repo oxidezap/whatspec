@@ -123,9 +123,14 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
         };
         match w.field {
             Some(field) => site.fields.push((field, WamFieldWrite::Assigned, w.value)),
-            // A key the scan could not read still writes a field, so the site's list
-            // stops being the whole of what it writes.
-            None => site.partial = true,
+            // An opaque setter can overwrite any preceding value, even though
+            // the names already observed remain useful lower-bound evidence.
+            None => {
+                for (_, _, value) in &mut site.fields {
+                    *value = None;
+                }
+                site.partial = true;
+            }
         }
     }
     sites
@@ -303,16 +308,6 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                 None,
             );
             let declared_in = binding_name(&base).and_then(|n| self.resolve(n));
-            for (field, _, value) in fields {
-                self.writes.push(RawWrite {
-                    binding: base.clone(),
-                    field: Some(field),
-                    value,
-                    start: call.span.start,
-                    scope: self.scope_chain(),
-                    declared_in,
-                });
-            }
             // One unnamed write stands for everything the argument writes and the scan
             // could not name, whether that is a spread, a computed key, or an object
             // assembled somewhere else entirely.
@@ -321,6 +316,19 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                     binding: base.clone(),
                     field: None,
                     value: None,
+                    start: call.span.start,
+                    scope: self.scope_chain(),
+                    declared_in,
+                });
+            }
+            // read_argument already accounts for unknown writes within this
+            // operand. Apply its remaining known values after invalidating earlier
+            // event values; later event writes still merge conservatively.
+            for (field, _, value) in fields {
+                self.writes.push(RawWrite {
+                    binding: base.clone(),
+                    field: Some(field),
+                    value,
                     start: call.span.start,
                     scope: self.scope_chain(),
                     declared_in,
@@ -383,17 +391,31 @@ fn read_argument(
             match prop {
                 ObjectPropertyKind::ObjectProperty(p) => {
                     match wa_oxc::property_key_name(&p.key) {
-                        Some(name) => fields.push((
-                            name.to_string(),
-                            WamFieldWrite::Constructor,
-                            literal_value(&p.value, aliases),
-                        )),
-                        // A computed key writes a field whose name is a runtime value.
-                        None => *partial = true,
+                        Some(name) => {
+                            let value = literal_value(&p.value, aliases);
+                            for (previous_name, _, previous_value) in fields.iter_mut() {
+                                if previous_name == name {
+                                    *previous_value = value.clone();
+                                }
+                            }
+                            fields.push((name.to_string(), WamFieldWrite::Constructor, value));
+                        }
+                        // An unknown key may overwrite any preceding property.
+                        None => {
+                            for (_, _, value) in fields.iter_mut() {
+                                *value = None;
+                            }
+                            *partial = true;
+                        }
                     }
                 }
-                // A spread merges keys from elsewhere.
-                ObjectPropertyKind::SpreadProperty(_) => *partial = true,
+                // Preserve order: later explicit properties re-establish values.
+                ObjectPropertyKind::SpreadProperty(_) => {
+                    for (_, _, value) in fields.iter_mut() {
+                        *value = None;
+                    }
+                    *partial = true;
+                }
             }
         }
         return;
@@ -407,9 +429,42 @@ fn read_argument(
                     if as_object(e).is_some()
                         || locals.is_some_and(|values| values.contains_key(&e.span().start)) =>
                 {
-                    read_argument(e, fields, partial, unread, aliases, locals)
+                    let mut operand = Vec::new();
+                    let mut operand_partial = false;
+                    read_argument(
+                        e,
+                        &mut operand,
+                        &mut operand_partial,
+                        unread,
+                        aliases,
+                        locals,
+                    );
+                    if operand_partial {
+                        // Unresolved keys can overwrite preceding operands. Values
+                        // within this operand already respect its property order.
+                        for (_, _, value) in fields.iter_mut() {
+                            *value = None;
+                        }
+                        *partial = true;
+                    }
+                    for (name, write, value) in operand {
+                        // Object.assign semantics: later operands overwrite earlier
+                        // ones. Keep occurrences for diagnostics, but agree on the
+                        // final constructor value before merging later event writes.
+                        for (previous_name, _, previous_value) in fields.iter_mut() {
+                            if previous_name == &name {
+                                *previous_value = value.clone();
+                            }
+                        }
+                        fields.push((name, write, value));
+                    }
                 }
-                _ => *partial = true,
+                _ => {
+                    for (_, _, value) in fields.iter_mut() {
+                        *value = None;
+                    }
+                    *partial = true;
+                }
             }
         }
         return;

@@ -62,6 +62,55 @@
           "start": 141037
         }
       ],
+      "WAWebAttachmentMenuLogger": [
+        {
+          "bundleSha256": "034314e49fa571a8e2e8491843a15536326b4a47d1f66ac7704d2332ee1b391e",
+          "dependencies": [
+            "$InternalEnum",
+            "WAWebAttachmentTrayActionsWamEvent",
+            "WAWebChatGetters",
+            "WAWebWamEnumAttachmentTrayActionTargetType",
+            "WAWebWamEnumAttachmentTrayActionType",
+            "WAWebWamNumberToClientGroupSizeBucket",
+            "nullthrows"
+          ],
+          "end": 3232816,
+          "factorySha256": "095a938a6c71cbd6d01ab226c282561fa2c16e528a5b1bff4c30aabe06554910",
+          "moduleSha256": "39ab20991281aad8818bbaca7bee0979531d9aedaf12974005684837945488f6",
+          "start": 3230163
+        },
+        {
+          "bundleSha256": "9d3897273785385ceffb16bd782418bf1460264ee1ad124fcd2b86a96ce1b03d",
+          "dependencies": [
+            "$InternalEnum",
+            "WAWebAttachmentTrayActionsWamEvent",
+            "WAWebChatGetters",
+            "WAWebWamEnumAttachmentTrayActionTargetType",
+            "WAWebWamEnumAttachmentTrayActionType",
+            "WAWebWamNumberToClientGroupSizeBucket",
+            "nullthrows"
+          ],
+          "end": 18888,
+          "factorySha256": "095a938a6c71cbd6d01ab226c282561fa2c16e528a5b1bff4c30aabe06554910",
+          "moduleSha256": "39ab20991281aad8818bbaca7bee0979531d9aedaf12974005684837945488f6",
+          "start": 16235
+        }
+      ],
+      "WAWebChatMuteLogger": [
+        {
+          "bundleSha256": "6c83d155d35d8a7086b9ece97922d02acb37a603f5df1dc2c2107f347ae9283f",
+          "dependencies": [
+            "WAWebChatGetters",
+            "WAWebChatMuteWamEvent",
+            "WAWebWamEnumActionConducted",
+            "WAWebWamEnumMuteChatType"
+          ],
+          "end": 45047,
+          "factorySha256": "6e9509bb3384401c9157f4280708aeeea61c000a42f176ee2428ac81b6b92109",
+          "moduleSha256": "1bf6c004215c3d05237eff06af5983e3cd2b27ba51865d2ec4877c9bb2a2152e",
+          "start": 43964
+        }
+      ],
       "WAWebContactManagerCustomerProfilesQuery": [
         {
           "bundleSha256": "792466f7a00cd5862ac782f916733975cd9f46800bb9fd9679a1301411c24508",
@@ -118,6 +167,29 @@
           "start": 241411
         }
       ],
+      "WAWebCreateMediaDownloadMetrics": [
+        {
+          "bundleSha256": "ffe69f61924eb23c1d65cb89a152e4ce35ee404bd52a7edcced9c037b236f490",
+          "dependencies": [
+            "WAWebAppTracker",
+            "WAWebCoreActionsODS",
+            "WAWebMediaCryptoEligibilityUtils",
+            "WAWebMediaDownload2WamEvent",
+            "WAWebMmsDownloadUploadCrashLogger",
+            "WAWebMmsMediaTypes",
+            "WAWebWamEnumConnectionType",
+            "WAWebWamEnumMediaDownloadResultType",
+            "WAWebWamEnumNetworkStackType",
+            "WAWebWamGroupMetricCache",
+            "WAWebWamMediaMetricUtils",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 3715179,
+          "factorySha256": "28049201a39821e258bb82e57a46e2ead4bfc9c56d0864dc8a3dba8c27325396",
+          "moduleSha256": "b5983d980dc5ac9db3c9c9512bac87958a0f794d42b722761ea44a393f5e3bc9",
+          "start": 3710612
+        }
+      ],
       "WAWebDebugLabyrinthInboxSnapshotQuery": [
         {
           "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
@@ -166,6 +238,20 @@
           "start": 369272
         }
       ],
+      "WAWebEditFormLogEvents": [
+        {
+          "bundleSha256": "e1f2135976735b8b3c1c3807780c1ce0a276f3e2cb1e4fd0fd342fd541ba45f1",
+          "dependencies": [
+            "WAWebEditBusinessProfileWamEvent",
+            "WAWebWamEnumBusinessProfileEntryPoint",
+            "WAWebWamEnumEditProfileAction"
+          ],
+          "end": 34172,
+          "factorySha256": "97f1b68ad5fefc6d61f8e3f1d0fa3c18f5bdc34b3c97cd71237008f70029257f",
+          "moduleSha256": "9a65ed06c77b42abcf4f83c101bc70ed453dea8e74fa34d5ca76c8c8aa848f64",
+          "start": 31405
+        }
+      ],
       "WAWebFilterLogging": [
         {
           "bundleSha256": "15339e541ca850185a14c0603d262eed300ad5019b65d3582aaf3a8eeab1cc96",
@@ -190,6 +276,45 @@
           "factorySha256": "249f8462a2ca5cfe294d73249b76f0797036c591552f6152d678056a56a4178d",
           "moduleSha256": "0da3d9c081cbf3b3372af10aa04da2f768a58c316caf63676456e2104fbe7783",
           "start": 500906
+        }
+      ],
+      "WAWebGroupExitModalLoggingUtils": [
+        {
+          "bundleSha256": "fd26924373be0ce0e773c304511df62909fa76e11d9294c0509542d3f38f842d",
+          "dependencies": [
+            "WAWebPsGroupExitExperienceExitDeleteConfirmationDialogUiInteractionWamEvent",
+            "WAWebPsGroupExitExperienceExitDialogInteractionWamEvent",
+            "WAWebPsGroupExitExperienceGroupActionWamEvent",
+            "WAWebSpamConstants",
+            "WAWebWamEnumGroupExitExperienceOrigin",
+            "WAWebWamEnumPsGroupExitExperienceActions",
+            "WAWebWamEnumPsGroupExitExperienceDeleteConfirmationDialogActions",
+            "WAWebWamEnumPsGroupExitExperienceExitDialogActions"
+          ],
+          "end": 387978,
+          "factorySha256": "fe9058df08fabf78e5110335b0b938b713abc6a647c7f7699fb867530a16b0a6",
+          "moduleSha256": "7a7c86020d8023d7ac43439513a7d303fd0f0acfbe037114c6c255ff9c57166c",
+          "start": 383109
+        }
+      ],
+      "WAWebInteractiveMessageCarouselLogEvents": [
+        {
+          "bundleSha256": "cf6197f616a43cf9004101d911d5643e8fa63972b2d27a54e8bba8db062abb8f",
+          "dependencies": [
+            "WALogger",
+            "WAWebInteractiveMessageHeaderMediaType",
+            "WAWebMsgCollection",
+            "WAWebPaidMessagingUserInteractionsLoggerWamEvent",
+            "WAWebWamEnumPaidMessagingUserInteractionsActionTarget",
+            "WAWebWamEnumPaidMessagingUserInteractionsActionType",
+            "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
+            "WAWebWamEnumPaidMessagingUserInteractionsHeaderMediaType",
+            "WAWebWamEnumPaidMessagingUserInteractionsMarketingFormat"
+          ],
+          "end": 718950,
+          "factorySha256": "8b18a15fe4f431036d89b0e5444aae58df52cc7783e56e717c986b77816ff332",
+          "moduleSha256": "1e7a9a8e67c3ea5e9f173c51ee16458f3181862346d90cef938458114bdcc2d7",
+          "start": 713460
         }
       ],
       "WAWebKeepInChatMsgAction": [
@@ -359,6 +484,28 @@
           "start": 3406431
         }
       ],
+      "WAWebLogStatusReply": [
+        {
+          "bundleSha256": "72622fd528bcdb8719660018f754e37ce201276a4c5fdead04f82bc81648de8d",
+          "dependencies": [
+            "WAWebConnModel",
+            "WAWebFrontendContactGetters",
+            "WAWebGroupMetadataCollection",
+            "WAWebMsgGetters",
+            "WAWebStatusLoggingUtils",
+            "WAWebStatusReplyWamEvent",
+            "WAWebUnifiedSession",
+            "WAWebWamEnumReplyEntryMethod",
+            "WAWebWamEnumStatusCategory",
+            "WAWebWamEnumStatusPosterContactType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 310869,
+          "factorySha256": "7ec0de7d9423c74f32ee83ca207898e2694ffcc22808009d3ed95f4ceac89e4d",
+          "moduleSha256": "c599680d4b3c5906322fd830518243770768cc55f160561a46e3beaaa0003b7b",
+          "start": 308936
+        }
+      ],
       "WAWebMexLogging": [
         {
           "bundleSha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
@@ -369,6 +516,26 @@
           "factorySha256": "dd1551ae839013f1bdc42de069d375d5d02cbad9834cdd8f558e1f6ae980c120",
           "moduleSha256": "e6d862350fb96e5beb62395ed2f4742252b959cc7970a342b66b24c84e99b621",
           "start": 2398464
+        }
+      ],
+      "WAWebOutContactLoggingUtils": [
+        {
+          "bundleSha256": "ed2f08bc12a1128a06ddafe25fc62e5d102593245a8b5e818fd8f2eedab3ffb9",
+          "dependencies": [
+            "WAWebCompanionInviteContactWamEvent",
+            "WAWebContactCollection",
+            "WAWebOutContactCollection",
+            "WAWebOutContactInviteJourney",
+            "WAWebOutContactInviteUtils",
+            "WAWebWamEnumCompanionInviteActionType",
+            "WAWebWamEnumCompanionInviteMethodType",
+            "WAWebWamEnumCompanionInviteOriginType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 111346,
+          "factorySha256": "11d3c6bb1bc65e80af4542d2e00f8b1b27bf0cb87f89aea6bd2ab5702310ab39",
+          "moduleSha256": "9432c365f05a84032454be3b7c10d57ff5618cd8175f1343b7bf1c5c883eea47",
+          "start": 108105
         }
       ],
       "WAWebPaymentsUserActionLogging": [
@@ -546,6 +713,20 @@
           "factorySha256": "125d3d53c2827ca3d567e91463710aadb4a4d0ef51b4da9b151b57456e22979f",
           "moduleSha256": "deab3df6b2d904ea080a98abbf83c04f25c1d949e03d72ca20904f67291d4055",
           "start": 681256
+        }
+      ],
+      "WAWebSmbQpCallHealthLogger": [
+        {
+          "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+          "dependencies": [
+            "WAWebSmbQpCallHealthWamEvent",
+            "WAWebWamEnumFetchMechanismEnum",
+            "WAWebWamEnumFetchResultEnum"
+          ],
+          "end": 1338673,
+          "factorySha256": "44889e0ea5a53becf02caadda4b55f7e08c1b4d8eb0db920ccdc32180d5066b0",
+          "moduleSha256": "052f116f9ae291854880570c31095ba8962de655517aad5de3efc0efc39bd4e7",
+          "start": 1338052
         }
       ],
       "WAWebStatusSubtitle.react": [
@@ -903,6 +1084,32 @@
           "start": 3445837
         }
       ],
+      "WAWebWamMemoryStat": [
+        {
+          "bundleSha256": "82f783508805f734f16747c4bd0670a496f13004e8a0acd11fe5f45efaffd754",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAShiftTimer",
+            "WAWebAppTracker",
+            "WAWebBackendApi",
+            "WAWebEnvironment",
+            "WAWebLidAwareContactsDB",
+            "WAWebMemoryStatWamEvent",
+            "WAWebRuntimeEnvironmentUtils",
+            "WAWebSchemaChat",
+            "WAWebSchemaMessage",
+            "WAWebWamEnumWebcScenarioType",
+            "WAWebWebcMemoryStatWamEvent",
+            "asyncToGeneratorRuntime",
+            "nullthrows"
+          ],
+          "end": 195115,
+          "factorySha256": "1b02243900bdc22f3061d236781be24099072edb67f2c8d27ec6fefa2bf335d9",
+          "moduleSha256": "b01e97129f29b855a5c5878c15a98cc4477ed8cc4a0309ab097173b7450fd5b8",
+          "start": 190059
+        }
+      ],
       "WAWebWamTypeHash": [
         {
           "bundleSha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
@@ -1246,20 +1453,28 @@
         "EBMessageMetadataQueryQuery.graphql",
         "EBMessageMetadataQueryQuery_facebookRelayOperation",
         "WAWebAccountLinkingAPIGetCertsQuery.graphql",
+        "WAWebAttachmentMenuLogger",
+        "WAWebChatMuteLogger",
         "WAWebContactManagerCustomerProfilesQuery",
         "WAWebContactManagerCustomerProfilesQuery_facebookRelayOperation",
         "WAWebCreateLabyrinthBackupJob",
         "WAWebCreateLabyrinthBackupJobMutation.graphql",
+        "WAWebCreateMediaDownloadMetrics",
         "WAWebDebugLabyrinthInboxSnapshotQuery",
         "WAWebDebugLabyrinthInboxSnapshotQuery.graphql",
         "WAWebDebugLabyrinthRangeQuery",
         "WAWebDebugLabyrinthRangeQuery.graphql",
+        "WAWebEditFormLogEvents",
         "WAWebFilterLogging",
+        "WAWebGroupExitModalLoggingUtils",
+        "WAWebInteractiveMessageCarouselLogEvents",
         "WAWebKeepInChatMsgAction",
         "WAWebKmpSyncdRequestBuilder",
+        "WAWebLogStatusReply",
         "WAWebMexLogging",
         "WAWebMexUpdateNewsletterAdminProfileSettingJob",
         "WAWebMexUpdateNewsletterAdminProfileSettingJobMutation.graphql",
+        "WAWebOutContactLoggingUtils",
         "WAWebPaymentsUserActionLogging",
         "WAWebPixWamLogger",
         "WAWebRotateLabyrinthEpochJob",
@@ -1269,6 +1484,7 @@
         "WAWebSetPrivacyJob",
         "WAWebSmb3pdAggregatedConversionSignalAction",
         "WAWebSmbMarkAsXOrderAction",
+        "WAWebSmbQpCallHealthLogger",
         "WAWebStatusSubtitle.react",
         "WAWebStatusViewerActionWamEvent",
         "WAWebTeamLinkCreateInvitationDialog.react",
@@ -1292,6 +1508,7 @@
         "WAWebUploadLabyrinthMessagesJobMutation.graphql",
         "WAWebWamCodegenUtils",
         "WAWebWamFingerprintReporter",
+        "WAWebWamMemoryStat",
         "WAWebWamTypeHash",
         "WAWebWindowsHybridBridgeWam.v2589",
         "WAWebWindowsHybridBridgeWam.v2590",
@@ -1341,6 +1558,55 @@
           "start": 2181768
         }
       ],
+      "WAWebAttachmentMenuLogger": [
+        {
+          "bundleSha256": "7d75ce3fb8d9c7f0645869634d4379c6516b437918f4124649615004ae0fade1",
+          "dependencies": [
+            "$InternalEnum",
+            "WAWebAttachmentTrayActionsWamEvent",
+            "WAWebChatGetters",
+            "WAWebWamEnumAttachmentTrayActionTargetType",
+            "WAWebWamEnumAttachmentTrayActionType",
+            "WAWebWamNumberToClientGroupSizeBucket",
+            "nullthrows"
+          ],
+          "end": 18888,
+          "factorySha256": "095a938a6c71cbd6d01ab226c282561fa2c16e528a5b1bff4c30aabe06554910",
+          "moduleSha256": "39ab20991281aad8818bbaca7bee0979531d9aedaf12974005684837945488f6",
+          "start": 16235
+        },
+        {
+          "bundleSha256": "9b681e073f14f9d50e3dc12b456e4f980b554eff4d58827bc91c90a697e9ca38",
+          "dependencies": [
+            "$InternalEnum",
+            "WAWebAttachmentTrayActionsWamEvent",
+            "WAWebChatGetters",
+            "WAWebWamEnumAttachmentTrayActionTargetType",
+            "WAWebWamEnumAttachmentTrayActionType",
+            "WAWebWamNumberToClientGroupSizeBucket",
+            "nullthrows"
+          ],
+          "end": 2996308,
+          "factorySha256": "095a938a6c71cbd6d01ab226c282561fa2c16e528a5b1bff4c30aabe06554910",
+          "moduleSha256": "39ab20991281aad8818bbaca7bee0979531d9aedaf12974005684837945488f6",
+          "start": 2993655
+        }
+      ],
+      "WAWebChatMuteLogger": [
+        {
+          "bundleSha256": "df74e44978c7d32ee20a0fe2cb1abce4a0d74a3bedfa6288a6314e274f2d10eb",
+          "dependencies": [
+            "WAWebChatGetters",
+            "WAWebChatMuteWamEvent",
+            "WAWebWamEnumActionConducted",
+            "WAWebWamEnumMuteChatType"
+          ],
+          "end": 42016,
+          "factorySha256": "6e9509bb3384401c9157f4280708aeeea61c000a42f176ee2428ac81b6b92109",
+          "moduleSha256": "1bf6c004215c3d05237eff06af5983e3cd2b27ba51865d2ec4877c9bb2a2152e",
+          "start": 40933
+        }
+      ],
       "WAWebContactManagerCustomerProfilesQuery": [
         {
           "bundleSha256": "36dc1290c51b02500ad640ba5aa793dd1b5e9172afcb71ff327d64cd1f279717",
@@ -1374,6 +1640,44 @@
           "start": 252637
         }
       ],
+      "WAWebCreateMediaDownloadMetrics": [
+        {
+          "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+          "dependencies": [
+            "WAWebAppTracker",
+            "WAWebCoreActionsODS",
+            "WAWebExperienceIdWamFields",
+            "WAWebMediaCryptoEligibilityUtils",
+            "WAWebMediaDownload2WamEvent",
+            "WAWebMmsDownloadUploadCrashLogger",
+            "WAWebMmsMediaTypes",
+            "WAWebWamEnumConnectionType",
+            "WAWebWamEnumMediaDownloadResultType",
+            "WAWebWamEnumNetworkStackType",
+            "WAWebWamGroupMetricCache",
+            "WAWebWamMediaMetricUtils",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 2094305,
+          "factorySha256": "92ec9196bb03ec55ca551494cf9688ee3a1cc3c7feb431c9e878f4feb80e72c6",
+          "moduleSha256": "58e2dd068081ba0b7312da568963dde22059085eac557ae8b0c11a90bdc3f55a",
+          "start": 2089600
+        }
+      ],
+      "WAWebEditFormLogEvents": [
+        {
+          "bundleSha256": "7783a694b3a8bc3a379585817de0e477c75729c73b21adbffbf060f5f0ac2860",
+          "dependencies": [
+            "WAWebEditBusinessProfileWamEvent",
+            "WAWebWamEnumBusinessProfileEntryPoint",
+            "WAWebWamEnumEditProfileAction"
+          ],
+          "end": 86839,
+          "factorySha256": "97f1b68ad5fefc6d61f8e3f1d0fa3c18f5bdc34b3c97cd71237008f70029257f",
+          "moduleSha256": "9a65ed06c77b42abcf4f83c101bc70ed453dea8e74fa34d5ca76c8c8aa848f64",
+          "start": 84072
+        }
+      ],
       "WAWebFilterLogging": [
         {
           "bundleSha256": "3759ae9b91f03d11301433abb539dbe1cf575b9ba83d71cac768aa5fd662f76a",
@@ -1399,6 +1703,80 @@
           "factorySha256": "a0db83c75fe040009567e94d701af42f964b21895a39d0caed0ed896ef252e65",
           "moduleSha256": "85cbd606e0574186e121e596c1470e1f97ec3afe3fee67bdce69d9e309082669",
           "start": 399753
+        }
+      ],
+      "WAWebGroupExitModalLoggingUtils": [
+        {
+          "bundleSha256": "9b681e073f14f9d50e3dc12b456e4f980b554eff4d58827bc91c90a697e9ca38",
+          "dependencies": [
+            "WAWebPsGroupExitExperienceExitDeleteConfirmationDialogUiInteractionWamEvent",
+            "WAWebPsGroupExitExperienceExitDialogInteractionWamEvent",
+            "WAWebPsGroupExitExperienceGroupActionWamEvent",
+            "WAWebSpamConstants",
+            "WAWebWamEnumGroupExitExperienceOrigin",
+            "WAWebWamEnumPsGroupExitExperienceActions",
+            "WAWebWamEnumPsGroupExitExperienceDeleteConfirmationDialogActions",
+            "WAWebWamEnumPsGroupExitExperienceExitDialogActions"
+          ],
+          "end": 5210584,
+          "factorySha256": "fe9058df08fabf78e5110335b0b938b713abc6a647c7f7699fb867530a16b0a6",
+          "moduleSha256": "7a7c86020d8023d7ac43439513a7d303fd0f0acfbe037114c6c255ff9c57166c",
+          "start": 5205715
+        },
+        {
+          "bundleSha256": "ee46bf4858a1118a5a2c15d36c4ddc414fa927c6d527922616e4f2951ca87046",
+          "dependencies": [
+            "WAWebPsGroupExitExperienceExitDeleteConfirmationDialogUiInteractionWamEvent",
+            "WAWebPsGroupExitExperienceExitDialogInteractionWamEvent",
+            "WAWebPsGroupExitExperienceGroupActionWamEvent",
+            "WAWebSpamConstants",
+            "WAWebWamEnumGroupExitExperienceOrigin",
+            "WAWebWamEnumPsGroupExitExperienceActions",
+            "WAWebWamEnumPsGroupExitExperienceDeleteConfirmationDialogActions",
+            "WAWebWamEnumPsGroupExitExperienceExitDialogActions"
+          ],
+          "end": 68715,
+          "factorySha256": "fe9058df08fabf78e5110335b0b938b713abc6a647c7f7699fb867530a16b0a6",
+          "moduleSha256": "7a7c86020d8023d7ac43439513a7d303fd0f0acfbe037114c6c255ff9c57166c",
+          "start": 63846
+        }
+      ],
+      "WAWebInteractiveMessageCarouselLogEvents": [
+        {
+          "bundleSha256": "42d8fdeb3a308f2dd813f71ee1f8cb04490c5c14b824926db713d8849b52d046",
+          "dependencies": [
+            "WALogger",
+            "WAWebInteractiveMessageHeaderMediaType",
+            "WAWebMsgCollection",
+            "WAWebPaidMessagingUserInteractionsLoggerWamEvent",
+            "WAWebWamEnumPaidMessagingUserInteractionsActionTarget",
+            "WAWebWamEnumPaidMessagingUserInteractionsActionType",
+            "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
+            "WAWebWamEnumPaidMessagingUserInteractionsHeaderMediaType",
+            "WAWebWamEnumPaidMessagingUserInteractionsMarketingFormat"
+          ],
+          "end": 194530,
+          "factorySha256": "8b18a15fe4f431036d89b0e5444aae58df52cc7783e56e717c986b77816ff332",
+          "moduleSha256": "1e7a9a8e67c3ea5e9f173c51ee16458f3181862346d90cef938458114bdcc2d7",
+          "start": 189040
+        },
+        {
+          "bundleSha256": "9b681e073f14f9d50e3dc12b456e4f980b554eff4d58827bc91c90a697e9ca38",
+          "dependencies": [
+            "WALogger",
+            "WAWebInteractiveMessageHeaderMediaType",
+            "WAWebMsgCollection",
+            "WAWebPaidMessagingUserInteractionsLoggerWamEvent",
+            "WAWebWamEnumPaidMessagingUserInteractionsActionTarget",
+            "WAWebWamEnumPaidMessagingUserInteractionsActionType",
+            "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
+            "WAWebWamEnumPaidMessagingUserInteractionsHeaderMediaType",
+            "WAWebWamEnumPaidMessagingUserInteractionsMarketingFormat"
+          ],
+          "end": 4140335,
+          "factorySha256": "8b18a15fe4f431036d89b0e5444aae58df52cc7783e56e717c986b77816ff332",
+          "moduleSha256": "1e7a9a8e67c3ea5e9f173c51ee16458f3181862346d90cef938458114bdcc2d7",
+          "start": 4134845
         }
       ],
       "WAWebKeepInChatMsgAction": [
@@ -1543,6 +1921,29 @@
           "start": 211383
         }
       ],
+      "WAWebLogStatusReply": [
+        {
+          "bundleSha256": "7a224a1f4e67acb7e519b9676abfa86806e50426e7ed4a9f76e517536fe279ca",
+          "dependencies": [
+            "WAWebConnGetters",
+            "WAWebConnModel",
+            "WAWebFrontendContactGetters",
+            "WAWebGroupMetadataCollection",
+            "WAWebMsgGetters",
+            "WAWebStatusLoggingUtils",
+            "WAWebStatusReplyWamEvent",
+            "WAWebUnifiedSession",
+            "WAWebWamEnumReplyEntryMethod",
+            "WAWebWamEnumStatusCategory",
+            "WAWebWamEnumStatusPosterContactType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 100073,
+          "factorySha256": "5706dcf44b2875fc3bb5872b83a2922e6b8a20f7174a35425db232d361c8380b",
+          "moduleSha256": "a21ba878b42be9dc32114cb6f18c72a1f80dece8f46622142f5d07ad01d62151",
+          "start": 98095
+        }
+      ],
       "WAWebMexLogging": [
         {
           "bundleSha256": "430cb8979511aada95178605faa35a8483446f677ce6d1fe0fd66333c7879eee",
@@ -1578,6 +1979,26 @@
           "factorySha256": "f0413602fff7b0686d4735f017f6041bfc6665a606e3b6527a7c7d2e3a25bd8d",
           "moduleSha256": "a67f3672a91e2d1b66e3015540b6c402c91734ce4d614e361ee46fce41699ac8",
           "start": 486221
+        }
+      ],
+      "WAWebOutContactLoggingUtils": [
+        {
+          "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+          "dependencies": [
+            "WAWebCompanionInviteContactWamEvent",
+            "WAWebContactCollection",
+            "WAWebOutContactCollection",
+            "WAWebOutContactInviteJourney",
+            "WAWebOutContactInviteUtils",
+            "WAWebWamEnumCompanionInviteActionType",
+            "WAWebWamEnumCompanionInviteMethodType",
+            "WAWebWamEnumCompanionInviteOriginType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 109773,
+          "factorySha256": "11d3c6bb1bc65e80af4542d2e00f8b1b27bf0cb87f89aea6bd2ab5702310ab39",
+          "moduleSha256": "9432c365f05a84032454be3b7c10d57ff5618cd8175f1343b7bf1c5c883eea47",
+          "start": 106532
         }
       ],
       "WAWebPaymentsUserActionLogging": [
@@ -1743,6 +2164,20 @@
           "factorySha256": "125d3d53c2827ca3d567e91463710aadb4a4d0ef51b4da9b151b57456e22979f",
           "moduleSha256": "deab3df6b2d904ea080a98abbf83c04f25c1d949e03d72ca20904f67291d4055",
           "start": 920769
+        }
+      ],
+      "WAWebSmbQpCallHealthLogger": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WAWebSmbQpCallHealthWamEvent",
+            "WAWebWamEnumFetchMechanismEnum",
+            "WAWebWamEnumFetchResultEnum"
+          ],
+          "end": 1822299,
+          "factorySha256": "44889e0ea5a53becf02caadda4b55f7e08c1b4d8eb0db920ccdc32180d5066b0",
+          "moduleSha256": "052f116f9ae291854880570c31095ba8962de655517aad5de3efc0efc39bd4e7",
+          "start": 1821678
         }
       ],
       "WAWebStatusSubtitle.react": [
@@ -1953,6 +2388,32 @@
           "start": 1821158
         }
       ],
+      "WAWebWamMemoryStat": [
+        {
+          "bundleSha256": "082e0ef2faaa6247e6e17a225bb1685b7e583e946f7b0dc17ee58c431c1a07a8",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAShiftTimer",
+            "WAWebAppTracker",
+            "WAWebBackendApi",
+            "WAWebEnvironment",
+            "WAWebLidAwareContactsDB",
+            "WAWebMemoryStatWamEvent",
+            "WAWebRuntimeEnvironmentUtils",
+            "WAWebSchemaChat",
+            "WAWebSchemaMessage",
+            "WAWebWamEnumWebcScenarioType",
+            "WAWebWebcMemoryStatWamEvent",
+            "asyncToGeneratorRuntime",
+            "nullthrows"
+          ],
+          "end": 333425,
+          "factorySha256": "d9847636ca73ff7a075db6fb43f143ae2e39b7705b75f03ec4a2c2cfd4cb956a",
+          "moduleSha256": "40fef991a58d5c9f5b987e9436c41e50e26daa592c2c2f0cf4af0c218452aca7",
+          "start": 328387
+        }
+      ],
       "WAWebWamTypeHash": [
         {
           "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
@@ -2099,20 +2560,28 @@
         "EBMessageMetadataQueryQuery.graphql",
         "EBMessageMetadataQueryQuery_facebookRelayOperation",
         "WAWebAccountLinkingAPIGetCertsQuery.graphql",
+        "WAWebAttachmentMenuLogger",
+        "WAWebChatMuteLogger",
         "WAWebContactManagerCustomerProfilesQuery",
         "WAWebContactManagerCustomerProfilesQuery_facebookRelayOperation",
         "WAWebCreateLabyrinthBackupJob",
         "WAWebCreateLabyrinthBackupJobMutation.graphql",
+        "WAWebCreateMediaDownloadMetrics",
         "WAWebDebugLabyrinthInboxSnapshotQuery",
         "WAWebDebugLabyrinthInboxSnapshotQuery.graphql",
         "WAWebDebugLabyrinthRangeQuery",
         "WAWebDebugLabyrinthRangeQuery.graphql",
+        "WAWebEditFormLogEvents",
         "WAWebFilterLogging",
+        "WAWebGroupExitModalLoggingUtils",
+        "WAWebInteractiveMessageCarouselLogEvents",
         "WAWebKeepInChatMsgAction",
         "WAWebKmpSyncdRequestBuilder",
+        "WAWebLogStatusReply",
         "WAWebMexLogging",
         "WAWebMexUpdateNewsletterAdminProfileSettingJob",
         "WAWebMexUpdateNewsletterAdminProfileSettingJobMutation.graphql",
+        "WAWebOutContactLoggingUtils",
         "WAWebPaymentsUserActionLogging",
         "WAWebPixWamLogger",
         "WAWebRotateLabyrinthEpochJob",
@@ -2122,6 +2591,7 @@
         "WAWebSetPrivacyJob",
         "WAWebSmb3pdAggregatedConversionSignalAction",
         "WAWebSmbMarkAsXOrderAction",
+        "WAWebSmbQpCallHealthLogger",
         "WAWebStatusSubtitle.react",
         "WAWebStatusViewerActionWamEvent",
         "WAWebTeamLinkCreateInvitationDialog.react",
@@ -2145,6 +2615,7 @@
         "WAWebUploadLabyrinthMessagesJobMutation.graphql",
         "WAWebWamCodegenUtils",
         "WAWebWamFingerprintReporter",
+        "WAWebWamMemoryStat",
         "WAWebWamTypeHash",
         "WAWebWindowsHybridBridgeWam.v2589",
         "WAWebWindowsHybridBridgeWam.v2590",
