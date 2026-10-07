@@ -6,7 +6,7 @@ use std::path::{Component, Path};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 
 fn pointer(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
@@ -94,8 +94,10 @@ impl Snapshot {
 
     fn metadata(&self) -> Value {
         json!({"waVersion": self.manifest["waVersion"], "schemaVersion": self.manifest["schemaVersion"],
-            "generatorVersion": self.manifest["generatorVersion"], "setHash": self.lock.set_hash,
-            "bundleCount": self.lock.bundle_count})
+            "generatorVersion": self.manifest["generatorVersion"],
+            "declaredInputs": {"setHash": self.lock.set_hash, "bundleCount": self.lock.bundle_count,
+                "lockStatus":"self-consistent"},
+            "inputBinding": {"status":"unverified", "reason":"manifest-does-not-bind-inputs"}})
     }
 }
 
@@ -308,10 +310,11 @@ pub fn report(old: &Path, new: &Path, evidence: Option<&Path>) -> Result<Value> 
                 // that document even though there is no field pointer to reference.
                 change["oldArtifactSha256"] = json!(a.map(|(_, hash, _)| hash));
                 change["newArtifactSha256"] = json!(b.map(|(_, hash, _)| hash));
-                // Bind a review to exact artifact contents AND inputs, not just a name
-                // that can survive an unrelated future snapshot.
-                change["oldSetHash"] = json!(old.lock.set_hash);
-                change["newSetHash"] = json!(new.lock.set_hash);
+                // Bind reviews to artifact contents and declared locks. A valid lock
+                // does not prove which bundle set produced an unbound manifest.
+                change["oldDeclaredSetHash"] = json!(old.lock.set_hash);
+                change["newDeclaredSetHash"] = json!(new.lock.set_hash);
+                change["inputBinding"] = json!("unverified");
                 change["id"] = json!(wa_text::sha256_hex(
                     serde_json::to_string(&change)?.as_bytes()
                 ));
@@ -336,9 +339,11 @@ pub fn report(old: &Path, new: &Path, evidence: Option<&Path>) -> Result<Value> 
     }
     Ok(
         json!({"reportVersion": FORMAT_VERSION, "old": old.metadata(), "new": new.metadata(),
-        "sameInputs": old.lock.set_hash == new.lock.set_hash, "classifications": classifications,
+        "sameInputs": null, "sameDeclaredInputs": old.lock.set_hash == new.lock.set_hash,
+        "classifications": classifications,
         "changes": changes, "oldDiagnostics": old.manifest["diagnostics"], "newDiagnostics": new.manifest["diagnostics"],
-        "limits": ["No automatic rename matching or compatibility verdict.", "Reviews are supplied evidence assessments, not machine proofs.",
+        "limits": ["Historical manifests do not bind their inputs. Lock consistency and matching versions cannot establish actual input identity; sameInputs is unknown.",
+            "No automatic rename matching or compatibility verdict.", "Reviews are supplied evidence assessments, not machine proofs.",
             "Source module hints may require following mixins or other dependencies.", "Unkeyed and ambiguous arrays retain order; protobuf is an opaque artifact delta."]}),
     )
 }
@@ -523,9 +528,59 @@ mod tests {
     }
 
     #[test]
+    fn same_version_lock_swap_does_not_claim_verified_inputs() {
+        let dir =
+            std::env::temp_dir().join(format!("whatspec-unbound-inputs-{}", std::process::id()));
+        let write = |name: &str, bundle: &[u8]| {
+            let root = dir.join(name);
+            std::fs::create_dir_all(&root).unwrap();
+            let lock = wa_store::lock::BundleLock::new(
+                "test",
+                vec![wa_store::lock::BundleId {
+                    sha256: wa_text::sha256_hex(bundle),
+                    size: bundle.len() as u64,
+                    url: None,
+                }],
+            );
+            std::fs::write(root.join("bundles.lock.json"), lock.to_pretty_json()).unwrap();
+            let doc = json!({"waVersion":"test", "schemaVersion":"4.3.0"}).to_string();
+            std::fs::write(root.join("index.json"), &doc).unwrap();
+            let manifest = json!({"waVersion":"test", "schemaVersion":"4.3.0", "domains":{"test":{"file":"index.json", "sha256":wa_text::sha256_hex(doc.as_bytes())}}});
+            std::fs::write(root.join("manifest.json"), manifest.to_string()).unwrap();
+            root
+        };
+        let old = write("old", b"bundle-a");
+        let new = write("new", b"bundle-b"); // Identical version, manifest and artifacts; a different valid lock.
+        let result = report(&old, &new, None).unwrap();
+        assert!(result["sameInputs"].is_null());
+        assert_eq!(result["sameDeclaredInputs"], false);
+        assert_eq!(result["old"]["inputBinding"]["status"], "unverified");
+        assert_eq!(result["new"]["inputBinding"]["status"], "unverified");
+        assert_ne!(
+            result["old"]["declaredInputs"]["setHash"],
+            result["new"]["declaredInputs"]["setHash"]
+        );
+        let same = report(&old, &old, None).unwrap();
+        assert!(same["sameInputs"].is_null());
+        assert_eq!(same["sameDeclaredInputs"], true);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn v1_reviews_are_rejected_after_input_provenance_semantics_change() {
+        let old = json!({"reportVersion":1, "reviews":[]});
+        assert!(
+            apply_reviews(&mut [], &old)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported")
+        );
+    }
+
+    #[test]
     fn reviewed_causes_are_explicit_and_cannot_be_renames() {
         let mut changes = [json!({"id":"current"})];
-        let mut review = json!({"reportVersion":1,"reviews":[{"id":"current","classification":"extraction-loss","basis":"field remains in source","references":["bundle SHA-256 and byte span"]}]});
+        let mut review = json!({"reportVersion":2,"reviews":[{"id":"current","classification":"extraction-loss","basis":"field remains in source","references":["bundle SHA-256 and byte span"]}]});
         apply_reviews(&mut changes, &review).unwrap();
         assert_eq!(changes[0]["assessment"]["origin"], "reviewed-evidence");
         review["reviews"][0]["classification"] = json!("rename");
@@ -588,7 +643,7 @@ mod tests {
 
     #[test]
     fn stale_reviews_fail_instead_of_reclassifying_another_snapshot() {
-        let review = json!({"reportVersion":1,"reviews":[{"id":"wrong","classification":"upstream-change","basis":"verified","references":["bundle:offset"]}]});
+        let review = json!({"reportVersion":2,"reviews":[{"id":"wrong","classification":"upstream-change","basis":"verified","references":["bundle:offset"]}]});
         assert!(
             apply_reviews(&mut [json!({"id":"current"})], &review)
                 .unwrap_err()

@@ -200,9 +200,27 @@ occurrence, with the field name, rather than a counter without source evidence.
 Filtered source sidecars now explicitly record their requested module names;
 absence findings are limited to that selection.
 
-The generic contract report contains 486 deltas (2,652,610 bytes), keeps ordered
+The generic contract report contains 486 deltas (2,678,428 bytes), keeps ordered
 arrays and does not infer renames.
 The [review ledger](snapshot-quality-2026-10-07.reviews.json) classifies the privacy
 improvement and persisted-ID change; the remaining 484 deltas stay indeterminate until
 reviewed. `--evidence` binds each review to both artifact hashes. The baseline
 dispositions above concern those six counters, not all contract differences.
+
+
+## Manifest/lock binding limitation
+
+A same-version lock-swap regression confirms that the historical manifest does
+not bind its document hashes to the lock's bundle set. A valid replacement lock
+was accepted and previously gave an authoritative-looking `sameInputs` verdict.
+Report version 2 retains historical comparison but marks the input binding
+unverified, reports declared lock identities separately, and returns unknown
+(`null`) for `sameInputs`. No hashes are fabricated or backfilled into manifests;
+the existing manual restore/regeneration evidence remains distinct from what the
+comparison command can verify on its own. Version-1 review ledgers must migrate.
+
+The exact global-channel fixture recorded in #55 (set hash
+`840dfc3f996afcfac451f80043580175b4443db0487ec4c056ffb02bc9fd57be`)
+reproduces two drops with zero construction sites. These remain unlocated and
+are now explicitly reported as one `unlocatedDropsByReason` counter of two;
+no complete source-attribution claim is made for them.

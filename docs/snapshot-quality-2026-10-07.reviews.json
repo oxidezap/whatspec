@@ -1,8 +1,8 @@
 {
-  "reportVersion": 1,
+  "reportVersion": 2,
   "reviews": [
     {
-      "id": "44f5730a6c4282f12bd9200b9d8864a3e3beb75f7b3daa6fb0dc074a1d269aa0",
+      "id": "8fe1a63820214e0217e2ce355b3728c03b129312df3cc3f11274f703c88dec52",
       "classification": "extraction-improvement",
       "basis": "The upstream helper changes from four positional arguments to one object. Its category attributes and repeated user child remain present. The new IR recovers name/value/dhash and users[] paths; the old user paths incorrectly passed through name. This does not establish full branch coverage.",
       "references": [
@@ -11,7 +11,7 @@
       ]
     },
     {
-      "id": "4c8e12058941be16491dc7de2abd60931c52c9405fa962eb8f262bc38972b3b0",
+      "id": "0c77cf9ebec284161c2884867101bcfb5fb9faacb8e4f5bc7adc0439f39caaa4",
       "classification": "upstream-change",
       "basis": "The preserved facebookRelayOperation module exports literal 27747880408206174 in the old set and 27796221486653417 in the new set. Both values agree with their IR. This establishes a persisted operation ID change in these snapshots, not server compatibility.",
       "references": [
