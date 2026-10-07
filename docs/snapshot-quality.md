@@ -75,7 +75,9 @@ This keeps recoverable provenance outside every repeated field of the IR.
 module-relative constructor byte spans, constructor/module hashes, and matching
 bundle locations. It checks the same complete bundle set and parse coverage.
 Two reasons may point at one construction; repeated copies of a module follow
-the extractor's existing deduplication. The optional sidecar does not enlarge the
+the extractor's existing deduplication. Counted diagnostics use the same outer
+module selection as normal extraction, avoiding overlapping scans of nested
+definitions. The provenance index still retains nested definitions. The optional sidecar does not enlarge the
 IR or change the existing `WamDiagnostics` API. Compare reports from the same
 extractor revision for upstream changes, and from two revisions on one locked
 set for extraction changes. Neither module names nor minified offsets establish
