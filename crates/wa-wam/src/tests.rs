@@ -783,6 +783,7 @@ fn mutable_escaped_shadowed_and_conditionally_initialized_arguments_stay_partial
         "function send(){var fields={retryCount:3}; function inner(){new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields); var fields;} inner();}",
         "function send(){var fields={retryCount:3}; fields={deviceCount:1}; new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
         "function send(){var fields={retryCount:3}; function inner(){new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);} inner();}",
+        "function send(){var fields={retryCount:3}; (eval)('fields={}'); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
         "function send(){var fields={retryCount:3}; eval('fields={}'); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
     ] {
         let (ir, _) = run_full(&format!(
@@ -830,4 +831,96 @@ fn pinned_status_subtitle_refactor_preserves_attribution_fields() {
             .any(|s| !s.partial && fields(s) == expected)
     );
     assert!(new.call_sites.iter().any(|s| s.partial));
+}
+
+#[test]
+fn approved_locals_are_recovered_inside_fresh_target_merges() {
+    let source = format!(
+        r#"{LOCAL_ARGUMENT_CATALOG}__d("Reporter",["WAWebMessageSendWamEvent"],function(){{
+        function send(){{var fields={{retryCount:3}};
+            new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent(babelHelpers.extends({{}},fields,{{deviceCount:1}}));
+        }}
+    }});"#
+    );
+    let (ir, _) = run_full(&source);
+    let site = &ir
+        .events
+        .iter()
+        .find(|e| e.name == "MessageSend")
+        .unwrap()
+        .call_sites[0];
+    assert!(!site.partial);
+    assert_eq!(
+        site.fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>(),
+        ["deviceCount", "retryCount"]
+    );
+}
+
+#[test]
+fn mutated_merge_targets_and_escaped_sources_stay_partial() {
+    for body in [
+        "var fields={retryCount:3}; new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(babelHelpers.extends(fields,{deviceCount:1}));",
+        "var fields={retryCount:3}; escape(fields); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(babelHelpers.extends({},fields));",
+        "var fields={retryCount:3}; function inner(){new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(babelHelpers.extends({},fields));} inner();",
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{{body}}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert!(site.partial, "{body}");
+        assert!(
+            !site.fields.iter().any(|f| f.name == "retryCount"),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn approved_merge_fields_survive_an_unread_operand_without_claiming_completeness() {
+    let source = format!(
+        r#"{LOCAL_ARGUMENT_CATALOG}__d("Reporter",["WAWebMessageSendWamEvent"],function(){{
+        function send(){{var fields={{retryCount:3}};
+            new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent(babelHelpers.extends({{}},fields,unknown()));
+        }}
+    }});"#
+    );
+    let (ir, _) = run_full(&source);
+    let site = &ir
+        .events
+        .iter()
+        .find(|e| e.name == "MessageSend")
+        .unwrap()
+        .call_sites[0];
+    assert!(site.partial);
+    assert_eq!(site.fields.len(), 1);
+    assert_eq!(site.fields[0].name, "retryCount");
+}
+
+#[test]
+fn unknown_field_gaps_have_one_location_per_counted_write() {
+    let source = format!(
+        r#"{LOCAL_ARGUMENT_CATALOG}__d("Reporter",["WAWebMessageSendWamEvent"],function(){{
+        new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent({{notInCatalog:1,alsoUnknown:2}});
+    }});"#
+    );
+    let defs = wa_transform::extract_module_definitions(&source);
+    let (_, diag, gaps) = extract_wam_with_gap_sites(&source, &defs, "test");
+    let reason = "written key naming no field of the event";
+    assert_eq!(diag.drops_by_reason[reason], 2);
+    assert_eq!(gaps.iter().filter(|g| g.reason == reason).count(), 2);
+    assert_eq!(
+        gaps.iter()
+            .filter_map(|g| g.field.as_deref())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["notInCatalog", "alsoUnknown"])
+    );
 }

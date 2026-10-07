@@ -39433,6 +39433,22 @@
           "module": "WAWebKeepInChatMsgAction",
           "fields": [
             {
+              "name": "canEditDmSettings",
+              "write": "constructor"
+            },
+            {
+              "name": "chatEphemeralityDuration",
+              "write": "constructor"
+            },
+            {
+              "name": "isAGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "isAdmin",
+              "write": "constructor"
+            },
+            {
               "name": "keptCount",
               "write": "constructor"
             },
@@ -39450,19 +39466,58 @@
               }
             },
             {
+              "name": "kicActor",
+              "write": "constructor"
+            },
+            {
+              "name": "kicEntryPoint",
+              "write": "constructor"
+            },
+            {
+              "name": "mediaType",
+              "write": "constructor"
+            },
+            {
               "name": "messageExpiredOnUnkeep",
               "write": "constructor"
             },
             {
               "name": "messageExpiryTimer",
               "write": "constructor"
+            },
+            {
+              "name": "messagesSelected",
+              "write": "constructor",
+              "value": {
+                "kind": "int",
+                "value": 1
+              }
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         },
         {
           "module": "WAWebKeepInChatMsgAction",
           "fields": [
+            {
+              "name": "canEditDmSettings",
+              "write": "constructor"
+            },
+            {
+              "name": "chatEphemeralityDuration",
+              "write": "constructor"
+            },
+            {
+              "name": "isAGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "isAdmin",
+              "write": "constructor"
+            },
             {
               "name": "keptCount",
               "write": "constructor"
@@ -39475,9 +39530,32 @@
                 "module": "WAWebWamEnumKicActionNameType",
                 "key": "KEEP_MESSAGE"
               }
+            },
+            {
+              "name": "kicActor",
+              "write": "constructor"
+            },
+            {
+              "name": "kicEntryPoint",
+              "write": "constructor"
+            },
+            {
+              "name": "mediaType",
+              "write": "constructor"
+            },
+            {
+              "name": "messagesSelected",
+              "write": "constructor",
+              "value": {
+                "kind": "int",
+                "value": 1
+              }
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         },
         {
           "module": "WAWebKeptDrawer.react",
@@ -47631,6 +47709,97 @@
       "callSites": [
         {
           "module": "WAWebSmbMarkAsXOrderAction",
+          "fields": [
+            {
+              "name": "ctwaOrderSignalVersion",
+              "write": "constructor",
+              "value": {
+                "kind": "int",
+                "value": 1
+              }
+            },
+            {
+              "name": "customerAdsSharingSettingEnabled",
+              "write": "constructor"
+            },
+            {
+              "name": "deepLinkConversionSource",
+              "write": "constructor"
+            },
+            {
+              "name": "orderPaid",
+              "write": "constructor"
+            },
+            {
+              "name": "orderSignalType",
+              "write": "constructor",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumOrderSignalType",
+                "key": "UPDATED"
+              }
+            },
+            {
+              "name": "orderStatus",
+              "write": "constructor"
+            },
+            {
+              "name": "threadIdHmac",
+              "write": "constructor"
+            }
+          ],
+          "partial": true
+        },
+        {
+          "module": "WAWebSmbMarkAsXOrderAction",
+          "fields": [
+            {
+              "name": "ctwaOrderSignalVersion",
+              "write": "constructor",
+              "value": {
+                "kind": "int",
+                "value": 1
+              }
+            },
+            {
+              "name": "customerAdsSharingSettingEnabled",
+              "write": "constructor"
+            },
+            {
+              "name": "deepLinkConversionSource",
+              "write": "constructor"
+            },
+            {
+              "name": "orderPaid",
+              "write": "constructor",
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            },
+            {
+              "name": "orderSignalType",
+              "write": "constructor",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumOrderSignalType",
+                "key": "CREATED"
+              }
+            },
+            {
+              "name": "orderStatus",
+              "write": "constructor",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumOrderStatus",
+                "key": "PROCESSING"
+              }
+            },
+            {
+              "name": "threadIdHmac",
+              "write": "constructor"
+            }
+          ],
           "partial": true
         }
       ]

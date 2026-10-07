@@ -41,7 +41,7 @@ pub fn run(args: &[String]) -> Result<()> {
             "construction module is absent from verified source index"
         );
         sites.push(json!({"sources":sources,"module":gap.module,"moduleSha256":wa_text::sha256_hex(module.as_bytes()),
-            "start":gap.start,"end":gap.end,"eventModule":gap.event_module,"eventExport":gap.event_export,"reason":gap.reason,
+            "start":gap.start,"end":gap.end,"eventModule":gap.event_module,"eventExport":gap.event_export,"reason":gap.reason,"field":gap.field,
             "constructionSha256":wa_text::sha256_hex(&module.as_bytes()[gap.start as usize..gap.end as usize])}));
     }
     sites.sort_by_key(|v| serde_json::to_string(v).unwrap());
