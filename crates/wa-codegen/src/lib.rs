@@ -826,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn confirmation_spec_has_unit_response() {
+    fn unrecovered_response_keeps_legacy_type_but_returns_error() {
         let ir = IqIr {
             wa_version: "0.0.0".into(),
             stanzas: vec![IqStanzaDef {
@@ -857,7 +857,8 @@ mod tests {
         assert!(c.contains("pub struct AckSpec;")); // no fields → unit struct
         assert!(c.contains("type Response = ();"));
         assert!(c.contains("InfoQuery::set(W_X_NAMESPACE, Jid::new(\"\", Server::Group), None)"));
-        assert!(c.contains("Ok(())"));
+        assert!(!c.contains("Ok(())"));
+        assert!(c.contains("response.contract_missing"));
     }
 
     #[test]
