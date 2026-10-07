@@ -924,3 +924,33 @@ fn unknown_field_gaps_have_one_location_per_counted_write() {
         std::collections::BTreeSet::from(["notInCatalog", "alsoUnknown"])
     );
 }
+
+#[test]
+fn constructor_merges_follow_operand_order_without_overstating_unknown_overrides() {
+    for (operands, expected, partial) in [
+        ("{},fields,{retryCount:4}", Some(4), false),
+        ("{},{retryCount:4},fields", Some(3), false),
+        ("{},fields,unknown(),{retryCount:4}", Some(4), true),
+        ("{},fields,unknown()", None, true),
+        ("{},fields,{...unknown()}", None, true),
+        ("{},fields,{[unknown()]:4}", None, true),
+        ("{},fields,{...unknown()},{retryCount:4}", Some(4), true),
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={{retryCount:3}};new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent(babelHelpers.extends({operands}));}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert_eq!(site.partial, partial, "{operands}");
+        assert_eq!(
+            site.fields[0].value,
+            expected.map(|value| WamCallSiteValue::Int { value }),
+            "{operands}"
+        );
+    }
+}

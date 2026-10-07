@@ -407,9 +407,42 @@ fn read_argument(
                     if as_object(e).is_some()
                         || locals.is_some_and(|values| values.contains_key(&e.span().start)) =>
                 {
-                    read_argument(e, fields, partial, unread, aliases, locals)
+                    let mut operand = Vec::new();
+                    let mut operand_partial = false;
+                    read_argument(
+                        e,
+                        &mut operand,
+                        &mut operand_partial,
+                        unread,
+                        aliases,
+                        locals,
+                    );
+                    if operand_partial {
+                        // An unresolved key or spread can overwrite any earlier value,
+                        // including a value within this operand.
+                        for (_, _, value) in fields.iter_mut().chain(operand.iter_mut()) {
+                            *value = None;
+                        }
+                        *partial = true;
+                    }
+                    for (name, write, value) in operand {
+                        // Object.assign semantics: later operands overwrite earlier
+                        // ones. Keep occurrences for diagnostics, but agree on the
+                        // final constructor value before merging later event writes.
+                        for (previous_name, _, previous_value) in fields.iter_mut() {
+                            if previous_name == &name {
+                                *previous_value = value.clone();
+                            }
+                        }
+                        fields.push((name, write, value));
+                    }
                 }
-                _ => *partial = true,
+                _ => {
+                    for (_, _, value) in fields.iter_mut() {
+                        *value = None;
+                    }
+                    *partial = true;
+                }
             }
         }
         return;

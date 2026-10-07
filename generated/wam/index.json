@@ -20549,12 +20549,7 @@
             },
             {
               "name": "replyEntryMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumReplyEntryMethod",
-                "key": "TAP_REPLY_BAR"
-              }
+              "write": "constructor"
             },
             {
               "name": "statusCategory",
@@ -20704,33 +20699,6 @@
         "WAWebWamMemoryStat"
       ],
       "callSites": [
-        {
-          "module": "WAWebWamMemoryStat",
-          "fields": [
-            {
-              "name": "isForeground",
-              "write": "constructor"
-            },
-            {
-              "name": "peakUsedJsHeapSize",
-              "write": "constructor"
-            },
-            {
-              "name": "scenario",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumWebcScenarioType",
-                "key": "CHAT_NAVIGATION"
-              }
-            },
-            {
-              "name": "usedJsHeapSize",
-              "write": "constructor"
-            }
-          ],
-          "partial": true
-        },
         {
           "module": "WAWebWamMemoryStat",
           "fields": [
@@ -21495,12 +21463,7 @@
           "fields": [
             {
               "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
+              "write": "constructor"
             },
             {
               "name": "editBusinessProfileSessionId",
@@ -21508,43 +21471,6 @@
             },
             {
               "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_OPEN"
-              }
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebEditFormLogEvents",
-          "fields": [
-            {
-              "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
-            },
-            {
-              "name": "editBusinessProfileSessionId",
-              "write": "constructor"
-            },
-            {
-              "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_PROFILE_FIELD_OPEN"
-              }
-            },
-            {
-              "name": "editProfileActionField",
               "write": "constructor"
             }
           ],
@@ -21555,12 +21481,7 @@
           "fields": [
             {
               "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
+              "write": "constructor"
             },
             {
               "name": "editBusinessProfileSessionId",
@@ -21568,44 +21489,7 @@
             },
             {
               "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_PROFILE_FIELD_SAVE"
-              }
-            },
-            {
-              "name": "editProfileActionField",
               "write": "constructor"
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebEditFormLogEvents",
-          "fields": [
-            {
-              "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
-            },
-            {
-              "name": "editBusinessProfileSessionId",
-              "write": "constructor"
-            },
-            {
-              "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_PROFILE_FIELD_DISCARD"
-              }
             },
             {
               "name": "editProfileActionField",
@@ -30557,12 +30441,7 @@
           "fields": [
             {
               "name": "actionConducted",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumActionConducted",
-                "key": "MUTE"
-              }
+              "write": "constructor"
             },
             {
               "name": "muteChatType",
@@ -30584,12 +30463,7 @@
           "fields": [
             {
               "name": "actionConducted",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumActionConducted",
-                "key": "UNMUTE"
-              }
+              "write": "constructor"
             },
             {
               "name": "muteChatType",
@@ -46629,12 +46503,7 @@
             },
             {
               "name": "attachmentTrayAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumAttachmentTrayActionType",
-                "key": "CLICK"
-              }
+              "write": "constructor"
             },
             {
               "name": "attachmentTrayActionTarget",
@@ -47712,11 +47581,7 @@
           "fields": [
             {
               "name": "ctwaOrderSignalVersion",
-              "write": "constructor",
-              "value": {
-                "kind": "int",
-                "value": 1
-              }
+              "write": "constructor"
             },
             {
               "name": "customerAdsSharingSettingEnabled",
@@ -47732,68 +47597,11 @@
             },
             {
               "name": "orderSignalType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumOrderSignalType",
-                "key": "UPDATED"
-              }
+              "write": "constructor"
             },
             {
               "name": "orderStatus",
               "write": "constructor"
-            },
-            {
-              "name": "threadIdHmac",
-              "write": "constructor"
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebSmbMarkAsXOrderAction",
-          "fields": [
-            {
-              "name": "ctwaOrderSignalVersion",
-              "write": "constructor",
-              "value": {
-                "kind": "int",
-                "value": 1
-              }
-            },
-            {
-              "name": "customerAdsSharingSettingEnabled",
-              "write": "constructor"
-            },
-            {
-              "name": "deepLinkConversionSource",
-              "write": "constructor"
-            },
-            {
-              "name": "orderPaid",
-              "write": "constructor",
-              "value": {
-                "kind": "bool",
-                "value": false
-              }
-            },
-            {
-              "name": "orderSignalType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumOrderSignalType",
-                "key": "CREATED"
-              }
-            },
-            {
-              "name": "orderStatus",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumOrderStatus",
-                "key": "PROCESSING"
-              }
             },
             {
               "name": "threadIdHmac",
@@ -50820,91 +50628,15 @@
           "fields": [
             {
               "name": "pmxActionTarget",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionTarget",
-                "key": "THUMBNAIL"
-              }
-            },
-            {
-              "name": "pmxActionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionType",
-                "key": "CLICK"
-              }
-            },
-            {
-              "name": "pmxComponentType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
-                "key": "HEADER"
-              }
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebInteractiveMessageCarouselLogEvents",
-          "fields": [
-            {
-              "name": "pmxActionTarget",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionTarget",
-                "key": "HEADER"
-              }
-            },
-            {
-              "name": "pmxActionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionType",
-                "key": "CLICK"
-              }
-            },
-            {
-              "name": "pmxComponentType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
-                "key": "HEADER"
-              }
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebInteractiveMessageCarouselLogEvents",
-          "fields": [
-            {
-              "name": "pmxActionTarget",
               "write": "constructor"
             },
             {
               "name": "pmxActionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionType",
-                "key": "CLICK"
-              }
+              "write": "constructor"
             },
             {
               "name": "pmxComponentType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
-                "key": "BUTTON"
-              }
+              "write": "constructor"
             }
           ],
           "partial": true
@@ -59378,11 +59110,7 @@
             },
             {
               "name": "psGroupExitExperienceEnabled",
-              "write": "constructor",
-              "value": {
-                "kind": "bool",
-                "value": true
-              }
+              "write": "constructor"
             },
             {
               "name": "psGroupExitExperienceExitDialogAction",
@@ -63868,12 +63596,7 @@
           "fields": [
             {
               "name": "fetchMechanism",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumFetchMechanismEnum",
-                "key": "GRAPHQL"
-              }
+              "write": "constructor"
             },
             {
               "name": "fetchResult",
@@ -71142,21 +70865,11 @@
           "fields": [
             {
               "name": "companionInviteAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteActionType",
-                "key": "IMPRESSION"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteMethodType",
-                "key": "NATIVE_SMS"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteOrigin",
@@ -71170,21 +70883,11 @@
           "fields": [
             {
               "name": "companionInviteAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteActionType",
-                "key": "INVITE_SEND"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteMethodType",
-                "key": "NATIVE_SMS"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteOrigin",
@@ -71202,21 +70905,11 @@
           "fields": [
             {
               "name": "companionInviteAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteActionType",
-                "key": "INVITE_SEND"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteMethodType",
-                "key": "NATIVE_SMS"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteOrigin",
