@@ -300,6 +300,47 @@ fn main() {
             .unwrap(),
         MakeAcceptGroupAddRequestResponse::Success(_)
     ));
+    // WASmaxInGroupsSetSubjectClientErrors continues after any specific parser
+    // failure, including malformed/duplicate optional <field>, into 400..499.
+    let valid_field = Node::new(
+        "field",
+        &[("name", "subject"), ("reason", "invalid")],
+        vec![],
+    );
+    for (fields, specific) in [
+        (vec![], true),
+        (vec![valid_field.clone()], true),
+        (
+            vec![Node::new("field", &[("name", "subject")], vec![])],
+            false,
+        ),
+        (vec![valid_field.clone(), valid_field], false),
+    ] {
+        let mut node = error("406", Some("not-acceptable"));
+        node.children[0].children = fields;
+        let MakeSetSubjectRequestResponse::ClientError(value) = subject
+            .parse_response_with_request(&node.as_ref(), "req-1", "123@g.us")
+            .unwrap()
+        else {
+            panic!("expected client error");
+        };
+        match value.error_set_subject_client_errors.unwrap() {
+            MakeSetSubjectRequestClientErrorErrorSetSubjectClientErrors::IQErrorNotAcceptable(
+                value,
+            ) => {
+                assert!(specific);
+                assert_eq!(value.code, 406);
+            }
+            MakeSetSubjectRequestClientErrorErrorSetSubjectClientErrors::IQErrorFallbackClient(
+                value,
+            ) => {
+                assert!(!specific);
+                assert_eq!(value.code, 406);
+                assert_eq!(value.text, "not-acceptable");
+            }
+            _ => panic!("unexpected error arm"),
+        }
+    }
     for wire in ["id", "from"] {
         let mut invalid = bare.clone();
         invalid.attrs.remove(wire);

@@ -90,8 +90,11 @@ Unsupported shapes retain explicit admission diagnostics.
 and `304.9` decode to 304 before literal/range checks. The generated bounded
 error decoder retains that behavior and ECMAScript leading whitespace. Required
 `<error>` is unique; duplicate approval children fail the gated success and
-continue to bare success in source order. Unknown unrelated children remain
-accepted. This is not general JavaScript evaluation or a universal guard AST.
+continue to bare success in source order. For SetSubject 406/`not-acceptable`, a malformed or duplicated optional
+`<field>` makes the specific parser fail; the source disjunction then tries the
+400–499 fallback, which succeeds. Code/text selection is not a commit point.
+The compiled regression checks absent, valid, malformed and duplicated children.
+Unknown unrelated children remain accepted. This is not general JavaScript evaluation or a universal guard AST.
 
 ### Source provenance
 
@@ -119,6 +122,7 @@ credentials were used to extract or test protocol behavior.
 | `WASmaxOutGroupsSetSubjectChangeSubjectMixin` | A | 27847..28186 |
 | `WASmaxOutGroupsSetSubjectRequest` | A | 28188..28588 |
 | `WASmaxGroupsSetSubjectRPC` | A | 28590..29826 |
+| `WASmaxInGroupsSetSubjectClientErrors` | A | 24289..26417 |
 | `WASmaxOutGroupsBaseIQSetRequestMixin` | B | 1138342..1138644 |
 | `WASmaxOutGroupsBaseSetGroupMixin` | B | 1138646..1139064 |
 | `WASmaxInGroupsIQResultResponseMixin` | B | 107120..107921 |

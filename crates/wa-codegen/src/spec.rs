@@ -481,6 +481,9 @@ fn emit_direct_error_parser(
             &struct_name,
         ));
         lines.push(format!("{indent}        }})();"));
+        // The source disjunction tries the next parser after *any* failure,
+        // including a malformed specific payload. Do not commit on code/text:
+        // SetSubject 406/not-acceptable can still reach the 400..499 fallback.
         lines.push(format!("{indent}        if let Ok(mut value) = parsed {{ value.{} = code as {}; return Ok({ename}::{vname}(value)); }}", rust_ident(&code_field.name), crate::fields::integer_width(code_field)));
         lines.push(format!("{indent}    }}"));
     }
