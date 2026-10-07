@@ -3,6 +3,7 @@
 //! schemas) to disk, ready to be committed — locally or from CI.
 
 mod contract_diff;
+mod quality_gaps;
 mod source_index;
 
 use std::collections::BTreeSet;
@@ -55,6 +56,7 @@ fn main() -> Result<()> {
         Some("mex-ids") => mex_ids(&args[1..]),
         Some("diff") => diff(&args[1..]),
         Some("source-index") => source_index::run(&args[1..]),
+        Some("quality-gaps") => quality_gaps::run(&args[1..]),
         Some("restore") => restore_cmd(&args[1..]),
         _ => {
             eprintln!("{}", usage());
@@ -156,6 +158,8 @@ fn usage() -> String {
          and prints version/count deltas and the namespaces/operations/actions added or removed.\n\n\
          whatspec source-index <bundles.lock.json> <bundle-dir> [module ...]\n\n\
          Writes a verified-bundle AST source locator index to stdout.\n\n\
+         whatspec quality-gaps <bundles.lock.json> <bundle-dir>\n\n\
+         Writes counted WAM gap locations from verified bundles to stdout.\n\n\
          whatspec restore {FLAG_FROM_LOCK} <bundles.lock.json> ({FLAG_OUT} <dir> | {FLAG_CACHE} <dir>)\n                  \
          [{FLAG_WASM}] [{FLAG_ARCHIVE} <path|url>] [{FLAG_REPO} <owner/repo>]\n\n\
          Rebuilds the exact bundle set a `generated/` snapshot was built from — pulled from the\n\

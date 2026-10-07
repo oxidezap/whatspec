@@ -6,8 +6,10 @@ use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use wa_store::lock::{BundleId, BundleLock};
 
-fn modules(source: &str, hash: &str, selected: &BTreeSet<&str>) -> Vec<(String, Value)> {
-    wa_transform::extract_module_definitions(source).into_iter()
+fn modules(source: &str, hash: &str, selected: &BTreeSet<&str>) -> Result<Vec<(String, Value)>> {
+    Ok(wa_transform::extract_module_definitions_checked(source)
+        .map_err(|errors| anyhow::anyhow!("bundle {hash}: {}", errors.join("; ")))?
+        .into_iter()
         .filter(|m| selected.is_empty() || selected.contains(m.name.as_str()))
         .map(|m| {
             let value = json!({"bundleSha256": hash, "start": m.start, "end": m.end,
@@ -15,7 +17,7 @@ fn modules(source: &str, hash: &str, selected: &BTreeSet<&str>) -> Vec<(String, 
                 "factorySha256": wa_text::sha256_hex(&source.as_bytes()[m.factory_start..m.factory_end]),
                 "dependencies": m.deps});
             (m.name, value)
-        }).collect()
+        }).collect())
 }
 
 pub fn index(lock_path: &Path, bundles: &Path, selected: &BTreeSet<&str>) -> Result<Value> {
@@ -38,7 +40,7 @@ pub fn index(lock_path: &Path, bundles: &Path, selected: &BTreeSet<&str>) -> Res
             size: bytes.len() as u64,
             url: None,
         });
-        for (name, definition) in modules(source, &hash, selected) {
+        for (name, definition) in modules(source, &hash, selected)? {
             definitions.entry(name).or_default().push(definition);
         }
     }
@@ -58,9 +60,9 @@ pub fn index(lock_path: &Path, bundles: &Path, selected: &BTreeSet<&str>) -> Res
     Ok(
         json!({"sourceIndexVersion":1,"waVersion":lock.wa_version,"setHash":lock.set_hash,
         "bundleCount":lock.bundle_count,"modules":definitions,
-        "coverage":"recovered-definitions-only",
+        "coverage":"parsed-static-definitions",
         "limits":["Offsets are UTF-8 byte offsets, end exclusive, in the bundle identified by SHA-256.",
-            "The existing AST extractor does not expose parse diagnostics. Absence from this index is not proof of absence upstream.",
+            "Every bundle parsed without recovery. Absence only establishes that this exact static module name was not defined in these inputs; it does not prove feature removal or a rename.",
             "All recovered occurrences are retained. Equal module names with different hashes need review.",
             "Module provenance locates code; field-level semantics may require following dependencies."]}),
     )
@@ -111,9 +113,21 @@ mod tests {
     }
 
     #[test]
+    fn malformed_source_cannot_claim_complete_coverage() {
+        assert!(
+            modules(
+                "__d(\"Before\",[],function(){}); function broken(",
+                "hash",
+                &BTreeSet::new()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn ast_locations_ignore_strings_and_keep_duplicate_definitions() {
         let source = "// á UTF-8 prefix\nvar text = '__d(\"Fake\",[],function(){})'; __d(\"Real\",[\"Dep\"],function(){return 1;}); __d(\"Real\",[],function(){return 2;});";
-        let result = modules(source, "bundle-hash", &BTreeSet::new());
+        let result = modules(source, "bundle-hash", &BTreeSet::new()).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, "Real");
         let start = result[0].1["start"].as_u64().unwrap() as usize;

@@ -45,6 +45,28 @@ pub fn extract_module_definitions(code: &str) -> Vec<ModuleDefinition> {
     visitor.modules
 }
 
+/// Extract definitions only when the complete input parses without recovery.
+/// Useful for provenance audits where an absent definition must not be confused
+/// with a parse error. The existing extraction API keeps its recovery behavior.
+pub fn extract_module_definitions_checked(
+    code: &str,
+) -> Result<Vec<ModuleDefinition>, Vec<String>> {
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, code, SourceType::cjs()).parse();
+    if !ret.errors.is_empty() || ret.panicked {
+        let mut errors: Vec<String> = ret.errors.iter().map(ToString::to_string).collect();
+        if errors.is_empty() {
+            errors.push("parser did not complete".to_string());
+        }
+        return Err(errors);
+    }
+    let mut visitor = ModuleVisitor {
+        modules: Vec::new(),
+    };
+    visitor.visit_program(&ret.program);
+    Ok(visitor.modules)
+}
+
 struct ModuleVisitor {
     modules: Vec<ModuleDefinition>,
 }
@@ -106,6 +128,17 @@ fn parse_define(call: &CallExpression) -> Option<ModuleDefinition> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_module_index_rejects_parse_recovery() {
+        let valid = r#"__d("M",[],function(){return 1;});"#;
+        assert_eq!(
+            extract_module_definitions_checked(valid).unwrap(),
+            extract_module_definitions(valid)
+        );
+        assert!(extract_module_definitions_checked(r#"__d("M",[],function(){"#).is_err());
+        assert!(extract_module_definitions_checked("").unwrap().is_empty());
+    }
 
     #[test]
     fn empty_input() {

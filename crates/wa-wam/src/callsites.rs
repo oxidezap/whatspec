@@ -43,6 +43,8 @@ pub(crate) struct RawSite {
     pub unread_argument: Option<&'static str>,
     /// Position, so later writes can be attached to the nearest construction before them.
     pub start: u32,
+    /// End-exclusive construction span in the module slice.
+    pub end: u32,
     /// What the value is bound to, when it is bound at all.
     pub binding: Option<Binding>,
 }
@@ -339,6 +341,7 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                 partial,
                 unread_argument,
                 start: n.span.start,
+                end: n.span.end,
                 binding: self.bindings.get(&n.span.start).cloned(),
             });
         }
