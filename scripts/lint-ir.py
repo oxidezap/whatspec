@@ -28,9 +28,10 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-# Counted states, with the value observed when this guard was introduced. Raising
-# one of these is a deliberate act: it means a constraint the extractor used to
-# recover is now being lost, and the number has to be updated with a reason.
+# Counted states are exact pins, not upper bounds. Changes in either direction
+# require source attribution: modules may depart, new gaps may arrive, or extraction
+# may improve or regress. The six pins reviewed for WA 2.3000.1047483476 are justified
+# in docs/snapshot-quality-2026-10-07.md and its source/gap evidence sidecars.
 BASELINE = {
     "content integer with no byte width": 0,
     # An accessor that checks a value set whose out-of-set behaviour `wa_ir::wap` has not
@@ -62,9 +63,9 @@ BASELINE = {
     # and says nothing. Almost all of these are the legacy `WAWeb*Job` builders, which
     # take positional parameters and have no argument object to address at all; they fall
     # only if those builders stop existing or start being read.
-    "iq builder attribute with no argument path": 55,
+    "iq builder attribute with no argument path": 49,
     "iq builder content with no argument path": 23,
-    "iq builder child with no argument path": 12,
+    "iq builder child with no argument path": 10,
     # A request whose addressee is supplied at runtime — a group's own JID, a newsletter's
     # — and whose argument key the scan could not recover. Two, for different reasons.
     # `WAWebGroupInviteJob` is a legacy positional builder with no argument object to
@@ -89,8 +90,8 @@ BASELINE = {
     # all `RawWamEvent`, the generic envelope whose schema is supplied at runtime by
     # design. The third is held at zero: a written key that names no field of the event
     # means a write was attributed to the wrong construction, and none currently is.
-    "wam construction with an unread argument": 104,
-    "wam construction of an event with no catalog entry": 41,
+    "wam construction with an unread argument": 79,
+    "wam construction of an event with no catalog entry": 29,
     "wam written key naming no field of the event": 0,
     # Variable keys whose presence the mex extractor did not establish: a value expression
     # it does not judge (a call's return value, an `await`), or an operation whose call
@@ -115,10 +116,10 @@ BASELINE = {
     # was reading every call whose handle it could not follow as that operation's, and a
     # handle read off something the module was given - `t.handle`, or the binding a `var
     # h = t.handle` leaves - is not one the dependency says anything about. The three
-    # keys are `DebugLabyrinthRange`, whose handle IS its own memoised require and is
-    # simply not followed that far; they are withdrawn rather than published on a rule
-    # that also claims another operation's variables.
-    "mex variable with an undetermined presence": 108,
+    # keys were `DebugLabyrinthRange`, whose handle was its own memoised require,
+    # not followed that far. That module now departs; six departed keys and four new
+    # unresolved nodes account for 108 -> 106 (see the snapshot evidence ledger).
+    "mex variable with an undetermined presence": 106,
     # Operations where the verdict is `undetermined` for EVERY variable - no call site
     # was recovered, or the one that was writes nothing this classifier reads. Pinned
     # beside the per-key count because a single key regaining a verdict moves that number
@@ -128,11 +129,10 @@ BASELINE = {
     # alone they are indistinguishable, so the name says what is actually measured.
     #
     # Rose to 13 with the same change that took the per-key count to 108: all three of
-    # `DebugLabyrinthRange`'s variables were the withdrawn ones, so the operation joins
-    # the ones a consumer can say nothing about. This is the number to watch if the
-    # handle resolution learns to follow a memoised require through a nested body -
-    # that operation is the one it would win back.
-    "mex operation with no established variable presence": 13,
+    # `DebugLabyrinthRange`'s variables were withdrawn. The reviewed snapshot removes
+    # four wholly undetermined operations and adds SmartComposer's unsupported
+    # useMutation alias, so the current exact pin is 13 - 4 + 1 = 10.
+    "mex operation with no established variable presence": 10,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
     # because the alternative to dropping it is publishing `["regular"]` over a policy WA
     # stated and we failed to read — so a rise here is a channel rule going missing, not

@@ -1,14 +1,66 @@
 {
   "old": {
     "bundleCount": 516,
-    "coverage": "recovered-definitions-only",
+    "coverage": "parsed-static-definitions",
     "limits": [
       "Offsets are UTF-8 byte offsets, end exclusive, in the bundle identified by SHA-256.",
-      "The existing AST extractor does not expose parse diagnostics. Absence from this index is not proof of absence upstream.",
+      "Every bundle parsed without recovery. Absence only establishes that this exact static module name was not defined in these inputs; it does not prove feature removal or a rename.",
       "All recovered occurrences are retained. Equal module names with different hashes need review.",
       "Module provenance locates code; field-level semantics may require following dependencies."
     ],
     "modules": {
+      "EBMessageMetadataQuery": [
+        {
+          "bundleSha256": "6fdb39e43e1ab6afd5cb4c6010459b6aae017c4a37dc3abc623fc1481c69c2fe",
+          "dependencies": [
+            "EBAPIQPLPoints",
+            "EBAPIWorkerCheck",
+            "EBCreateGraphQLFetchFnUnified",
+            "EBMessageMetadataQueryQuery.graphql",
+            "EBMessageRangeQueryUtils",
+            "FBLogger",
+            "I64",
+            "LSDatabaseSingleton",
+            "QPLUserFlow",
+            "ReQL",
+            "WAHashStringToNumber",
+            "WAJids",
+            "WAResultOrError",
+            "XPlatRelayEnvironment",
+            "asyncToGeneratorRuntime",
+            "getErrorSafe",
+            "gkx",
+            "qpl",
+            "relay-runtime"
+          ],
+          "end": 160858,
+          "factorySha256": "fc8e5eff4724cd40715b3845cd79996a1eb3394c095048c92764c8583dd337da",
+          "moduleSha256": "7bece5d90ede769b990491a8c4d7aea94483c8fbbcaf9413710f65173793312d",
+          "start": 156055
+        }
+      ],
+      "EBMessageMetadataQueryQuery.graphql": [
+        {
+          "bundleSha256": "6fdb39e43e1ab6afd5cb4c6010459b6aae017c4a37dc3abc623fc1481c69c2fe",
+          "dependencies": [
+            "EBMessageMetadataQueryQuery_facebookRelayOperation"
+          ],
+          "end": 143130,
+          "factorySha256": "7c82a71b1236de03778a5af52a7b4f55070b12a56533cab5339d096fab23d342",
+          "moduleSha256": "946aa76d3c7a9e5d5cb5ecb2e972c0c4d657b0a0a36f6be83984c98d744a96a8",
+          "start": 141159
+        }
+      ],
+      "EBMessageMetadataQueryQuery_facebookRelayOperation": [
+        {
+          "bundleSha256": "6fdb39e43e1ab6afd5cb4c6010459b6aae017c4a37dc3abc623fc1481c69c2fe",
+          "dependencies": [],
+          "end": 141157,
+          "factorySha256": "5849f6cac64604c988961da4a82a4409633f7ee9641e62d7ed29bacb45847888",
+          "moduleSha256": "3705571c702f947d37a6be56ba86c773e7b837cea11b25837c97909b920c2e9c",
+          "start": 141037
+        }
+      ],
       "WAWebContactManagerCustomerProfilesQuery": [
         {
           "bundleSha256": "792466f7a00cd5862ac782f916733975cd9f46800bb9fd9679a1301411c24508",
@@ -39,6 +91,106 @@
           "start": 78265
         }
       ],
+      "WAWebCreateLabyrinthBackupJob": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [
+            "WAWebCreateLabyrinthBackupJobMutation.graphql",
+            "WAWebLabyrinthDebugStateCache",
+            "WAWebRelayClient",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 247229,
+          "factorySha256": "58493ae306a051e746400bcf1a8b960c25c0bc1f521091fc133d6a10d487a169",
+          "moduleSha256": "79b8f05571ee12bdfaf532a969d1674dec530dd1a9970528a04dba3bd123b83a",
+          "start": 244242
+        }
+      ],
+      "WAWebCreateLabyrinthBackupJobMutation.graphql": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [],
+          "end": 242979,
+          "factorySha256": "db0de46b3be930a317f5fa7d16e90e6043f2a2c3dd7e441c428920cdf580e8f3",
+          "moduleSha256": "b177cef8c23623a4b0c1309138fbe860373f4fcda69f518825e1472dc4a7458a",
+          "start": 241411
+        }
+      ],
+      "WAWebDebugLabyrinthInboxSnapshotQuery": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [
+            "WAWebDebugLabyrinthInboxSnapshotQuery.graphql",
+            "WAWebRelayClient",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 369270,
+          "factorySha256": "ce253946f67675cd71abcfe6e4be5679334ecf50b7ae3e5d92547f3559175acd",
+          "moduleSha256": "d07f137632a926aa7ddda9dbecc8fca9dbd39806a8f8a0009bd4fd4674f8de37",
+          "start": 368201
+        }
+      ],
+      "WAWebDebugLabyrinthInboxSnapshotQuery.graphql": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [],
+          "end": 368199,
+          "factorySha256": "eade6aed56abfc3d6f82f226d1d7fad2d1d9604b50547af15336005d1212daa3",
+          "moduleSha256": "46617125ee497225713367bbeeb7dc48af53054378dfe9b09b7daf961aff5d85",
+          "start": 365555
+        }
+      ],
+      "WAWebDebugLabyrinthRangeQuery": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [
+            "WAWebDebugLabyrinthRangeQuery.graphql",
+            "WAWebRelayClient",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 372987,
+          "factorySha256": "ad31dde9ba5ab313472c90fe67e4c303e0f56ff8e49991406a04f6751e82ef9d",
+          "moduleSha256": "e59196f8061a0bcb92ef87e2435a35ea5de3680dddbd41cde86fbee1fc8d64a9",
+          "start": 371829
+        }
+      ],
+      "WAWebDebugLabyrinthRangeQuery.graphql": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [],
+          "end": 371827,
+          "factorySha256": "42dd91382ad68df23254a0f1090cbee2656a8ccddb0c51b92ff47e1a324f67cc",
+          "moduleSha256": "229ad749ff907bb05a246b2435c92cfb71e3409d518eea00f52d3500e477f93e",
+          "start": 369272
+        }
+      ],
+      "WAWebFilterLogging": [
+        {
+          "bundleSha256": "15339e541ca850185a14c0603d262eed300ad5019b65d3582aaf3a8eeab1cc96",
+          "dependencies": [
+            "WAWebChatFilterEventWamEvent",
+            "WAWebChatSearchFilters",
+            "WAWebChatThreadLogging",
+            "WAWebConnModel",
+            "WAWebInboxFiltersGatingUtils",
+            "WAWebLabelCollection",
+            "WAWebListUtils",
+            "WAWebListsGatingUtils",
+            "WAWebListsLabelGatingUtils",
+            "WAWebListsLogging",
+            "WAWebWamEnumChatFilterActionTypes",
+            "WAWebWamEnumChatFilterTargetScreen",
+            "WAWebWamEnumChatFilterTypes",
+            "WAWebWamEnumChatSearchResultType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 508302,
+          "factorySha256": "249f8462a2ca5cfe294d73249b76f0797036c591552f6152d678056a56a4178d",
+          "moduleSha256": "0da3d9c081cbf3b3372af10aa04da2f768a58c316caf63676456e2104fbe7783",
+          "start": 500906
+        }
+      ],
       "WAWebKmpSyncdRequestBuilder": [
         {
           "bundleSha256": "ffe69f61924eb23c1d65cb89a152e4ce35ee404bd52a7edcced9c037b236f490",
@@ -60,6 +212,108 @@
           "factorySha256": "7af76b2a50b2ee343bf971446ecea65c7fabdf3623b3ebe81effb580570db7cd",
           "moduleSha256": "04a74de7f7e834f5d08bf98f07a6e1dd69b222f5493c34d9091230ca9861aa03",
           "start": 3406431
+        }
+      ],
+      "WAWebMexLogging": [
+        {
+          "bundleSha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
+          "dependencies": [
+            "WAWebMexEventV2WamEvent"
+          ],
+          "end": 2400008,
+          "factorySha256": "dd1551ae839013f1bdc42de069d375d5d02cbad9834cdd8f558e1f6ae980c120",
+          "moduleSha256": "e6d862350fb96e5beb62395ed2f4742252b959cc7970a342b66b24c84e99b621",
+          "start": 2398464
+        }
+      ],
+      "WAWebPaymentsUserActionLogging": [
+        {
+          "bundleSha256": "c54c33dd6f74be053881c3a7d0e750f8b8fa04140579821b214ab6f59711bbe0",
+          "dependencies": [
+            "WALogger",
+            "WAWebPaymentsUserActionWamEvent",
+            "WAWebWamEnumPaymentActionTypes"
+          ],
+          "end": 466809,
+          "factorySha256": "6390f2e084a8e7ba74eaf207765071c28c0de57f0b74b82ab763199e5480f11a",
+          "moduleSha256": "725c3fec4cba9a60a82dcb9c2a433194b770beb121fe235bee5bd3a5d3b8d70f",
+          "start": 465792
+        }
+      ],
+      "WAWebPixWamLogger": [
+        {
+          "bundleSha256": "cf6197f616a43cf9004101d911d5643e8fa63972b2d27a54e8bba8db062abb8f",
+          "dependencies": [
+            "WAWebGetMessageChatTypeFromWid",
+            "WAWebPaymentsUserActionWamEvent",
+            "WAWebSyncdMdSyncFieldstatMeta",
+            "WAWebWamEnumMessageChatType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 1035693,
+          "factorySha256": "80b3b468f6458f98af9de51f21f47334fcc08d690cf65ce7ccf88859fa01a2a9",
+          "moduleSha256": "eb24e5bee24de5260c8b6bb504fdf8cf163d20a763f19fd6acf808d805966ad3",
+          "start": 1034691
+        }
+      ],
+      "WAWebRotateLabyrinthEpochJob": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [
+            "WABase64",
+            "WAWebLabyrinthDebugStateCache",
+            "WAWebRelayClient",
+            "WAWebRotateLabyrinthEpochJobMutation.graphql",
+            "asyncToGeneratorRuntime",
+            "err",
+            "nullthrows"
+          ],
+          "end": 395706,
+          "factorySha256": "6a702a9ce2e3145e3c7b325c2b8679b5297f7a55a5c618a5058b0b9c6c75ef32",
+          "moduleSha256": "7c2164a4a88836cb0d7380e69903d8a16a069183c02ecf0b2d2af7d0b6430fdd",
+          "start": 393460
+        }
+      ],
+      "WAWebRotateLabyrinthEpochJobMutation.graphql": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [],
+          "end": 393458,
+          "factorySha256": "82d153f3f2c7dd09163030da23b74ca363b6f0c297ea625fdddf7d6226c5c3d4",
+          "moduleSha256": "f719eb59511db0b13112d2d165ae99e4c211b935a4a7dccf4683b09afb3db0af",
+          "start": 392197
+        }
+      ],
+      "WAWebSendStickerAction": [
+        {
+          "bundleSha256": "15339e541ca850185a14c0603d262eed300ad5019b65d3582aaf3a8eeab1cc96",
+          "dependencies": [
+            "fbt",
+            "WALogger",
+            "WAWebAuraGating",
+            "WAWebBizBotTosUtils",
+            "WAWebCmd",
+            "WAWebConfirmPopup.react",
+            "WAWebMedia",
+            "WAWebMediaOpaqueData",
+            "WAWebModalManager",
+            "WAWebRecentStickerCollection",
+            "WAWebSendMsgResultAction",
+            "WAWebStateUtils",
+            "WAWebStickerPremiumStatus",
+            "WAWebStickerSendWamEvent",
+            "WAWebWaPlusBenefitJourneyLogger",
+            "WAWebWamEnumWpbujBenefitType",
+            "WAWebWamEnumWpbujSurface",
+            "WAWebWebpMetadata",
+            "asyncToGeneratorRuntime",
+            "err",
+            "react"
+          ],
+          "end": 802363,
+          "factorySha256": "7b19deb775fb77bc34310f7e4096c7525807a81b62e7bd7b092966f3687b7103",
+          "moduleSha256": "52d2433b889bdfc527fcf4923a500be1b30648d6a7ffdc68f2f639179bfdfdeb",
+          "start": 799214
         }
       ],
       "WAWebSetAboutJob": [
@@ -101,6 +355,719 @@
           "moduleSha256": "01098f3de86fbfcf023a317a096dae1c05b0794b92b4488bde1421dd10f0c72e",
           "start": 1087286
         }
+      ],
+      "WAWebSmb3pdAggregatedConversionSignalAction": [
+        {
+          "bundleSha256": "ffe69f61924eb23c1d65cb89a152e4ce35ee404bd52a7edcced9c037b236f490",
+          "dependencies": [
+            "WAJids",
+            "WALogger",
+            "WAWebCTWADataSharingModel",
+            "WAWebCTWAGatingUtils",
+            "WAWebChatThreadLogging",
+            "WAWebCommonCTWADataSharing",
+            "WAWebConversionTupleCollection",
+            "WAWebCtwa3pdAggregatedConversionWamEvent",
+            "WAWebDataSharing3pdLidCollection",
+            "WAWebLidMigrationUtils",
+            "WAWebWamEnumCtwaDirectionFrom",
+            "getErrorSafe"
+          ],
+          "end": 4132971,
+          "factorySha256": "79c02239cad1dc25ffec0f9489cda49b2464e1ba55b073beeca29b15e58fb12c",
+          "moduleSha256": "5ac74826aadb1c4e9aa1d9b02f5bdbc514eb95ff7b5104d38d29d0fefc3f9725",
+          "start": 4130648
+        }
+      ],
+      "WAWebStatusSubtitle.react": [
+        {
+          "bundleSha256": "72622fd528bcdb8719660018f754e37ce201276a4c5fdead04f82bc81648de8d",
+          "dependencies": [
+            "fbt",
+            "invariant",
+            "WAWebClock",
+            "WAWebContactCollection",
+            "WAWebContactGetters",
+            "WAWebExternalLink.react",
+            "WAWebFlex.react",
+            "WAWebFrontendContactGetters",
+            "WAWebMentionsRefreshedIcon.react",
+            "WAWebMessageAIContentLabel.react",
+            "WAWebMsgGetters",
+            "WAWebMusicGatingUtils",
+            "WAWebMusicStatusAttribution.react",
+            "WAWebNewsletterAiContentInfoModalOpener",
+            "WAWebNewsletterAiContentInfoModalTypes",
+            "WAWebNewsletterGatingUtils",
+            "WAWebNewsletterMetadataCollection",
+            "WAWebProtobufsStatusAttributions.pb",
+            "WAWebStatusCloseFriendsDialog.react",
+            "WAWebStatusExternalShareUtils",
+            "WAWebStatusGatingUtils",
+            "WAWebStatusNavigateToNewsletterUtils",
+            "WAWebStatusSubtitleAttribution.react",
+            "WAWebStatusViewerActionWamEvent",
+            "WAWebStopEvent",
+            "WAWebWamEnumStatusCategory",
+            "WAWebWamEnumStatusViewActionType",
+            "WAWebWamEnumTopBarAttributionType",
+            "WDSIconIcRepeat.react",
+            "WDSIconWdsIcAiContent.react",
+            "WDSIconWdsIcChannels.react",
+            "WDSText.react",
+            "react",
+            "react-compiler-runtime",
+            "stylex",
+            "useWAWebMsgValues"
+          ],
+          "end": 518491,
+          "factorySha256": "0d44a513654a0050ecf1b431758d62cb98f091f4a3598b5e5adb4c8f6e2b481e",
+          "moduleSha256": "428ad864810309ceae9c7ee254f3422d49a4c60f8320de4d909f4fa7d9704afe",
+          "start": 506432
+        }
+      ],
+      "WAWebStatusViewerActionWamEvent": [
+        {
+          "bundleSha256": "72622fd528bcdb8719660018f754e37ce201276a4c5fdead04f82bc81648de8d",
+          "dependencies": [
+            "WAWebWamCodegenUtils",
+            "WAWebWamEnumInlineVideoType",
+            "WAWebWamEnumStatusCategory",
+            "WAWebWamEnumStatusViewActionType",
+            "WAWebWamEnumTopBarAttributionType",
+            "WAWebWamEnumUrlStatusClicked",
+            "WAWebWamEnumUrlStatusType"
+          ],
+          "end": 506430,
+          "factorySha256": "d245955e77af9f95036f6b129de3ccaf8cb09f079c228a9304c9c4824059e715",
+          "moduleSha256": "188a58b5832e3127ecc99ebc44cb72053645624f24f79df43fa2a37f9d570f33",
+          "start": 505398
+        }
+      ],
+      "WAWebTeamLinkCreateInvitationDialog.react": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [
+            "fbt",
+            "WAWebConfirmPopup.react",
+            "WAWebContactCollection",
+            "WAWebContactCollectionUtils",
+            "WAWebContactImage.react",
+            "WAWebFrontendContactGetters",
+            "WAWebL10NAccentFold",
+            "WAWebLidMigrationUtils",
+            "WAWebModalManager",
+            "WAWebPhoneNumberSearch",
+            "WAWebTeamLinkCreateInvitationMutation",
+            "WAWebTeamLinkInviteCodeCreatedPopup.react",
+            "WAWebWidFactory",
+            "WDSText.react",
+            "WDSTextField.react",
+            "react",
+            "react-compiler-runtime"
+          ],
+          "end": 10237,
+          "factorySha256": "5eea5298ec9001caf66dfa7834691c703283358f11dc9d753f800c41e0b02905",
+          "moduleSha256": "7281274e4366cfdb5e60a85a61fea908df39a8847f69b0abe71f4b128a80772f",
+          "start": 4089
+        }
+      ],
+      "WAWebTeamLinkCreateInvitationMutation": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [
+            "WAWebFetchAdAccountToken",
+            "WAWebRelayClient",
+            "WAWebTeamLinkCreateInvitationMutation.graphql",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 2779,
+          "factorySha256": "8e937dc92d2d1b76729f3e689b39e9df0e1e6e123547777171ace924643d3e59",
+          "moduleSha256": "18f6204edb5afad329c1c879b24b407434ab71be335e7b0893977c917ae80186",
+          "start": 1617
+        }
+      ],
+      "WAWebTeamLinkCreateInvitationMutation.graphql": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [
+            "WAWebTeamLinkCreateInvitationMutation_facebookRelayOperation"
+          ],
+          "end": 1615,
+          "factorySha256": "59594b36bbb46a05ad7e3eda7d51749b5915d52dbf7bcf441730a811336271d7",
+          "moduleSha256": "a7e4aed907bb7d586f12a9fcaa9c357da3b81c2067d2a59244b1659e85adb091",
+          "start": 151
+        }
+      ],
+      "WAWebTeamLinkCreateInvitationMutation_facebookRelayOperation": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [],
+          "end": 149,
+          "factorySha256": "abd4f7dfbdb7d6c391eedec77854ea013c40cd3236ac7bffea946e5bc355220d",
+          "moduleSha256": "5af299a346f9c4cf3def3de8964dca759359812438f0f0569dd9d2af718a2c29",
+          "start": 19
+        }
+      ],
+      "WAWebTeamLinkListInvitationsQuery": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [
+            "WAWebFetchAdAccountToken",
+            "WAWebRelayClient",
+            "WAWebTeamLinkListInvitationsQuery.graphql",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 12655,
+          "factorySha256": "935ce451a8e958ee8d009cf899db54d572d9cc54371de82cfb52492a009f984e",
+          "moduleSha256": "82fbeffbc316956a49a0065d6f9111353207d471ff17ffee5df86768a48e4379",
+          "start": 11567
+        }
+      ],
+      "WAWebTeamLinkListInvitationsQuery.graphql": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [
+            "WAWebTeamLinkListInvitationsQuery_facebookRelayOperation"
+          ],
+          "end": 11565,
+          "factorySha256": "d2618679c90ff9cdc2ddb82d8bd69b7a68ee5802a11e4f0feec61cf68c9d16c0",
+          "moduleSha256": "322b3fcbde0f4c49e8e01048e26cc084b73bd2a2841ec31fcbdc4f43bae91a3d",
+          "start": 10367
+        }
+      ],
+      "WAWebTeamLinkListInvitationsQuery_facebookRelayOperation": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [],
+          "end": 10365,
+          "factorySha256": "1df804bf6a1ec43cc76a8de9b4845dd27391fd497cad828fff71bf7924206be1",
+          "moduleSha256": "a066fa858246be94eab414de5f8661f7ca4f47a2f5f1170cc84e4ac8fb4c20c0",
+          "start": 10239
+        }
+      ],
+      "WAWebTeamLinkRemoveInvitationMutation": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [
+            "WAWebFetchAdAccountToken",
+            "WAWebRelayClient",
+            "WAWebTeamLinkRemoveInvitationMutation.graphql",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 20375,
+          "factorySha256": "8cb7fd4ba6695f303fadb49946ce8fe4cff951be6372562958f4cb08c287b7ad",
+          "moduleSha256": "b78124d5eb5224d2fd8478cb2ccd11a94aa94dc4c973b10fbdf6f87cfee7ab18",
+          "start": 19327
+        }
+      ],
+      "WAWebTeamLinkRemoveInvitationMutation.graphql": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [
+            "WAWebTeamLinkRemoveInvitationMutation_facebookRelayOperation"
+          ],
+          "end": 19325,
+          "factorySha256": "7976576fde7ade5188ce74ce895448628465b1e0774c61bea0f0ea602b001176",
+          "moduleSha256": "45c67020cda6937d7978cdb4ee84234afb4aed28755523b966fe3d775edaf85c",
+          "start": 18231
+        }
+      ],
+      "WAWebTeamLinkRemoveInvitationMutation_facebookRelayOperation": [
+        {
+          "bundleSha256": "e54c895e9c58163bae88d47ab5017e168c61127955be4307e2b94bacfd42c33e",
+          "dependencies": [],
+          "end": 18229,
+          "factorySha256": "2f9464be4e6def94893ab3e2da3f2cdcfb20a3491a58d93de4e6a99206d446a9",
+          "moduleSha256": "f851efa4639b0531263a686395e0037e9b6a1275adbbdce276b47b73d91f7bee",
+          "start": 18099
+        }
+      ],
+      "WAWebThreadLoggingAi": [
+        {
+          "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataAiWamEvent",
+            "getErrorSafe"
+          ],
+          "end": 573839,
+          "factorySha256": "9c3eabd9a69e12c6cbacbe70f1bd294d486a0d5589aa3f245a50e5e97378686f",
+          "moduleSha256": "b145e75b68163c093af2109db48aab201cb09b58bf6117e2903e424b33d42720",
+          "start": 573189
+        }
+      ],
+      "WAWebThreadLoggingBiz": [
+        {
+          "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataBizWamEvent",
+            "WAWebWamEnumBizCatalogType",
+            "getErrorSafe"
+          ],
+          "end": 577681,
+          "factorySha256": "278b70e431b064564cba7a0a7794c5884cb010d996599e56f9d04f381e9c84b9",
+          "moduleSha256": "c131f7f32bcb77192abfc0542045221c12f75e2da33c2594063d999105050d65",
+          "start": 576593
+        }
+      ],
+      "WAWebThreadLoggingCoreConsumer": [
+        {
+          "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+          "dependencies": [
+            "WALogger",
+            "WAWebGroupType",
+            "WAWebThreadInteractionDataCoreConsumerWamEvent",
+            "WAWebWamEnumChatMutedType",
+            "err"
+          ],
+          "end": 588569,
+          "factorySha256": "efd62b70dffcb0ab65c0bb54da77ab8f8df2abd25b734905e29103d1578cb750",
+          "moduleSha256": "5a69f324b23edd70ceaa5fe6c1252f56a493b61fadb5f55f5764dd16c2d0661e",
+          "start": 585177
+        }
+      ],
+      "WAWebThreadLoggingIntegrity": [
+        {
+          "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataIntegrityWamEvent",
+            "getErrorSafe"
+          ],
+          "end": 590052,
+          "factorySha256": "65ebd51ffac910e7ae9952860bc99e703409664faba802618e9e9fb731615353",
+          "moduleSha256": "35589ea4523873fe91790e9bd6f73589e1886b53eb5fc6f8f1a391d9d5b69531",
+          "start": 589451
+        }
+      ],
+      "WAWebThreadLoggingNotification": [
+        {
+          "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataNotificationWamEvent",
+            "err"
+          ],
+          "end": 592605,
+          "factorySha256": "4565b9c412a5677abbd9e6169dca262bc240495948ded7d4fe580e1a2524efb0",
+          "moduleSha256": "33b01e6054497198f4b082a7a7b63724d26ae37eb0cbdf16941ebf46a52fc5d9",
+          "start": 591926
+        }
+      ],
+      "WAWebThreadLoggingVoip": [
+        {
+          "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataVoipWamEvent",
+            "getErrorSafe"
+          ],
+          "end": 594125,
+          "factorySha256": "3657b2b71a5b716b563df84a1c513ef66980b2dfba7720e90dc462e3ab2796ab",
+          "moduleSha256": "524103e748da6c43badf73f0062a2b873b1042822a04f95671e6a325f716fdef",
+          "start": 593439
+        }
+      ],
+      "WAWebUploadLabyrinthMessagesJob": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [
+            "WABase64",
+            "WAWebRelayClient",
+            "WAWebUploadLabyrinthMessagesJobMutation.graphql",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 398367,
+          "factorySha256": "bf42741795ea2a9583ce8be900980b60a28befa7042c8c749de5573f9b881807",
+          "moduleSha256": "dc39af19f07da1705a6873b1726456a49338a3a08640f99702cf736ab92771e7",
+          "start": 397286
+        }
+      ],
+      "WAWebUploadLabyrinthMessagesJobMutation.graphql": [
+        {
+          "bundleSha256": "0710b116f2402703bb29fda44359d8e171368f2390325229eb84207aa27e8f35",
+          "dependencies": [],
+          "end": 397284,
+          "factorySha256": "9da7f56c55de785d4c730524225922f14e03d3c8f166fb9e226df9dea4d111b1",
+          "moduleSha256": "c15c44b1f548427cd50a73cb1a3a5e640df7f48749eb84a4b84b24bebc9037b6",
+          "start": 395708
+        }
+      ],
+      "WAWebWamCodegenUtils": [
+        {
+          "bundleSha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
+          "dependencies": [
+            "WAUpperFirst",
+            "WAWebWamCodegenGlobalMetrics",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamInitQueue",
+            "WAWebWamRuntimeProvider",
+            "WAWebWamTypeHash",
+            "err",
+            "gkx",
+            "justknobx"
+          ],
+          "end": 483531,
+          "factorySha256": "e4f82a8795da9d43859240c6347b2ce6036970879583b89f916c0dc1f16818d6",
+          "moduleSha256": "13572093631b91cfe8508e3915a5d7fcecad45ce8e7034a1f6987328649afdef",
+          "start": 480857
+        }
+      ],
+      "WAWebWamFingerprintReporter": [
+        {
+          "bundleSha256": "ffe69f61924eb23c1d65cb89a152e4ce35ee404bd52a7edcced9c037b236f490",
+          "dependencies": [
+            "WAWebWamEnumWebcWindowNavigatorWebdriverType",
+            "WAWebWamFingerprint",
+            "WAWebWebcFingerprintWamEvent",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 3447511,
+          "factorySha256": "1c5038f4828e0759bdc0e9b62823db74cb4cdb034babbf5ae734dd9f191a096a",
+          "moduleSha256": "3a2452fcfc9277edf7761595c092341f3ca70594087fbce930759a9322854972",
+          "start": 3445837
+        }
+      ],
+      "WAWebWamTypeHash": [
+        {
+          "bundleSha256": "657a32007737e50b0cb0292ce9c364e21e48291b558129753b25e3ec2a4c13b7",
+          "dependencies": [
+            "WALogger",
+            "err"
+          ],
+          "end": 480855,
+          "factorySha256": "f5f79ada80106f01ad2c999bea947d73a295a5dbbaaeae183f2bada9f6a3df13",
+          "moduleSha256": "08a201d682b60cf3752df260fb05082ae2c53f880e92d60c43edfa1f7cba9950",
+          "start": 479639
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2589": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType"
+          ],
+          "end": 125810,
+          "factorySha256": "a6a7aa7dd51c75a0ca5348b4cc3a7c2c6604bb9a7f58889284a77e23574d7133",
+          "moduleSha256": "9b5e5d06a2837493e923b8e453d6417d026a573e415818bc716ceb5b6d34821a",
+          "start": 124490
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2590": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 172663,
+          "factorySha256": "de4acebdb426e2952fcb73c9a80f892fef7f597ce574377f245cf73da89e447a",
+          "moduleSha256": "6ac3c32ead0dfc6461308cbf8cea452fd14b529ad72755868540203cdfc4da7f",
+          "start": 170166
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2591": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 219516,
+          "factorySha256": "3a5a25bdff6973005434414e38da36dfc50169de75c61bc82e69c9c055615d64",
+          "moduleSha256": "5f540bb3ff085068942ad88ee3efd3a4b65a1b527a6afcd27582533e8067086a",
+          "start": 217019
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2601": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 266418,
+          "factorySha256": "b4f51fae858722f0183670d0c6797bc2ac4937504bce97512bfea72eb83f91d2",
+          "moduleSha256": "03e94c2e2ea6a19c474fa4dee9df7d8b9f3f980cf10d4858d83a160706376992",
+          "start": 263921
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2602": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 313347,
+          "factorySha256": "a92b4faffe000d62de79c5c05616e006455fa058f2c34f86409df12c770eb570",
+          "moduleSha256": "e75831087104eae8d2c4726e1cfbfa3d309c5fba6f65c4e40b0b6b562f794ff0",
+          "start": 310850
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2603": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 360646,
+          "factorySha256": "34c449aab2de6d34dbf6b4d9321bce61734c9a52046ee39363d13d57165c814f",
+          "moduleSha256": "d77a760a864285f46c383b024cbde7b5c26394e1c3ec572468e31a15d17c9bc4",
+          "start": 358149
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2604": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 408054,
+          "factorySha256": "250e0de98dfa10624f9182c6d4a2e29b797c0e84b983ad5c9ef25c4006278624",
+          "moduleSha256": "e9b67ca63d540329c07058ff9f4b0581978f5baad499bda18a45a83bfb1835c9",
+          "start": 405413
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2608": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 598024,
+          "factorySha256": "b0537016ddbf3b5386d6c6fc2779f11617387c2661e2513a1fd4a542737fe1e7",
+          "moduleSha256": "8129f2fbd90380f5b4969f9b04899e219fd44d409139bece8e6059d9a2e07cdf",
+          "start": 595524
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2609": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 645376,
+          "factorySha256": "d4505ec737e7de3d8289c59536458012e62b46ef4c592214521a606caef33f5e",
+          "moduleSha256": "a9a43e5fd22acfd7bb2c73ab3d8f3487886bf7d35694b80881f226945409615f",
+          "start": 643020
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2610": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 692997,
+          "factorySha256": "4f50b69db9c9c7fd7312670ae15ec53d18e078e3e556c3237b2870b120f67d38",
+          "moduleSha256": "be912cbd9fb40818cc7bd9edc0149ec4d4011cd54f94af28d9dd4b88c5db9b9d",
+          "start": 690641
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2617": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 1061781,
+          "factorySha256": "97f87c776396abd08f01945283a798a69579fcc010c405f34e5699b737b2b7a5",
+          "moduleSha256": "f3a3b5c0778f2d6b2a119bcad4daa6fd8a7d25ae89a843c524bf316cc53cfaf7",
+          "start": 1059425
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2618": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebBrowserApi",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 1136656,
+          "factorySha256": "4656aac6a4172aa1f646936abf5ee4b913b234187abd9689919b06f10a69784b",
+          "moduleSha256": "35fce397454c009eeda1091553a59b591f551525e93ea28e9d903be86ffc170d",
+          "start": 1134200
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2619": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebAppTracker",
+            "WAWebBrowserApi",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebMemoryStatWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 1211705,
+          "factorySha256": "e3ad5c503bc234c7d94b518e9826e1df4b1112323fc6999da2855497b3b743b9",
+          "moduleSha256": "52149f3f19ecae9222b4586e45865ac36505c55a2702a322355445cb858ca41f",
+          "start": 1209075
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2621": [
+        {
+          "bundleSha256": "3a7550f6d04d8fb6a924282ad5e37e0e0618ec8934f6be01932628030722ceda",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebAppTracker",
+            "WAWebBrowserApi",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebMemoryStatWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 1363649,
+          "factorySha256": "554b7b227b6248256978fa73978483cc19e2a6badeb61b40b98d72dbbfcbab2f",
+          "moduleSha256": "f8b9813fee8dd5448aa5130393d15c4c1ecbd23530c914cdbae2bf52f3265482",
+          "start": 1361019
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2624": [
+        {
+          "bundleSha256": "b0cfc2897a22e9dcdb36b15743b3ea87b925b868559df1477b8d4cbca10750d8",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebAppTracker",
+            "WAWebBrowserApi",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebMemoryStatWamEvent",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 233045,
+          "factorySha256": "55145374fd2606d5249043ad1de8f936a5e60e7faca8e4c878d662e271fbbebf",
+          "moduleSha256": "035db025583592f7fe9fe4b7ad2b89f52f962b36ffb636e521666195e6379b4c",
+          "start": 230415
+        }
       ]
     },
     "setHash": "99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00",
@@ -109,14 +1076,24 @@
   },
   "new": {
     "bundleCount": 579,
-    "coverage": "recovered-definitions-only",
+    "coverage": "parsed-static-definitions",
     "limits": [
       "Offsets are UTF-8 byte offsets, end exclusive, in the bundle identified by SHA-256.",
-      "The existing AST extractor does not expose parse diagnostics. Absence from this index is not proof of absence upstream.",
+      "Every bundle parsed without recovery. Absence only establishes that this exact static module name was not defined in these inputs; it does not prove feature removal or a rename.",
       "All recovered occurrences are retained. Equal module names with different hashes need review.",
       "Module provenance locates code; field-level semantics may require following dependencies."
     ],
     "modules": {
+      "WAWebAccountLinkingAPIGetCertsQuery.graphql": [
+        {
+          "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+          "dependencies": [],
+          "end": 2182951,
+          "factorySha256": "71c349b85981857d87de20e0058b3294b338fab20a48077494a25170e27cc175",
+          "moduleSha256": "a5c80e9f78b2920e445d2f444845bcd25662352dd617a02279311db7c9f3de06",
+          "start": 2181768
+        }
+      ],
       "WAWebContactManagerCustomerProfilesQuery": [
         {
           "bundleSha256": "36dc1290c51b02500ad640ba5aa793dd1b5e9172afcb71ff327d64cd1f279717",
@@ -148,6 +1125,148 @@
           "factorySha256": "8ad8f73b1a267fb2b3e43ac1c801326dd5a667f104e3a45fb33b81b01bc99b4c",
           "moduleSha256": "0edd9a4622782763c39f80764decf75406cbec76925a80622cfd1ee90436ec81",
           "start": 252637
+        }
+      ],
+      "WAWebFilterLogging": [
+        {
+          "bundleSha256": "3759ae9b91f03d11301433abb539dbe1cf575b9ba83d71cac768aa5fd662f76a",
+          "dependencies": [
+            "WAWebChatFilterEventWamEvent",
+            "WAWebChatSearchFilters",
+            "WAWebChatThreadLogging",
+            "WAWebConnGetters",
+            "WAWebConnModel",
+            "WAWebInboxFiltersGatingUtils",
+            "WAWebLabelCollection",
+            "WAWebListUtils",
+            "WAWebListsGatingUtils",
+            "WAWebListsLabelGatingUtils",
+            "WAWebListsLogging",
+            "WAWebWamEnumChatFilterActionTypes",
+            "WAWebWamEnumChatFilterTargetScreen",
+            "WAWebWamEnumChatFilterTypes",
+            "WAWebWamEnumChatSearchResultType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 407194,
+          "factorySha256": "a0db83c75fe040009567e94d701af42f964b21895a39d0caed0ed896ef252e65",
+          "moduleSha256": "85cbd606e0574186e121e596c1470e1f97ec3afe3fee67bdce69d9e309082669",
+          "start": 399753
+        }
+      ],
+      "WAWebMexLogging": [
+        {
+          "bundleSha256": "430cb8979511aada95178605faa35a8483446f677ce6d1fe0fd66333c7879eee",
+          "dependencies": [
+            "WAWebMexEventV2WamEvent"
+          ],
+          "end": 1052144,
+          "factorySha256": "dd1551ae839013f1bdc42de069d375d5d02cbad9834cdd8f558e1f6ae980c120",
+          "moduleSha256": "e6d862350fb96e5beb62395ed2f4742252b959cc7970a342b66b24c84e99b621",
+          "start": 1050600
+        }
+      ],
+      "WAWebMexUpdateNewsletterAdminProfileSettingJob": [
+        {
+          "bundleSha256": "8b1ad690213935d2ecab20746541b09231161494bd7be0a24dd95c6eb2f59366",
+          "dependencies": [
+            "WAWebBackendErrors",
+            "WAWebMexClient",
+            "WAWebMexUpdateNewsletterAdminProfileSettingJobMutation.graphql",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 488568,
+          "factorySha256": "302bfa3bea962255b9ad0f22eb78f451aab7f28423aadc633b89a1a373c4e85a",
+          "moduleSha256": "d0394b7ed730757f0fe17c7a5b1c17962ce8302098c6a8767e8a69f66c2abb1c",
+          "start": 487492
+        }
+      ],
+      "WAWebMexUpdateNewsletterAdminProfileSettingJobMutation.graphql": [
+        {
+          "bundleSha256": "8b1ad690213935d2ecab20746541b09231161494bd7be0a24dd95c6eb2f59366",
+          "dependencies": [],
+          "end": 487490,
+          "factorySha256": "f0413602fff7b0686d4735f017f6041bfc6665a606e3b6527a7c7d2e3a25bd8d",
+          "moduleSha256": "a67f3672a91e2d1b66e3015540b6c402c91734ce4d614e361ee46fce41699ac8",
+          "start": 486221
+        }
+      ],
+      "WAWebPaymentsUserActionLogging": [
+        {
+          "bundleSha256": "b6a60494b96941d4f130f165112647667426337cb4060c63cfeb38330fb38bf1",
+          "dependencies": [
+            "WALogger",
+            "WAWebPaymentsUserActionWamEvent",
+            "WAWebWamEnumPaymentActionTypes"
+          ],
+          "end": 25782,
+          "factorySha256": "6390f2e084a8e7ba74eaf207765071c28c0de57f0b74b82ab763199e5480f11a",
+          "moduleSha256": "725c3fec4cba9a60a82dcb9c2a433194b770beb121fe235bee5bd3a5d3b8d70f",
+          "start": 24765
+        }
+      ],
+      "WAWebPixWamLogger": [
+        {
+          "bundleSha256": "9b681e073f14f9d50e3dc12b456e4f980b554eff4d58827bc91c90a697e9ca38",
+          "dependencies": [
+            "WALogger",
+            "WAWebGetMessageChatTypeFromWid",
+            "WAWebPaymentsUserActionWamEvent",
+            "WAWebSyncdMdSyncFieldstatMeta",
+            "WAWebWamEnumMessageChatType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 5288514,
+          "factorySha256": "207a8ec627293f16757496b82f22d4ea6c222524b4916a42038c3d9da061cfd9",
+          "moduleSha256": "85b220417f61747199d1677d0d5af33cd04f8d0d683f2435e5685f9eb536fb1f",
+          "start": 5286758
+        },
+        {
+          "bundleSha256": "ee46bf4858a1118a5a2c15d36c4ddc414fa927c6d527922616e4f2951ca87046",
+          "dependencies": [
+            "WALogger",
+            "WAWebGetMessageChatTypeFromWid",
+            "WAWebPaymentsUserActionWamEvent",
+            "WAWebSyncdMdSyncFieldstatMeta",
+            "WAWebWamEnumMessageChatType",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 146645,
+          "factorySha256": "207a8ec627293f16757496b82f22d4ea6c222524b4916a42038c3d9da061cfd9",
+          "moduleSha256": "85b220417f61747199d1677d0d5af33cd04f8d0d683f2435e5685f9eb536fb1f",
+          "start": 144889
+        }
+      ],
+      "WAWebSendStickerAction": [
+        {
+          "bundleSha256": "3759ae9b91f03d11301433abb539dbe1cf575b9ba83d71cac768aa5fd662f76a",
+          "dependencies": [
+            "fbt",
+            "WALogger",
+            "WAWebAuraGating",
+            "WAWebBizBotTosUtils",
+            "WAWebCmd",
+            "WAWebConfirmPopup.react",
+            "WAWebMedia",
+            "WAWebMediaOpaqueData",
+            "WAWebModalManager",
+            "WAWebRecentStickerCollection",
+            "WAWebSendMsgResultAction",
+            "WAWebStateUtils",
+            "WAWebStickerPremiumStatus",
+            "WAWebStickerSendWamEvent",
+            "WAWebWaPlusBenefitJourneyLogger",
+            "WAWebWamEnumWpbujBenefitType",
+            "WAWebWamEnumWpbujSurface",
+            "WAWebWebpMetadata",
+            "asyncToGeneratorRuntime",
+            "err",
+            "react"
+          ],
+          "end": 720666,
+          "factorySha256": "a48bdf72086f3ff767d48724cdde328203128cecbaee171ae348b2bb41bae033",
+          "moduleSha256": "9357b5727a22496e1630d342ca87220f8288c6e18bf81a98a8f4db05e47db6a5",
+          "start": 717479
         }
       ],
       "WAWebSetAboutJob": [
@@ -188,6 +1307,375 @@
           "factorySha256": "f2e16b840638226fe6023fe91bb0bbf3bcae8b5bc31967504cba8db759748abb",
           "moduleSha256": "270ab2fc00118aae4e79742cd84606290ed14b06d80a5c83da46cdbe2573cb60",
           "start": 183590
+        }
+      ],
+      "WAWebSmb3pdAggregatedConversionSignalAction": [
+        {
+          "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+          "dependencies": [
+            "WAJids",
+            "WALogger",
+            "WAWebCTWADataSharingModel",
+            "WAWebCTWAGatingUtils",
+            "WAWebChatThreadLogging",
+            "WAWebCommonCTWADataSharing",
+            "WAWebConversionTupleCollection",
+            "WAWebCtwa3pdAggregatedConversionWamEvent",
+            "WAWebDataSharing3pdLidCollection",
+            "WAWebLidMigrationUtils",
+            "WAWebWamEnumCtwaDirectionFrom",
+            "getErrorSafe"
+          ],
+          "end": 2529906,
+          "factorySha256": "79c02239cad1dc25ffec0f9489cda49b2464e1ba55b073beeca29b15e58fb12c",
+          "moduleSha256": "5ac74826aadb1c4e9aa1d9b02f5bdbc514eb95ff7b5104d38d29d0fefc3f9725",
+          "start": 2527583
+        }
+      ],
+      "WAWebStatusSubtitle.react": [
+        {
+          "bundleSha256": "7a224a1f4e67acb7e519b9676abfa86806e50426e7ed4a9f76e517536fe279ca",
+          "dependencies": [
+            "fbt",
+            "invariant",
+            "WALogger",
+            "WAWebClock",
+            "WAWebContactCollection",
+            "WAWebContactGetters",
+            "WAWebExternalLink.react",
+            "WAWebFlex.react",
+            "WAWebFrontendContactGetters",
+            "WAWebMentionsRefreshedIcon.react",
+            "WAWebMessageAIContentLabel.react",
+            "WAWebMsgGetters",
+            "WAWebMusicGatingUtils",
+            "WAWebMusicStatusAttribution.react",
+            "WAWebNewsletterAiContentInfoModalOpener",
+            "WAWebNewsletterAiContentInfoModalTypes",
+            "WAWebNewsletterGatingUtils",
+            "WAWebNewsletterMetadataCollection",
+            "WAWebProtobufsStatusAttributions.pb",
+            "WAWebStatusCloseFriendsDialog.react",
+            "WAWebStatusExternalShareUtils",
+            "WAWebStatusGatingUtils",
+            "WAWebStatusLoggingUtils",
+            "WAWebStatusNavigateToNewsletterUtils",
+            "WAWebStatusSubtitleAttribution.react",
+            "WAWebStatusViewerActionWamEvent",
+            "WAWebStopEvent",
+            "WAWebWamEnumStatusCategory",
+            "WAWebWamEnumStatusViewActionType",
+            "WAWebWamEnumTopBarAttributionType",
+            "WDSIconIcRepeat.react",
+            "WDSIconWdsIcAiContent.react",
+            "WDSIconWdsIcChannels.react",
+            "WDSText.react",
+            "asyncToGeneratorRuntime",
+            "react",
+            "react-compiler-runtime",
+            "stylex",
+            "useWAWebMsgValues"
+          ],
+          "end": 315755,
+          "factorySha256": "88517991c525308897e980ad22667bb2cda74254644fbf6fa1ab761bddba65bd",
+          "moduleSha256": "e3bd54e8504c4749609e0d99d9ed4f425065deb6ccc7a98a6a0c1ed24f91a591",
+          "start": 302954
+        }
+      ],
+      "WAWebStatusViewerActionWamEvent": [
+        {
+          "bundleSha256": "7a224a1f4e67acb7e519b9676abfa86806e50426e7ed4a9f76e517536fe279ca",
+          "dependencies": [
+            "WAWebWamCodegenUtils",
+            "WAWebWamEnumInlineVideoType",
+            "WAWebWamEnumStatusCategory",
+            "WAWebWamEnumStatusViewActionType",
+            "WAWebWamEnumTopBarAttributionType",
+            "WAWebWamEnumUrlStatusClicked",
+            "WAWebWamEnumUrlStatusType"
+          ],
+          "end": 302952,
+          "factorySha256": "d245955e77af9f95036f6b129de3ccaf8cb09f079c228a9304c9c4824059e715",
+          "moduleSha256": "188a58b5832e3127ecc99ebc44cb72053645624f24f79df43fa2a37f9d570f33",
+          "start": 301920
+        }
+      ],
+      "WAWebThreadLoggingAi": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataAiWamEvent",
+            "getErrorSafe"
+          ],
+          "end": 1550564,
+          "factorySha256": "9c3eabd9a69e12c6cbacbe70f1bd294d486a0d5589aa3f245a50e5e97378686f",
+          "moduleSha256": "b145e75b68163c093af2109db48aab201cb09b58bf6117e2903e424b33d42720",
+          "start": 1549914
+        }
+      ],
+      "WAWebThreadLoggingBiz": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataBizWamEvent",
+            "WAWebWamEnumBizCatalogType",
+            "getErrorSafe"
+          ],
+          "end": 1554406,
+          "factorySha256": "278b70e431b064564cba7a0a7794c5884cb010d996599e56f9d04f381e9c84b9",
+          "moduleSha256": "c131f7f32bcb77192abfc0542045221c12f75e2da33c2594063d999105050d65",
+          "start": 1553318
+        }
+      ],
+      "WAWebThreadLoggingCoreConsumer": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WALogger",
+            "WAWebGroupType",
+            "WAWebThreadInteractionDataCoreConsumerWamEvent",
+            "WAWebWamEnumChatMutedType",
+            "err"
+          ],
+          "end": 1565294,
+          "factorySha256": "efd62b70dffcb0ab65c0bb54da77ab8f8df2abd25b734905e29103d1578cb750",
+          "moduleSha256": "5a69f324b23edd70ceaa5fe6c1252f56a493b61fadb5f55f5764dd16c2d0661e",
+          "start": 1561902
+        }
+      ],
+      "WAWebThreadLoggingIntegrity": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataIntegrityWamEvent",
+            "getErrorSafe"
+          ],
+          "end": 1566777,
+          "factorySha256": "65ebd51ffac910e7ae9952860bc99e703409664faba802618e9e9fb731615353",
+          "moduleSha256": "35589ea4523873fe91790e9bd6f73589e1886b53eb5fc6f8f1a391d9d5b69531",
+          "start": 1566176
+        }
+      ],
+      "WAWebThreadLoggingNotification": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataNotificationWamEvent",
+            "err"
+          ],
+          "end": 1569330,
+          "factorySha256": "4565b9c412a5677abbd9e6169dca262bc240495948ded7d4fe580e1a2524efb0",
+          "moduleSha256": "33b01e6054497198f4b082a7a7b63724d26ae37eb0cbdf16941ebf46a52fc5d9",
+          "start": 1568651
+        }
+      ],
+      "WAWebThreadLoggingVoip": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WALogger",
+            "WAWebThreadInteractionDataVoipWamEvent",
+            "getErrorSafe"
+          ],
+          "end": 1570850,
+          "factorySha256": "3657b2b71a5b716b563df84a1c513ef66980b2dfba7720e90dc462e3ab2796ab",
+          "moduleSha256": "524103e748da6c43badf73f0062a2b873b1042822a04f95671e6a325f716fdef",
+          "start": 1570164
+        }
+      ],
+      "WAWebUpdateNewsletterAdminProfileSettingJob": [
+        {
+          "bundleSha256": "8b1ad690213935d2ecab20746541b09231161494bd7be0a24dd95c6eb2f59366",
+          "dependencies": [
+            "WAJobOrchestratorTypes",
+            "WALogger",
+            "WAWebDbErrors",
+            "WAWebMexUpdateNewsletterAdminProfileSettingJob",
+            "WAWebOrchestratorNonPersistedJob",
+            "WAWebSchemaNewsletterMetadata",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 489917,
+          "factorySha256": "6403088b769e61ff345715cd7ba6a3305e0679479e30dff61f4960bf929c078c",
+          "moduleSha256": "1c25ec9a3232c9e7fa16b460956a30ffdddb87ce4955891304b55e8395381df9",
+          "start": 488570
+        }
+      ],
+      "WAWebWamCodegenUtils": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WAUpperFirst",
+            "WAWebWamCodegenGlobalMetrics",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamInitQueue",
+            "WAWebWamRuntimeProvider",
+            "WAWebWamTypeHash",
+            "err",
+            "gkx",
+            "justknobx"
+          ],
+          "end": 2609234,
+          "factorySha256": "e4f82a8795da9d43859240c6347b2ce6036970879583b89f916c0dc1f16818d6",
+          "moduleSha256": "13572093631b91cfe8508e3915a5d7fcecad45ce8e7034a1f6987328649afdef",
+          "start": 2606560
+        }
+      ],
+      "WAWebWamFingerprintReporter": [
+        {
+          "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+          "dependencies": [
+            "WAWebWamEnumWebcWindowNavigatorWebdriverType",
+            "WAWebWamFingerprint",
+            "WAWebWebcFingerprintWamEvent",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 1822832,
+          "factorySha256": "1c5038f4828e0759bdc0e9b62823db74cb4cdb034babbf5ae734dd9f191a096a",
+          "moduleSha256": "3a2452fcfc9277edf7761595c092341f3ca70594087fbce930759a9322854972",
+          "start": 1821158
+        }
+      ],
+      "WAWebWamTypeHash": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WALogger",
+            "err"
+          ],
+          "end": 2606558,
+          "factorySha256": "f5f79ada80106f01ad2c999bea947d73a295a5dbbaaeae183f2bada9f6a3df13",
+          "moduleSha256": "08a201d682b60cf3752df260fb05082ae2c53f880e92d60c43edfa1f7cba9950",
+          "start": 2605342
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2634": [
+        {
+          "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebAppTracker",
+            "WAWebBrowserApi",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebMemoryStatWamEvent",
+            "WAWebODS",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "WAWebWindowsHybridBridgeTrace",
+            "asyncToGeneratorRuntime",
+            "getErrorSafe"
+          ],
+          "end": 943224,
+          "factorySha256": "e0b9e1f866d0c4557c43de35a4ca81400920d5dccdeece2ce86a256c56a0cfd3",
+          "moduleSha256": "f2c58543b972edc6a42d7b20868cd72e5b2683b6cabdafc57d734ad7eac33521",
+          "start": 939823
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2635": [
+        {
+          "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebAppTracker",
+            "WAWebBrowserApi",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebMemoryStatWamEvent",
+            "WAWebODS",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "WAWebWindowsHybridBridgeTrace",
+            "asyncToGeneratorRuntime",
+            "getErrorSafe"
+          ],
+          "end": 1025261,
+          "factorySha256": "9e7b790524142b951280b664b7c9383f23234455d2b292f3e2d7efb8f90258c7",
+          "moduleSha256": "9ed6cb2d54ed70eb1968edc83c190fcb1c71bf33bb8f568f683e14e631a89606",
+          "start": 1021860
+        }
+      ],
+      "WAWebWindowsHybridBridgeWam.v2636": [
+        {
+          "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+          "dependencies": [
+            "Promise",
+            "WALogger",
+            "WAWebAppTracker",
+            "WAWebBrowserApi",
+            "WAWebCrashContextUtils",
+            "WAWebCrashLogWamEvent",
+            "WAWebMemoryStatWamEvent",
+            "WAWebODS",
+            "WAWebWam",
+            "WAWebWamCodegenUtils",
+            "WAWebWamCodegenWamEvent",
+            "WAWebWamEnumCrashApplicationState",
+            "WAWebWamEnumCrashType",
+            "WAWebWindowsHybridBridgeTrace",
+            "asyncToGeneratorRuntime",
+            "getErrorSafe"
+          ],
+          "end": 1107250,
+          "factorySha256": "bb865b80c42ce5cdc1000b6798463e1ee7e744bbf3af8b4923b4bb9cf416c3a1",
+          "moduleSha256": "9b50581a4f977098b476f5ea06c3fe5d733284f5eb07aa736fa8fcc8d50faddc",
+          "start": 1103849
+        }
+      ],
+      "useWAWebSmartComposerCoachSuggestedReply": [
+        {
+          "bundleSha256": "b7acfd3e4ea27fa022100445c8fa2a601a57145499683fa67d19ab8648f8b15e",
+          "dependencies": [
+            "CometRelay",
+            "Promise",
+            "WALogger",
+            "WAWebBizAIRelayRefreshContext",
+            "WAWebFetchAdAccountToken",
+            "WAWebGraphQLServerError",
+            "WAWebNetworkStatus",
+            "getErrorSafe",
+            "react",
+            "react-compiler-runtime",
+            "useWAWebSmartComposerCoachSuggestedReplyMutation.graphql"
+          ],
+          "end": 14943,
+          "factorySha256": "d7824073f9e5414b6fdc37cd409e0b4e307d7f76c57fc7fc58d4420e6c7c7ad9",
+          "moduleSha256": "637db081e0f62ba80db007bb678a08ae5a9a8b842c8cc6e29dd31b6492dba1f6",
+          "start": 12640
+        }
+      ],
+      "useWAWebSmartComposerCoachSuggestedReplyMutation.graphql": [
+        {
+          "bundleSha256": "b7acfd3e4ea27fa022100445c8fa2a601a57145499683fa67d19ab8648f8b15e",
+          "dependencies": [
+            "useWAWebSmartComposerCoachSuggestedReplyMutation_facebookRelayOperation"
+          ],
+          "end": 12638,
+          "factorySha256": "51d9dbe5350cbb1f989dfd4fb410f48653fbd046e5e8705045bffee15944a2f8",
+          "moduleSha256": "922022f08ace6dc002a720f81a7a64151957ab565d08ecda44e2d28968bcedfe",
+          "start": 11529
+        }
+      ],
+      "useWAWebSmartComposerCoachSuggestedReplyMutation_facebookRelayOperation": [
+        {
+          "bundleSha256": "b7acfd3e4ea27fa022100445c8fa2a601a57145499683fa67d19ab8648f8b15e",
+          "dependencies": [],
+          "end": 11527,
+          "factorySha256": "8da5272921c775f74b767e6b65eea168c820f523ba047cf1091214ce601195bc",
+          "moduleSha256": "fc69158c537186402667d65683a2e813f52caf801bc0bfe77428ef39fdf7b192",
+          "start": 11386
         }
       ]
     },

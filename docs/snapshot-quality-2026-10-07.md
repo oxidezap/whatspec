@@ -1,11 +1,10 @@
-# September snapshot quality investigation
+# Snapshot quality investigation — 2026-10-07
 
-The current remote HEAD checked on 2026-10-07 was
-`1f5167c4cebf263edaf001e06a2497f213c55793`. The comparison baseline was
-`1a441f0329c941fcdb238490a6c604550d8a9939`. The intervening commit changes only
-16 generated files. Both use IR schema 4.3.0 and the same extractor source.
-The reference research report supplied through Library was treated as a set of
-claims to recheck. No other repository or real session was used.
+Remote HEAD at the initial check was `1f5167c4cebf263edaf001e06a2497f213c55793`;
+the prior snapshot was `1a441f0329c941fcdb238490a6c604550d8a9939`. Their difference
+contains only 16 generated files, with the same extractor and IR schema 4.3.0.
+The Library research report supplied for this investigation was treated as claims
+to verify. No other repository or real session was used.
 
 | Evidence | Old | New |
 |---|---|---|
@@ -14,120 +13,163 @@ claims to recheck. No other repository or real session was used.
 | Set hash | `99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00` | `05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b` |
 | Archive SHA-256 | `2edd4b3f8dae50b503e0b15920adc774e2680cdb542396d57608bb0374196ee1` | `22243b9c2ff18a66cea8fd66551821fe0f9f09786d107e2be8284637db86c349` |
 
-Both archives came from `oxidezap/whatspec` release `bundle-store`, named
-`bundles-<WA version>-<set hash>.tar.xz`. Restore verified each exact bundle
-multiset. TLS in the Rust downloader reported `UnknownIssuer`; `curl` downloaded
-the same assets using the environment trust store, without disabling TLS checks.
-Restore then consumed the local archives. This is independent of the `gh` API
-requests that returned `Forbidden`; the connected GitHub search returned no open
-PRs at the initial check.
+Both archives came from this repository's `bundle-store` release. Restore checked
+the exact bundle multiset, sizes, hashes and set hash. Rust TLS reported
+`UnknownIssuer`; `curl` downloaded the same assets using the environment trust
+store without disabling TLS checks, then restore consumed the local archives.
+The `gh` API returned `Forbidden`; connected GitHub tools handled PR operations.
 
-## Reproduced checks
+## Checks and baseline dispositions
 
-All 12 real JSON documents in each snapshot pass their emitted schemas with
-`jsonschema 4.26.0`. The validator previously returned success for an entirely
-empty directory, printing 12 `skip` lines. It now fails missing documents,
-missing schemas, malformed JSON, invalid schemas, and unresolved external
-references. Nine offline regression tests cover those cases, valid input, and an explicit
-count of successfully validated pairs.
+Both historical snapshots pass all 12 emitted JSON schemas. The old validator
+incorrectly passed an empty directory; it now fails missing documents/schemas,
+invalid JSON/schema, and external references. It reports the number actually
+validated. Nine validator regression tests cover those cases.
 
-Both snapshots reproduce all 27 checked artifacts with the same release binary
-and `update --bundles ... --wa-version ... --check`. The old run took 13.970 s
-with peak RSS 2,387,992 KiB; the new run took 13.114 s with peak RSS 2,386,528 KiB.
-These are single warm runs measured with Python monotonic time and child-process
-resource usage, not benchmarks. They prove reproduction, not protocol completeness.
+Before the WAM extraction fix, the same release binary reproduced all 27 checked
+artifacts of both historical commits. Warm runs took 13.970 s / 13.114 s, with
+peak RSS 2,387,992 / 2,386,528 KiB. These are single observations, not benchmarks.
 
-The lint result still fails six exact baselines. No limit was relaxed. Its old
-`IMPROVED ... lower the baseline` diagnosis was unsound without source review;
-it now reports a changed state and requests investigation.
+All six failing count baselines have source-level dispositions below. They remain
+exact pins in both directions, not upper bounds. Four additional Python tests
+run lint on the real snapshot and mutate every repinned state upward/downward
+(12 mutations), proving that neither an increase nor an unexplained decrease is
+silently accepted. Schema conformance and lint are separate checks.
 
-| Counted gap | Old baseline | New observed | Attribution |
-|---|---:|---:|---|
-| IQ attributes without argument paths | 55 | 49 | Privacy recovers 3; KMP catalog departure removes 3 |
-| IQ children without argument paths | 12 | 10 | Privacy recovers 1; KMP catalog departure removes 1 |
-| MEX undetermined variable presence | 108 | 106 | Removed operations subtract 6; ContactManager adds 3; SmartComposer adds 1 |
-| MEX operations with no established presence | 13 | 10 | Four removed operations; one new SmartComposer operation |
-| WAM uncataloged-event constructions | 41 | 29 | Indeterminate without per-construction attribution |
-| WAM unread construction arguments | 104 | 93 | Identifier arguments 100→89; call 1 and member 3 unchanged; cause indeterminate |
+| Counted gap | Historical old | Historical new | After fix / new pin | Disposition |
+|---|---:|---:|---:|---|
+| IQ attributes without argument paths | 55 | 49 | 49 | Privacy recovers 3; absent KMP definition removes 3 |
+| IQ children without argument paths | 12 | 10 | 10 | Privacy recovers 1; absent KMP definition removes 1 |
+| MEX undetermined presence nodes | 108 | 106 | 106 | Departing operations subtract 6; ContactManager adds 3; SmartComposer adds 1 |
+| MEX operations with no established presence | 13 | 10 | 10 | Four departed operations; one new, unresolved SmartComposer operation |
+| WAM uncataloged constructions | 41 | 29 | 29 | 15 old Windows bridge definitions depart; 3 arrive |
+| WAM unread arguments | 104 | 93 | 79 | Bridge change −12; StatusSubtitle regression +1; local-object fix −14 |
 
-The IQ missing-content count stays at 23 through cancellation: KMP departure
-subtracts one while SetAbout's changed selected entry point adds one. An unchanged
-total therefore also needs identity-level review.
+The [gap ledger](snapshot-quality-2026-10-07.gaps.json) records exact module names,
+constructor spans/hashes, counter arithmetic, and remaining limitations. The
+[source sidecar](snapshot-quality-2026-10-07.sources.json) locates the selected
+modules in both locked sets. Every bundle parses without recovery: 20,209 old and
+19,713 new exact static module names. This establishes coverage of static module
+definitions, not completeness of the server protocol or dynamic JavaScript.
 
-## Source findings
+## IQ evidence
 
-The compact [source sidecar](snapshot-quality-2026-10-07.sources.json) records
-recoverable bundle hashes and AST byte spans for the findings below. All source
-inspection used those AST ranges; no `eval`, `vm`, or authenticated client ran.
+`WAWebSetPrivacyJob` changes its helper from four positional parameters to an
+object containing `dhash`, `name`, `users`, and `value`. Both sources construct
+`privacy/category` and repeated `user` nodes. The new IR recovers three category
+argument paths and the child's `users[]` path. It also corrects old `name/action`
+and `name/wid` paths to `users[]/action` and `users[]/wid`. This is improved
+extraction enabled by an upstream refactor, not a wire feature removal.
 
-`WAWebSetPrivacyJob` changes helper `f` from four positional parameters to an
-object with `dhash`, `name`, `users`, and `value`. Both versions still construct
-`privacy/category` and repeated `user` nodes. The new IR recovers the three
-category argument paths and the child's `users[]` path. It also corrects the old
-`name/action` and `name/wid` paths to `users[]/action` and `users[]/wid`.
-This is recovered extraction quality enabled by an upstream refactor, not a
-wire feature removal or proof that all branches are modeled. The old source is
-bundle `fd26924373be0ce0e773c304511df62909fa76e11d9294c0509542d3f38f842d`,
-bytes 1087286..1090426; the new source is
-`7c7be0378ce2e7ff49b9f5909cf8a7d283000af82cc43bc071c2df3541ec5d56`,
-bytes 183590..186813.
+`WAWebKmpSyncdRequestBuilder` contributes three missing attribute paths, one child
+path, and one content path in the old snapshot. Its exact static definition is
+absent from the fully parsed new set. That catalog departure explains the
+counter decrease. It does not establish that app-state support vanished, or that
+another module is a rename. The disposition is upstream static-definition
+change; the fate of the wire operation remains indeterminate.
 
-`WAWebKmpSyncdRequestBuilder` contributed three unaddressed attributes, one child,
-and one content value. It is present in the old AST index and not recovered in
-the new one. This explains the counter arithmetic but does not establish removal
-of app-state protocol support. The source-index API does not report parse errors,
-and a renamed or relocated implementation needs separate investigation. Keep
-this catalog departure indeterminate.
+The unchanged missing-content total of 23 hides cancellation: KMP contributes
+−1 and SetAbout contributes +1. `WAWebSetAboutJob` now exports both `setAbout` and
+`sendSetAbout`, with the construction in a positional `sendSetAbout` function.
+The selected IR entry loses its argument-object content path. The source no
+longer supplies such an object at that entry. Treat the add/remove pair separately,
+without a guaranteed rename or a promise of source API compatibility.
 
-`WAWebSetAboutJob` is not a proven rename from `setAbout` to `sendSetAbout`.
-The new source exports both. It moves the IQ construction into a positional
-`sendSetAbout` function, called from the persisted job. The selected IR export
-changes, losing the old `content` argument-object path while retaining dynamic
-status content. Treat the add/remove pair separately; consumers must not assume
-that matching wire shapes establish function identity.
+## MEX evidence and retained gaps
 
-Nine MEX operation names depart and three arrive. The departures are
-CreateLabyrinthBackup, DebugLabyrinthInboxSnapshot, DebugLabyrinthRange,
-EBMessageMetadataQuery, RotateLabyrinthEpoch, TeamLinkCreateInvitation,
-TeamLinkListInvitations, TeamLinkRemoveInvitation, and UploadLabyrinthMessages.
-The additions are AccountLinkingAPIGetCerts, UpdateNewsletterAdminProfileSetting,
-and useWAWebSmartComposerCoachSuggestedReply. Four departures explain six fewer
-undetermined keys and four fewer wholly undetermined operations. The new
-SmartComposer operation adds one of each.
+Nine operation names depart and three arrive; their exact names are in the gap
+ledger. The corresponding departed `.graphql` definitions are absent from the
+fully parsed new set. Four removed operations account for six undetermined keys
+and four wholly undetermined operations. These are catalog departures, not proof
+of server-side operation retirement.
 
-ContactManagerCustomerProfiles adds three undetermined presence nodes under
-`filters`, accounting for the remainder of the MEX counter change. Its source
-now constructs a filters array with `.map`. The operation's persisted ID change
-is independently proved by the literal exports in its facebookRelayOperation
-module: `27747880408206174` becomes `27796221486653417`. Other changes, including
-candidate_lids' shape becoming a string and presence becoming conditional,
-remain unclassified pending a focused MEX inference review. An aggregate drop
-must not hide those new gaps.
+`WAWebContactManagerCustomerProfilesQuery` adds `filters`, built through `.map`,
+and two nested field names. Their presence stays undetermined because the current
+classifier does not establish the call's return semantics. The source adds these
+fields; this is a new unresolved surface, not silently discarded extraction.
+Its `candidate_lids` now uses a nullish fallback to `[]`; the IR's string/conditional
+inference is **not** a proved upstream type change and remains indeterminate.
+A method named `map` alone does not guarantee Array semantics. These limitations
+are preserved explicitly rather than claiming a complete variable contract.
 
-WAM changes from 883 to 874 constructions, 807 to 810 call sites, and 121 to 126
-partial sites. These aggregates do not identify the 12 uncataloged-event and
-11 unread-argument departures. Neither the lower gap counts nor the higher
-call-site count justifies lowering the baselines before per-site attribution.
+The new SmartComposer operation takes a mutation function from
+`CometRelay.useMutation(...)[0]` and later calls it with a nested `variables.input`
+object. The extractor does not resolve that alias; it falls back to the compiled
+GraphQL `input` argument with undetermined presence. The visible nested fields
+remain unrecovered. This is a new unsupported call shape, recorded as a gap; it
+adds one node and one wholly undetermined operation. The baseline review does
+not certify that fallback as complete or infer those missing fields.
 
-## Review artifact and remaining work
+The ContactManager persisted-ID change is independently proven by literal
+facebookRelayOperation exports: `27747880408206174` → `27796221486653417`.
 
-The generic report contains 472 deltas for this pair, including one opaque
-protobuf artifact delta. The checked-in [review ledger](snapshot-quality-2026-10-07.reviews.json)
-classifies the privacy improvement and the ContactManager persisted-ID change.
-The remaining 470 deltas stay indeterminate; unreviewed is not equivalent to bad.
-Generate the report with:
+## WAM evidence and extraction repair
+
+Each departed/added `WAWebWindowsHybridBridgeWam.v*` definition constructs one
+`RawWamEvent` from a runtime object originating in native JSON. That schema cannot
+be recovered as a fixed catalog event. The 15 departures and 3 arrivals explain
+both the uncataloged count change (41→29) and −12 unread identifiers. Call (1)
+and member (3) unread forms remain unchanged.
+
+There is also a genuine loss: `WAWebStatusSubtitle.react` moves the inline
+attribution object into a local variable, preserving `attributionType`,
+`statusCategory`, and `viewerActionType`. The old extractor turns the direct
+construction into an empty partial site. Exact pinned module fixtures reproduce
+that failure on provenance-only commit `4d1bed4`; the same test passes with the
+local-object fix. A smaller synthetic refactor also fails before and passes after.
+
+Recovery accepts only a uniquely bound, directly initialized function-local
+object, with all uses accounted for as recognized constructor reads or sources
+of a fresh-target `babelHelpers.extends`. Mutation, escape, rebinding, conditional
+initialization, pre-initialization reads, direct eval, shadowing and outer closure
+reads remain unresolved. The pinned `WAWebWamTypeHash` constructor copies input
+fields through `set`; it does not mutate the source object. The async closure's
+inherited fields remain partial because invocation timing is not established.
+
+The fix recovers 14 unread arguments on the current set and 14 on the old set
+(the memberships differ; the ledger lists both). On the current snapshot it adds
+157 field occurrences, six field values, and two distinct call sites; partial
+sites fall from 126 to 114. Remaining unread arguments are 75 identifiers, one
+call and three members. Only `generated/wam/index.json` and
+`generated/manifest.json` change. No IQ, `spec.rs`, or IR schema redesign occurs.
+Existing extraction entry points and `WamDiagnostics` retain their API; the gap
+sidecar uses a new optional function. IR schema stays 4.3.0 because this fills
+existing field semantics and makes no consumer contract change.
+
+## Reproduction and maintenance
+
+At `4d1bed4`, `quality-gaps` emits the historical gap counts without the local
+argument recovery. On the final revision it emits the repaired counts:
 
 ```sh
-whatspec diff old-generated generated --json \
-  --evidence docs/snapshot-quality-2026-10-07.reviews.json > contracts.json
+whatspec source-index OLD_LOCK OLD_BUNDLES > old-sources.json
+whatspec source-index NEW_LOCK NEW_BUNDLES > new-sources.json
+whatspec quality-gaps OLD_LOCK OLD_BUNDLES > old-gaps.json
+whatspec quality-gaps NEW_LOCK NEW_BUNDLES > new-gaps.json
+whatspec update --bundles NEW_BUNDLES --wa-version 2.3000.1047483476 --check
+python3 scripts/validate-schemas.py generated
+python3 scripts/lint-ir.py generated
+python3 -m unittest discover -s scripts/tests -v
+cargo test -p wa-transform -p wa-wam -p whatspec --all-features
 ```
 
-The raw report is 2,591,393 bytes. Full optional source indexes are 14,248,640 and
-14,223,916 bytes, with 20,209 and 19,713 recovered module names. Only the focused
-sidecar and review ledger are committed. The generated IR is unchanged.
+Source indexes are generated on demand (~14.2 MB each), not committed wholesale.
+The focused source and gap ledgers are ~66.6 KB and ~21.4 KB. Two real WAM fixtures
+retain exact source slices, with bundle hashes and offsets in their headers.
+The WAM document grows from 2,794,121 to 2,812,306 bytes by recovering existing
+field semantics; optional provenance adds no per-field IR metadata. WAM gap evidence incurs extra parsing only
+when requested. Final regeneration checks reproduce all 27 artifacts for the repaired current
+snapshot and a separately regenerated old snapshot. Observed check times were
+26.063 s (new) and 18.561 s (old); peak child RSS across the sequence was
+2,390,792 KiB. Compilation overlapped these runs, so they are cost observations,
+not an isolated performance comparison.
 
-Before the snapshot can pass lint, account for the KMP departure and WAM sites,
-and review the new MEX gaps. Coordinate extractor or IQ IR corrections with
-those owners. Shared workflows are unchanged; the conformity work can integrate
-`python3 -m unittest discover -s scripts/tests -v`. CI must be checked on the
-published SHA, and a failing baseline must remain visible until resolved.
+Changes to snapshot membership require reviewing these ledgers;
+count arithmetic alone is insufficient.
+
+The generic contract report contains 484 deltas (2,637,575 bytes), keeps ordered
+arrays and does not infer renames.
+The [review ledger](snapshot-quality-2026-10-07.reviews.json) classifies the privacy
+improvement and persisted-ID change; the remaining 482 deltas stay indeterminate until
+reviewed. `--evidence` binds each review to both artifact hashes. The baseline
+dispositions above concern those six counters, not all contract differences.

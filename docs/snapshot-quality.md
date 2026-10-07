@@ -45,7 +45,7 @@ whatspec source-index generated/bundles.lock.json bundles WAWebSetPrivacyJob > s
 ```
 
 `source-index` independently checks the exact bundle multiset. It parses modules
-with the existing AST extractor and emits a separate optional sidecar containing
+with a checked AST entry point and emits a separate optional sidecar containing
 bundle SHA-256, module and factory hashes, dependency names, and byte offsets.
 It never evaluates JavaScript. Source names may be selected after the two paths;
 omit them to index all recovered modules. Offsets are UTF-8 bytes with an
@@ -53,12 +53,23 @@ exclusive end, so invalid UTF-8 is rejected rather than decoded lossily.
 Every recovered occurrence remains visible, including conflicting definitions.
 The index is deterministic and contains no workspace-specific file paths.
 
-The existing AST API does not expose parse diagnostics. Consequently the sidecar
-states `coverage: recovered-definitions-only`: a missing name is not proof of
-upstream removal. A module hint in a contract report is also only a starting
-point. Follow dependencies and mixins before attributing a field's semantics.
+The sidecar requires every locked bundle to parse without recovery and states
+`coverage: parsed-static-definitions`. A missing exact name proves only that no
+matching static definition was recovered from these fully parsed inputs. It does
+not prove feature removal, dynamic-module absence, or a rename. A module hint in
+a contract report is also only a starting point. Follow dependencies and mixins before attributing a field's semantics.
 For a field-level review, cite both its IR pointer and the relevant module span.
 This keeps recoverable provenance outside every repeated field of the IR.
+
+`whatspec quality-gaps LOCK BUNDLE_DIR` emits counted WAM gap locations with
+module-relative constructor byte spans, constructor/module hashes, and matching
+bundle locations. It checks the same complete bundle set and parse coverage.
+Two reasons may point at one construction; repeated copies of a module follow
+the extractor's existing deduplication. The optional sidecar does not enlarge the
+IR or change the existing `WamDiagnostics` API. Compare reports from the same
+extractor revision for upstream changes, and from two revisions on one locked
+set for extraction changes. Neither module names nor minified offsets establish
+identity between different snapshots.
 
 ## Classifying a change
 
