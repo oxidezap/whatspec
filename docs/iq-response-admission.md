@@ -94,6 +94,12 @@ continue to bare success in source order. For SetSubject 406/`not-acceptable`, a
 `<field>` makes the specific parser fail; the source disjunction then tries the
 400–499 fallback, which succeeds. Code/text selection is not a commit point.
 The compiled regression checks absent, valid, malformed and duplicated children.
+`optionalChildWithTag` calls `maybeChildren` first, which rejects binary content
+(including an empty byte array). A binary body on the 406/`not-acceptable` error
+therefore reaches fallback too. The guard applies only to arms inspecting
+children: attribute-only 400/`bad-request` and 500/`resource-constraint` retain
+their specific outcomes with binary bodies. Empty, UTF-8 and non-UTF-8 byte
+bodies are covered by the compiled regression.
 Unknown unrelated children remain accepted. This is not general JavaScript evaluation or a universal guard AST.
 
 ### Source provenance
@@ -151,9 +157,9 @@ context. Copying this test to the first fail-closed commit reproduces the missin
 context API failure. The adapter does not qualify a binary codec or a downstream
 client; independent conformance remains separately owned.
 
-Two debug generations of all 142 IQ operations produced identical 2,061,400-byte
-outputs, SHA-256 `7443c11931dbfa69701838748101acf35982ebd1e4d8e22063aef4908632faf7`,
-in 2.86 and 2.88 seconds, with 39 explicitly rejected parsers. The original base
+Two debug generations of all 142 IQ operations produced identical 2,061,750-byte
+outputs, SHA-256 `006b5a5e392892b4cb89f98274bf3eed171d66179f752c83bb491ee387de3d71`,
+in 3.03 and 3.00 seconds, with 39 explicitly rejected parsers. The original base
 produced 1,523,859 bytes in 2.84 and 2.98 seconds. The increase includes recovered
 outcome types and context-taking parsers; it is not an optimization claim.
 The Rust reference catalog remains ignored by git. Maintenance requires review
