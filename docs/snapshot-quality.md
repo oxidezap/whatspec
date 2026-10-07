@@ -53,7 +53,9 @@ exclusive end, so invalid UTF-8 is rejected rather than decoded lossily.
 Every recovered occurrence remains visible, including conflicting definitions.
 The index is deterministic and contains no workspace-specific file paths.
 
-The sidecar requires every locked bundle to parse without recovery and states
+The checked index also visits nested static `__d` definitions; the extraction
+fast path alone would skip them. The sidecar requires every locked bundle to
+parse without recovery and states
 `coverage: parsed-static-definitions`. A missing exact name proves only that no
 matching static definition was recovered from these fully parsed inputs. It does
 not prove feature removal, dynamic-module absence, or a rename. A module hint in

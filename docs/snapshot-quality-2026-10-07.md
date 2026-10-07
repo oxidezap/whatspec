@@ -51,6 +51,9 @@ constructor spans/hashes, counter arithmetic, and remaining limitations. The
 modules in both locked sets. Every bundle parses without recovery: 20,209 old and
 19,713 new exact static module names. This establishes coverage of static module
 definitions, not completeness of the server protocol or dynamic JavaScript.
+A follow-up test exposed the extraction fast path skipping nested definitions.
+The checked index now traverses them; both complete pinned indexes remain
+byte-for-byte identical, so none of the absence findings depended on that shortcut.
 
 ## IQ evidence
 
