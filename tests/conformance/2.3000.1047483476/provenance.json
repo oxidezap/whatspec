@@ -1,0 +1,99 @@
+{
+  "waVersion": "2.3000.1047483476",
+  "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+  "bundleCount": 579,
+  "bundleBytes": 75824128,
+  "modules": [
+    {
+      "module": "WASmaxGroupsAcceptGroupAddRPC",
+      "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+      "start": 5922,
+      "end": 7533,
+      "sourceSha256": "2167e222e0875e85276bd519e5bd86839ba1e92808af5a1320b424d84ca3d7ae"
+    },
+    {
+      "module": "WASmaxGroupsSetSubjectRPC",
+      "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+      "start": 28590,
+      "end": 29826,
+      "sourceSha256": "ddca755916395cc8f7b5d9cc1586e61030e0aad4f77e65385f86a09a47a3938d"
+    },
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddResponseGroupJoinRequestSuccess",
+      "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+      "start": 4229,
+      "end": 4728,
+      "sourceSha256": "3e137254ccda2e5b4b5d97fd512fe1ff74449cb360886195ecd46e098956718a"
+    },
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddResponseSuccess",
+      "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+      "start": 5098,
+      "end": 5459,
+      "sourceSha256": "2881a4c961499317969ca0c9a4ddbbd41cc60f4c0ac6567467e4ffc9cce62354"
+    },
+    {
+      "module": "WASmaxInGroupsIQResultResponseMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 107120,
+      "end": 107921,
+      "sourceSha256": "5bb1d7b81b3b9658b04c755236384c73e1e8d4f7bffecd2718d473738b3f387d"
+    },
+    {
+      "module": "WASmaxInGroupsSetSubjectResponseSuccess",
+      "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+      "start": 27492,
+      "end": 27845,
+      "sourceSha256": "0e40e8f7578b1ef63af1cd3aa9a67de5c161b02faaa7101f716bbb1dc68fa8e8"
+    },
+    {
+      "module": "WASmaxOutGroupsAcceptGroupAddRequest",
+      "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+      "start": 5461,
+      "end": 5920,
+      "sourceSha256": "5cf14463914ca9f49171d4e081e1addbfcb1c061a0c4b87e0a8325dad6240c82"
+    },
+    {
+      "module": "WASmaxOutGroupsBaseIQSetRequestMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 1138342,
+      "end": 1138644,
+      "sourceSha256": "66d7fb959f7fd555178fb69e4a8d5223cd87b5e010aee7c0c14310bd7f5aaa90"
+    },
+    {
+      "module": "WASmaxOutGroupsBaseSetGroupMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 1138646,
+      "end": 1139064,
+      "sourceSha256": "0a5176779f9969f702da985eef658a46d846d9bf355f709ce58f7490d0d33fc7"
+    },
+    {
+      "module": "WASmaxOutGroupsSetSubjectChangeSubjectMixin",
+      "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+      "start": 27847,
+      "end": 28186,
+      "sourceSha256": "3237a975959ca40026f296626e39cf6310eb57288f0cb9a79ce97edbc5714dec"
+    },
+    {
+      "module": "WASmaxOutGroupsSetSubjectRequest",
+      "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+      "start": 28188,
+      "end": 28588,
+      "sourceSha256": "b5f5dfc3427e0eadc42c98fd1b43e20e50451c8a03c70f6ef941353899de746c"
+    },
+    {
+      "module": "WAWebMexFetchNewsletterJob",
+      "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+      "start": 2765650,
+      "end": 2766687,
+      "sourceSha256": "67d888be41361e8443f0c13795cc1485e325923909a76a37308eeeebbf8e9d4a"
+    },
+    {
+      "module": "WAWebMexFetchNewsletterJobQuery.graphql",
+      "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+      "start": 2760559,
+      "end": 2765648,
+      "sourceSha256": "c45101869de13508fddd0c7d0f28289079d4835ea6f4919ec5d1564668288458"
+    }
+  ]
+}
