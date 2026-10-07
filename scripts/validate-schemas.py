@@ -13,7 +13,9 @@ from pathlib import Path
 try:
     from jsonschema import Draft202012Validator
     from jsonschema.exceptions import SchemaError
-    from referencing import Registry
+    from jsonschema.validators import validator_for
+    from referencing import Registry, Resource
+    from referencing.jsonschema import DRAFT202012, specification_with
     from referencing.exceptions import Unresolvable
 except ImportError:
     sys.exit("jsonschema not installed — `pip install jsonschema`")
@@ -35,6 +37,59 @@ DOMAINS = [
 ]
 
 
+def schema_validator(schema, default=Draft202012Validator):
+    if not isinstance(schema, dict) or "$schema" not in schema:
+        return default
+    if not isinstance(schema["$schema"], str):
+        raise ValueError("$schema must be a dialect URI string")
+    selected = validator_for(schema, default=None)
+    if selected is None:
+        raise ValueError(f"unsupported schema dialect: {schema['$schema']}")
+    return selected
+
+
+def checked_registry(schema):
+    """Check every schema-valued location, including branches no instance visits.
+
+    Resource.subresources follows the declared draft's schema keywords, so objects
+    in const/default/examples are data, not schemas. Registry has no retriever:
+    URI-shaped IDs may name embedded resources, but nothing is fetched.
+    """
+    selected = schema_validator(schema)
+    selected.check_schema(schema)
+    root = Resource.from_contents(schema, default_specification=DRAFT202012)
+    registry = Registry().with_resource("", root).crawl()
+    pending = [(root, registry.resolver().in_subresource(root), selected)]
+    seen = set()
+    while pending:
+        resource, resolver, inherited = pending.pop()
+        contents = resource.contents
+        dialect = schema_validator(contents, inherited)
+        identity = (id(contents), dialect)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        if isinstance(contents, dict):
+            for keyword in ("$ref", "$dynamicRef", "$recursiveRef"):
+                if keyword in dialect.VALIDATORS and keyword in contents:
+                    resolved = resolver.lookup(contents[keyword])
+                    # A pointer must lead to a schema, not an arbitrary JSON value.
+                    target_dialect = schema_validator(resolved.contents, dialect)
+                    target_dialect.check_schema(resolved.contents)
+                    target = Resource.from_contents(
+                        resolved.contents,
+                        default_specification=specification_with(
+                            target_dialect.ID_OF(target_dialect.META_SCHEMA)),
+                    )
+                    # A ref can turn an otherwise opaque annotation into a schema.
+                    pending.append((target, resolved.resolver, target_dialect))
+        pending.extend(
+            (child, resolver.in_subresource(child), dialect)
+            for child in resource.subresources()
+        )
+    return selected, registry
+
+
 def validate(root: Path) -> int:
     failures = 0
     for doc_rel, schema_rel in DOMAINS:
@@ -46,9 +101,8 @@ def validate(root: Path) -> int:
         try:
             schema = json.loads(schema_path.read_text())
             document = json.loads(doc_path.read_text())
-            Draft202012Validator.check_schema(schema)
-            # No remote schema retrieval: emitted schemas must be self-contained.
-            validator = Draft202012Validator(schema, registry=Registry())
+            selected, registry = checked_registry(schema)
+            validator = selected(schema, registry=registry)
             errors = sorted(validator.iter_errors(document),
                             key=lambda e: tuple(str(p) for p in e.path))
         except (OSError, ValueError, SchemaError, Unresolvable) as err:

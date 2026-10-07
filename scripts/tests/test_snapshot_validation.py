@@ -64,6 +64,53 @@ class SnapshotValidation(unittest.TestCase):
         (self.root / validator.DOMAINS[0][0]).write_text('[]')
         self.assertEqual(self.validate(), 1)
 
+    def test_unused_external_references_are_failure(self):
+        for schema in [
+            {"type": "object", "properties": {"optional": {"$ref": "https://invalid.example/schema.json"}}},
+            {"$defs": {"unused": {"$ref": "https://invalid.example/schema.json"}}},
+        ]:
+            with self.subTest(schema=schema):
+                (self.root / validator.DOMAINS[0][1]).write_text(json.dumps(schema))
+                self.assertEqual(self.validate(), 1)
+
+    def test_reference_structure_respects_drafts_and_local_scopes(self):
+        cases = [
+            # Forward local pointers/anchors, nested resource IDs, and recursion.
+            ({"$defs": {"node": {"$anchor": "node", "properties": {"next": {"$ref": "#node"}}}},
+              "properties": {"optional": {"$ref": "#/$defs/node"}}}, 0),
+            ({"$id": "https://example.test/root", "$defs": {
+                "child": {"$id": "child", "$defs": {"leaf": {"$anchor": "leaf", "type": "string"}},
+                          "properties": {"x": {"$ref": "#leaf"}}}},
+              "properties": {"optional": {"$ref": "child#leaf"}}}, 0),
+            ({"$defs": {"bad": {"$ref": "#/$defs/missing"}}}, 1),
+            ({"$defs": {"bad": {"$ref": "#missing"}}}, 1),
+            ({"$defs": {"bad": {"$dynamicRef": "https://invalid.example/schema.json"}}}, 1),
+            ({"$dynamicAnchor": "node", "$defs": {"node": {"$dynamicRef": "#node"}}}, 0),
+            ({"$schema": "http://json-schema.org/draft-07/schema#",
+              "definitions": {"unused": {"$ref": "https://invalid.example/schema.json"}}}, 1),
+            ({"$schema": "http://json-schema.org/draft-07/schema#",
+              "definitions": {"node": {"$id": "#node", "type": "object"}},
+              "properties": {"optional": {"$ref": "#node"}}}, 0),
+            ({"$schema": "http://json-schema.org/draft-04/schema#",
+              "definitions": {"node": {"id": "#node", "type": "object"}},
+              "properties": {"optional": {"$ref": "#node"}}}, 0),
+            ({"$schema": "https://json-schema.org/draft/2019-09/schema",
+              "$recursiveAnchor": True, "$defs": {"node": {"$recursiveRef": "#"}}}, 0),
+            ({"$schema": "http://json-schema.org/draft-07/schema#",
+              "$dynamicRef": "https://invalid.example/schema.json"}, 0),
+            ({"type": "object", "default": {"$ref": "https://invalid.example/schema.json"},
+              "examples": [{"$ref": "https://invalid.example/schema.json"}],
+              "properties": {"optional": {"const": {"$ref": "https://invalid.example/schema.json"}}}}, 0),
+            ({"properties": {"optional": {"$ref": "#/default"}},
+              "default": {"$ref": "https://invalid.example/schema.json"}}, 1),
+            ({"$schema": "https://invalid.example/unknown-draft"}, 1),
+            ({"$schema": []}, 1),
+        ]
+        for schema, expected in cases:
+            with self.subTest(schema=schema):
+                (self.root / validator.DOMAINS[0][1]).write_text(json.dumps(schema))
+                self.assertEqual(self.validate(), expected)
+
     def test_external_reference_is_failure_without_network(self):
         (self.root / validator.DOMAINS[0][1]).write_text('{"$ref":"https://invalid.example/schema.json"}')
         self.assertEqual(self.validate(), 1)
