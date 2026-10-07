@@ -2,6 +2,9 @@
 //! versioned artifacts (IQ specs, WAProto.proto, mex operations, appstate
 //! schemas) to disk, ready to be committed — locally or from CI.
 
+mod contract_diff;
+mod source_index;
+
 use std::collections::BTreeSet;
 // Only the fetch path builds the bootloader pin map from it.
 #[cfg(feature = "fetch")]
@@ -51,6 +54,7 @@ fn main() -> Result<()> {
         Some("update") => update(&args[1..]),
         Some("mex-ids") => mex_ids(&args[1..]),
         Some("diff") => diff(&args[1..]),
+        Some("source-index") => source_index::run(&args[1..]),
         Some("restore") => restore_cmd(&args[1..]),
         _ => {
             eprintln!("{}", usage());
@@ -147,9 +151,11 @@ fn usage() -> String {
          Refreshes the rotating `id` of each `MexDoc` in a hand-curated mex_ids.rs by matching\n\
          its stable `name` against the current bundle, preserving const names/grouping, and\n\
          reports stale entries whose `name` no longer exists upstream.\n\n\
-         whatspec diff <old-dir> <new-dir>\n\n\
+         whatspec diff <old-dir> <new-dir> [--json [--evidence <file>]]\n\n\
          Compares two generated output directories (by their `manifest.json` + `index.json`s)\n\
          and prints version/count deltas and the namespaces/operations/actions added or removed.\n\n\
+         whatspec source-index <bundles.lock.json> <bundle-dir> [module ...]\n\n\
+         Writes a verified-bundle AST source locator index to stdout.\n\n\
          whatspec restore {FLAG_FROM_LOCK} <bundles.lock.json> ({FLAG_OUT} <dir> | {FLAG_CACHE} <dir>)\n                  \
          [{FLAG_WASM}] [{FLAG_ARCHIVE} <path|url>] [{FLAG_REPO} <owner/repo>]\n\n\
          Rebuilds the exact bundle set a `generated/` snapshot was built from — pulled from the\n\
@@ -556,6 +562,13 @@ fn mex_ids(args: &[String]) -> Result<()> {
 /// `whatspec diff <old-dir> <new-dir>` — report what changed between two
 /// generated outputs (version/count deltas + per-domain name set add/remove).
 fn diff(args: &[String]) -> Result<()> {
+    if args.iter().any(|arg| arg == "--json") {
+        return contract_diff::run(args);
+    }
+    anyhow::ensure!(
+        args.len() == 2,
+        "diff requires exactly two paths, or --json [--evidence <file>]"
+    );
     let (old, new) = match (args.first(), args.get(1)) {
         (Some(a), Some(b)) => (Path::new(a), Path::new(b)),
         _ => anyhow::bail!("diff requires two paths: whatspec diff <old-dir> <new-dir>"),

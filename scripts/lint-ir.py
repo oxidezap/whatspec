@@ -15,8 +15,8 @@ Two kinds of finding:
   two things at once. These always fail.
 * **counted** — a known, legitimately non-empty state, held to a BASELINE. An
   enum WA composes at runtime cannot be resolved, and the IR records that under
-  `dropsByReason` rather than pretending; the count may shrink (extraction
-  improved) but a rise means a new construct started slipping through unnoticed.
+  `dropsByReason` rather than pretending. Counts can change because of upstream
+  edits, extraction changes, or missing inputs. Neither direction establishes a cause without source evidence.
 
 Network-free and deterministic, so it runs in CI beside the schema validation.
 
@@ -2074,9 +2074,9 @@ def main() -> int:
             continue
         ok = False
         if was == 0:
-            print(f"REGRESSION  newly flattened shape: {ident} (x{now})")
+            print(f"CHANGED     newly flattened shape: {ident} (x{now})")
         elif now == 0:
-            print(f"IMPROVED    shape no longer flattened: {ident} — drop it")
+            print(f"CHANGED     flattened shape absent: {ident} — investigate source and extraction")
         else:
             print(f"CHANGED     {ident}: {was} -> {now}")
 
@@ -2086,9 +2086,9 @@ def main() -> int:
             continue
         ok = False
         if was == 0:
-            print(f"REGRESSION  newly unresolved enum: {ident} (x{now})")
+            print(f"CHANGED     newly unresolved enum: {ident} (x{now})")
         elif now == 0:
-            print(f"IMPROVED    enum now resolved: {ident} — drop it from the baseline")
+            print(f"CHANGED     unresolved enum absent: {ident} — investigate source and extraction")
         else:
             print(f"CHANGED     {ident}: {was} -> {now} — update the baseline")
     if ok:
@@ -2100,14 +2100,14 @@ def main() -> int:
     for name, observed in sorted(counts.items()):
         allowed = BASELINE[name]
         if observed > allowed:
-            print(f"REGRESSION  {name}: {observed} (baseline {allowed})")
+            print(f"CHANGED     {name}: {observed} (baseline {allowed})")
             ok = False
         elif observed < allowed:
             # A RATCHET, not an upper bound. Accepting a decrease silently banks the
             # difference as slack: 157 -> 150 followed by seven newly unresolved enums is
             # back at 157 and passes, which is exactly the drift this is supposed to catch.
-            # An improvement is real work and updating the number with it costs one line.
-            print(f"IMPROVED    {name}: {observed} (baseline {allowed}) — lower the baseline")
+            # A fall may also mean an operation disappeared; investigate before repinning.
+            print(f"CHANGED     {name}: {observed} (baseline {allowed}) — investigate source and extraction")
             ok = False
         else:
             print(f"ok          {name}: {observed} (baseline {allowed})")
@@ -2120,8 +2120,8 @@ def main() -> int:
         return 1
     if not ok:
         print(
-            "\na counted state left its baseline — raise means a constraint is being lost, "
-            "fall means the baseline owes an update"
+            "\na counted state left its baseline; compare contracts and pinned sources "
+            "before changing it. A falling count does not prove improved extraction."
         )
         return 1
     print(f"\n{len(docs)} document(s) internally consistent")

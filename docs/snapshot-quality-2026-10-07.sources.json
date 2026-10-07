@@ -1,0 +1,198 @@
+{
+  "old": {
+    "bundleCount": 516,
+    "coverage": "recovered-definitions-only",
+    "limits": [
+      "Offsets are UTF-8 byte offsets, end exclusive, in the bundle identified by SHA-256.",
+      "The existing AST extractor does not expose parse diagnostics. Absence from this index is not proof of absence upstream.",
+      "All recovered occurrences are retained. Equal module names with different hashes need review.",
+      "Module provenance locates code; field-level semantics may require following dependencies."
+    ],
+    "modules": {
+      "WAWebContactManagerCustomerProfilesQuery": [
+        {
+          "bundleSha256": "792466f7a00cd5862ac782f916733975cd9f46800bb9fd9679a1301411c24508",
+          "dependencies": [
+            "WAJids",
+            "WALogger",
+            "WAWebContactManagerCustomerProfileDecoders",
+            "WAWebContactManagerCustomerProfilesQuery.graphql",
+            "WAWebFetchAdAccountToken",
+            "WAWebNetworkStatus",
+            "WAWebRelayClient",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 82111,
+          "factorySha256": "3171938da8ccd6a15512edc6048de4af70377b8323e4a6d6a722280d5bcbe643",
+          "moduleSha256": "24015b54d3434667ed9505c5dda69620c55d4f0d26c09d10b6f1f78243a70553",
+          "start": 80121
+        }
+      ],
+      "WAWebContactManagerCustomerProfilesQuery_facebookRelayOperation": [
+        {
+          "bundleSha256": "792466f7a00cd5862ac782f916733975cd9f46800bb9fd9679a1301411c24508",
+          "dependencies": [],
+          "end": 78398,
+          "factorySha256": "408708e358bf032817a78162c7c38596128adcb4e3e9d2ad24609f703817fea1",
+          "moduleSha256": "011cdf275eef4fd3874829777992f69bf9172c712d8e6d40f609186bab73868f",
+          "start": 78265
+        }
+      ],
+      "WAWebKmpSyncdRequestBuilder": [
+        {
+          "bundleSha256": "ffe69f61924eb23c1d65cb89a152e4ce35ee404bd52a7edcced9c037b236f490",
+          "dependencies": [
+            "WALogger",
+            "WAWap",
+            "WAWebGetPendingMutation",
+            "WAWebKmpKotlinUtils",
+            "WAWebKmpSyncdCollectionNameUtils",
+            "WAWebKmpSyncdMutationUtils",
+            "WAWebKmpSyncdResultUtils",
+            "WAWebKmpSyncdServiceLocator",
+            "WAWebRunInTransaction",
+            "WAWebSyncdConst",
+            "WAWebSyncdRequestBuilderUtils",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 3410928,
+          "factorySha256": "7af76b2a50b2ee343bf971446ecea65c7fabdf3623b3ebe81effb580570db7cd",
+          "moduleSha256": "04a74de7f7e834f5d08bf98f07a6e1dd69b222f5493c34d9091230ca9861aa03",
+          "start": 3406431
+        }
+      ],
+      "WAWebSetAboutJob": [
+        {
+          "bundleSha256": "82f783508805f734f16747c4bd0670a496f13004e8a0acd11fe5f45efaffd754",
+          "dependencies": [
+            "WADeprecatedSendIq",
+            "WADeprecatedWapParser",
+            "WAWap",
+            "WAWebDefinePersistedJob",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 2666232,
+          "factorySha256": "341f818ca9fb353431570fe800d15d947d9d46f1ebf5112ee71a1b667d469756",
+          "moduleSha256": "c6075a7a8ade03e66535299b3df337bb8ff78c3f67d377ca2b2237a3e50004c1",
+          "start": 2665475
+        }
+      ],
+      "WAWebSetPrivacyJob": [
+        {
+          "bundleSha256": "fd26924373be0ce0e773c304511df62909fa76e11d9294c0509542d3f38f842d",
+          "dependencies": [
+            "$InternalEnum",
+            "WADeprecatedSendIq",
+            "WADeprecatedWapParser",
+            "WALogger",
+            "WAWap",
+            "WAWebABProps",
+            "WAWebBackendErrors",
+            "WAWebCommsWapMd",
+            "WAWebLidMigrationUtils",
+            "WAWebQueryPrivacyDisallowedListUtil",
+            "WAWebUsernameTypes",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 1090426,
+          "factorySha256": "eda0360705bee2806116cdf41a63b6a6e4c754f921a1cbe4d3c66a9a5b6bb839",
+          "moduleSha256": "01098f3de86fbfcf023a317a096dae1c05b0794b92b4488bde1421dd10f0c72e",
+          "start": 1087286
+        }
+      ]
+    },
+    "setHash": "99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00",
+    "sourceIndexVersion": 1,
+    "waVersion": "2.3000.1045368834"
+  },
+  "new": {
+    "bundleCount": 579,
+    "coverage": "recovered-definitions-only",
+    "limits": [
+      "Offsets are UTF-8 byte offsets, end exclusive, in the bundle identified by SHA-256.",
+      "The existing AST extractor does not expose parse diagnostics. Absence from this index is not proof of absence upstream.",
+      "All recovered occurrences are retained. Equal module names with different hashes need review.",
+      "Module provenance locates code; field-level semantics may require following dependencies."
+    ],
+    "modules": {
+      "WAWebContactManagerCustomerProfilesQuery": [
+        {
+          "bundleSha256": "36dc1290c51b02500ad640ba5aa793dd1b5e9172afcb71ff327d64cd1f279717",
+          "dependencies": [
+            "WAJids",
+            "WALogger",
+            "WAWebContactManagerCustomerProfileDecoders",
+            "WAWebContactManagerCustomerProfilesQuery.graphql",
+            "WAWebFBLogger",
+            "WAWebFetchAdAccountToken",
+            "WAWebGraphQLServerError",
+            "WAWebNetworkStatus",
+            "WAWebRelayClient",
+            "asyncToGeneratorRuntime",
+            "err",
+            "getErrorSafe"
+          ],
+          "end": 257662,
+          "factorySha256": "eb5e7cf190d44a5cbf268623c952ee43e04e348a88b627b196d37d83a31dab66",
+          "moduleSha256": "eea21df5ba17114fbce760a1d44502f48d0a7d4ba66a4dfbad4e6ce00f8f92ca",
+          "start": 254574
+        }
+      ],
+      "WAWebContactManagerCustomerProfilesQuery_facebookRelayOperation": [
+        {
+          "bundleSha256": "36dc1290c51b02500ad640ba5aa793dd1b5e9172afcb71ff327d64cd1f279717",
+          "dependencies": [],
+          "end": 252770,
+          "factorySha256": "8ad8f73b1a267fb2b3e43ac1c801326dd5a667f104e3a45fb33b81b01bc99b4c",
+          "moduleSha256": "0edd9a4622782763c39f80764decf75406cbec76925a80622cfd1ee90436ec81",
+          "start": 252637
+        }
+      ],
+      "WAWebSetAboutJob": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "dependencies": [
+            "WADeprecatedSendIq",
+            "WADeprecatedWapParser",
+            "WAWap",
+            "WAWebDefinePersistedJob",
+            "asyncToGeneratorRuntime"
+          ],
+          "end": 2111895,
+          "factorySha256": "5fe82a38fe4610426641d5c0351746693a33b095254e8a358c1b1a3df7a326ef",
+          "moduleSha256": "6b2d764d05842a76912d40ce70154f6ec5a69f67de25345a2d86d8cfa8c32db0",
+          "start": 2111070
+        }
+      ],
+      "WAWebSetPrivacyJob": [
+        {
+          "bundleSha256": "7c7be0378ce2e7ff49b9f5909cf8a7d283000af82cc43bc071c2df3541ec5d56",
+          "dependencies": [
+            "$InternalEnum",
+            "WADeprecatedSendIq",
+            "WADeprecatedWapParser",
+            "WALogger",
+            "WAWap",
+            "WAWebABProps",
+            "WAWebBackendErrors",
+            "WAWebCommsWapMd",
+            "WAWebLidMigrationUtils",
+            "WAWebQueryPrivacyDisallowedListUtil",
+            "WAWebUsernameTypes",
+            "asyncToGeneratorRuntime",
+            "err"
+          ],
+          "end": 186813,
+          "factorySha256": "f2e16b840638226fe6023fe91bb0bbf3bcae8b5bc31967504cba8db759748abb",
+          "moduleSha256": "270ab2fc00118aae4e79742cd84606290ed14b06d80a5c83da46cdbe2573cb60",
+          "start": 183590
+        }
+      ]
+    },
+    "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+    "sourceIndexVersion": 1,
+    "waVersion": "2.3000.1047483476"
+  }
+}
