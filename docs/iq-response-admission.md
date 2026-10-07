@@ -1,6 +1,6 @@
 # IQ response generation admission
 
-This is the first response-emitter change, not a claim of complete IQ generation.
+This change admits the two verified pilots, not every possible IQ contract.
 `wa-codegen` 0.2.0 stops reporting success when response generation loses a
 contract, payload, or outcome. It does not change the language-neutral IQ schema
 or add a runtime dependency. The schema remains 4.3.0.
@@ -20,6 +20,8 @@ certified complete.
 | `response.contract_missing` | No recovered response fields or explicit outcomes. Empty metadata does not prove an empty successful response. |
 | `response.payload_unemittable` | Recovered fields produced no response payload. |
 | `response.parser_unemittable` | The generated initializer cannot represent the recovered payload. |
+| `guards.reference_unsupported` / `guards.reference_nonuniform` | A recovered request reference cannot use the supported uniform wire context. |
+| `guards.request_context_required` | Call `parse_response_with_request` with the actual request ID and target. |
 | `outcomes.unemittable` | A variant parser cannot be emitted, or an earlier variant can shadow a later one under the emitter's known predicates. The message names variant indexes and tags. |
 
 An explicit, admitted empty outcome still produces a successful empty outcome
@@ -52,35 +54,44 @@ a proposed interface, **not implemented by the response-only constant above**.
 | --- | --- | --- |
 | Request | Known target, argument mapping, content, child cardinality and variants; no invented inputs. | Existing request emitter preserved; pilot mappings tested. No general strict request admission. |
 | Response | All recovered payload fields emitted; explicit empty outcome distinguished from missing extraction. | Missing/fully discarded payload and invalid initializer fail explicitly. This is not a recursive completeness proof. |
-| Outcomes | Source order retained and every supported outcome reachable. No primary-success fallback. | Rejected unions fail explicitly. Child presence is handled. Error-arm discrimination remains a pilot blocker. |
-| Constraints | Literal values, ranges, enum policy, error code/text pairings and reference constraints retained. | No new global constraint-admission claim. Existing `pending_drops` is not serialized, so it cannot prove per-operation recovery from saved IR. |
-| Guards | Only demonstrated guards necessary for the selected operation. Request correlation must receive the actual request context. | Child-presence guard added. Correlation is not implemented in this patch; no universal expression AST is introduced. |
+| Outcomes | Source order retained and every supported outcome reachable. No primary-success fallback. | Rejected unions fail explicitly. Child presence is handled. Bounded direct code/text error unions preserve source order and distinguish partially overlapping outcomes; fully covered later outcomes are rejected. |
+| Constraints | Literal values, ranges, enum policy, error code/text pairings and reference constraints retained. | Pilot code/text pairs, decimal-prefix integer coercion, inclusive ranges and unique selected children are enforced. No global constraint-admission claim. Existing `pending_drops` is not serialized, so it cannot prove per-operation recovery from saved IR. |
+| Guards | Only demonstrated guards necessary for the selected operation. Request correlation must receive the actual request context. | Root tag, unique selected child and actual request ID/target checks are implemented. No universal expression AST is introduced. |
 
-Proposed correlation input is the actual request's `id` and `to`, independent of
-any caller's transport, event model or application API. The legacy response
-method has no generated request ID. A follow-up must define a context-taking
-entry point before claiming checks of `response.id == request.id` and
-`response.from == request.to`. Do not infer these from an unrelated request or
-hardcode the server address. Any IR/schema additions for recovery status need
-coordination with the snapshot and conformance fronts; none are made here.
+The generated inherent method accepts only wire strings:
 
-## Pilot findings
+```rust
+spec.parse_response_with_request(&response, actual_request_id, actual_request_to)?
+```
 
-Both pilots remain rejected by full outcome admission in this patch. The gate
-cannot distinguish their client-error and server-error arms using its current
-signature, although the IR carries their error vocabularies. Admitting only the
-success variants would conceal that limitation.
+Use the ID and target of the stanza actually sent. The existing trait method
+cannot supply that context and now returns `guards.request_context_required`
+for correlated operations. It must not fabricate context from the response.
+Unsupported reference paths fail admission explicitly. No transport, event or
+consumer API is added, and no IR/schema changes are needed.
 
-| Operation | Request evidence | Ordered outcomes | Current emitter diagnostic |
-| --- | --- | --- | --- |
-| SetSubject | `GROUP_JID(iqTo)`; `<subject>` content is `subjectElementValue`. | Success, client error, server error. | `response.variants[1] SetSubjectResponseClientError can shadow response.variants[2] SetSubjectResponseServerError`. |
-| AcceptGroupAdd | `GROUP_JID(iqTo)`; `<accept code=… expiration=… admin=…>` reads `acceptCode`, `acceptExpiration`, `acceptAdmin`. | Success with `membership_approval_request`, bare success, client error, server error. | `response.variants[2] AcceptGroupAddResponseClientError can shadow response.variants[3] AcceptGroupAddResponseServerError`. |
+## Verified pilots
 
-Both result and error mixins compare the response's `id` and `from` with the
-request's `id` and `to`. SetSubject's success has no operation payload beyond the
-result envelope; it still requires those checks. The generated ID comes from the
-base request mixin. Assertions are verified in the committed IR tests, but those
-tests do not claim the generated parser enforces correlation.
+| Operation | Request evidence | Ordered outcomes |
+| --- | --- | --- |
+| SetSubject | `GROUP_JID(iqTo)`; `<subject>` content is `subjectElementValue`. | Success, client error, server error. |
+| AcceptGroupAdd | `GROUP_JID(iqTo)`; `<accept code=… expiration=… admin=…>` reads `acceptCode`, `acceptExpiration`, `acceptAdmin`. | Success with `membership_approval_request`, bare success, client error, server error. |
+
+Both result and error mixins compare response `id`/`from` with request `id`/`to`.
+SetSubject's empty success remains valid after envelope and context checks.
+AcceptGroupAdd's client arm includes code 500 with text `resource-constraint`;
+other code-500 errors can reach the later server arm. Classification therefore
+uses ordered code/text pairs, not a guessed split between 4xx and 5xx.
+The direct payload specialization requires matching IR field and error-arm
+metadata, small bounded integer codes, and the demonstrated optional child shape.
+Unsupported shapes retain explicit admission diagnostics.
+
+`WASmaxParseUtils.attrInt` uses decimal `parseInt`: `0304`, `+304`, `304tail`
+and `304.9` decode to 304 before literal/range checks. The generated bounded
+error decoder retains that behavior and ECMAScript leading whitespace. Required
+`<error>` is unique; duplicate approval children fail the gated success and
+continue to bare success in source order. Unknown unrelated children remain
+accepted. This is not general JavaScript evaluation or a universal guard AST.
 
 ### Source provenance
 
@@ -97,6 +108,7 @@ was already present in the selected environment. `whatspec restore --from-lock
 - A: `65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55`.
 - B: `09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8`.
 - C: `34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2`.
+- D: `7783a694b3a8bc3a379585817de0e477c75729c73b21adbffbf060f5f0ac2860`.
 
 Modules were extracted statically with `wa_transform::extract_module_definitions`.
 Offsets are byte intervals with exclusive ends. No `eval`, `vm`, sessions or
@@ -115,6 +127,8 @@ credentials were used to extract or test protocol behavior.
 | `WASmaxInGroupsAcceptGroupAddResponseSuccess` | C | 5098..5459 |
 | `WASmaxOutGroupsAcceptGroupAddRequest` | C | 5461..5920 |
 | `WASmaxGroupsAcceptGroupAddRPC` | C | 5922..7533 |
+| `WASmaxParseUtils` | B | 2256336..2263058 |
+| `WASmaxInGroupsIQErrorResourceConstraintMixin` | D | 623..1153 |
 
 These are static observations of this preserved Web build, not proof of the
 server's complete contract or current account behavior.
@@ -125,25 +139,27 @@ Four regression tests fail on the base commit and pass after the change: missing
 contract, wholly discarded payload, an actual unrepresentable nested response
 from `WAWebQueryBusinessCategoriesJob`, and ordered child-gated success. The
 empty-outcome control remains successful. The pilot test reads the real IQ IR.
-The whole generated file is syntax-checked, not type-checked against an external
-consumer. The conformance front owns independent execution validation.
+The whole generated file is syntax-checked. A separate integration test compiles
+and executes the two real generated pilots with a small in-memory node adapter:
+requests, empty/gated successes, ordered nested error payloads, code/text ranges,
+coercion, duplicate children, unknown children, and missing/mismatched request
+context. Copying this test to the first fail-closed commit reproduces the missing
+context API failure. The adapter does not qualify a binary codec or a downstream
+client; independent conformance remains separately owned.
 
-Two in-process debug generations of all 142 IQ operations produced identical
-1,204,604-byte outputs, SHA-256
-`4a4473e33d9e8fbcdf87d47783b0ea6c654fdd13243695918910e72c380fb50f`,
-in 2.43 and 2.40 seconds. 69 parsers have an explicit rejection diagnostic.
-The base emitter produced 1,523,859 bytes in 2.84 and 2.98 seconds in the same
-debug setup. The smaller output mostly removes parsers that could not preserve
-all outcomes; it is not an optimization claim. These are local generation
-measurements, not runtime or release-build benchmarks.
-The reference Rust file is ignored by git; no new checked-in generated catalog or
-runtime dependency is required. Future updates must review the rejected operation
-set as well as source changes, without relaxing admission to preserve a count.
+Two debug generations of all 142 IQ operations produced identical 2,061,400-byte
+outputs, SHA-256 `7443c11931dbfa69701838748101acf35982ebd1e4d8e22063aef4908632faf7`,
+in 2.86 and 2.88 seconds, with 39 explicitly rejected parsers. The original base
+produced 1,523,859 bytes in 2.84 and 2.98 seconds. The increase includes recovered
+outcome types and context-taking parsers; it is not an optimization claim.
+The Rust reference catalog remains ignored by git. Maintenance requires review
+of the admitted/rejected operation set and the bounded helper against source
+changes; neither a rejection count nor reduced output size is a quality target.
 
-Local validation passed `cargo test --locked --workspace`, including 176
-`wa-codegen` tests,
-`cargo clippy --locked -p wa-codegen --all-targets -- -D warnings`, formatting,
-and all 12 real JSON Schemas. Full bundle regeneration with `--check` reported
-27 committed artifacts up to date. `scripts/lint-ir.py` still fails on the
-pre-existing exact-count baselines; its output is byte-identical on the base
-commit and this branch. This patch changes neither IR nor baselines.
+Reproduce with `cargo test --locked -p wa-codegen`, including 178 unit tests and
+the compiled runtime integration test; `cargo clippy --locked -p wa-codegen
+--all-targets -- -D warnings`; schema validation; and full bundle regeneration
+with `whatspec update --check`. No generated IR or baseline changes are included.
+The separately owned dependency audit fix from PR #54 is carried as its own
+commit. The six pre-existing exact-count lint baseline failures are outside
+this change and are not suppressed.

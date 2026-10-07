@@ -232,8 +232,25 @@ fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
         (a.kind == AssertionKind::Child)
             .then_some(a.name.as_deref())
             .flatten()
-            .map(|name| format!("{node}.get_optional_child({}).is_some()", rust_lit(name)))
+            .map(|name| {
+                format!(
+                    "{node}.get_children_by_tag({}).count() == 1",
+                    rust_lit(name)
+                )
+            })
     }));
+    conditions.extend(v.assertions.iter().filter_map(|a| {
+        if a.kind == AssertionKind::Tag {
+            a.name
+                .as_ref()
+                .map(|name| format!("{node}.tag == {}", rust_lit(name)))
+        } else {
+            None
+        }
+    }));
+    if let Some(error) = error_selection(v, node) {
+        conditions.push(error);
+    }
     conditions
 }
 
@@ -255,6 +272,275 @@ fn pins_can_coincide(mine: &[Pin<'_>], other: &[Pin<'_>]) -> bool {
             _ => false,
         })
     })
+}
+
+/// Error predicates are sets of (integer code, optional text pin). Compare unions
+/// of intervals only; this does not model arbitrary parser control flow.
+fn error_arms_cover(earlier: &[wa_ir::ErrorArm], later: &[wa_ir::ErrorArm]) -> bool {
+    fn band(arm: &wa_ir::ErrorArm) -> (i128, i128) {
+        let min = arm.code.or(arm.code_min).unwrap_or(i64::MIN);
+        let max = arm.code.or(arm.code_max).unwrap_or(i64::MAX);
+        (i128::from(min), i128::from(max))
+    }
+    later.iter().all(|arm| {
+        let (mut cursor, end) = band(arm);
+        let mut bands: Vec<_> = earlier
+            .iter()
+            .filter(|a| a.text.is_none() || (arm.text.is_some() && a.text == arm.text))
+            .map(band)
+            .collect();
+        bands.sort_unstable();
+        for (lo, hi) in bands {
+            if lo > cursor {
+                break;
+            }
+            cursor = cursor.max(hi + 1);
+            if cursor > end {
+                return true;
+            }
+        }
+        cursor > end
+    })
+}
+
+/// The direct, bounded code/text error union observed in the pilots. Unknown
+/// payload structures use the ordinary admission path, never this specialization.
+fn direct_error_payload(v: &ResponseVariant) -> Option<&wa_ir::ParsedField> {
+    use wa_ir::ParsedFieldType;
+    if v.error_arms.is_empty() || v.error_envelope.is_some() || v.fields.len() != 2 {
+        return None;
+    }
+    let payload = v.fields.iter().find(|f| {
+        f.parser_required
+            && f.source_path.as_deref() == Some(&["error".to_string()])
+            && f.field_type == ParsedFieldType::Union
+    })?;
+    if !v.fields.iter().any(|f| {
+        f.method == "attrString"
+            && f.parser_required
+            && f.wire_name.as_deref().unwrap_or(&f.name) == "type"
+            && f.literal_value.as_deref() == Some("error")
+    }) {
+        return None;
+    }
+    let variants = payload.union_variants.as_ref()?;
+    if crate::union::classify_union(payload).is_none() || variants.len() != v.error_arms.len() {
+        return None;
+    }
+    for (variant, arm) in variants.iter().zip(&v.error_arms) {
+        let lo = arm.code.or(arm.code_min)?;
+        let hi = arm.code.or(arm.code_max)?;
+        // This decoder only needs exact small integers. Values outside the band
+        // cannot round into it under the source's JS parseInt/Number semantics.
+        if lo < 0
+            || hi > i64::from(i32::MAX)
+            || lo > hi
+            || arm.name.as_deref() != Some(&variant.name)
+        {
+            return None;
+        }
+        let code = variant
+            .fields
+            .iter()
+            .find(|f| f.wire_name.as_deref().unwrap_or(&f.name) == "code")?;
+        let text = variant
+            .fields
+            .iter()
+            .find(|f| f.wire_name.as_deref().unwrap_or(&f.name) == "text")?;
+        if code.method != "attrInt"
+            || !code.parser_required
+            || code.field_type != ParsedFieldType::Integer
+            || code
+                .literal_value
+                .as_ref()
+                .and_then(|s| s.parse::<i64>().ok())
+                != arm.code
+            || code.int_min != arm.code_min
+            || code.int_max != arm.code_max
+            || text.method != "attrString"
+            || !text.parser_required
+            || text.literal_value != arm.text
+        {
+            return None;
+        }
+        // Apart from code/text, the pilot has optional <field name=… reason=…>.
+        // No unbounded coercion, repeated tree or opaque union is inferred here.
+        if variant.fields.iter().any(|f| {
+            let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+            if wire == "code" || wire == "text" {
+                return false;
+            }
+            !(f.method == "child"
+                && !f.parser_required
+                && f.repeats != Some(true)
+                && f.source_path.is_none()
+                && f.children.as_ref().is_some_and(|children| {
+                    children.iter().all(|c| {
+                        c.method == "attrString" && c.source_path.is_none() && c.children.is_none()
+                    })
+                }))
+        }) {
+            return None;
+        }
+    }
+    Some(payload)
+}
+
+fn error_arm_condition(arm: &wa_ir::ErrorArm) -> String {
+    let mut terms = Vec::new();
+    if let Some(code) = arm.code {
+        terms.push(format!("code == {code}i64"));
+    }
+    if let Some(min) = arm.code_min {
+        terms.push(format!("code >= {min}i64"));
+    }
+    if let Some(max) = arm.code_max {
+        terms.push(format!("code <= {max}i64"));
+    }
+    if let Some(text) = &arm.text {
+        terms.push(format!(
+            "error.get_attr(\"text\").map(|v| v.as_str()).as_deref() == Some({})",
+            rust_lit(text)
+        ));
+    }
+    format!("({})", terms.join(" && "))
+}
+
+fn error_selection(v: &ResponseVariant, node: &str) -> Option<String> {
+    direct_error_payload(v)?;
+    let arms: Vec<_> = v.error_arms.iter().map(error_arm_condition).collect();
+    Some(format!(
+        "({node}.get_children_by_tag(\"error\").count() == 1 && {node}.get_optional_child(\"error\").is_some_and(|error| error.get_attr(\"text\").is_some() && error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str())).is_some_and(|code| {})))",
+        arms.join(" || ")
+    ))
+}
+
+/// Source WASmaxParseUtils uses parseInt(value, 10), not Rust's whole-string
+/// integer parse. Overflow is outside every admitted error-code band.
+fn emit_error_code_decoder(indent: &str) -> Vec<String> {
+    r#"fn __iq_error_code(value: &str) -> Option<i64> {
+    let value = value.trim_start_matches(|c| matches!(c, '\u{0009}'..='\u{000d}' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'));
+    let offset = usize::from(matches!(value.as_bytes().first(), Some(b'+') | Some(b'-')));
+    let end = offset + value.bytes().skip(offset).take_while(u8::is_ascii_digit).count();
+    if end == offset { None } else { value[..end].parse().ok() }
+}"#.lines().map(|line| format!("{indent}{line}")).collect()
+}
+
+fn emit_direct_error_parser(
+    v: &ResponseVariant,
+    payload: &wa_ir::ParsedField,
+    sname: &str,
+    indent: &str,
+) -> Vec<String> {
+    let ename = crate::union::enum_name(payload, sname);
+    let mut lines = vec![
+        format!(
+            "{indent}let error = response.get_optional_child(\"error\").ok_or_else(|| anyhow::anyhow!(\"missing error\"))?;"
+        ),
+        format!(
+            "{indent}let code = error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str())).ok_or_else(|| anyhow::anyhow!(\"invalid error code\"))?;"
+        ),
+        format!("{indent}let payload = (|| -> Result<{ename}, anyhow::Error> {{"),
+    ];
+    for (variant, arm) in payload
+        .union_variants
+        .as_ref()
+        .unwrap()
+        .iter()
+        .zip(&v.error_arms)
+    {
+        let vname = pascal_case(&variant.name);
+        let struct_name = format!("{ename}{vname}");
+        let code_field = variant
+            .fields
+            .iter()
+            .find(|f| f.wire_name.as_deref().unwrap_or(&f.name) == "code")
+            .unwrap();
+        let fields: Vec<_> = variant
+            .fields
+            .iter()
+            .filter(|f| f.wire_name.as_deref().unwrap_or(&f.name) != "code")
+            .cloned()
+            .collect();
+        let mut conditions = vec![error_arm_condition(arm)];
+        for child in fields.iter().filter(|f| f.method == "child") {
+            conditions.push(format!(
+                "error.get_children_by_tag({}).count() <= 1",
+                rust_lit(child.tag.as_deref().unwrap_or(&child.name))
+            ));
+        }
+        lines.push(format!("{indent}    if {} {{", conditions.join(" && ")));
+        lines.push(format!(
+            "{indent}        let parsed = (|| -> Result<{struct_name}, anyhow::Error> {{"
+        ));
+        lines.extend(crate::emit::emit_struct_parser(
+            &fields,
+            "error",
+            &struct_name,
+            &format!("{indent}            "),
+            &struct_name,
+        ));
+        lines.push(format!("{indent}        }})();"));
+        lines.push(format!("{indent}        if let Ok(mut value) = parsed {{ value.{} = code as {}; return Ok({ename}::{vname}(value)); }}", rust_ident(&code_field.name), crate::fields::integer_width(code_field)));
+        lines.push(format!("{indent}    }}"));
+    }
+    lines.push(format!(
+        "{indent}    anyhow::bail!(\"no error payload matched\")"
+    ));
+    lines.push(format!("{indent}}})()?;"));
+    let header = v
+        .fields
+        .iter()
+        .find(|f| f.field_type != wa_ir::ParsedFieldType::Union)
+        .unwrap();
+    lines.push(format!(
+        "{indent}Ok({sname} {{ {}: \"error\".to_string(), {}: Some(payload) }})",
+        rust_ident(&header.name),
+        rust_ident(&payload.name)
+    ));
+    lines
+}
+
+/// The context entry point currently supports the two direct wire echoes proven
+/// by the pilots. Other reference paths are diagnosed rather than guessed.
+fn correlation_requirements(op: &IqStanzaDef) -> Result<Vec<(&str, &str)>, String> {
+    fn references(assertions: &[wa_ir::ResponseAssertion]) -> Result<Vec<(&str, &str)>, String> {
+        let mut out = Vec::new();
+        for a in assertions
+            .iter()
+            .filter(|a| a.kind == AssertionKind::Reference)
+        {
+            match (a.name.as_deref(), a.reference_path.as_deref()) {
+                (Some("id"), Some(path)) if path == ["id"] => out.push(("id", "request_id")),
+                (Some("from"), Some(path)) if path == ["to"] => out.push(("from", "request_to")),
+                _ => {
+                    return Err(
+                        "guards.reference_unsupported: expected id=request.id or from=request.to"
+                            .into(),
+                    );
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+    let mut common = references(&op.response.assertions)?;
+    if let Some(first) = op.response.variants.first() {
+        let required = references(&first.assertions)?;
+        for variant in &op.response.variants[1..] {
+            if references(&variant.assertions)? != required {
+                return Err(
+                    "guards.reference_nonuniform: outcome references require distinct contexts"
+                        .into(),
+                );
+            }
+        }
+        common.extend(required);
+    }
+    common.sort_unstable();
+    common.dedup();
+    Ok(common)
 }
 
 fn emit_outcome_types(
@@ -289,6 +575,15 @@ fn emit_outcome_types(
         names.push((vname.clone(), format!("{spec_base}{vname}")));
     }
     for (index, (variant, (_, name))) in op.response.variants.iter().zip(&names).enumerate() {
+        if variant.fields.iter().any(|field| {
+            field.field_type == wa_ir::ParsedFieldType::Union
+                && crate::union::classify_union(field).is_none()
+        }) {
+            return Err(format!(
+                "outcomes.unemittable: response.variants[{index}] {} has an unsupported payload union",
+                variant.tag
+            ));
+        }
         if !parser_is_valid(&variant.fields, name, name) {
             return Err(format!(
                 "outcomes.unemittable: response.variants[{index}] {} has an unemittable payload parser",
@@ -302,10 +597,9 @@ fn emit_outcome_types(
     // its captured discriminator assertions (e.g. `type:"result"`). An earlier variant
     // shadows a later one only when its required fields are a subset AND no conflicting
     // assertion sets them apart — then a later-response would match the earlier arm
-    // first (misclassification). When that can happen, fall back to the single-shape
-    // path rather than emit a parser that lies. (Variants distinguished only by an
-    // uncaptured discriminator — e.g. two errors differing by `<error>` code — stay
-    // here; recovering those needs deeper child-discriminator capture.)
+    // first (misclassification). Reject fully covered later outcomes. The bounded
+    // direct error payload admits demonstrated code/text discrimination; other
+    // overlapping payload shapes remain unsupported.
     let req: Vec<std::collections::BTreeSet<String>> = op
         .response
         .variants
@@ -329,12 +623,43 @@ fn emit_outcome_types(
             // assertion, e.g. `type:"result"` vs `type:"error"`) sets them apart.
             if req[i].is_subset(&req[j])
                 && !assertions_conflict(&op.response.variants[i], &op.response.variants[j])
+                && !(error_selection(&op.response.variants[i], "response").is_some()
+                    && error_selection(&op.response.variants[j], "response").is_some()
+                    && !error_arms_cover(
+                        &op.response.variants[i].error_arms,
+                        &op.response.variants[j].error_arms,
+                    ))
             {
                 return Err(format!(
                     "outcomes.unemittable: response.variants[{i}] {} can shadow response.variants[{j}] {}",
                     op.response.variants[i].tag, op.response.variants[j].tag
                 ));
             }
+        }
+    }
+
+    // Several preceding error outcomes can collectively cover a later one even
+    // when no single outcome does. Only combine roots with the same assertions.
+    for j in 1..op.response.variants.len() {
+        let later = &op.response.variants[j];
+        if error_selection(later, "response").is_none() {
+            continue;
+        }
+        let preceding: Vec<_> = op.response.variants[..j]
+            .iter()
+            .enumerate()
+            .filter(|(i, earlier)| {
+                req[*i].is_subset(&req[j])
+                    && earlier.assertions == later.assertions
+                    && error_selection(earlier, "response").is_some()
+            })
+            .flat_map(|(_, earlier)| earlier.error_arms.iter().cloned())
+            .collect();
+        if !preceding.is_empty() && error_arms_cover(&preceding, &later.error_arms) {
+            return Err(format!(
+                "outcomes.unemittable: preceding error outcomes cover response.variants[{j}] {}",
+                later.tag
+            ));
         }
     }
 
@@ -415,6 +740,14 @@ fn emit_outcome_parse(
     indent: &str,
 ) -> Vec<String> {
     let mut lines = Vec::new();
+    if op
+        .response
+        .variants
+        .iter()
+        .any(|v| direct_error_payload(v).is_some())
+    {
+        lines.extend(emit_error_code_decoder(indent));
+    }
     for (i, (v, (vname, sname))) in op.response.variants.iter().zip(info).enumerate() {
         // The discriminator SELECTS; it does not bail. Spelled as a bail inside the payload
         // closure, a pin miss and a malformed payload were one `Err` and both moved on — so a
@@ -457,13 +790,29 @@ fn emit_outcome_parse(
         lines.push(format!(
             "{body}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
         ));
-        lines.extend(emit_response_parser(
-            &v.fields,
-            sname,
-            &format!("{body}    "),
-            sname,
-        ));
+        if let Some(payload) = direct_error_payload(v) {
+            lines.extend(emit_direct_error_parser(
+                v,
+                payload,
+                sname,
+                &format!("{body}    "),
+            ));
+        } else {
+            lines.extend(emit_response_parser(
+                &v.fields,
+                sname,
+                &format!("{body}    "),
+                sname,
+            ));
+        }
         lines.push(format!("{body}}})();"));
+        for field in v
+            .fields
+            .iter()
+            .filter(|f| f.parser_required && f.field_type == wa_ir::ParsedFieldType::Union)
+        {
+            lines.push(format!("{body}let __r = __r.and_then(|value| {{ if value.{}.is_none() {{ anyhow::bail!({}); }} Ok(value) }});", rust_ident(&field.name), rust_lit(&format!("{}: required payload {} did not match", v.tag, field.name))));
+        }
         if unique {
             lines.push(format!("{body}return Ok({enum_name}::{vname}(__r?));"));
         } else {
@@ -784,7 +1133,10 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // A missing shape is not evidence of an empty successful result. Preserve the
     // existing associated type for source compatibility, but make degradation an
     // explicit error. An explicit empty outcome still uses its admitted union.
-    let rejection = if let Some(reason) = outcome_error.as_deref() {
+    let correlation = correlation_requirements(op);
+    let rejection = if let Err(reason) = &correlation {
+        Some(reason.as_str())
+    } else if let Some(reason) = outcome_error.as_deref() {
         Some(reason)
     } else if !use_union && op.response.fields.is_empty() {
         Some("response.contract_missing: no recovered response fields or outcomes")
@@ -802,7 +1154,39 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         } else {
             "response"
         };
-    if let Some(reason) = rejection {
+    let needs_context = correlation.as_ref().is_ok_and(|refs| !refs.is_empty());
+    if needs_context && rejection.is_none() {
+        lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
+        lines.push(format!(
+            "        anyhow::bail!({})",
+            rust_lit(&format!(
+                "{}: guards.request_context_required: use parse_response_with_request",
+                op.module_name
+            ))
+        ));
+        lines.push("    }".into());
+        lines.push("}".into());
+        lines.push(format!("impl {spec_name} {{"));
+        lines.push(format!("    pub fn parse_response_with_request(&self, response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, anyhow::Error> {{"));
+        for (wire, value) in correlation.as_ref().unwrap() {
+            lines.push(format!("        if response.get_attr({}).map(|v| v.as_str()).as_deref() != Some({value}) {{ anyhow::bail!({}); }}", rust_lit(wire), rust_lit(&format!("{}: response.{wire} does not match {value}", op.module_name))));
+        }
+        if use_union {
+            lines.extend(emit_outcome_parse(
+                op,
+                &outcome_info,
+                &response_type_name,
+                "        ",
+            ));
+        } else {
+            lines.extend(emit_response_parser(
+                &op.response.fields,
+                &response_type_name,
+                "        ",
+                child_prefix,
+            ));
+        }
+    } else if let Some(reason) = rejection {
         lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
         lines.push(format!(
             "        anyhow::bail!({})",
@@ -1529,7 +1913,9 @@ mod tests {
             "the two success outcomes must remain distinguishable: {code}"
         );
         assert!(
-            code.contains("response.get_optional_child(\"membership_approval_request\").is_some()"),
+            code.contains(
+                "response.get_children_by_tag(\"membership_approval_request\").count() == 1"
+            ),
             "{code}"
         );
         assert!(
@@ -2106,6 +2492,66 @@ mod tests {
     }
 
     #[test]
+    fn error_admission_preserves_text_pairs_ranges_and_fallback_order() {
+        fn exact(code: i64, text: &str) -> wa_ir::ErrorArm {
+            wa_ir::ErrorArm {
+                code: Some(code),
+                text: Some(text.into()),
+                ..Default::default()
+            }
+        }
+        fn range(lo: i64, hi: i64) -> wa_ir::ErrorArm {
+            wa_ir::ErrorArm {
+                code_min: Some(lo),
+                code_max: Some(hi),
+                ..Default::default()
+            }
+        }
+        let client = vec![
+            exact(304, "already-exists"),
+            exact(500, "resource-constraint"),
+            range(400, 499),
+        ];
+        let server = vec![exact(500, "internal-server-error"), range(500, 599)];
+        assert!(!error_arms_cover(&client, &server));
+        assert!(!error_arms_cover(&server, &client));
+        assert!(error_arms_cover(
+            &[range(500, 599)],
+            &[exact(500, "resource-constraint")]
+        ));
+        assert!(!error_arms_cover(
+            &[exact(500, "resource-constraint")],
+            &[range(500, 599)]
+        ));
+        assert!(error_arms_cover(
+            &[range(400, 449), range(450, 499)],
+            &[range(400, 499)]
+        ));
+        assert!(!error_arms_cover(
+            &[range(400, 449), range(451, 499)],
+            &[range(400, 499)]
+        ));
+        assert!(error_arms_cover(
+            &[range(i64::MIN, i64::MAX)],
+            &[range(i64::MIN, i64::MAX)]
+        ));
+    }
+
+    #[test]
+    fn unknown_reference_paths_are_diagnosed_not_ignored() {
+        let mut op = stanza("UnknownReference", None);
+        op.response.assertions.push(wa_ir::ResponseAssertion {
+            kind: AssertionKind::Reference,
+            name: Some("from".into()),
+            value: None,
+            reference_path: Some(vec!["account".into(), "to".into()]),
+        });
+        let code = generate_spec(&op, "TEST_NAMESPACE", "UnknownReferenceSpec");
+        assert!(code.contains("guards.reference_unsupported"));
+        assert!(!code.contains("pub fn parse_response_with_request"));
+    }
+
+    #[test]
     fn missing_response_contract_is_not_a_confirmation() {
         let op = stanza("MissingResponse", None);
         let code = generate_spec(&op, "TEST_NAMESPACE", "MissingResponseSpec");
@@ -2152,7 +2598,7 @@ mod tests {
     }
 
     #[test]
-    fn real_pilots_preserve_requests_but_do_not_claim_complete_outcomes() {
+    fn real_pilots_emit_ordered_outcomes_with_required_request_context() {
         let ir: wa_ir::IqIr =
             serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
         for pilot in ["SetSubject", "AcceptGroupAdd"] {
@@ -2178,9 +2624,13 @@ mod tests {
             }
             let code = generate_spec(op, "W_G2_NAMESPACE", &format!("{pilot}Spec"));
             assert!(code.contains("self.target.clone()"));
-            assert!(code.contains("outcomes.unemittable"));
-            assert!(code.contains(&format!("{pilot}ResponseClientError can shadow")));
-            assert!(code.contains(&format!("{pilot}ResponseServerError")));
+            assert!(!code.contains("outcomes.unemittable"), "{code}");
+            assert!(code.contains("pub fn parse_response_with_request"));
+            assert!(code.contains("guards.request_context_required"));
+            assert!(code.contains("Some(request_id)"));
+            assert!(code.contains("Some(request_to)"));
+            assert!(code.contains("::ClientError("));
+            assert!(code.contains("::ServerError("));
             if pilot == "SetSubject" {
                 assert_eq!(
                     op.request.children[0]
