@@ -10,6 +10,8 @@
 //! Deliberately not extracted: the condition a construction sits under. A call site is a
 //! place the client can emit the event, never a promise that it does.
 
+mod arguments;
+
 use std::collections::BTreeMap;
 
 use oxc_allocator::Allocator;
@@ -88,6 +90,7 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
     let alloc = Allocator::default();
     let ret = parse_cjs(&alloc, slice);
     let aliases = crate::require_aliases(&ret.program);
+    let arguments = arguments::collect(&ret.program, &aliases);
     let mut v = SiteVisitor {
         bindings: BTreeMap::new(),
         sites: Vec::new(),
@@ -97,6 +100,7 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
             names: std::collections::BTreeSet::new(),
         }],
         aliases: &aliases,
+        arguments: &arguments,
     };
     for stmt in &ret.program.body {
         v.visit_statement(stmt);
@@ -162,6 +166,7 @@ struct SiteVisitor<'m> {
     /// Locals standing for a `o("Module")` require, so an enum member written through
     /// one resolves the same way a field type written through one does.
     aliases: &'m RequireAliases,
+    arguments: &'m BTreeMap<u32, arguments::Fields>,
 }
 
 /// One scope and the names it introduces.
@@ -326,6 +331,11 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
             match n.arguments.first().and_then(wa_oxc::arg_expr) {
                 // `new (…)(…)` with no argument: a real, complete field set of zero.
                 None => {}
+                Some(arg) if self.arguments.contains_key(&arg.span().start) => {
+                    let recovered = &self.arguments[&arg.span().start];
+                    fields = recovered.fields.clone();
+                    partial = recovered.partial;
+                }
                 Some(arg) => read_argument(
                     arg,
                     &mut fields,
