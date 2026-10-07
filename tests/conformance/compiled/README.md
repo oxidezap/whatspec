@@ -151,3 +151,23 @@ groups, including deterministic regeneration and compiled execution. The combine
 independent test phase took 0.79 s after build; #53's compiled runtime test also
 passed. No original expected outcome was changed, no emitter was edited here,
 and no test was disabled. Earlier failure evidence above refers to a863bfb.
+
+## Integrated quality and fixture review
+
+The composition includes quality #52 at
+`1d5d7f3323a6b71493a1bd68b3a326dfb468b361`, preserving its commits,
+and audit #54 via the existing dependency commits. A follow-up quality fix for
+external schema references is pending; this is not final qualification.
+
+Review identified two missing evidence checks. The offline CI fixture command now
+checks both compiled source sets against their recorded AST lengths/hashes and
+both selected inputs against provenance hashes and versions. Same-length source
+and input mutations passed the former check and fail the extended check. This
+verifies recorded identity, not authenticity of jointly edited provenance; full
+recapture remains necessary. The selected records and complete historical IQ
+hashes were also compared to their recorded git commits locally.
+
+Both verified bundle sets were recaptured with `WASmaxInGroupsBaseServerErrorMixin`
+added, giving 20 modules per snapshot. Its body shows the unique error child,
+IQ error response correlation and ordered ServerErrors parser delegation. All
+20 module bodies are identical between snapshots. No JavaScript was executed.

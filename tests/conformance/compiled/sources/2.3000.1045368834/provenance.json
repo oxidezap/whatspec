@@ -26,6 +26,13 @@
       "sourceSha256": "0786f985a20352044f3f00cec811911fce0f002f4dedafdf3b37e1cd087cbab6"
     },
     {
+      "module": "WASmaxInGroupsBaseServerErrorMixin",
+      "bundleSha256": "d8530b0e3d68a35306e30118b34f7a3e142816b3365e76f809cbcd765307df34",
+      "start": 36410,
+      "end": 37063,
+      "sourceSha256": "93013e540bfaf1466e8e6d37863c83ae57c85102c7d99ee1db819b08eb5f0a1e"
+    },
+    {
       "module": "WASmaxInGroupsIQErrorAlreadyExistsMixin",
       "bundleSha256": "cf6197f616a43cf9004101d911d5643e8fa63972b2d27a54e8bba8db062abb8f",
       "start": 68535,

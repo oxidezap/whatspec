@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from capture import MODULES, capture
+from compiled.capture_errors import MODULES as COMPILED_MODULES
 
 
 class CaptureTests(unittest.TestCase):
@@ -51,16 +52,31 @@ class CaptureTests(unittest.TestCase):
                 self.capture_synthetic(spelling)
 
     def test_committed_sources_match_every_recorded_span_hash(self):
-        for version in ['2.3000.1045368834', '2.3000.1047483476']:
-            root = Path(__file__).parent / version
-            evidence = json.loads((root / 'provenance.json').read_text())
-            self.assertEqual({e['module'] for e in evidence['modules']}, set(MODULES))
-            for entry in evidence['modules']:
-                source = (root / (entry['module'] + '.js')).read_bytes()
-                self.assertTrue(source.endswith(b';\n'))
-                source = source[:-2]  # Capture's terminator, not part of the AST span.
-                self.assertEqual(len(source), entry['end'] - entry['start'])
-                self.assertEqual(hashlib.sha256(source).hexdigest(), entry['sourceSha256'])
+        for base, modules in [(Path(__file__).parent, MODULES),
+                              (Path(__file__).parent / 'compiled/sources', COMPILED_MODULES)]:
+            for version in ['2.3000.1045368834', '2.3000.1047483476']:
+                root = base / version
+                evidence = json.loads((root / 'provenance.json').read_text())
+                self.assertEqual(evidence['waVersion'], version)
+                self.assertEqual({e['module'] for e in evidence['modules']}, set(modules))
+                self.assertEqual({p.stem for p in root.glob('*.js')}, set(modules))
+                for entry in evidence['modules']:
+                    source = (root / (entry['module'] + '.js')).read_bytes()
+                    self.assertTrue(source.endswith(b';\n'))
+                    source = source[:-2]
+                    self.assertEqual(len(source), entry['end'] - entry['start'])
+                    self.assertEqual(hashlib.sha256(source).hexdigest(), entry['sourceSha256'])
+
+    def test_compiled_inputs_match_recorded_hashes(self):
+        root = Path(__file__).parent / 'compiled/inputs'
+        evidence = json.loads((root / 'provenance.json').read_text())
+        self.assertEqual({e['waVersion'] for e in evidence},
+                         {'2.3000.1045368834', '2.3000.1047483476'})
+        self.assertEqual(len(evidence), 2)
+        for entry in evidence:
+            source = (root / (entry['waVersion'] + '.json')).read_bytes()
+            self.assertEqual(hashlib.sha256(source).hexdigest(), entry['selectedInputSha256'])
+            self.assertEqual(json.loads(source)['waVersion'], entry['waVersion'])
 
     def test_changed_missing_extra_and_wrong_set_hash_are_rejected_before_ast(self):
         for failure in ['changed', 'missing', 'extra', 'setHash', 'count']:

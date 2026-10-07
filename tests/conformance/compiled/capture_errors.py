@@ -9,11 +9,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import capture
 
-capture.MODULES = [
+MODULES = [
     'WASmaxInGroupsIQErrorResponseMixin',
     'WASmaxInGroupsSetSubjectClientErrors',
     'WASmaxInGroupsAcceptGroupAddClientErrors',
     'WASmaxInGroupsServerErrors',
+    'WASmaxInGroupsBaseServerErrorMixin',
     'WASmaxInGroupsSetSubjectResponseClientError',
     'WASmaxInGroupsAcceptGroupAddResponseClientError',
     'WASmaxInGroupsSetSubjectResponseServerError',
@@ -32,4 +33,5 @@ capture.MODULES = [
 ]
 
 if __name__ == '__main__':
+    capture.MODULES = MODULES
     capture.capture(*(Path(arg) for arg in sys.argv[1:]))
