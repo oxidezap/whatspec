@@ -1,9 +1,11 @@
 //! Extract AppState schemas from bundle file(s) (concatenated) and print JSON.
-//! Run: cargo run -p wa-appstate --example gen -- <version> <bundle.js>...
+//! Run: cargo run -p wa-appstate --example gen_appstate -- <version> <bundle.js>...
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    let version = args.next().expect("usage: gen <version> <bundle.js>...");
+    let version = args
+        .next()
+        .expect("usage: gen_appstate <version> <bundle.js>...");
     let mut source = String::new();
     for path in args {
         source.push_str(&std::fs::read_to_string(&path)?);

@@ -213,3 +213,33 @@ validator. The interrupted generation was not counted as a successful repeat.
 Recommended integration order is #54, #52, #51 and #53, followed by #55's remaining
 qualification changes after retargeting/reviewing its diff. Preserve ancestry and
 avoid redistributing the composition commits into the individual workstreams.
+
+## Cargo example output collision repair
+
+The CI failure is supported by Cargo's own collision diagnostics, not classified
+as an unexplained flaky test. `cargo metadata --no-deps --format-version 1` on
+cd0f9da reports four auto-discovered example targets named `gen`, owned by
+wa-appstate, wa-codegen, wa-mex and wa-proto. All use the same output path
+`target/debug/examples/gen`; run 37698190460 then fails removing that path with
+ENOENT during the parallel workspace build.
+
+Each example now has a unique filename/target. No manifest or concurrency setting
+changes are needed. Invocation migration, with all remaining arguments unchanged:
+
+| Package | Previous example | New example |
+| --- | --- | --- |
+| wa-appstate | `--example gen` | `--example gen_appstate` |
+| wa-codegen | `--example gen` | `--example gen_iq` |
+| wa-mex | `--example gen` | `--example gen_mex` |
+| wa-proto | `--example gen` | `--example gen_proto` |
+
+The source command documentation and usage messages follow the new names.
+Extraction/generation logic is unchanged. Old target-name aliases are not retained
+because they would recreate the shared output path. These are developer examples;
+no library API or generated contract changes.
+
+Validation: a uniqueness check over Cargo metadata fails on cd0f9da with exactly
+those four targets and passes after the rename. `cargo build --workspace --examples
+--message-format=json` reports four distinct executable paths. Parallel
+`cargo test --workspace` passes 1,657 tests with zero failures/ignored tests and no
+output-collision warning. Parallelism was not reduced.

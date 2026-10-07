@@ -1,14 +1,14 @@
 //! Scan a bundle for IQ stanzas and generate the Rust `IqSpec` file.
-//! Run: cargo run -p wa-codegen --example gen -- <bundle.js> <outdir>
-//!      cargo run -p wa-codegen --example gen -- <bundle.js> --ir   (dump IqIr JSON)
+//! Run: cargo run -p wa-codegen --example gen_iq -- <bundle.js> <outdir>
+//!      cargo run -p wa-codegen --example gen_iq -- <bundle.js> --ir   (dump IqIr JSON)
 
 fn main() -> anyhow::Result<()> {
     let bundle = std::env::args()
         .nth(1)
-        .expect("usage: gen <bundle.js> <outdir|--ir>");
+        .expect("usage: gen_iq <bundle.js> <outdir|--ir>");
     let target = std::env::args()
         .nth(2)
-        .expect("usage: gen <bundle.js> <outdir|--ir>");
+        .expect("usage: gen_iq <bundle.js> <outdir|--ir>");
     let source = std::fs::read_to_string(&bundle)?;
 
     let scan = wa_scan::scan_iq_stanzas(&source);
