@@ -283,6 +283,10 @@ pub fn report(old: &Path, new: &Path, evidence: Option<&Path>) -> Result<Value> 
             change["domain"] = json!(domain);
             change["oldSource"] = reference(a, &change["oldPath"]);
             change["newSource"] = reference(b, &change["newPath"]);
+            // A missing field still belongs to a concrete domain document. Bind
+            // that document even though there is no field pointer to reference.
+            change["oldArtifactSha256"] = json!(a.map(|(_, hash, _)| hash));
+            change["newArtifactSha256"] = json!(b.map(|(_, hash, _)| hash));
             // Bind a review to exact artifact contents AND inputs, not just a name
             // that can survive an unrelated future snapshot.
             change["oldSetHash"] = json!(old.lock.set_hash);
@@ -388,6 +392,46 @@ pub fn run(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn added_and_removed_fields_bind_both_document_hashes() {
+        let dir = std::env::temp_dir().join(format!("whatspec-absent-side-{}", std::process::id()));
+        let old = dir.join("old");
+        let new = dir.join("new");
+        let write = |root: &Path, operations: Value| {
+            std::fs::create_dir_all(root.join("mex")).unwrap();
+            let lock = wa_store::lock::BundleLock::new("test", vec![]);
+            std::fs::write(root.join("bundles.lock.json"), lock.to_pretty_json()).unwrap();
+            let doc = json!({"waVersion":"test", "schemaVersion":"4.3.0", "operations":operations})
+                .to_string();
+            std::fs::write(root.join("mex/index.json"), &doc).unwrap();
+            let manifest = json!({"waVersion":"test", "schemaVersion":"4.3.0", "domains":{"mex":{"file":"mex/index.json","sha256":wa_text::sha256_hex(doc.as_bytes())}}});
+            std::fs::write(root.join("manifest.json"), manifest.to_string()).unwrap();
+        };
+        write(&old, json!({"A":{}}));
+        write(&new, json!({"A":{"extra":true}}));
+        let added = report(&old, &new, None).unwrap()["changes"][0]["id"].clone();
+        let removed = report(&new, &old, None).unwrap()["changes"][0]["id"].clone();
+        // The field is still absent in this side, and both input locks are unchanged.
+        write(&old, json!({"A":{}, "Unrelated":{"docId":"9"}}));
+        let updated_added = report(&old, &new, None).unwrap();
+        let updated_removed = report(&new, &old, None).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        let added_change = updated_added["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["newPath"] == "/operations/A/extra")
+            .unwrap();
+        let removed_change = updated_removed["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["oldPath"] == "/operations/A/extra")
+            .unwrap();
+        assert_ne!(added_change["id"], added);
+        assert_ne!(removed_change["id"], removed);
+    }
 
     #[test]
     fn snapshot_hashes_and_versions_are_checked_before_diffing() {

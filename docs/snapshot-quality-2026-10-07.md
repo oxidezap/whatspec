@@ -122,7 +122,7 @@ whatspec diff old-generated generated --json \
   --evidence docs/snapshot-quality-2026-10-07.reviews.json > contracts.json
 ```
 
-The raw report is 2,501,713 bytes. Full optional source indexes are 14,248,640 and
+The raw report is 2,591,393 bytes. Full optional source indexes are 14,248,640 and
 14,223,916 bytes, with 20,209 and 19,713 recovered module names. Only the focused
 sidecar and review ledger are committed. The generated IR is unchanged.
 
