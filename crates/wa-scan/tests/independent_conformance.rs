@@ -43,6 +43,11 @@ fn request_contract(ir: &Value) {
     for name in ["SetSubject", "AcceptGroupAdd"] {
         let op = operation(ir, name);
         assert_eq!(op["exportedFunction"], format!("make{name}Request"));
+        assert_eq!(op["parserName"], format!("WASmaxGroups{name}RPC"));
+        assert_eq!(
+            op["response"]["parserName"],
+            format!("WASmaxGroups{name}RPC")
+        );
         assert_eq!(op["namespace"], "w:g2");
         assert_eq!(op["iqType"], "set");
         assert_eq!(op["target"], "group_jid");
@@ -130,6 +135,9 @@ fn response_cases(ir: &Value, complete_error_vocabulary: bool) {
     // This interpreter only covers the reviewed empty-payload successes. A new
     // field needs an explicit extension, not accidental acceptance by this model.
     for op in [accept, subject] {
+        // The RPC wrappers delegate envelope guards to each ordered outcome.
+        // They add no outer guard that would constrain every alternative.
+        assert_eq!(op["response"]["assertions"], json!([]));
         assert_eq!(
             op["response"]["fields"],
             json!([{
@@ -235,6 +243,30 @@ fn response_cases(ir: &Value, complete_error_vocabulary: bool) {
 }
 
 fn captured_contract(ir: &Value) {
+    // These three preserved sources export merge*Mixin combinators. They are
+    // folded into the two requests, not additional standalone IQ operations.
+    // The reason is the published extractor diagnostic, not a server claim.
+    let mut exclusions: Vec<_> = ir["unparseable"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["moduleName"].as_str().unwrap(),
+                entry["reason"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    exclusions.sort_unstable();
+    let reason = "mixin fragment (folded into requests, not a standalone stanza)";
+    assert_eq!(
+        exclusions,
+        [
+            ("WASmaxOutGroupsBaseIQSetRequestMixin", reason),
+            ("WASmaxOutGroupsBaseSetGroupMixin", reason),
+            ("WASmaxOutGroupsSetSubjectChangeSubjectMixin", reason),
+        ]
+    );
     // Only the small source capture has this exact catalog; the full artifact
     // legitimately contains additional operations.
     let mut modules: Vec<_> = ir["stanzas"]
@@ -422,6 +454,74 @@ fn captured_oracle_rejects_extra_or_duplicate_stanzas() {
             assert!(
                 std::panic::catch_unwind(|| captured_contract(&changed)).is_err(),
                 "accepted extra {name} in {version}"
+            );
+        }
+    }
+}
+
+#[test]
+fn response_oracle_rejects_spurious_outer_guards() {
+    let ir = captured(VERSIONS[1]);
+    for name in ["SetSubject", "AcceptGroupAdd"] {
+        let mut changed = ir.clone();
+        let op = changed["stanzas"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|s| s["moduleName"] == format!("WASmaxOutGroups{name}Request"))
+            .unwrap();
+        op["response"]["assertions"] =
+            json!([{"kind":"attr", "name":"unreviewed", "value":"required"}]);
+        assert!(
+            std::panic::catch_unwind(|| response_cases(&changed, false)).is_err(),
+            "accepted {name} outer guard"
+        );
+    }
+}
+
+#[test]
+fn request_oracle_rejects_changed_parser_identities() {
+    let ir = captured(VERSIONS[1]);
+    for name in ["SetSubject", "AcceptGroupAdd"] {
+        for nested in [false, true] {
+            let mut changed = ir.clone();
+            let op = changed["stanzas"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|s| s["moduleName"] == format!("WASmaxOutGroups{name}Request"))
+                .unwrap();
+            if nested {
+                op["response"]["parserName"] = json!("unknown");
+            } else {
+                op["parserName"] = json!("wrong");
+            }
+            assert!(
+                std::panic::catch_unwind(|| request_contract(&changed)).is_err(),
+                "accepted {name} parser, nested={nested}"
+            );
+        }
+    }
+}
+
+#[test]
+fn captured_oracle_rejects_changed_exclusion_diagnostics() {
+    for version in VERSIONS {
+        let ir = captured(version);
+        for mutation in ["missing", "reason", "extra", "duplicate"] {
+            let mut changed = ir.clone();
+            let entries = changed["unparseable"].as_array_mut().unwrap();
+            match mutation {
+                "missing" => {
+                    entries.pop();
+                }
+                "reason" => entries[0]["reason"] = json!("genuine failure"),
+                "duplicate" => entries.push(entries[0].clone()),
+                _ => entries.push(json!({"moduleName":"Unreviewed", "reason":"genuine failure"})),
+            }
+            assert!(
+                std::panic::catch_unwind(|| captured_contract(&changed)).is_err(),
+                "accepted {version} diagnostic {mutation}"
             );
         }
     }
