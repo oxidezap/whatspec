@@ -241,3 +241,10 @@ Mutations of exports (changed/null/missing) and extra/duplicate stanzas reproduc
 the former gaps and are rejected. The origin-record pins additionally cover the
 historical repository commits and archive hashes previously documented only in
 this README. Pins detect drift, not coordinated edits to evidence and test pins.
+
+The MEX oracle compares the complete captured operation catalog (`FetchNewsletter`)
+and the full variables shape: six boolean flags plus an `input` object with
+`key`, `type` and `view_role` string leaves. Structure and names come from the
+preserved caller/Relay argument definitions; scalar tags are the documented
+name-based approximation, not proven server types or nullability. Mutations
+cover extra operations and changed/missing/extra top-level and nested fields.
