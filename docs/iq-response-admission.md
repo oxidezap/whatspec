@@ -171,5 +171,8 @@ the compiled runtime integration test; `cargo clippy --locked -p wa-codegen
 --all-targets -- -D warnings`; schema validation; and full bundle regeneration
 with `whatspec update --check`. No generated IR or baseline changes are included.
 The separately owned dependency audit fix from PR #54 is carried as its own
-commit. The six pre-existing exact-count lint baseline failures are outside
-this change and are not suppressed.
+commit. Main commit `9b8bc4e05eec14fa49b488c8eb8e56ce8ac5bfdb` incorporates
+the separately reviewed quality work from PR #52, including the source-backed
+baseline reconciliation. This branch integrates that main revision without
+additional baseline changes. Independent two-snapshot pilot qualification is
+maintained in PR #55, outside this emitter patch.

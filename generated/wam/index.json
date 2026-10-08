@@ -20549,12 +20549,7 @@
             },
             {
               "name": "replyEntryMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumReplyEntryMethod",
-                "key": "TAP_REPLY_BAR"
-              }
+              "write": "constructor"
             },
             {
               "name": "statusCategory",
@@ -20704,33 +20699,6 @@
         "WAWebWamMemoryStat"
       ],
       "callSites": [
-        {
-          "module": "WAWebWamMemoryStat",
-          "fields": [
-            {
-              "name": "isForeground",
-              "write": "constructor"
-            },
-            {
-              "name": "peakUsedJsHeapSize",
-              "write": "constructor"
-            },
-            {
-              "name": "scenario",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumWebcScenarioType",
-                "key": "CHAT_NAVIGATION"
-              }
-            },
-            {
-              "name": "usedJsHeapSize",
-              "write": "constructor"
-            }
-          ],
-          "partial": true
-        },
         {
           "module": "WAWebWamMemoryStat",
           "fields": [
@@ -21495,12 +21463,7 @@
           "fields": [
             {
               "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
+              "write": "constructor"
             },
             {
               "name": "editBusinessProfileSessionId",
@@ -21508,43 +21471,6 @@
             },
             {
               "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_OPEN"
-              }
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebEditFormLogEvents",
-          "fields": [
-            {
-              "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
-            },
-            {
-              "name": "editBusinessProfileSessionId",
-              "write": "constructor"
-            },
-            {
-              "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_PROFILE_FIELD_OPEN"
-              }
-            },
-            {
-              "name": "editProfileActionField",
               "write": "constructor"
             }
           ],
@@ -21555,12 +21481,7 @@
           "fields": [
             {
               "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
+              "write": "constructor"
             },
             {
               "name": "editBusinessProfileSessionId",
@@ -21568,44 +21489,7 @@
             },
             {
               "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_PROFILE_FIELD_SAVE"
-              }
-            },
-            {
-              "name": "editProfileActionField",
               "write": "constructor"
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebEditFormLogEvents",
-          "fields": [
-            {
-              "name": "businessProfileEntryPoint",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumBusinessProfileEntryPoint",
-                "key": "SETTINGS"
-              }
-            },
-            {
-              "name": "editBusinessProfileSessionId",
-              "write": "constructor"
-            },
-            {
-              "name": "editProfileAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumEditProfileAction",
-                "key": "ACTION_PROFILE_FIELD_DISCARD"
-              }
             },
             {
               "name": "editProfileActionField",
@@ -23688,12 +23572,7 @@
           "fields": [
             {
               "name": "connectionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumConnectionType",
-                "key": "HOSTNAME"
-              }
+              "write": "constructor"
             },
             {
               "name": "deviceCount",
@@ -23717,12 +23596,7 @@
             },
             {
               "name": "networkStack",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumNetworkStackType",
-                "key": "NATIVE"
-              }
+              "write": "constructor"
             },
             {
               "name": "overallAttemptCount",
@@ -23770,11 +23644,7 @@
             },
             {
               "name": "overallMmsVersion",
-              "write": "constructor",
-              "value": {
-                "kind": "int",
-                "value": 4
-              }
+              "write": "constructor"
             },
             {
               "name": "overallRetryCount",
@@ -23974,6 +23844,42 @@
             {
               "name": "targetScreen",
               "write": "assigned",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumChatFilterTargetScreen",
+                "key": "CHAT_LIST"
+              }
+            }
+          ]
+        },
+        {
+          "module": "WAWebFilterLogging",
+          "fields": [
+            {
+              "name": "actionType",
+              "write": "constructor",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumChatFilterActionTypes",
+                "key": "FILTER_VIEWED"
+              }
+            },
+            {
+              "name": "filterType",
+              "write": "constructor",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumChatFilterTypes",
+                "key": "LABEL"
+              }
+            },
+            {
+              "name": "sessionId",
+              "write": "constructor"
+            },
+            {
+              "name": "targetScreen",
+              "write": "constructor",
               "value": {
                 "kind": "enumMember",
                 "module": "WAWebWamEnumChatFilterTargetScreen",
@@ -26107,7 +26013,116 @@
       "callSites": [
         {
           "module": "WAWebWamFingerprintReporter",
-          "partial": true
+          "fields": [
+            {
+              "name": "automationSignals",
+              "write": "constructor"
+            },
+            {
+              "name": "browserEngine",
+              "write": "constructor"
+            },
+            {
+              "name": "chromeStructure",
+              "write": "constructor"
+            },
+            {
+              "name": "connectionRtt",
+              "write": "constructor"
+            },
+            {
+              "name": "cpuMake",
+              "write": "constructor"
+            },
+            {
+              "name": "deviceMemory",
+              "write": "constructor"
+            },
+            {
+              "name": "extentionIds",
+              "write": "constructor"
+            },
+            {
+              "name": "externalSources",
+              "write": "constructor"
+            },
+            {
+              "name": "foreignDbList",
+              "write": "constructor"
+            },
+            {
+              "name": "gpuMake",
+              "write": "constructor"
+            },
+            {
+              "name": "hasChrome",
+              "write": "constructor"
+            },
+            {
+              "name": "hasTaskbar",
+              "write": "constructor"
+            },
+            {
+              "name": "hasWebShare",
+              "write": "constructor"
+            },
+            {
+              "name": "historyLength",
+              "write": "constructor"
+            },
+            {
+              "name": "mimeTypeCount",
+              "write": "constructor"
+            },
+            {
+              "name": "notificationPermission",
+              "write": "constructor"
+            },
+            {
+              "name": "pdfViewerEnabled",
+              "write": "constructor"
+            },
+            {
+              "name": "platformEstimate",
+              "write": "constructor"
+            },
+            {
+              "name": "pluginCount",
+              "write": "constructor"
+            },
+            {
+              "name": "screenResolution",
+              "write": "constructor"
+            },
+            {
+              "name": "sessionStorageLength",
+              "write": "constructor"
+            },
+            {
+              "name": "timezone",
+              "write": "constructor"
+            },
+            {
+              "name": "touchPresence",
+              "write": "constructor"
+            },
+            {
+              "name": "viewportSize",
+              "write": "constructor"
+            },
+            {
+              "name": "webcCanvasFingerprint",
+              "write": "constructor"
+            },
+            {
+              "name": "webcWebglFingerprint",
+              "write": "constructor"
+            },
+            {
+              "name": "webcWindowNavigatorWebdriver",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -27499,11 +27514,38 @@
           "module": "WAWebSendStickerAction",
           "fields": [
             {
+              "name": "stickerIsAi",
+              "write": "constructor"
+            },
+            {
+              "name": "stickerIsAnimated",
+              "write": "constructor"
+            },
+            {
+              "name": "stickerIsFirstParty",
+              "write": "constructor"
+            },
+            {
+              "name": "stickerIsFromStickerMaker",
+              "write": "constructor"
+            },
+            {
+              "name": "stickerIsLottie",
+              "write": "constructor"
+            },
+            {
+              "name": "stickerIsPremium",
+              "write": "constructor"
+            },
+            {
               "name": "stickerMakerSourceType",
               "write": "assigned"
+            },
+            {
+              "name": "stickerSendOrigin",
+              "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         }
       ]
     },
@@ -29456,7 +29498,66 @@
         },
         {
           "module": "WAWebPaymentsUserActionLogging",
-          "partial": true
+          "fields": [
+            {
+              "name": "actionTarget",
+              "write": "constructor"
+            },
+            {
+              "name": "paymentActionType",
+              "write": "constructor"
+            },
+            {
+              "name": "paymentsCountryCode",
+              "write": "constructor"
+            },
+            {
+              "name": "paymentsEventId",
+              "write": "constructor"
+            },
+            {
+              "name": "queryParams",
+              "write": "constructor"
+            },
+            {
+              "name": "referral",
+              "write": "constructor"
+            },
+            {
+              "name": "screen",
+              "write": "constructor"
+            }
+          ]
+        },
+        {
+          "module": "WAWebPaymentsUserActionLogging",
+          "fields": [
+            {
+              "name": "actionTarget",
+              "write": "constructor"
+            },
+            {
+              "name": "paymentActionType",
+              "write": "constructor",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumPaymentActionTypes",
+                "key": "CLICK"
+              }
+            },
+            {
+              "name": "paymentsCountryCode",
+              "write": "constructor"
+            },
+            {
+              "name": "queryParams",
+              "write": "constructor"
+            },
+            {
+              "name": "screen",
+              "write": "constructor"
+            }
+          ]
         },
         {
           "module": "WAWebPixWamLogger",
@@ -30326,12 +30427,7 @@
           "fields": [
             {
               "name": "actionConducted",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumActionConducted",
-                "key": "MUTE"
-              }
+              "write": "constructor"
             },
             {
               "name": "muteChatType",
@@ -30353,12 +30449,7 @@
           "fields": [
             {
               "name": "actionConducted",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumActionConducted",
-                "key": "UNMUTE"
-              }
+              "write": "constructor"
             },
             {
               "name": "muteChatType",
@@ -39202,6 +39293,22 @@
           "module": "WAWebKeepInChatMsgAction",
           "fields": [
             {
+              "name": "canEditDmSettings",
+              "write": "constructor"
+            },
+            {
+              "name": "chatEphemeralityDuration",
+              "write": "constructor"
+            },
+            {
+              "name": "isAGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "isAdmin",
+              "write": "constructor"
+            },
+            {
               "name": "keptCount",
               "write": "constructor"
             },
@@ -39219,19 +39326,58 @@
               }
             },
             {
+              "name": "kicActor",
+              "write": "constructor"
+            },
+            {
+              "name": "kicEntryPoint",
+              "write": "constructor"
+            },
+            {
+              "name": "mediaType",
+              "write": "constructor"
+            },
+            {
               "name": "messageExpiredOnUnkeep",
               "write": "constructor"
             },
             {
               "name": "messageExpiryTimer",
               "write": "constructor"
+            },
+            {
+              "name": "messagesSelected",
+              "write": "constructor",
+              "value": {
+                "kind": "int",
+                "value": 1
+              }
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         },
         {
           "module": "WAWebKeepInChatMsgAction",
           "fields": [
+            {
+              "name": "canEditDmSettings",
+              "write": "constructor"
+            },
+            {
+              "name": "chatEphemeralityDuration",
+              "write": "constructor"
+            },
+            {
+              "name": "isAGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "isAdmin",
+              "write": "constructor"
+            },
             {
               "name": "keptCount",
               "write": "constructor"
@@ -39244,9 +39390,32 @@
                 "module": "WAWebWamEnumKicActionNameType",
                 "key": "KEEP_MESSAGE"
               }
+            },
+            {
+              "name": "kicActor",
+              "write": "constructor"
+            },
+            {
+              "name": "kicEntryPoint",
+              "write": "constructor"
+            },
+            {
+              "name": "mediaType",
+              "write": "constructor"
+            },
+            {
+              "name": "messagesSelected",
+              "write": "constructor",
+              "value": {
+                "kind": "int",
+                "value": 1
+              }
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
             }
-          ],
-          "partial": true
+          ]
         },
         {
           "module": "WAWebKeptDrawer.react",
@@ -46320,12 +46489,7 @@
             },
             {
               "name": "attachmentTrayAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumAttachmentTrayActionType",
-                "key": "CLICK"
-              }
+              "write": "constructor"
             },
             {
               "name": "attachmentTrayActionTarget",
@@ -47400,6 +47564,36 @@
       "callSites": [
         {
           "module": "WAWebSmbMarkAsXOrderAction",
+          "fields": [
+            {
+              "name": "ctwaOrderSignalVersion",
+              "write": "constructor"
+            },
+            {
+              "name": "customerAdsSharingSettingEnabled",
+              "write": "constructor"
+            },
+            {
+              "name": "deepLinkConversionSource",
+              "write": "constructor"
+            },
+            {
+              "name": "orderPaid",
+              "write": "constructor"
+            },
+            {
+              "name": "orderSignalType",
+              "write": "constructor"
+            },
+            {
+              "name": "orderStatus",
+              "write": "constructor"
+            },
+            {
+              "name": "threadIdHmac",
+              "write": "constructor"
+            }
+          ],
           "partial": true
         }
       ]
@@ -48105,7 +48299,44 @@
       "callSites": [
         {
           "module": "WAWebMexLogging",
-          "partial": true
+          "fields": [
+            {
+              "name": "mexEventV2DurationMs",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2EndTime",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2ErrorCodes",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2Errors",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2HasData",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2IsMex",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2OperationName",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2QueryId",
+              "write": "constructor"
+            },
+            {
+              "name": "mexEventV2StartTime",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -50383,91 +50614,15 @@
           "fields": [
             {
               "name": "pmxActionTarget",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionTarget",
-                "key": "THUMBNAIL"
-              }
-            },
-            {
-              "name": "pmxActionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionType",
-                "key": "CLICK"
-              }
-            },
-            {
-              "name": "pmxComponentType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
-                "key": "HEADER"
-              }
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebInteractiveMessageCarouselLogEvents",
-          "fields": [
-            {
-              "name": "pmxActionTarget",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionTarget",
-                "key": "HEADER"
-              }
-            },
-            {
-              "name": "pmxActionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionType",
-                "key": "CLICK"
-              }
-            },
-            {
-              "name": "pmxComponentType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
-                "key": "HEADER"
-              }
-            }
-          ],
-          "partial": true
-        },
-        {
-          "module": "WAWebInteractiveMessageCarouselLogEvents",
-          "fields": [
-            {
-              "name": "pmxActionTarget",
               "write": "constructor"
             },
             {
               "name": "pmxActionType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsActionType",
-                "key": "CLICK"
-              }
+              "write": "constructor"
             },
             {
               "name": "pmxComponentType",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumPaidMessagingUserInteractionsComponentType",
-                "key": "BUTTON"
-              }
+              "write": "constructor"
             }
           ],
           "partial": true
@@ -58941,11 +59096,7 @@
             },
             {
               "name": "psGroupExitExperienceEnabled",
-              "write": "constructor",
-              "value": {
-                "kind": "bool",
-                "value": true
-              }
+              "write": "constructor"
             },
             {
               "name": "psGroupExitExperienceExitDialogAction",
@@ -59430,7 +59581,28 @@
       "callSites": [
         {
           "module": "WAWebThreadLoggingVoip",
-          "partial": true
+          "fields": [
+            {
+              "name": "callOffersReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "callOffersSent",
+              "write": "constructor"
+            },
+            {
+              "name": "threadDs",
+              "write": "constructor"
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
+            },
+            {
+              "name": "totalCallDuration",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -60137,7 +60309,24 @@
       "callSites": [
         {
           "module": "WAWebThreadLoggingAi",
-          "partial": true
+          "fields": [
+            {
+              "name": "threadDs",
+              "write": "constructor"
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
+            },
+            {
+              "name": "totalMessageFromAgentCnt",
+              "write": "constructor"
+            },
+            {
+              "name": "totalMessageToAgentCnt",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -60286,7 +60475,20 @@
       "callSites": [
         {
           "module": "WAWebThreadLoggingNotification",
-          "partial": true
+          "fields": [
+            {
+              "name": "isAGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "threadDs",
+              "write": "constructor"
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -60704,7 +60906,56 @@
       "callSites": [
         {
           "module": "WAWebThreadLoggingBiz",
-          "partial": true
+          "fields": [
+            {
+              "name": "bizCatalogType",
+              "write": "constructor"
+            },
+            {
+              "name": "chatOrigins",
+              "write": "constructor"
+            },
+            {
+              "name": "commerceMsgsReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "commerceMsgsSent",
+              "write": "constructor"
+            },
+            {
+              "name": "isCommerceViewed",
+              "write": "constructor"
+            },
+            {
+              "name": "isCtaOnPdpClicked",
+              "write": "constructor"
+            },
+            {
+              "name": "isUserAgent",
+              "write": "constructor"
+            },
+            {
+              "name": "ordersSent",
+              "write": "constructor"
+            },
+            {
+              "name": "pdpInquiriesSent",
+              "write": "constructor"
+            },
+            {
+              "name": "pdpViews",
+              "write": "constructor"
+            },
+            {
+              "name": "threadDs",
+              "write": "constructor"
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -61466,7 +61717,244 @@
       "callSites": [
         {
           "module": "WAWebThreadLoggingCoreConsumer",
-          "partial": true
+          "fields": [
+            {
+              "name": "afterReadDuration",
+              "write": "constructor"
+            },
+            {
+              "name": "afterReadMessagesExpired",
+              "write": "constructor"
+            },
+            {
+              "name": "afterReadMessagesReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "afterReadMessagesSent",
+              "write": "constructor"
+            },
+            {
+              "name": "afterReadMessagesUnreadExpired",
+              "write": "constructor"
+            },
+            {
+              "name": "afterReadTurnedOff",
+              "write": "constructor"
+            },
+            {
+              "name": "afterReadTurnedOn",
+              "write": "constructor"
+            },
+            {
+              "name": "chatMuted",
+              "write": "constructor"
+            },
+            {
+              "name": "chatOverflowClicks",
+              "write": "constructor"
+            },
+            {
+              "name": "commentsReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "editedMsgsSent",
+              "write": "constructor"
+            },
+            {
+              "name": "eventCreationMessagesReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "eventCreationMessagesSent",
+              "write": "constructor"
+            },
+            {
+              "name": "eventResponseMessagesReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "eventResponseMessagesSent",
+              "write": "constructor"
+            },
+            {
+              "name": "forwardMessagesReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "forwardMessagesSent",
+              "write": "constructor"
+            },
+            {
+              "name": "groupMembershipReplies",
+              "write": "constructor"
+            },
+            {
+              "name": "groupPrivateReplies",
+              "write": "constructor"
+            },
+            {
+              "name": "groupSize",
+              "write": "constructor"
+            },
+            {
+              "name": "groupStatusLikesOthersToOthers",
+              "write": "constructor"
+            },
+            {
+              "name": "groupStatusLikesOthersToOwn",
+              "write": "constructor"
+            },
+            {
+              "name": "groupStatusRepliesOthersToOthers",
+              "write": "constructor"
+            },
+            {
+              "name": "groupStatusRepliesOthersToOwn",
+              "write": "constructor"
+            },
+            {
+              "name": "groupStatusRepliesOwnToOthers",
+              "write": "constructor"
+            },
+            {
+              "name": "groupStatusRepliesOwnToOwn",
+              "write": "constructor"
+            },
+            {
+              "name": "hasReplied1On1",
+              "write": "constructor"
+            },
+            {
+              "name": "hasUsername",
+              "write": "constructor"
+            },
+            {
+              "name": "hasUsernamePin",
+              "write": "constructor"
+            },
+            {
+              "name": "isAContact",
+              "write": "constructor"
+            },
+            {
+              "name": "isAGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "isArchived",
+              "write": "constructor"
+            },
+            {
+              "name": "isMessageYourself",
+              "write": "constructor"
+            },
+            {
+              "name": "isPinned",
+              "write": "constructor"
+            },
+            {
+              "name": "isPnhEnabledChat",
+              "write": "constructor"
+            },
+            {
+              "name": "isUsernameThread",
+              "write": "constructor"
+            },
+            {
+              "name": "isUsernameThreadAtCreation",
+              "write": "constructor"
+            },
+            {
+              "name": "messagesRead",
+              "write": "constructor"
+            },
+            {
+              "name": "messagesReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "messagesSent",
+              "write": "constructor"
+            },
+            {
+              "name": "messagesUnread",
+              "write": "constructor"
+            },
+            {
+              "name": "oppositePartyHasProfilePhoto",
+              "write": "constructor"
+            },
+            {
+              "name": "oppositeVisibleIdentification",
+              "write": "constructor"
+            },
+            {
+              "name": "profileReplies",
+              "write": "constructor"
+            },
+            {
+              "name": "profileViews",
+              "write": "constructor"
+            },
+            {
+              "name": "reactionsReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "reactionsSent",
+              "write": "constructor"
+            },
+            {
+              "name": "repliesSent",
+              "write": "constructor"
+            },
+            {
+              "name": "sharesCommonGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "statusReactionsReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "statusReactionsSent",
+              "write": "constructor"
+            },
+            {
+              "name": "statusReplies",
+              "write": "constructor"
+            },
+            {
+              "name": "statusViews",
+              "write": "constructor"
+            },
+            {
+              "name": "threadDs",
+              "write": "constructor"
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
+            },
+            {
+              "name": "typeOfGroup",
+              "write": "constructor"
+            },
+            {
+              "name": "viewOnceMessagesOpened",
+              "write": "constructor"
+            },
+            {
+              "name": "viewOnceMessagesReceived",
+              "write": "constructor"
+            },
+            {
+              "name": "viewOnceMessagesSent",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -61534,7 +62022,16 @@
       "callSites": [
         {
           "module": "WAWebThreadLoggingIntegrity",
-          "partial": true
+          "fields": [
+            {
+              "name": "threadDs",
+              "write": "constructor"
+            },
+            {
+              "name": "threadId",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -62869,7 +63366,25 @@
       "callSites": [
         {
           "module": "WAWebStatusSubtitle.react",
-          "partial": true
+          "fields": [
+            {
+              "name": "attributionType",
+              "write": "constructor"
+            },
+            {
+              "name": "statusCategory",
+              "write": "constructor"
+            },
+            {
+              "name": "viewerActionType",
+              "write": "constructor",
+              "value": {
+                "kind": "enumMember",
+                "module": "WAWebWamEnumStatusViewActionType",
+                "key": "ATTRIBUTION_TAPPED"
+              }
+            }
+          ]
         },
         {
           "module": "WAWebStatusSubtitle.react",
@@ -63067,12 +63582,7 @@
           "fields": [
             {
               "name": "fetchMechanism",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumFetchMechanismEnum",
-                "key": "GRAPHQL"
-              }
+              "write": "constructor"
             },
             {
               "name": "fetchResult",
@@ -70146,7 +70656,52 @@
       "callSites": [
         {
           "module": "WAWebSmb3pdAggregatedConversionSignalAction",
-          "partial": true
+          "fields": [
+            {
+              "name": "adId",
+              "write": "constructor"
+            },
+            {
+              "name": "ctwa3pdAggregatedSchemaVersion",
+              "write": "constructor"
+            },
+            {
+              "name": "ctwa3pdConversionSubtype",
+              "write": "constructor"
+            },
+            {
+              "name": "ctwa3pdConversionType",
+              "write": "constructor"
+            },
+            {
+              "name": "ctwa3pdSurfaceType",
+              "write": "constructor",
+              "value": {
+                "kind": "str",
+                "value": "thread"
+              }
+            },
+            {
+              "name": "ctwaConversationDepth",
+              "write": "constructor"
+            },
+            {
+              "name": "ctwaConversationRepeat",
+              "write": "constructor"
+            },
+            {
+              "name": "ctwaDirectionFrom",
+              "write": "constructor"
+            },
+            {
+              "name": "ctwaSignals",
+              "write": "constructor"
+            },
+            {
+              "name": "threadIdHmac",
+              "write": "constructor"
+            }
+          ]
         }
       ]
     },
@@ -70296,21 +70851,11 @@
           "fields": [
             {
               "name": "companionInviteAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteActionType",
-                "key": "IMPRESSION"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteMethodType",
-                "key": "NATIVE_SMS"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteOrigin",
@@ -70324,21 +70869,11 @@
           "fields": [
             {
               "name": "companionInviteAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteActionType",
-                "key": "INVITE_SEND"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteMethodType",
-                "key": "NATIVE_SMS"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteOrigin",
@@ -70356,21 +70891,11 @@
           "fields": [
             {
               "name": "companionInviteAction",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteActionType",
-                "key": "INVITE_SEND"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteMethod",
-              "write": "constructor",
-              "value": {
-                "kind": "enumMember",
-                "module": "WAWebWamEnumCompanionInviteMethodType",
-                "key": "NATIVE_SMS"
-              }
+              "write": "constructor"
             },
             {
               "name": "companionInviteOrigin",

@@ -10,6 +10,8 @@
 //! Deliberately not extracted: the condition a construction sits under. A call site is a
 //! place the client can emit the event, never a promise that it does.
 
+mod arguments;
+
 use std::collections::BTreeMap;
 
 use oxc_allocator::Allocator;
@@ -43,6 +45,8 @@ pub(crate) struct RawSite {
     pub unread_argument: Option<&'static str>,
     /// Position, so later writes can be attached to the nearest construction before them.
     pub start: u32,
+    /// End-exclusive construction span in the module slice.
+    pub end: u32,
     /// What the value is bound to, when it is bound at all.
     pub binding: Option<Binding>,
 }
@@ -86,6 +90,7 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
     let alloc = Allocator::default();
     let ret = parse_cjs(&alloc, slice);
     let aliases = crate::require_aliases(&ret.program);
+    let arguments = arguments::collect(&ret.program, &aliases);
     let mut v = SiteVisitor {
         bindings: BTreeMap::new(),
         sites: Vec::new(),
@@ -95,6 +100,7 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
             names: std::collections::BTreeSet::new(),
         }],
         aliases: &aliases,
+        arguments: &arguments,
     };
     for stmt in &ret.program.body {
         v.visit_statement(stmt);
@@ -117,9 +123,14 @@ pub(crate) fn scan_module(slice: &str) -> Vec<RawSite> {
         };
         match w.field {
             Some(field) => site.fields.push((field, WamFieldWrite::Assigned, w.value)),
-            // A key the scan could not read still writes a field, so the site's list
-            // stops being the whole of what it writes.
-            None => site.partial = true,
+            // An opaque setter can overwrite any preceding value, even though
+            // the names already observed remain useful lower-bound evidence.
+            None => {
+                for (_, _, value) in &mut site.fields {
+                    *value = None;
+                }
+                site.partial = true;
+            }
         }
     }
     sites
@@ -160,6 +171,7 @@ struct SiteVisitor<'m> {
     /// Locals standing for a `o("Module")` require, so an enum member written through
     /// one resolves the same way a field type written through one does.
     aliases: &'m RequireAliases,
+    arguments: &'m BTreeMap<u32, arguments::Fields>,
 }
 
 /// One scope and the names it introduces.
@@ -287,18 +299,15 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
             let mut fields = Vec::new();
             let mut partial = false;
             let mut unread = None;
-            read_argument(arg, &mut fields, &mut partial, &mut unread, self.aliases);
+            read_argument(
+                arg,
+                &mut fields,
+                &mut partial,
+                &mut unread,
+                self.aliases,
+                None,
+            );
             let declared_in = binding_name(&base).and_then(|n| self.resolve(n));
-            for (field, _, value) in fields {
-                self.writes.push(RawWrite {
-                    binding: base.clone(),
-                    field: Some(field),
-                    value,
-                    start: call.span.start,
-                    scope: self.scope_chain(),
-                    declared_in,
-                });
-            }
             // One unnamed write stands for everything the argument writes and the scan
             // could not name, whether that is a spread, a computed key, or an object
             // assembled somewhere else entirely.
@@ -307,6 +316,19 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                     binding: base.clone(),
                     field: None,
                     value: None,
+                    start: call.span.start,
+                    scope: self.scope_chain(),
+                    declared_in,
+                });
+            }
+            // read_argument already accounts for unknown writes within this
+            // operand. Apply its remaining known values after invalidating earlier
+            // event values; later event writes still merge conservatively.
+            for (field, _, value) in fields {
+                self.writes.push(RawWrite {
+                    binding: base.clone(),
+                    field: Some(field),
+                    value,
                     start: call.span.start,
                     scope: self.scope_chain(),
                     declared_in,
@@ -330,6 +352,7 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                     &mut partial,
                     &mut unread_argument,
                     self.aliases,
+                    Some(self.arguments),
                 ),
             }
             self.sites.push(RawSite {
@@ -339,6 +362,7 @@ impl<'a> Visit<'a> for SiteVisitor<'_> {
                 partial,
                 unread_argument,
                 start: n.span.start,
+                end: n.span.end,
                 binding: self.bindings.get(&n.span.start).cloned(),
             });
         }
@@ -355,23 +379,43 @@ fn read_argument(
     partial: &mut bool,
     unread: &mut Option<&'static str>,
     aliases: &RequireAliases,
+    locals: Option<&BTreeMap<u32, arguments::Fields>>,
 ) {
+    if let Some(recovered) = locals.and_then(|values| values.get(&arg.span().start)) {
+        fields.extend(recovered.fields.iter().cloned());
+        *partial |= recovered.partial;
+        return;
+    }
     if let Some(obj) = as_object(arg) {
         for prop in &obj.properties {
             match prop {
                 ObjectPropertyKind::ObjectProperty(p) => {
                     match wa_oxc::property_key_name(&p.key) {
-                        Some(name) => fields.push((
-                            name.to_string(),
-                            WamFieldWrite::Constructor,
-                            literal_value(&p.value, aliases),
-                        )),
-                        // A computed key writes a field whose name is a runtime value.
-                        None => *partial = true,
+                        Some(name) => {
+                            let value = literal_value(&p.value, aliases);
+                            for (previous_name, _, previous_value) in fields.iter_mut() {
+                                if previous_name == name {
+                                    *previous_value = value.clone();
+                                }
+                            }
+                            fields.push((name.to_string(), WamFieldWrite::Constructor, value));
+                        }
+                        // An unknown key may overwrite any preceding property.
+                        None => {
+                            for (_, _, value) in fields.iter_mut() {
+                                *value = None;
+                            }
+                            *partial = true;
+                        }
                     }
                 }
-                // A spread merges keys from elsewhere.
-                ObjectPropertyKind::SpreadProperty(_) => *partial = true,
+                // Preserve order: later explicit properties re-establish values.
+                ObjectPropertyKind::SpreadProperty(_) => {
+                    for (_, _, value) in fields.iter_mut() {
+                        *value = None;
+                    }
+                    *partial = true;
+                }
             }
         }
         return;
@@ -381,10 +425,46 @@ fn read_argument(
     {
         for a in &call.arguments {
             match a.as_expression() {
-                Some(e) if as_object(e).is_some() => {
-                    read_argument(e, fields, partial, unread, aliases)
+                Some(e)
+                    if as_object(e).is_some()
+                        || locals.is_some_and(|values| values.contains_key(&e.span().start)) =>
+                {
+                    let mut operand = Vec::new();
+                    let mut operand_partial = false;
+                    read_argument(
+                        e,
+                        &mut operand,
+                        &mut operand_partial,
+                        unread,
+                        aliases,
+                        locals,
+                    );
+                    if operand_partial {
+                        // Unresolved keys can overwrite preceding operands. Values
+                        // within this operand already respect its property order.
+                        for (_, _, value) in fields.iter_mut() {
+                            *value = None;
+                        }
+                        *partial = true;
+                    }
+                    for (name, write, value) in operand {
+                        // Object.assign semantics: later operands overwrite earlier
+                        // ones. Keep occurrences for diagnostics, but agree on the
+                        // final constructor value before merging later event writes.
+                        for (previous_name, _, previous_value) in fields.iter_mut() {
+                            if previous_name == &name {
+                                *previous_value = value.clone();
+                            }
+                        }
+                        fields.push((name, write, value));
+                    }
                 }
-                _ => *partial = true,
+                _ => {
+                    for (_, _, value) in fields.iter_mut() {
+                        *value = None;
+                    }
+                    *partial = true;
+                }
             }
         }
         return;
