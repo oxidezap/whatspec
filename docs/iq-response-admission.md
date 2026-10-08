@@ -22,6 +22,7 @@ certified complete.
 | `response.parser_unemittable` | The generated initializer cannot represent the recovered payload. |
 | `guards.reference_unsupported` / `guards.reference_nonuniform` | A recovered request reference cannot use the supported uniform wire context. |
 | `guards.request_context_required` | Call `parse_response_with_request` with the actual request ID and target. |
+| `outcomes.error_contract_unsupported` | A direct error payload has an assertion outside the bounded tag/code/text decoder; no generic fallback may erase that guard. |
 | `outcomes.unemittable` | A variant parser cannot be emitted, or an earlier variant can shadow a later one under the emitter's known predicates. The message names variant indexes and tags. |
 
 An explicit, admitted empty outcome still produces a successful empty outcome
@@ -69,6 +70,15 @@ cannot supply that context and now returns `guards.request_context_required`
 for correlated operations. It must not fabricate context from the response.
 Unsupported reference paths fail admission explicitly. No transport, event or
 consumer API is added, and no IR/schema changes are needed.
+
+Integration review added three generator regressions, all failing at
+`09adb8b7809b85dba8fdde4d3ebd7a3a4d0aed1b` and passing after correction:
+collective error-range coverage uses guard implication rather than assertion
+vector order; extra unmodeled direct-error assertions reject specialization
+with a diagnostic; and disjoint root tags participate in both admission and
+runtime selection. A stricter earlier child guard is a negative control for
+coverage. These constructed IR cases check generator invariants; they do not
+claim new server behavior. The real pilot execution tests remain unchanged.
 
 ## Verified pilots
 
@@ -158,15 +168,15 @@ context API failure. The adapter does not qualify a binary codec or a downstream
 client; independent conformance remains separately owned.
 
 Two debug generations of all 142 IQ operations produced identical 2,061,750-byte
-outputs, SHA-256 `006b5a5e392892b4cb89f98274bf3eed171d66179f752c83bb491ee387de3d71`,
-in 3.03 and 3.00 seconds, with 39 explicitly rejected parsers. The original base
+outputs, SHA-256 `214c9d9fede66c9ff6cf4194e75a506b8fd780b9c56675f0232f864626d6ecbd`,
+in 4.43 and 3.92 seconds, with 39 explicitly rejected parsers. The original base
 produced 1,523,859 bytes in 2.84 and 2.98 seconds. The increase includes recovered
 outcome types and context-taking parsers; it is not an optimization claim.
 The Rust reference catalog remains ignored by git. Maintenance requires review
 of the admitted/rejected operation set and the bounded helper against source
 changes; neither a rejection count nor reduced output size is a quality target.
 
-Reproduce with `cargo test --locked -p wa-codegen`, including 178 unit tests and
+Reproduce with `cargo test --locked -p wa-codegen`, including 181 unit tests and
 the compiled runtime integration test; `cargo clippy --locked -p wa-codegen
 --all-targets -- -D warnings`; schema validation; and full bundle regeneration
 with `whatspec update --check`. No generated IR or baseline changes are included.
