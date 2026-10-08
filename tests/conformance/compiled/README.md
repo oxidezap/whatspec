@@ -340,3 +340,20 @@ creating an output directory. All 66 preserved source fixtures still parse and
 select their original named module; the five Python integrity tests, nine
 wa-transform tests and targeted all-target Clippy pass. These checks do not claim
 a new full bundle-store recapture after executor restart.
+
+## Complete provenance bindings
+
+The offline test now pins the complete bytes of all five provenance records:
+two baseline captures, two compiled-source captures and selected-input origins.
+This covers set hashes, bundle counts/bytes, every bundle hash and span, and the
+selected inputs' commit/path/full source artifact hash. Metadata was checked
+against historical committed locks and IQ artifacts before pinning; no complete
+bundle recapture is claimed in this follow-up. Pins are reviewed anchors and are
+not automatically regenerated from fixtures. They detect accidental drift, not
+malicious coordinated changes to both evidence and tests.
+
+Twenty-six metadata mutations reproduce the gap: each passes the former test
+and fails the pinned test, covering both snapshots and all record groups.
+Unmodified evidence passes all six composition fixture tests. Updating a capture
+now requires reviewing its complete provenance binding and deliberately updating
+the corresponding pin, in addition to source/selected-input integrity checks.
