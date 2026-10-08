@@ -1,6 +1,7 @@
+//! Bounded input-variable triage, not response-selection or complete MEX coverage.
 //! Presence is a serialization property, separate from inferred type/nullability.
 use std::{collections::BTreeMap, path::Path};
-use wa_ir::{TypeNode, VariablePresence, VariablePresenceNode};
+use wa_ir::{MexOperationKind, TypeNode, VariablePresence, VariablePresenceNode};
 
 fn source(version: &str, module: &str) -> String {
     std::fs::read_to_string(
@@ -27,7 +28,12 @@ fn reviewed_catalog(ir: &wa_ir::MexIr) {
         ir.operations.keys().map(String::as_str).collect::<Vec<_>>(),
         ["FetchNewsletter"]
     );
-    reviewed_presence(&ir.operations["FetchNewsletter"]);
+    let op = &ir.operations["FetchNewsletter"];
+    // Reviewed from the preserved Relay params literal, not generated output.
+    assert_eq!(op.original_name, "WAWebMexFetchNewsletterJobQuery");
+    assert_eq!(op.operation_kind, MexOperationKind::Query);
+    assert_eq!(op.doc_id, "27456920720571478");
+    reviewed_presence(op);
 }
 
 fn reviewed_presence(op: &wa_ir::MexOperation) {
@@ -289,5 +295,27 @@ fn presence_oracle_rejects_children_and_items_on_scalar_leaves() {
                 "accepted presence structure {path}, items={items}"
             );
         }
+    }
+}
+
+#[test]
+fn source_catalog_rejects_changed_operation_identity() {
+    let source = source(
+        "2.3000.1047483476",
+        "WAWebMexFetchNewsletterJobQuery.graphql",
+    ) + &source("2.3000.1047483476", "WAWebMexFetchNewsletterJob");
+    let original = wa_mex::extract_mex(&source, "fixture");
+    for field in ["name", "kind", "doc_id"] {
+        let mut ir = original.clone();
+        let op = ir.operations.get_mut("FetchNewsletter").unwrap();
+        match field {
+            "name" => op.original_name = "Unreviewed".into(),
+            "kind" => op.operation_kind = MexOperationKind::Mutation,
+            _ => op.doc_id = "0".into(),
+        }
+        assert!(
+            std::panic::catch_unwind(|| reviewed_catalog(&ir)).is_err(),
+            "accepted changed operation {field}"
+        );
     }
 }

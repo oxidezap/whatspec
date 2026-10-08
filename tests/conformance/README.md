@@ -1,8 +1,8 @@
 # Independent conformance baseline
 
 This baseline checks extraction against reviewed Web source for SetSubject,
-AcceptGroupAdd and FetchNewsletter. It adds no consumer dependency or runtime
-API. It does not qualify the reference Rust emitter or the server protocol.
+AcceptGroupAdd, plus bounded FetchNewsletter input-variable triage. It adds no
+consumer dependency or runtime API. It does not qualify the reference Rust emitter or the server protocol.
 
 The IQ test extracts the captured modules afresh and compares the resulting
 contract with hand-reviewed expectations. It also checks the committed IQ IR.
@@ -64,6 +64,14 @@ not prove that a generated Rust parser enforces these constraints. Full
 qualification remains pending integration with the other workstreams.
 
 ## MEX triage
+
+Scope: operation identity and input-variable presence, null handling and inferred
+type. The Relay name, query kind and persisted ID bind the reviewed caller to
+this exact operation. Response-selection extraction, MEX response structs and
+complete MEX generation are not qualified by this baseline. A mutation confined
+to `op.response` is therefore outside this oracle's promised coverage; reviewing
+that complete tree would be a separate response-conformance expansion. No
+production response-extraction defect was reproduced in this workstream.
 
 The complete captured FetchNewsletter job and GraphQL module are identical in
 both snapshots. `fetch_full_image` and coerced flags are always present;
