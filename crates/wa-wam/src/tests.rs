@@ -732,3 +732,300 @@ __d("WAWebWamGlobals",["WAWebWamCodegenUtils"],(function(t,n,r,o,a,i,l){
         Some(&2)
     );
 }
+
+const LOCAL_ARGUMENT_CATALOG: &str = r#"__d("WAWebMessageSendWamEvent",["WAWebWamCodegenUtils"],function(t,n,r,o,a,i,l){var e=o("WAWebWamCodegenUtils");l.MessageSendWamEvent=e.defineEvents({MessageSend:[5,{retryCount:[1,e.TYPES.INTEGER],deviceCount:[2,e.TYPES.INTEGER]},[1,1,1]]},{MessageSend:[]});});"#;
+
+#[test]
+fn object_argument_refactor_keeps_constructor_fields() {
+    // WAWebStatusSubtitle.react: inline fields moved into a function-local object.
+    let inline = r#"function send() { new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent({retryCount: 3}); }"#;
+    let local = r#"function send(flag) { var fields = {retryCount: 3}; if (flag) { new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent(fields); return; } later(function(){new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent(babelHelpers.extends({},fields,{deviceCount: 1}));}); }"#;
+    let wrap = |body: &str| {
+        format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{{body}}});"
+        )
+    };
+    let (before, _) = run_full(&wrap(inline));
+    let (after, diag) = run_full(&wrap(local));
+    let before = before
+        .events
+        .iter()
+        .find(|e| e.name == "MessageSend")
+        .unwrap();
+    let after = after
+        .events
+        .iter()
+        .find(|e| e.name == "MessageSend")
+        .unwrap();
+    assert!(
+        after
+            .call_sites
+            .iter()
+            .any(|site| !site.partial && site.fields == before.call_sites[0].fields)
+    );
+    assert!(
+        !diag
+            .drops_by_reason
+            .contains_key("unreadConstructionArgument.identifier")
+    );
+    // The closure's timing and inherited fields are intentionally not inferred.
+    assert!(after.call_sites.iter().any(|site| site.partial));
+}
+
+#[test]
+fn mutable_escaped_shadowed_and_conditionally_initialized_arguments_stay_partial() {
+    for body in [
+        "function send(){var fields={retryCount:3}; fields.retryCount=4; emit(); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
+        "function send(){var fields={retryCount:3}; mutate(fields); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
+        "function send(){var fields={retryCount:3}; var alias=fields; alias.retryCount=4; new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
+        "function send(flag){if(flag){var fields={retryCount:3};} new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
+        "function send(){new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields); var fields={retryCount:3};}",
+        "function send(){var fields={retryCount:3}; function inner(){new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields); var fields;} inner();}",
+        "function send(){var fields={retryCount:3}; fields={deviceCount:1}; new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
+        "function send(){var fields={retryCount:3}; function inner(){new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);} inner();}",
+        "function send(){var fields={retryCount:3}; (eval)('fields={}'); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
+        "function send(){var fields={retryCount:3}; eval('fields={}'); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(fields);}",
+    ] {
+        let (ir, _) = run_full(&format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{{body}}});"
+        ));
+        let ev = ir.events.iter().find(|e| e.name == "MessageSend").unwrap();
+        assert_eq!(ev.call_sites.len(), 1, "{body}");
+        assert!(ev.call_sites[0].partial, "{body}");
+        assert!(ev.call_sites[0].fields.is_empty(), "{body}");
+    }
+}
+
+#[test]
+fn pinned_status_subtitle_refactor_preserves_attribution_fields() {
+    let (old, _) = run_full(include_str!("../tests/fixtures/status-subtitle-old.js"));
+    let (new, _) = run_full(include_str!("../tests/fixtures/status-subtitle-new.js"));
+    let event = |ir: &WamIr| {
+        ir.events
+            .iter()
+            .find(|e| e.name == "StatusViewerAction")
+            .unwrap()
+            .clone()
+    };
+    let old = event(&old);
+    let new = event(&new);
+    let fields = |site: &wa_ir::WamCallSite| {
+        site.fields
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let expected = std::collections::BTreeSet::from([
+        "attributionType".to_string(),
+        "statusCategory".to_string(),
+        "viewerActionType".to_string(),
+    ]);
+    assert!(
+        old.call_sites
+            .iter()
+            .any(|s| !s.partial && fields(s) == expected)
+    );
+    assert!(
+        new.call_sites
+            .iter()
+            .any(|s| !s.partial && fields(s) == expected)
+    );
+    assert!(new.call_sites.iter().any(|s| s.partial));
+}
+
+#[test]
+fn approved_locals_are_recovered_inside_fresh_target_merges() {
+    let source = format!(
+        r#"{LOCAL_ARGUMENT_CATALOG}__d("Reporter",["WAWebMessageSendWamEvent"],function(){{
+        function send(){{var fields={{retryCount:3}};
+            new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent(babelHelpers.extends({{}},fields,{{deviceCount:1}}));
+        }}
+    }});"#
+    );
+    let (ir, _) = run_full(&source);
+    let site = &ir
+        .events
+        .iter()
+        .find(|e| e.name == "MessageSend")
+        .unwrap()
+        .call_sites[0];
+    assert!(!site.partial);
+    assert_eq!(
+        site.fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>(),
+        ["deviceCount", "retryCount"]
+    );
+}
+
+#[test]
+fn mutated_merge_targets_and_escaped_sources_stay_partial() {
+    for body in [
+        "var fields={retryCount:3}; new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(babelHelpers.extends(fields,{deviceCount:1}));",
+        "var fields={retryCount:3}; escape(fields); new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(babelHelpers.extends({},fields));",
+        "var fields={retryCount:3}; function inner(){new(o('WAWebMessageSendWamEvent')).MessageSendWamEvent(babelHelpers.extends({},fields));} inner();",
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{{body}}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert!(site.partial, "{body}");
+        assert!(
+            !site.fields.iter().any(|f| f.name == "retryCount"),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn approved_merge_fields_survive_an_unread_operand_without_claiming_completeness() {
+    let source = format!(
+        r#"{LOCAL_ARGUMENT_CATALOG}__d("Reporter",["WAWebMessageSendWamEvent"],function(){{
+        function send(){{var fields={{retryCount:3}};
+            new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent(babelHelpers.extends({{}},fields,unknown()));
+        }}
+    }});"#
+    );
+    let (ir, _) = run_full(&source);
+    let site = &ir
+        .events
+        .iter()
+        .find(|e| e.name == "MessageSend")
+        .unwrap()
+        .call_sites[0];
+    assert!(site.partial);
+    assert_eq!(site.fields.len(), 1);
+    assert_eq!(site.fields[0].name, "retryCount");
+}
+
+#[test]
+fn unknown_field_gaps_have_one_location_per_counted_write() {
+    let source = format!(
+        r#"{LOCAL_ARGUMENT_CATALOG}__d("Reporter",["WAWebMessageSendWamEvent"],function(){{
+        new(o("WAWebMessageSendWamEvent")).MessageSendWamEvent({{notInCatalog:1,alsoUnknown:2}});
+    }});"#
+    );
+    let defs = wa_transform::extract_module_definitions(&source);
+    let (_, diag, gaps) = extract_wam_with_gap_sites(&source, &defs, "test");
+    let reason = "written key naming no field of the event";
+    assert_eq!(diag.drops_by_reason[reason], 2);
+    assert_eq!(gaps.iter().filter(|g| g.reason == reason).count(), 2);
+    assert_eq!(
+        gaps.iter()
+            .filter_map(|g| g.field.as_deref())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["notInCatalog", "alsoUnknown"])
+    );
+}
+
+#[test]
+fn constructor_merges_follow_operand_order_without_overstating_unknown_overrides() {
+    for (operands, expected, partial) in [
+        ("{},fields,{retryCount:4}", Some(4), false),
+        ("{},{retryCount:4},fields", Some(3), false),
+        ("{},fields,unknown(),{retryCount:4}", Some(4), true),
+        ("{},fields,unknown()", None, true),
+        ("{},fields,{...unknown()}", None, true),
+        ("{},fields,{[unknown()]:4}", None, true),
+        ("{},fields,{...unknown()},{retryCount:4}", Some(4), true),
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={{retryCount:3}};new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent(babelHelpers.extends({operands}));}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert_eq!(site.partial, partial, "{operands}");
+        assert_eq!(
+            site.fields[0].value,
+            expected.map(|value| WamCallSiteValue::Int { value }),
+            "{operands}"
+        );
+    }
+}
+
+#[test]
+fn object_properties_preserve_only_values_after_the_last_unknown_write() {
+    for (object, expected) in [
+        ("{retryCount:3,...runtimeFields}", None),
+        ("{...runtimeFields,retryCount:4}", Some(4)),
+        ("{retryCount:3,[runtimeKey]:7}", None),
+        ("{[runtimeKey]:7,retryCount:4}", Some(4)),
+        ("{retryCount:3,...runtimeFields,retryCount:4}", Some(4)),
+    ] {
+        for argument in [
+            "fields".to_string(),
+            object.to_string(),
+            "babelHelpers.extends({},fields)".to_string(),
+            format!("babelHelpers.extends({{}},{object})"),
+        ] {
+            let source = format!(
+                "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={object};new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent({argument});}}}});"
+            );
+            let (ir, _) = run_full(&source);
+            let site = &ir
+                .events
+                .iter()
+                .find(|e| e.name == "MessageSend")
+                .unwrap()
+                .call_sites[0];
+            assert!(site.partial, "{object} / {argument}");
+            assert_eq!(
+                site.fields[0].value,
+                expected.map(|value| WamCallSiteValue::Int { value }),
+                "{object} / {argument}"
+            );
+        }
+    }
+}
+
+#[test]
+fn opaque_post_constructor_writes_invalidate_preceding_constants() {
+    for write in [
+        "e.set(runtimeFields)",
+        "e.set({[runtimeKey]:7})",
+        "e.set({...runtimeFields,deviceCount:4})",
+    ] {
+        let source = format!(
+            "{LOCAL_ARGUMENT_CATALOG}__d(\"Reporter\",[\"WAWebMessageSendWamEvent\"],function(){{function send(){{var fields={{retryCount:3}};var e=new(o(\"WAWebMessageSendWamEvent\")).MessageSendWamEvent(fields);{write};}}}});"
+        );
+        let (ir, _) = run_full(&source);
+        let site = &ir
+            .events
+            .iter()
+            .find(|e| e.name == "MessageSend")
+            .unwrap()
+            .call_sites[0];
+        assert!(site.partial, "{write}");
+        assert_eq!(
+            site.fields
+                .iter()
+                .find(|f| f.name == "retryCount")
+                .unwrap()
+                .value,
+            None,
+            "{write}"
+        );
+        if write.contains("deviceCount") {
+            assert_eq!(
+                site.fields
+                    .iter()
+                    .find(|f| f.name == "deviceCount")
+                    .unwrap()
+                    .value,
+                Some(WamCallSiteValue::Int { value: 4 })
+            );
+        }
+    }
+}

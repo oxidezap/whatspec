@@ -1,0 +1,153 @@
+# Snapshot quality review
+
+The existing text `whatspec diff OLD NEW` is a count and name summary. Use
+`whatspec diff OLD NEW --json` for contract deltas across every manifest domain.
+The report checks domain hashes, document versions, and lock self-consistency.
+It also loads every declared schema and reports schema-only changes with
+`artifactKind: schema`, separate content hashes, and JSON Pointers. Schema hashes
+are computed from the snapshot files; the manifest currently does not pin them.
+It fails on missing declared artifacts. Schema validation preflights every
+schema-valued location and referenced target against an in-memory registry,
+including unused definitions and absent optional properties. Local pointers,
+anchors and embedded resource IDs follow the declared draft; data in annotations
+is not treated as a schema unless referenced. References needing an external
+resource fail without network access. Unknown explicit drafts fail rather than
+being silently interpreted as 2020-12.
+
+Run schema validation separately, because
+matching a manifest hash does not establish schema conformance.
+
+```sh
+python3 scripts/validate-schemas.py generated
+python3 scripts/lint-ir.py generated
+python3 -m unittest discover -s scripts/tests -v
+cargo run --release -p whatspec -- diff old-generated generated --json > contracts.json
+```
+
+The JSON report has its own `reportVersion: 2`. Version 2 separates declared
+locks from verified input provenance. Historical manifests do not bind their
+artifacts to a bundle-set hash: matching `waVersion`, valid artifact hashes, and
+a self-consistent lock cannot prove which bundle set produced the artifacts.
+Accordingly `inputBinding.status` is `unverified` and `sameInputs` is `null`, even
+when the two declared locks match. `declaredInputs` and `sameDeclaredInputs`
+report those lock declarations explicitly; delta IDs bind `oldDeclaredSetHash`
+and `newDeclaredSetHash` without presenting them as verified build inputs.
+
+Historical snapshots remain comparable without fabricated bindings. No manifest
+field is backfilled, and no IR or generator schema changes. A future verified
+binding needs a coordinated producer/manifest contract. Version-1 review ledgers
+are rejected; regenerate IDs and use `reportVersion: 2` when migrating.
+
+This changes only the optional report contract,
+not IR `schemaVersion`. No runtime consumer policy changes. In
+particular, strict maintenance checks do not require clients to reject unknown
+extensions in received traffic.
+
+Each delta includes before/after values, document SHA-256, JSON Pointers, declared bundle
+set hashes, and a stable ID bound to those values. Enums use `(module, name)`.
+MEX and app-state use the document's map keys. Other recognized top-level
+collections use explicit keys listed in `contract_diff.rs`. Duplicate keys stay
+in an ordered group with original indices; they are never silently deduplicated.
+Nested arrays retain order and multiplicity, including response alternatives.
+Their full before/after arrays are emitted rather than inventing field identities.
+An unkeyed collection can therefore produce a larger delta on reordering.
+Protobuf changes are opaque artifact hash deltas, not parsed field diffs.
+
+No shape-based rename detection occurs. An export or module name change remains
+an addition and removal unless a reviewer establishes the relationship. The tool
+does not turn a renamed export into a guaranteed operation identity or promise
+API compatibility. Schema version differences are explicit report metadata.
+
+## Recovering source evidence
+
+Restore each snapshot from its own `bundles.lock.json`, using the corresponding
+`bundle-store` asset. The restore command checks bundle hashes, sizes, set hash,
+and multiplicity. Archive digests and bundle set hashes are different values.
+
+```sh
+whatspec restore --from-lock generated/bundles.lock.json --out bundles
+whatspec source-index generated/bundles.lock.json bundles WAWebSetPrivacyJob > sources.json
+```
+
+`source-index` independently checks the exact bundle multiset. It parses modules
+with a checked AST entry point and emits a separate optional sidecar containing
+bundle SHA-256, module and factory hashes, dependency names, and byte offsets.
+It never evaluates JavaScript. Source names may be selected after the two paths;
+omit them to index all recovered modules. `selection.mode` records `all` or
+`selected`; the latter also records every requested name, including missing ones.
+An absent name outside that selection is not evidence of source absence. Offsets are UTF-8 bytes with an
+exclusive end, so invalid UTF-8 is rejected rather than decoded lossily.
+Every recovered occurrence remains visible, including conflicting definitions.
+The index is deterministic and contains no workspace-specific file paths.
+
+The checked index also visits nested static `__d` definitions; the extraction
+fast path alone would skip them. The sidecar requires every locked bundle to
+parse without recovery and states
+`coverage: parsed-static-definitions`. A missing exact name proves only that no
+matching static definition was recovered from these fully parsed inputs. It does
+not prove feature removal, dynamic-module absence, or a rename. A module hint in
+a contract report is also only a starting point. Follow dependencies and mixins before attributing a field's semantics.
+For a field-level review, cite both its IR pointer and the relevant module span.
+This keeps recoverable provenance outside every repeated field of the IR.
+
+`whatspec quality-gaps LOCK BUNDLE_DIR` emits counted WAM gap locations with
+module-relative constructor byte spans, constructor/module hashes, optional
+unknown-field names, and matching
+bundle locations. It checks the same complete bundle set and parse coverage.
+Two reasons may point at one construction; repeated copies of a module follow
+the extractor's existing deduplication. Counted diagnostics use the same outer
+module selection as normal extraction, avoiding overlapping scans of nested
+definitions. The provenance index still retains nested definitions. Counters without construction locations (such as unreadable global channel
+lists) are explicitly separated in `unlocatedDropsByReason`; an empty site list
+is not a claim of full source attribution. The optional sidecar does not enlarge the
+IR or change the existing `WamDiagnostics` API. Compare reports from the same
+extractor revision for upstream changes, and from two revisions on one locked
+set for extraction changes. Neither module names nor minified offsets establish
+identity between different snapshots.
+
+## Classifying a change
+
+Every delta starts as `indeterminate`. A smaller count, a different source hash,
+or an unchanged generator version string is insufficient to classify it.
+
+- `upstream-change` needs a source change that explains the contract delta, such
+  as the old and new persisted operation ID literals.
+- `extraction-improvement` needs evidence that the source supports the newly
+  recovered constraint. A source refactor can make the same extractor recover
+  more information. This is different from proving an extractor code fix.
+- `extraction-loss` needs a source constraint that survives but is missing or
+  distorted in the new IR. Reproduce it with the pinned inputs before fixing it.
+- `indeterminate` records unresolved causes, absent modules without complete
+  coverage, and aggregate diagnostic changes without per-site attribution.
+
+Store reviewed assessments in a small JSON file:
+
+```json
+{
+  "reportVersion": 2,
+  "reviews": [{
+    "id": "exact ID from contracts.json",
+    "classification": "upstream-change",
+    "basis": "Describe the source observation and its limits.",
+    "references": ["sources.json#/modules/ExactModule/0"]
+  }]
+}
+```
+
+Apply it with `whatspec diff OLD NEW --json --evidence reviews.json`. Stale IDs,
+duplicate IDs, unknown classes, and empty evidence fail. Any edit to a referenced
+artifact invalidates its reviews, even if that edit is in another operation. This
+conservative rule costs a review refresh after regeneration. These are explicitly
+reviewed assessments, not machine-verified proofs: the CLI does not fetch or
+interpret reference strings. Code review must validate their contents. Classify
+mixed changes as indeterminate or explain each component in the basis.
+
+For extraction fixes, regenerate before and after with the same verified bundle
+set. For upstream updates, keep generator code fixed across both input sets, then
+inspect changed source paths. Preserve unresolved gaps and exact lint baselines
+until the review explains them. Do not normalize a loss into a lower limit.
+
+The tools add no dependencies, committed full source index, or per-field IR
+metadata. Reports are generated on demand. Full ordered arrays can be sizeable;
+keep only focused evidence and assessments in version control. See the dated
+investigation for measured cost and remaining baseline blockers.

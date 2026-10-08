@@ -89,6 +89,9 @@ jobs:
           pip install --quiet jsonschema
           python scripts/validate-schemas.py generated
 
+      - name: Test snapshot validation and reviewed baselines
+        run: python3 -m unittest discover -s scripts/tests -v
+
       # The schemas check SHAPE; this checks that the document is usable. A
       # consumer generating code from the IR — in any language — has to trust
       # that an enum names its values, a byte pin matches its length, a union
