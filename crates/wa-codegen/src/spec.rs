@@ -182,8 +182,8 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
 /// but emits a diagnostic error instead of silently dropping outcomes.
 /// A value a response variant pins before it will accept a node.
 ///
-/// Two kinds, because an outcome root has two things to pin: an ATTRIBUTE by name, and the
-/// node's own text CONTENT, which `literalContent` writes and which has no name at all.
+/// Root tag, named attribute and text content pins are shared between admission
+/// and emitted selectors. `literalContent` has no attribute name.
 /// Modelling the set as `(name, value)` pairs kept the first and dropped the second, so a
 /// content-discriminated arm emitted no selector and took every response whose required fields
 /// happened to parse — whichever content value made the source parser select a later one.
@@ -191,6 +191,7 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
 enum Pin<'a> {
     Attr(&'a str, &'a str),
     Content(&'a str),
+    Tag(&'a str),
 }
 
 /// The pins a response variant asserts — the set that has to pick this variant alone before a
@@ -205,6 +206,7 @@ fn variant_pins(v: &ResponseVariant) -> Vec<Pin<'_>> {
             },
             // `name` is unused for a content pin; the value is the whole of it.
             AssertionKind::Content => a.value.as_deref().map(Pin::Content),
+            AssertionKind::Tag => a.name.as_deref().map(Pin::Tag),
             _ => None,
         })
         .collect()
@@ -215,6 +217,7 @@ fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
     let mut conditions: Vec<String> = variant_pins(v)
         .into_iter()
         .map(|pin| match pin {
+            Pin::Tag(tag) => format!("{node}.tag == {}", rust_lit(tag)),
             Pin::Attr(name, value) => format!(
                 "{node}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
                 rust_lit(name),
@@ -239,15 +242,6 @@ fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
                 )
             })
     }));
-    conditions.extend(v.assertions.iter().filter_map(|a| {
-        if a.kind == AssertionKind::Tag {
-            a.name
-                .as_ref()
-                .map(|name| format!("{node}.tag == {}", rust_lit(name)))
-        } else {
-            None
-        }
-    }));
     if let Some(error) = error_selection(v, node) {
         conditions.push(error);
     }
@@ -269,7 +263,37 @@ fn pins_can_coincide(mine: &[Pin<'_>], other: &[Pin<'_>]) -> bool {
             // A node has ONE text content, so two variants pinning it to different values are
             // as exclusive as two disagreeing on an attribute.
             (Pin::Content(value), Pin::Content(o_value)) => value != o_value,
+            (Pin::Tag(value), Pin::Tag(o_value)) => value != o_value,
             _ => false,
+        })
+    })
+}
+
+/// Every modeled earlier guard must follow from a later guard. Assertion order,
+/// duplicates and metadata unused by that guard do not affect implication.
+fn assertions_implied_by(earlier: &ResponseVariant, later: &ResponseVariant) -> bool {
+    earlier.assertions.iter().all(|a| {
+        later.assertions.iter().any(|b| {
+            if a.kind != b.kind {
+                return false;
+            }
+            match a.kind {
+                AssertionKind::Tag | AssertionKind::Child => a.name.is_some() && a.name == b.name,
+                AssertionKind::Attr => {
+                    a.name.is_some()
+                        && a.name == b.name
+                        && (a.value.is_none() || a.value == b.value)
+                }
+                AssertionKind::Content => a.value.is_some() && a.value == b.value,
+                AssertionKind::Reference => {
+                    a.name.is_some()
+                        && a.name == b.name
+                        && a.reference_path.is_some()
+                        && a.reference_path == b.reference_path
+                }
+                // The direct outcome selector does not model this guard.
+                AssertionKind::FromServer => false,
+            }
         })
     })
 }
@@ -305,7 +329,7 @@ fn error_arms_cover(earlier: &[wa_ir::ErrorArm], later: &[wa_ir::ErrorArm]) -> b
 
 /// The direct, bounded code/text error union observed in the pilots. Unknown
 /// payload structures use the ordinary admission path, never this specialization.
-fn direct_error_payload(v: &ResponseVariant) -> Option<&wa_ir::ParsedField> {
+fn direct_error_payload_shape(v: &ResponseVariant) -> Option<&wa_ir::ParsedField> {
     use wa_ir::ParsedFieldType;
     if v.error_arms.is_empty() || v.error_envelope.is_some() || v.fields.len() != 2 {
         return None;
@@ -379,6 +403,31 @@ fn direct_error_payload(v: &ResponseVariant) -> Option<&wa_ir::ParsedField> {
                         c.method == "attrString" && c.source_path.is_none() && c.children.is_none()
                     })
                 }))
+        }) {
+            return None;
+        }
+    }
+    Some(payload)
+}
+
+/// Admit the existing bounded shape only when every additional assertion is
+/// enforced by its tag/code/text decoder. Other shapes keep ordinary admission.
+fn direct_error_payload(v: &ResponseVariant) -> Option<&wa_ir::ParsedField> {
+    let payload = direct_error_payload_shape(v)?;
+    for (variant, arm) in payload.union_variants.as_ref()?.iter().zip(&v.error_arms) {
+        // This specialization reads only the error tag and required code/text
+        // attributes. Any other assertion needs a different supported parser;
+        // never silently lose it by selecting the arm from ErrorArm alone.
+        if variant.assertions.iter().any(|a| match a.kind {
+            AssertionKind::Tag => a.name.as_deref() != Some("error"),
+            AssertionKind::Attr => match a.name.as_deref() {
+                Some("code") => a.value.as_ref().is_some_and(|value| {
+                    arm.code.is_none() || value.parse::<i64>().ok() != arm.code
+                }),
+                Some("text") => a.value.is_some() && a.value != arm.text,
+                _ => true,
+            },
+            _ => true,
         }) {
             return None;
         }
@@ -584,6 +633,13 @@ fn emit_outcome_types(
         names.push((vname.clone(), format!("{spec_base}{vname}")));
     }
     for (index, (variant, (_, name))) in op.response.variants.iter().zip(&names).enumerate() {
+        if direct_error_payload_shape(variant).is_some() && direct_error_payload(variant).is_none()
+        {
+            return Err(format!(
+                "outcomes.error_contract_unsupported: response.variants[{index}] {} has an unmodeled direct error payload or guard",
+                variant.tag
+            ));
+        }
         if variant.fields.iter().any(|field| {
             field.field_type == wa_ir::ParsedFieldType::Union
                 && crate::union::classify_union(field).is_none()
@@ -648,7 +704,7 @@ fn emit_outcome_types(
     }
 
     // Several preceding error outcomes can collectively cover a later one even
-    // when no single outcome does. Only combine roots with the same assertions.
+    // when no single outcome does. A later response must imply the earlier guards.
     for j in 1..op.response.variants.len() {
         let later = &op.response.variants[j];
         if error_selection(later, "response").is_none() {
@@ -659,7 +715,7 @@ fn emit_outcome_types(
             .enumerate()
             .filter(|(i, earlier)| {
                 req[*i].is_subset(&req[j])
-                    && earlier.assertions == later.assertions
+                    && assertions_implied_by(earlier, later)
                     && error_selection(earlier, "response").is_some()
             })
             .flat_map(|(_, earlier)| earlier.error_arms.iter().cloned())
@@ -2498,6 +2554,187 @@ mod tests {
             !code.contains("pub enum MakeGetThingRequestResponse"),
             "ambiguous union must not generate an enum: {code}"
         );
+    }
+
+    fn bounded_error_variant(lo: i64, hi: i64) -> ResponseVariant {
+        let ir: wa_ir::IqIr =
+            serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
+        let op = ir
+            .stanzas
+            .iter()
+            .find(|o| o.module_name == "WASmaxOutGroupsSetSubjectRequest")
+            .unwrap();
+        let mut v = op.response.variants[1].clone();
+        v.tag = format!("Error{lo}To{hi}");
+        v.assertions.retain(|a| a.kind != AssertionKind::Reference);
+        let arm = v.error_arms.last().unwrap().clone();
+        let mut exact_arm = v.error_arms[0].clone();
+        exact_arm.code = Some(lo);
+        v.error_arms = vec![
+            exact_arm,
+            wa_ir::ErrorArm {
+                code_min: Some(lo),
+                code_max: Some(hi),
+                ..arm
+            },
+        ];
+        let payload = v
+            .fields
+            .iter_mut()
+            .find(|f| f.field_type == wa_ir::ParsedFieldType::Union)
+            .unwrap();
+        let mut variant = payload
+            .union_variants
+            .as_ref()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        let code = variant
+            .fields
+            .iter_mut()
+            .find(|f| f.name == "code")
+            .unwrap();
+        code.int_min = Some(lo);
+        code.int_max = Some(hi);
+        let mut exact = payload.union_variants.as_ref().unwrap()[0].clone();
+        exact
+            .fields
+            .iter_mut()
+            .find(|f| f.name == "code")
+            .unwrap()
+            .literal_value = Some(lo.to_string());
+        exact
+            .assertions
+            .iter_mut()
+            .find(|a| a.name.as_deref() == Some("code"))
+            .unwrap()
+            .value = Some(lo.to_string());
+        payload.union_variants = Some(vec![exact, variant]);
+        v
+    }
+
+    #[test]
+    fn collective_error_coverage_ignores_assertion_order_and_extra_later_guards() {
+        for extra_later_guard in [false, true] {
+            let a = bounded_error_variant(400, 449);
+            let mut b = bounded_error_variant(450, 499);
+            let mut later = bounded_error_variant(400, 499);
+            b.assertions.reverse();
+            if extra_later_guard {
+                later.assertions.push(wa_ir::ResponseAssertion {
+                    kind: AssertionKind::Child,
+                    name: Some("detail".into()),
+                    value: None,
+                    reference_path: None,
+                });
+            }
+            let mut op = stanza("CollectiveErrors", None);
+            op.response.variants = vec![a, b, later];
+            let mut emitted = Vec::new();
+            let error = emit_outcome_types(
+                &op,
+                "Collective",
+                "CollectiveResponse",
+                "test",
+                &mut emitted,
+            )
+            .unwrap_err();
+            assert!(error.contains("preceding error outcomes cover"), "{error}");
+            assert!(emitted.is_empty());
+            // An earlier extra guard is not implied by the later response. Its
+            // interval must not count toward collective coverage.
+            op.response.variants[0]
+                .assertions
+                .push(wa_ir::ResponseAssertion {
+                    kind: AssertionKind::Child,
+                    name: Some("only-first".into()),
+                    value: None,
+                    reference_path: None,
+                });
+            assert!(
+                emit_outcome_types(
+                    &op,
+                    "Collective",
+                    "CollectiveResponse",
+                    "test",
+                    &mut emitted
+                )
+                .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn direct_error_extra_guards_are_rejected_not_omitted() {
+        for assertion in [
+            wa_ir::ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("scope".into()),
+                value: Some("group".into()),
+                reference_path: None,
+            },
+            wa_ir::ResponseAssertion {
+                kind: AssertionKind::Child,
+                name: Some("proof".into()),
+                value: None,
+                reference_path: None,
+            },
+            wa_ir::ResponseAssertion {
+                kind: AssertionKind::Tag,
+                name: Some("different".into()),
+                value: None,
+                reference_path: None,
+            },
+            wa_ir::ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("code".into()),
+                value: Some("401".into()),
+                reference_path: None,
+            },
+        ] {
+            let mut v = bounded_error_variant(400, 499);
+            assert!(direct_error_payload(&v).is_some());
+            let payload = v
+                .fields
+                .iter_mut()
+                .find(|f| f.field_type == wa_ir::ParsedFieldType::Union)
+                .unwrap();
+            payload.union_variants.as_mut().unwrap()[0]
+                .assertions
+                .push(assertion);
+            assert!(
+                direct_error_payload(&v).is_none(),
+                "unmodeled guard must prevent specialization"
+            );
+            let mut op = stanza("GuardedError", None);
+            op.response.variants = vec![v];
+            let code = generate_spec(&op, "TEST_NAMESPACE", "GuardedErrorSpec");
+            assert!(
+                code.contains("outcomes.error_contract_unsupported"),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn disjoint_root_tags_are_admitted_and_selected() {
+        let variant = |tag: &str| ResponseVariant {
+            tag: tag.into(),
+            assertions: vec![wa_ir::ResponseAssertion {
+                kind: AssertionKind::Tag,
+                name: Some(tag.into()),
+                value: None,
+                reference_path: None,
+            }],
+            ..Default::default()
+        };
+        let mut op = stanza("DisjointTags", None);
+        op.response.variants = vec![variant("iq"), variant("message")];
+        let code = generate_spec(&op, "TEST_NAMESPACE", "DisjointTagsSpec");
+        assert!(!code.contains("RESPONSE_GENERATION_ERROR"), "{code}");
+        assert!(code.contains("response.tag == \"iq\""));
+        assert!(code.contains("response.tag == \"message\""));
     }
 
     #[test]
