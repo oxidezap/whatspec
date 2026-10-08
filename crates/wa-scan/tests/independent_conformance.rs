@@ -42,6 +42,7 @@ fn operation<'a>(ir: &'a Value, name: &str) -> &'a Value {
 fn request_contract(ir: &Value) {
     for name in ["SetSubject", "AcceptGroupAdd"] {
         let op = operation(ir, name);
+        assert_eq!(op["exportedFunction"], format!("make{name}Request"));
         assert_eq!(op["namespace"], "w:g2");
         assert_eq!(op["iqType"], "set");
         assert_eq!(op["target"], "group_jid");
@@ -233,12 +234,32 @@ fn response_cases(ir: &Value, complete_error_vocabulary: bool) {
     }
 }
 
+fn captured_contract(ir: &Value) {
+    // Only the small source capture has this exact catalog; the full artifact
+    // legitimately contains additional operations.
+    let mut modules: Vec<_> = ir["stanzas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["moduleName"].as_str().unwrap())
+        .collect();
+    modules.sort_unstable();
+    assert_eq!(
+        modules,
+        [
+            "WASmaxOutGroupsAcceptGroupAddRequest",
+            "WASmaxOutGroupsSetSubjectRequest"
+        ]
+    );
+    request_contract(ir);
+    response_cases(ir, false);
+}
+
 #[test]
 fn source_derived_contracts_hold_across_two_verified_snapshots() {
     for version in VERSIONS {
         let ir = captured(version);
-        request_contract(&ir);
-        response_cases(&ir, false);
+        captured_contract(&ir);
     }
 }
 
@@ -357,6 +378,51 @@ fn oracle_rejects_outer_metadata_and_missing_response_mirror() {
                     "accepted {name} outer {field}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn oracle_rejects_changed_or_missing_exported_functions() {
+    let ir = captured(VERSIONS[1]);
+    for name in ["SetSubject", "AcceptGroupAdd"] {
+        for value in [Some(json!("wrong")), Some(Value::Null), None] {
+            let mut changed = ir.clone();
+            let op = changed["stanzas"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|s| s["moduleName"] == format!("WASmaxOutGroups{name}Request"))
+                .unwrap();
+            match value {
+                Some(value) => {
+                    op["exportedFunction"] = value;
+                }
+                None => {
+                    op.as_object_mut().unwrap().remove("exportedFunction");
+                }
+            }
+            assert!(
+                std::panic::catch_unwind(|| request_contract(&changed)).is_err(),
+                "accepted changed/missing {name} export"
+            );
+        }
+    }
+}
+
+#[test]
+fn captured_oracle_rejects_extra_or_duplicate_stanzas() {
+    for version in VERSIONS {
+        let ir = captured(version);
+        for name in ["Unreviewed", "SetSubject", "AcceptGroupAdd"] {
+            let mut changed = ir.clone();
+            let mut extra = operation(&ir, "SetSubject").clone();
+            extra["moduleName"] = json!(format!("WASmaxOutGroups{name}Request"));
+            changed["stanzas"].as_array_mut().unwrap().push(extra);
+            assert!(
+                std::panic::catch_unwind(|| captured_contract(&changed)).is_err(),
+                "accepted extra {name} in {version}"
+            );
         }
     }
 }

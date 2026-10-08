@@ -12,25 +12,22 @@ static verification, not execution of the JavaScript builders or parsers.
 
 ## Evidence
 
-Captured from the exact `bundle-store` assets for these commits. Both manifests
-use schema version 4.3.0. No account, credentials or session data were used.
+Captured from exact `bundle-store` assets. Both manifests use schema version
+4.3.0. No account, credentials or session data were used.
 
-| Snapshot | Repository commit | Bundles | Uncompressed JS bytes |
-| --- | --- | ---: | ---: |
-| 2.3000.1045368834 | `1a441f0329c941fcdb238490a6c604550d8a9939` | 516 | 77,347,149 |
-| 2.3000.1047483476 | `1f5167c4cebf263edaf001e06a2497f213c55793` | 579 | 75,824,128 |
+[origins.json](origins.json) is the authoritative, pinned mapping from each
+snapshot to its repository commit, measured archive SHA-256, setHash and capture
+provenance hash. These values record the original verified downloads; adding this
+mapping does not claim a fresh download or recapture. The offline test binds each
+origin to the corresponding capture and rejects identifier drift.
 
-The old setHash is
-`99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00`.
-The current setHash is
-`05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b`.
+| Snapshot | Bundles | Uncompressed JS bytes |
+| --- | ---: | ---: |
+| 2.3000.1045368834 | 516 | 77,347,149 |
+| 2.3000.1047483476 | 579 | 75,824,128 |
 
 The asset name is `bundles-<waVersion>-<setHash>.tar.xz` under
 [the bundle-store release](https://github.com/oxidezap/whatspec/releases/tag/bundle-store).
-The measured archive SHA-256 digests are, respectively:
-
-- `2edd4b3f8dae50b503e0b15920adc774e2680cdb542396d57608bb0374196ee1`
-- `22243b9c2ff18a66cea8fd66551821fe0f9f09786d107e2be8284637db86c349`
 
 Each snapshot's `provenance.json` records all selected definitions, bundle SHA-256,
 byte start/end with exclusive end, and source hash. The fixture bytes are the
@@ -236,3 +233,11 @@ request copy. Both pilots' top-level response fields must contain the reviewed
 result-type field, matching the primary success payload without deriving the
 expected value from the tested variant. Mutation cases cover these mirrored
 contracts; they establish extraction consistency, not additional server rules.
+
+The oracle also pins the two exported request function names, which determine
+public spec names, and the exact module-name multiset of the small source
+capture. That catalog constraint is not applied to the full generated artifact.
+Mutations of exports (changed/null/missing) and extra/duplicate stanzas reproduce
+the former gaps and are rejected. The origin-record pins additionally cover the
+historical repository commits and archive hashes previously documented only in
+this README. Pins detect drift, not coordinated edits to evidence and test pins.
