@@ -1,9 +1,20 @@
 # Compiled qualification of #51 and #53
 
-Status: **blocked by a reproduced source/output divergence**. This test is meant
-for an explicitly stacked qualification change after the IQ workstream addresses
-the finding. Do not silently add it to #51 alone: it requires #53's generated
-context-taking API and small runtime adapter.
+Status: **both snapshot suites pass all eight independent compiled groups**.
+The reproduced binary-content divergence was fixed in the IQ workstream, and the
+original expectations still pass. The current composition uses main
+`cf3291ddf62d06175d57577d2c973520a25116a8`, which includes the user-merged #53
+emitter and shared fixture compiler. #51 supplies the independent extraction
+baseline. Current published-head CI/review status is tracked in PR #55; local
+suite success alone does not mark the PR ready.
+
+The sections below retain the chronological investigation, including the initial
+failure, then its fix and later qualification. Intermediate pending findings,
+commit IDs, test counts and timings are historical evidence, not current status.
+This remains bounded generated-Rust/static-source qualification, not a live-server
+or external-client certification.
+
+## Initial composition (historical)
 
 The local `test/composed-iq-qualification` branch composes these immutable heads:
 
@@ -15,7 +26,7 @@ No published head was changed. No emitter or other IQ-workstream file was edited
 The local merge preserved `wa-codegen` 0.2.0 and the exact audit dependency
 versions from #54.
 
-## Method and inputs
+## Initial method and inputs (historical)
 
 `crates/wa-codegen/tests/independent_iq.rs` runs `generate_iq` twice for each
 snapshot and checks byte identity. It compiles each resulting Rust source with
@@ -44,7 +55,7 @@ the default target directory, then run:
 python3 tests/conformance/compiled/capture_errors.py LOCK BUNDLES NEW_OUTPUT
 ```
 
-## Executed results
+## Initial executed results (historical failure)
 
 For **each** WA snapshot, 2.3000.1045368834 and 2.3000.1047483476:
 
@@ -67,7 +78,7 @@ The difference is the snapshot version in the generated header. The two-snapshot
 compile-and-run test phase completed in about 0.82 seconds after building its
 Rust test driver. This is a single shared-executor observation, not a benchmark.
 
-## Minimal finding for the IQ workstream
+## Original finding for the IQ workstream (fixed)
 
 Use a correlated SetSubject response with this tree:
 
@@ -119,7 +130,7 @@ On failure the generated source and compiled executable are retained in the
 reported temporary directory. Run that executable with
 `--exact binary_error_content_reaches_fallback` for the minimal failing case.
 
-## Limits and next step
+## Initial limits and requested next step (historical)
 
 This executes generated Rust, not the Web client or server. The adapter is a
 small tree implementation satisfying the reference emitter's existing paths;
