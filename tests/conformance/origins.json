@@ -1,0 +1,16 @@
+[
+  {
+    "waVersion": "2.3000.1045368834",
+    "repositoryCommit": "1a441f0329c941fcdb238490a6c604550d8a9939",
+    "archiveSha256": "2edd4b3f8dae50b503e0b15920adc774e2680cdb542396d57608bb0374196ee1",
+    "setHash": "99a75bd7a4961e15051172c8b99fc460d57e58f7eb47ea9c46824657dd083e00",
+    "captureProvenanceSha256": "41e4e797af7ab73dc7b3cd1e63e033b264c4bd6aa0bc6f7157262064ed78c13a"
+  },
+  {
+    "waVersion": "2.3000.1047483476",
+    "repositoryCommit": "1f5167c4cebf263edaf001e06a2497f213c55793",
+    "archiveSha256": "22243b9c2ff18a66cea8fd66551821fe0f9f09786d107e2be8284637db86c349",
+    "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+    "captureProvenanceSha256": "30f9ee277d45596ca423bbb2e24b513ee2a7ca220d01bce0978255cd19d7ffe8"
+  }
+]

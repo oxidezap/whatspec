@@ -1,11 +1,11 @@
 //! Extract Mex persisted operations from one or more bundle files (concatenated).
-//! Run: cargo run -p wa-mex --example gen -- <version> <bundle.js>... [--json]
+//! Run: cargo run -p wa-mex --example gen_mex -- <version> <bundle.js>... [--json]
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let version = args
         .next()
-        .expect("usage: gen <version> <bundle.js>... [--json]");
+        .expect("usage: gen_mex <version> <bundle.js>... [--json]");
     let mut source = String::new();
     let mut json = false;
     for a in args {

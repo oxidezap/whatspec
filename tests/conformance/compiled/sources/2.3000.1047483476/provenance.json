@@ -1,0 +1,148 @@
+{
+  "waVersion": "2.3000.1047483476",
+  "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+  "bundleCount": 579,
+  "bundleBytes": 75824128,
+  "modules": [
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddClientErrors",
+      "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+      "start": 19,
+      "end": 3490,
+      "sourceSha256": "0bf34d35f47688d83e1703ff785f033e74974a5bb6b27fcc13dfd9a202b10604"
+    },
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddResponseClientError",
+      "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+      "start": 3492,
+      "end": 4227,
+      "sourceSha256": "0a34c41c5e0bdc020ddac5ea1a75ea3f957803f66651a477f96e2234447c80a4"
+    },
+    {
+      "module": "WASmaxInGroupsAcceptGroupAddResponseServerError",
+      "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+      "start": 4730,
+      "end": 5096,
+      "sourceSha256": "0786f985a20352044f3f00cec811911fce0f002f4dedafdf3b37e1cd087cbab6"
+    },
+    {
+      "module": "WASmaxInGroupsBaseServerErrorMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 36165,
+      "end": 36818,
+      "sourceSha256": "93013e540bfaf1466e8e6d37863c83ae57c85102c7d99ee1db819b08eb5f0a1e"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorAlreadyExistsMixin",
+      "bundleSha256": "7c7be0378ce2e7ff49b9f5909cf8a7d283000af82cc43bc071c2df3541ec5d56",
+      "start": 74970,
+      "end": 75485,
+      "sourceSha256": "0c207f6532b9d3ab012f556fd7725de77bfdd36289665e3b8e013f31f2c42f6d"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorBadRequestMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 29559,
+      "end": 30065,
+      "sourceSha256": "fc526eb6a0bb5f2d142d2215e61946163ffc0939eb67ea42a64f0d5aecf4e710"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorFallbackClientMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 85725,
+      "end": 86174,
+      "sourceSha256": "2cf97c340ea2ebfac9c4c6b94933ebc71a7874ee249ac33ae68d920a60e5813f"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorFallbackServerMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 32844,
+      "end": 33293,
+      "sourceSha256": "c6ddb72b768a67e8fdaee58b037b2de66c896c4ecb95d67d7d8bed6a64af0bf7"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorInternalServerErrorMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 33295,
+      "end": 33829,
+      "sourceSha256": "3f728f0545d258df831a6c1a01f9f39c3040c3a4a04b931ee509ccbbc080b4a2"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorNotAcceptableMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 88701,
+      "end": 89641,
+      "sourceSha256": "88e536fc9040f47de39a3f98ed5f299e9bffb37baa0590ec43ee619061802d56"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorPartialServerErrorMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 33831,
+      "end": 34362,
+      "sourceSha256": "175917f45fe458ff9b1c229cb025661a7c0fac5664dc0ce983e5f8df44b5da67"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorResourceConstraintMixin",
+      "bundleSha256": "7783a694b3a8bc3a379585817de0e477c75729c73b21adbffbf060f5f0ac2860",
+      "start": 623,
+      "end": 1153,
+      "sourceSha256": "00381d7ab0263c85d58b2c01f4f3bf446cc127c51322bbbd04fa3baf07fc3317"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorResponseMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 31289,
+      "end": 32087,
+      "sourceSha256": "867cb414eafa8d1ddfec085c39696220e7fa07894dd27b8404a9c2ff7f3408e6"
+    },
+    {
+      "module": "WASmaxInGroupsIQErrorServiceUnavailableMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 34364,
+      "end": 34894,
+      "sourceSha256": "6d1e9bb5f7a3f4afb0a1bc90f2f6e1a94f96c305d9813540e9a2cf917196b713"
+    },
+    {
+      "module": "WASmaxInGroupsServerErrors",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 34896,
+      "end": 36163,
+      "sourceSha256": "4ff5d583d148680474bb75b36a6c8fc431d303ddd952e49b94d02d93a3a480d8"
+    },
+    {
+      "module": "WASmaxInGroupsSetSubjectClientErrors",
+      "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+      "start": 24289,
+      "end": 26417,
+      "sourceSha256": "0ee8d5ffc0942026ba3ebda66d9db617364e9c0ef5b2741290e2379866531ca4"
+    },
+    {
+      "module": "WASmaxInGroupsSetSubjectResponseClientError",
+      "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+      "start": 26419,
+      "end": 27130,
+      "sourceSha256": "b13f00ad281c8006568ebe8d992939686ce0ee849f4f38eef86ace0f556383e2"
+    },
+    {
+      "module": "WASmaxInGroupsSetSubjectResponseServerError",
+      "bundleSha256": "65b89bd62b933ca76911900c83c40c2fad84263a99d2b99eced9578c1e4bdf55",
+      "start": 27132,
+      "end": 27490,
+      "sourceSha256": "4acd4e98757ade26c0f22e539c73cb0000dedbfe326342ad6a339527039b0672"
+    },
+    {
+      "module": "WASmaxParseReference",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 2265026,
+      "end": 2266133,
+      "sourceSha256": "e27311d25f3d328658355ab0c619b71b007d68ee2e83a7c5ae508a86e05e8aee"
+    },
+    {
+      "module": "WASmaxParseUtils",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 2256336,
+      "end": 2263058,
+      "sourceSha256": "a2bbd76df3740e48f0f5c979c5ecc94d30217e726c7b42f2b23490161bcc42e6"
+    }
+  ]
+}
