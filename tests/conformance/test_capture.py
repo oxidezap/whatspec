@@ -1,6 +1,7 @@
 """Offline checks for capture identity and corrupted input rejection."""
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -78,16 +79,8 @@ class CaptureTests(unittest.TestCase):
                               (Path(__file__).parent / 'compiled/sources', COMPILED_MODULES)]:
             for version in ['2.3000.1045368834', '2.3000.1047483476']:
                 root = base / version
-                evidence = json.loads((root / 'provenance.json').read_text())
-                self.assertEqual(evidence['waVersion'], version)
-                self.assertEqual({e['module'] for e in evidence['modules']}, set(modules))
-                self.assertEqual({p.stem for p in root.glob('*.js')}, set(modules))
-                for entry in evidence['modules']:
-                    source = (root / (entry['module'] + '.js')).read_bytes()
-                    self.assertTrue(source.endswith(b';\n'))
-                    source = source[:-2]
-                    self.assertEqual(len(source), entry['end'] - entry['start'])
-                    self.assertEqual(hashlib.sha256(source).hexdigest(), entry['sourceSha256'])
+                self.assert_source_set(root, modules)
+                self.assertEqual(json.loads((root / "provenance.json").read_text())["waVersion"], version)
 
     def test_compiled_inputs_match_recorded_hashes(self):
         root = Path(__file__).parent / 'compiled/inputs'
@@ -99,6 +92,60 @@ class CaptureTests(unittest.TestCase):
             source = (root / (entry['waVersion'] + '.json')).read_bytes()
             self.assertEqual(hashlib.sha256(source).hexdigest(), entry['selectedInputSha256'])
             self.assertEqual(json.loads(source)['waVersion'], entry['waVersion'])
+
+    def assert_source_set(self, root, modules=MODULES):
+        self.assertEqual({p.name for p in root.glob("*.js")},
+                         {name + ".js" for name in modules})
+        evidence = json.loads((root / 'provenance.json').read_text())
+        self.assertEqual({e['module'] for e in evidence['modules']}, set(modules))
+        for entry in evidence['modules']:
+            source = (root / (entry['module'] + '.js')).read_bytes()
+            self.assertTrue(source.endswith(b';\n'))
+            source = source[:-2]  # Capture's terminator, not part of the AST span.
+            self.assertEqual(len(source), entry['end'] - entry['start'])
+            self.assertEqual(hashlib.sha256(source).hexdigest(), entry['sourceSha256'])
+
+    def test_unprovenanced_js_is_rejected(self):
+        for version in ['2.3000.1045368834', '2.3000.1047483476']:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / 'snapshot'
+                shutil.copytree(Path(__file__).parent / version, root)
+                (root / 'WASmaxUnreviewed.js').write_text('__d("Unreviewed",[],function(){});')
+                with self.assertRaises(AssertionError):
+                    self.assert_source_set(root)
+
+    def test_missing_modules_are_checked_across_the_complete_bundle_set(self):
+        # Stub only the span subprocess: verify capture orchestration, not AST semantics.
+        for missing in [False, True]:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                bundles = root / 'bundles'
+                bundles.mkdir()
+                first = b'__d("Other",[],function(){});'
+                second = b'__d("Wanted",[],function(){});'
+                records = []
+                for name, raw in [('a.js', first), ('b.js', second)]:
+                    (bundles / name).write_bytes(raw)
+                    records.append(dict(sha256=hashlib.sha256(raw).hexdigest(), size=len(raw)))
+                fingerprint = hashlib.sha256('\n'.join(sorted(
+                    f"{r['sha256']}:{r['size']}" for r in records)).encode()).hexdigest()
+                lock = root / 'lock.json'
+                lock.write_text(json.dumps(dict(waVersion='fixture', bundleCount=2,
+                                                setHash=fingerprint, bundles=records)))
+                def spans(args, **kwargs):
+                    raw = kwargs['input']
+                    return b'' if missing or raw == first else f'Wanted\t0\t{len(raw)-1}\n'.encode()
+                with patch('capture.MODULES', ['Wanted']), patch(
+                    'capture.subprocess.check_output', side_effect=spans
+                ) as parser:
+                    if missing:
+                        with self.assertRaisesRegex(ValueError, 'missing modules'):
+                            capture(lock, bundles, root / 'output')
+                        self.assertFalse((root / 'output').exists())
+                    else:
+                        capture(lock, bundles, root / 'output')
+                        self.assertTrue((root / 'output/Wanted.js').exists())
+                    self.assertEqual(parser.call_count, 2)
 
     def test_changed_missing_extra_and_wrong_set_hash_are_rejected_before_ast(self):
         for failure in ['changed', 'missing', 'extra', 'setHash', 'count']:

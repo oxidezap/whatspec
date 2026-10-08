@@ -184,13 +184,13 @@ time target/release/whatspec update --bundles BUNDLES --wa-version VERSION --out
 python3 scripts/validate-schemas.py OUTPUT_1
 ```
 
-Current lint remains red on six *improved* exact baselines: unresolved IQ
-attribute paths 49 vs 55, child paths 10 vs 12, MEX operations without established
-presence 10 vs 13, undetermined MEX variables 106 vs 108, WAM constructions with
-no catalog entry 29 vs 41, and unread WAM arguments 93 vs 104. Baselines and CI
-were not changed here, apart from adding the independent fixture-test job.
-Published-SHA CI and combined emitter qualification are
-still required before declaring the repository qualified.
+At the original baseline, six improved exact counters differed from the then
+committed baseline. The reviewed #52 reconciliation is now on main and exact
+lint passes without relaxed limits. CI for baseline head
+`9356dee13ee2e4b36592287ebeb5a06cb0dce72c` passed all three jobs on 2026-10-08
+(run 37801197673). Later review found oracle coverage gaps; follow-up changes
+require their own published-head checks. Combined emitter qualification remains
+separate in #55 and is not implied by the static baseline.
 
 ## Post-quality integration
 
@@ -207,3 +207,25 @@ Changes to setHash, bundle counts/bytes, per-module bundle identity or offsets
 must fail the offline check until deliberately reviewed. These pins were checked
 against the recorded historical bundle locks; recapture does not update them
 automatically. Hash pins detect drift, not authenticity of coordinated edits.
+
+## Oracle completeness follow-up
+
+The request oracle compares the complete reviewed child arrays, including leaf
+shape, attributes, content and repetition. Outcome order includes kind for both
+pilots. The 13-module capture contains success parsers but omits error
+vocabularies, so its error kinds remain `error`. The full artifact refines
+SetSubject to `client_error`/`server_error` and AcceptGroupAdd to
+`error`/`server_error`. The mixed 304/4xx/500 AcceptGroupAdd client arm cannot
+be assigned a single code family. These expectations are explicit, not inferred
+from variant names or copied dynamically from extracted IR. All captured MEX presence cases are checked,
+including status metadata, wamo subscription and nested view_role.
+
+Fixture file names must equal the reviewed inventory, preventing unprovenanced
+JavaScript from entering the scan. Capture checks module completeness after all
+verified bundles are scanned: a module missing from one bundle is normal; a
+module missing from the entire set fails before creating output. The orchestration
+regression stubs span output and does not claim to retest AST semantics.
+
+The new CI job pins checkout/setup-python to the commits returned for their v5
+tags on 2026-10-08 and disables checkout credential persistence. No other job's
+action policy or concurrency is changed.

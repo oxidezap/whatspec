@@ -19,31 +19,65 @@ fn verified_call_sites_keep_presence_separate_from_boolean_type() {
             + &source(version, "WAWebMexFetchNewsletterJob");
         let ir = wa_mex::extract_mex(&source, version);
         let op = &ir.operations["FetchNewsletter"];
-        for (key, expected) in [
-            ("fetch_creation_time", VariablePresence::Always),
-            ("fetch_full_image", VariablePresence::Always),
-            ("fetch_viewer_metadata", VariablePresence::Conditional),
-            ("fetch_pinned_messages", VariablePresence::Undetermined),
-        ] {
-            assert_eq!(
-                op.variables_presence[key].presence, expected,
-                "{version}: {key}"
-            );
-            // The scalar-name heuristic types these fetch_* names as boolean.
-            // That does not establish call-site nullability or key presence.
-            assert_eq!(op.variables_shape[key], TypeNode::Leaf("boolean".into()));
+        reviewed_presence(op);
+    }
+}
+
+fn reviewed_presence(op: &wa_ir::MexOperation) {
+    for (key, expected) in [
+        ("fetch_creation_time", VariablePresence::Always),
+        ("fetch_full_image", VariablePresence::Always),
+        ("fetch_status_metadata", VariablePresence::Always),
+        ("fetch_wamo_sub", VariablePresence::Always),
+        ("fetch_viewer_metadata", VariablePresence::Conditional),
+        ("fetch_pinned_messages", VariablePresence::Undetermined),
+    ] {
+        assert_eq!(op.variables_presence[key].presence, expected, "{key}");
+        // The scalar-name heuristic types these fetch_* names as boolean.
+        // That does not establish call-site nullability or key presence.
+        assert_eq!(op.variables_shape[key], TypeNode::Leaf("boolean".into()));
+    }
+    assert_eq!(
+        op.variables_presence["input"].presence,
+        VariablePresence::Always
+    );
+    assert_eq!(
+        op.variables_presence["input"].fields["key"].presence,
+        VariablePresence::Conditional
+    );
+    assert_eq!(
+        op.variables_presence["input"].fields["view_role"].presence,
+        VariablePresence::Conditional
+    );
+    assert_eq!(
+        op.variables_presence["input"].fields["type"].presence,
+        VariablePresence::Always
+    );
+}
+
+#[test]
+fn presence_oracle_rejects_regressions_in_all_reviewed_keys() {
+    let source = source(
+        "2.3000.1047483476",
+        "WAWebMexFetchNewsletterJobQuery.graphql",
+    ) + &source("2.3000.1047483476", "WAWebMexFetchNewsletterJob");
+    let ir = wa_mex::extract_mex(&source, "fixture");
+    for key in ["fetch_status_metadata", "fetch_wamo_sub", "view_role"] {
+        let mut op = ir.operations["FetchNewsletter"].clone();
+        if key == "view_role" {
+            op.variables_presence
+                .get_mut("input")
+                .unwrap()
+                .fields
+                .get_mut(key)
+                .unwrap()
+                .presence = VariablePresence::Always;
+        } else {
+            op.variables_presence.get_mut(key).unwrap().presence = VariablePresence::Undetermined;
         }
-        assert_eq!(
-            op.variables_presence["input"].presence,
-            VariablePresence::Always
-        );
-        assert_eq!(
-            op.variables_presence["input"].fields["key"].presence,
-            VariablePresence::Conditional
-        );
-        assert_eq!(
-            op.variables_presence["input"].fields["type"].presence,
-            VariablePresence::Always
+        assert!(
+            std::panic::catch_unwind(|| reviewed_presence(&op)).is_err(),
+            "accepted {key} regression"
         );
     }
 }
