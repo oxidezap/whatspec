@@ -261,3 +261,12 @@ Presence is compared as a complete tree, including empty scalar `fields` and
 absent `items` for all nodes in this object-only capture. Nineteen structural
 mutations (children/items on each scalar and items on input) fail the preceding
 oracle's regression test and are rejected by the full-tree comparison.
+
+The IQ oracle pins both outer and nested RPC parser identities and the empty
+outer assertion list: the captured RPC wrappers delegate guards to each outcome.
+It also checks the exact three captured merge-mixin exclusions and their stable
+fragment reason, keeping fragment diagnostics distinct from genuine failures.
+This checks published extractor diagnostics against reviewed source roles; it
+is not another server-protocol claim or a change to quality/diff/lint code.
+Mutations of guards, parser names and missing/changed/extra/duplicate exclusions
+fail the preceding oracle's regression tests and are rejected after correction.
