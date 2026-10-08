@@ -18,10 +18,55 @@ fn main() -> Result<()> {
     } else {
         std::fs::read_to_string(path)?
     };
-    for module in wa_transform::extract_module_definitions(&source) {
+    for module in capture_modules(&source)? {
         if names.contains(&module.name) {
             println!("{}\t{}\t{}", module.name, module.start, module.end);
         }
     }
     Ok(())
+}
+
+fn capture_modules(source: &str) -> Result<Vec<wa_transform::ModuleDefinition>> {
+    // Validate the complete file before emitting any span. The checked API also
+    // visits nested definitions; retain production boundaries for this capture.
+    wa_transform::extract_module_definitions_checked(source)
+        .map_err(|errors| anyhow::anyhow!("bundle parse failed: {}", errors.join("; ")))?;
+    Ok(wa_transform::extract_module_definitions(source))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capture_modules;
+
+    #[test]
+    fn malformed_file_cannot_qualify_complete_requested_modules() {
+        let valid = r#"__d("Wanted",[],function(){});"#;
+        for source in [
+            format!("{valid} function broken("),
+            format!("function broken( {valid}"),
+            format!(r#"{valid} let = ; __d("Later",[],function(){{}});"#),
+        ] {
+            assert!(
+                capture_modules(&source).is_err(),
+                "accepted recovery: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn valid_capture_preserves_production_module_boundaries() {
+        let source = r#"__d('Outer',[],function(){__d('Inner',[],function(){});}); __d('Later',[],function(){});"#;
+        let captured = capture_modules(source).unwrap();
+        assert_eq!(captured, wa_transform::extract_module_definitions(source));
+        assert_eq!(
+            captured.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+            ["Outer", "Later"]
+        );
+        assert_eq!(
+            wa_transform::extract_module_definitions_checked(source)
+                .unwrap()
+                .len(),
+            3
+        );
+    }
 }

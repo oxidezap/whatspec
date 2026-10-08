@@ -48,6 +48,9 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Test conformance capture parser
+        run: cargo test -p wa-transform --example module_spans
+
       # The JSON Schema derivation + envelope self-tests only build under the
       # `schema` feature, so run them explicitly.
       - name: Schema self-tests
