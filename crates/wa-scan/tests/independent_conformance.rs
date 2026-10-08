@@ -47,29 +47,23 @@ fn request_contract(ir: &Value) {
         assert_eq!(request["target"], "group_jid");
         assert_eq!(request["targetArgPath"], json!([{"key":"iqTo"}]));
     }
-    let subject = &operation(ir, "SetSubject")["request"]["children"][0];
-    assert_eq!(subject["tag"], "subject");
     assert_eq!(
-        subject["content"]["argPath"],
-        json!([{"key":"subjectElementValue"}])
+        operation(ir, "SetSubject")["request"]["children"],
+        json!([{
+            "tag":"subject", "attrs":[], "children":[], "repeats":false,
+            "content":{"kind":"dynamic","argPath":[{"key":"subjectElementValue"}]}
+        }])
     );
-    let accept = &operation(ir, "AcceptGroupAdd")["request"]["children"][0];
-    assert_eq!(accept["tag"], "accept");
-    for (wire, kind, arg) in [
-        ("code", "string", "acceptCode"),
-        ("expiration", "integer", "acceptExpiration"),
-        ("admin", "user_jid", "acceptAdmin"),
-    ] {
-        let attr = accept["attrs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|a| a["name"] == wire)
-            .unwrap();
-        assert_eq!(attr["kind"], kind);
-        assert_eq!(attr["required"], true);
-        assert_eq!(attr["argPath"], json!([{"key":arg}]));
-    }
+    assert_eq!(
+        operation(ir, "AcceptGroupAdd")["request"]["children"],
+        json!([{
+            "tag":"accept", "attrs":[
+                {"name":"code","kind":"string","required":true,"argPath":[{"key":"acceptCode"}]},
+                {"name":"expiration","kind":"integer","required":true,"argPath":[{"key":"acceptExpiration"}]},
+                {"name":"admin","kind":"user_jid","required":true,"argPath":[{"key":"acceptAdmin"}]}
+            ], "children":[], "repeats":false
+        }])
+    );
 }
 
 // Deliberately restricted IR interpreter for success assertions. No field coercion,
@@ -109,7 +103,19 @@ fn success<'a>(op: &'a Value, response: &Value, request: &Value) -> Option<&'a s
         .map(|v| v["tag"].as_str().unwrap())
 }
 
-fn response_cases(ir: &Value) {
+fn response_cases(ir: &Value, complete_error_vocabulary: bool) {
+    // The 13-module success capture omits error parsers, so only the full
+    // snapshot can refine code families. Never infer the side from tag names.
+    let client = if complete_error_vocabulary {
+        "client_error"
+    } else {
+        "error"
+    };
+    let server = if complete_error_vocabulary {
+        "server_error"
+    } else {
+        "error"
+    };
     let request = json!({"id":"fixture-7","to":"120363000000001@g.us"});
     let bare = json!({"tag":"iq","attrs":{"id":"fixture-7","from":"120363000000001@g.us","type":"result"},"children":[]});
     let mut child = bare.clone();
@@ -187,21 +193,33 @@ fn response_cases(ir: &Value) {
             }
         }
     }
-    let tags: Vec<_> = accept["response"]["variants"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v["tag"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        tags,
-        [
-            "AcceptGroupAddResponseGroupJoinRequestSuccess",
-            "AcceptGroupAddResponseSuccess",
-            "AcceptGroupAddResponseClientError",
-            "AcceptGroupAddResponseServerError"
-        ]
-    );
+    for (op, expected) in [
+        (
+            accept,
+            vec![
+                ("AcceptGroupAddResponseGroupJoinRequestSuccess", "success"),
+                ("AcceptGroupAddResponseSuccess", "success"),
+                ("AcceptGroupAddResponseClientError", "error"),
+                ("AcceptGroupAddResponseServerError", server),
+            ],
+        ),
+        (
+            subject,
+            vec![
+                ("SetSubjectResponseSuccess", "success"),
+                ("SetSubjectResponseClientError", client),
+                ("SetSubjectResponseServerError", server),
+            ],
+        ),
+    ] {
+        let outcomes: Vec<_> = op["response"]["variants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| (v["tag"].as_str().unwrap(), v["kind"].as_str().unwrap()))
+            .collect();
+        assert_eq!(outcomes, expected);
+    }
 }
 
 #[test]
@@ -209,7 +227,7 @@ fn source_derived_contracts_hold_across_two_verified_snapshots() {
     for version in VERSIONS {
         let ir = captured(version);
         request_contract(&ir);
-        response_cases(&ir);
+        response_cases(&ir, false);
     }
 }
 
@@ -218,7 +236,7 @@ fn committed_ir_satisfies_the_independent_wire_cases() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../generated/iq/index.json");
     let ir = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     request_contract(&ir);
-    response_cases(&ir);
+    response_cases(&ir, true);
 }
 
 #[test]
@@ -246,4 +264,62 @@ fn the_oracle_detects_lost_child_gate_and_reordered_outcomes() {
         success(&op, &child, &request),
         Some("AcceptGroupAddResponseGroupJoinRequestSuccess")
     );
+}
+
+#[test]
+fn request_oracle_rejects_extra_wire_structure() {
+    let ir = captured(VERSIONS[1]);
+    for name in ["SetSubject", "AcceptGroupAdd"] {
+        for mutation in ["sibling", "attribute", "nested", "repeated"] {
+            let mut changed = ir.clone();
+            let op = changed["stanzas"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|s| s["moduleName"] == format!("WASmaxOutGroups{name}Request"))
+                .unwrap();
+            let children = op["request"]["children"].as_array_mut().unwrap();
+            match mutation {
+                "sibling" => children.push(json!({"tag":"unreviewed"})),
+                "attribute" => children[0]["attrs"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"name":"unreviewed","kind":"string"})),
+                "nested" => children[0]["children"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"tag":"unreviewed"})),
+                _ => children[0]["repeats"] = json!(true),
+            }
+            assert!(
+                std::panic::catch_unwind(|| request_contract(&changed)).is_err(),
+                "accepted {name} {mutation}"
+            );
+        }
+    }
+}
+
+#[test]
+fn response_oracle_rejects_misclassified_error_outcomes() {
+    let ir = captured(VERSIONS[1]);
+    for name in ["SetSubject", "AcceptGroupAdd"] {
+        let count = operation(&ir, name)["response"]["variants"]
+            .as_array()
+            .unwrap()
+            .len();
+        for index in count - 2..count {
+            let mut changed = ir.clone();
+            let op = changed["stanzas"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|s| s["moduleName"] == format!("WASmaxOutGroups{name}Request"))
+                .unwrap();
+            op["response"]["variants"][index]["kind"] = json!("unclassified");
+            assert!(
+                std::panic::catch_unwind(|| response_cases(&changed, false)).is_err(),
+                "accepted {name} outcome {index}"
+            );
+        }
+    }
 }
