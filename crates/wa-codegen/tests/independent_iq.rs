@@ -1,6 +1,7 @@
 //! Independent cases read from verified Web module bodies, executed against
 //! freshly emitted Rust. Requires the explicit #51 + #53 composition.
 use std::{fs, process::Command};
+mod support;
 
 fn qualify(label: &str, input: &str) {
     let mut ir: wa_ir::IqIr = serde_json::from_str(input).unwrap();
@@ -33,34 +34,8 @@ fn qualify(label: &str, input: &str) {
         ),
     )
     .unwrap();
-    let deps = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let anyhow = fs::read_dir(&deps)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .find(|p| {
-            p.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("libanyhow-")
-                && p.extension().is_some_and(|e| e == "rlib")
-        })
-        .unwrap();
-    let compile = Command::new("rustc")
-        .arg("--edition=2024")
-        .arg("--test")
-        .arg(dir.join("main.rs"))
-        .arg("--extern")
-        .arg(format!("anyhow={}", anyhow.display()))
-        .arg("-L")
-        .arg(format!("dependency={}", deps.display()))
-        .arg("-o")
-        .arg(dir.join("run"))
-        .output()
-        .unwrap();
+    let compiler = support::FixtureCompiler::build(&dir);
+    let compile = compiler.command(&dir, true).output().unwrap();
     assert!(
         compile.status.success(),
         "{}",

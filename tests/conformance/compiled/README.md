@@ -374,3 +374,18 @@ server operations. Seven newly diagnosed `from_server` contracts bring the
 owner catalog's explicit rejection count to 46; see `docs/iq-response-admission.md`
 for the operation list and generation size/time. The two independently captured
 pilot inputs, source evidence and provenance pins are unchanged.
+
+### Cargo-bound fixture compilation
+
+Both runtime harnesses now use the shared test compiler from #53. It builds the
+lock-selected `anyhow` with Cargo offline in an isolated target directory and
+uses that invocation's exact JSON artifact path. No deps-directory order or
+mtime inference remains. The fixture and dependency use the same explicit
+`RUSTC` override, or Cargo's compiler recorded at package build time.
+
+The independent expectations and adapter boundary are unchanged. Infrastructure
+regressions leave invalid and other-build rlibs in place, reject those explicit
+negative controls, and execute with the Cargo-reported artifact. A wrapper
+checks compiler override propagation. This is compilation infrastructure, not
+additional protocol evidence or a downstream compatibility claim. See the IQ
+admission document for costs and the single-toolchain test limitation.
