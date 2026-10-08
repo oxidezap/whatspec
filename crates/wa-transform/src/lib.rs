@@ -40,13 +40,38 @@ pub fn extract_module_definitions(code: &str) -> Vec<ModuleDefinition> {
 
     let mut visitor = ModuleVisitor {
         modules: Vec::new(),
+        include_nested: false,
     };
     visitor.visit_program(&ret.program);
     visitor.modules
 }
 
+/// Extract definitions only when the complete input parses without recovery.
+/// Useful for provenance audits where an absent definition must not be confused
+/// with a parse error. The existing extraction API keeps its recovery behavior.
+pub fn extract_module_definitions_checked(
+    code: &str,
+) -> Result<Vec<ModuleDefinition>, Vec<String>> {
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, code, SourceType::cjs()).parse();
+    if !ret.errors.is_empty() || ret.panicked {
+        let mut errors: Vec<String> = ret.errors.iter().map(ToString::to_string).collect();
+        if errors.is_empty() {
+            errors.push("parser did not complete".to_string());
+        }
+        return Err(errors);
+    }
+    let mut visitor = ModuleVisitor {
+        modules: Vec::new(),
+        include_nested: true,
+    };
+    visitor.visit_program(&ret.program);
+    Ok(visitor.modules)
+}
+
 struct ModuleVisitor {
     modules: Vec<ModuleDefinition>,
+    include_nested: bool,
 }
 
 impl<'a> Visit<'a> for ModuleVisitor {
@@ -55,7 +80,13 @@ impl<'a> Visit<'a> for ModuleVisitor {
             // A module: record it and do NOT walk its children — `__d` never nests
             // inside another factory body, so skipping it avoids traversing the
             // (potentially huge) factory.
-            Some(def) => self.modules.push(def),
+            Some(def) => {
+                self.modules.push(def);
+                // Provenance must not turn a fast-path assumption into an absence claim.
+                if self.include_nested {
+                    walk::walk_call_expression(self, call);
+                }
+            }
             // Non-`__d` call: keep walking so `__d` inside an IIFE wrapper is found.
             None => walk::walk_call_expression(self, call),
         }
@@ -106,6 +137,28 @@ fn parse_define(call: &CallExpression) -> Option<ModuleDefinition> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_module_index_rejects_parse_recovery() {
+        let valid = r#"__d("M",[],function(){return 1;});"#;
+        assert_eq!(
+            extract_module_definitions_checked(valid).unwrap(),
+            extract_module_definitions(valid)
+        );
+        assert!(extract_module_definitions_checked(r#"__d("M",[],function(){"#).is_err());
+        assert!(extract_module_definitions_checked("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn checked_index_includes_nested_static_definitions() {
+        let source = r#"__d("Outer",[],function(){__d("Inner",[],function(){});});"#;
+        let modules = extract_module_definitions_checked(source).unwrap();
+        assert_eq!(
+            modules.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+            ["Outer", "Inner"]
+        );
+        assert_eq!(extract_module_definitions(source).len(), 1);
+    }
 
     #[test]
     fn empty_input() {

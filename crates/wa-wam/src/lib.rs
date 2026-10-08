@@ -54,6 +54,22 @@ const CONSTRUCTION_NO_CATALOG_ENTRY: &str = "construction of an event with no ca
 /// rather than as a bare word.
 const UNREAD_ARGUMENT_PREFIX: &str = "unreadConstructionArgument";
 
+/// A counted WAM gap with a recoverable construction location. Kept out of the IR.
+#[derive(Debug, Clone)]
+pub struct WamGapSite {
+    pub module: String,
+    /// Module start in the source passed to the extractor.
+    pub module_start: usize,
+    /// Construction span relative to that module, end exclusive.
+    pub start: u32,
+    pub end: u32,
+    pub event_module: String,
+    pub event_export: String,
+    pub reason: String,
+    /// Written key when this location describes a catalog mismatch.
+    pub field: Option<String>,
+}
+
 /// What the scan recovered and, more importantly, what it did not.
 #[derive(Debug, Default, Clone)]
 pub struct WamDiagnostics {
@@ -102,6 +118,26 @@ pub fn extract_wam_from_modules(
     source: &str,
     module_defs: &[ModuleDefinition],
     wa_version: &str,
+) -> (WamIr, WamDiagnostics) {
+    extract_with_gaps(source, module_defs, wa_version, None)
+}
+
+/// Extract with an optional provenance sidecar, without changing the IR or diagnostics API.
+pub fn extract_wam_with_gap_sites(
+    source: &str,
+    module_defs: &[ModuleDefinition],
+    wa_version: &str,
+) -> (WamIr, WamDiagnostics, Vec<WamGapSite>) {
+    let mut gaps = Vec::new();
+    let (ir, diag) = extract_with_gaps(source, module_defs, wa_version, Some(&mut gaps));
+    (ir, diag, gaps)
+}
+
+fn extract_with_gaps(
+    source: &str,
+    module_defs: &[ModuleDefinition],
+    wa_version: &str,
+    gap_sites: Option<&mut Vec<WamGapSite>>,
 ) -> (WamIr, WamDiagnostics) {
     let mut diag = WamDiagnostics::default();
 
@@ -176,7 +212,14 @@ pub fn extract_wam_from_modules(
     diag.private_stats_ids = private_stats_ids.len();
     diag.constants = constants.len();
 
-    collect_call_sites(source, module_defs, &mut events, &exports, &mut diag);
+    collect_call_sites(
+        source,
+        module_defs,
+        &mut events,
+        &exports,
+        &mut diag,
+        gap_sites,
+    );
     // A call site can name an enum no field of any event or global is typed by. The
     // catalog is resolved after the sites for exactly this reason: an `enumMember` value
     // pointing at a module the document does not carry would be a dangling reference in
@@ -286,6 +329,7 @@ fn collect_call_sites(
     events: &mut [WamEvent],
     exports: &BTreeMap<(String, String), usize>,
     diag: &mut WamDiagnostics,
+    mut gap_sites: Option<&mut Vec<WamGapSite>>,
 ) {
     // event module → the single event it defines, for the modules that define one.
     let mut sole: BTreeMap<&str, usize> = BTreeMap::new();
@@ -313,7 +357,20 @@ fn collect_call_sites(
             // Counted here rather than during the scan: 2648 module names are defined by
             // more than one bundle file, so a residue counted per copy would report one
             // construction as several and could trip the lint baseline on a duplicate.
+            let gap = |reason: String| WamGapSite {
+                module: m.name.clone(),
+                module_start: m.start,
+                start: raw.start,
+                end: raw.end,
+                event_module: raw.event_module.clone(),
+                event_export: raw.export.clone(),
+                reason,
+                field: None,
+            };
             if let Some(form) = raw.unread_argument {
+                if let Some(sites) = gap_sites.as_deref_mut() {
+                    sites.push(gap(format!("{UNREAD_ARGUMENT_PREFIX}.{form}")));
+                }
                 *diag
                     .drops_by_reason
                     .entry(format!("{UNREAD_ARGUMENT_PREFIX}.{form}"))
@@ -337,6 +394,9 @@ fn collect_call_sites(
                     }
                 });
             let Some(index) = index else {
+                if let Some(sites) = gap_sites.as_deref_mut() {
+                    sites.push(gap(CONSTRUCTION_NO_CATALOG_ENTRY.to_string()));
+                }
                 // `WAWebWamCodegenWamEvent`'s `RawWamEvent` is the generic envelope: a
                 // construction of a schema the catalog does not define, by design.
                 *diag
@@ -365,6 +425,11 @@ fn collect_call_sites(
                     // Anything else is a write we attributed wrongly, or a field the
                     // catalog does not know. Either way it is not schema to publish, and
                     // the site does write something this list cannot name.
+                    if let Some(sites) = gap_sites.as_deref_mut() {
+                        let mut site = gap(WRITTEN_KEY_NO_FIELD.to_string());
+                        site.field = Some(name.clone());
+                        sites.push(site);
+                    }
                     *diag
                         .drops_by_reason
                         .entry(WRITTEN_KEY_NO_FIELD.to_string())
@@ -1049,3 +1114,27 @@ fn parse_enum_variants(obj: &ObjectExpression) -> Option<Vec<WamEnumVariant>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod gap_evidence_tests {
+    #[test]
+    fn sidecar_counts_and_byte_spans_match_existing_diagnostics() {
+        let module = r#"__d("Reporter",["WAWebRawWamEvent"],function(){new(o("WAWebRawWamEvent")).RawWamEvent(unknown);});"#;
+        let source = format!("// á\n{module}\n{module}");
+        let defs = wa_transform::extract_module_definitions_checked(&source).unwrap();
+        let (ir, diag, gaps) = super::extract_wam_with_gap_sites(&source, &defs, "test");
+        let (regular_ir, regular_diag) = super::extract_wam_from_modules(&source, &defs, "test");
+        assert_eq!(ir.events, regular_ir.events);
+        assert_eq!(diag.drops_by_reason, regular_diag.drops_by_reason);
+        assert_eq!(gaps.len(), 2); // Two reasons on one construction, not two bundle copies.
+        let mut counts = std::collections::BTreeMap::new();
+        for gap in gaps {
+            *counts.entry(gap.reason).or_insert(0) += 1;
+            assert_eq!(
+                &source[gap.module_start + gap.start as usize..gap.module_start + gap.end as usize],
+                r#"new(o("WAWebRawWamEvent")).RawWamEvent(unknown)"#
+            );
+        }
+        assert_eq!(counts, diag.drops_by_reason);
+    }
+}
