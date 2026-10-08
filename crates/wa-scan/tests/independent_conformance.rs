@@ -41,7 +41,11 @@ fn operation<'a>(ir: &'a Value, name: &str) -> &'a Value {
 
 fn request_contract(ir: &Value) {
     for name in ["SetSubject", "AcceptGroupAdd"] {
-        let request = &operation(ir, name)["request"];
+        let op = operation(ir, name);
+        assert_eq!(op["namespace"], "w:g2");
+        assert_eq!(op["iqType"], "set");
+        assert_eq!(op["target"], "group_jid");
+        let request = &op["request"];
         assert_eq!(request["namespace"], "w:g2");
         assert_eq!(request["iqType"], "set");
         assert_eq!(request["target"], "group_jid");
@@ -125,6 +129,13 @@ fn response_cases(ir: &Value, complete_error_vocabulary: bool) {
     // This interpreter only covers the reviewed empty-payload successes. A new
     // field needs an explicit extension, not accidental acceptance by this model.
     for op in [accept, subject] {
+        assert_eq!(
+            op["response"]["fields"],
+            json!([{
+                "method":"attrString", "name":"type", "wireName":"type",
+                "type":"string", "parserRequired":true, "literalValue":"result"
+            }])
+        );
         for variant in op["response"]["variants"]
             .as_array()
             .unwrap()
@@ -320,6 +331,32 @@ fn response_oracle_rejects_misclassified_error_outcomes() {
                 std::panic::catch_unwind(|| response_cases(&changed, false)).is_err(),
                 "accepted {name} outcome {index}"
             );
+        }
+    }
+}
+
+#[test]
+fn oracle_rejects_outer_metadata_and_missing_response_mirror() {
+    let ir = captured(VERSIONS[1]);
+    for name in ["SetSubject", "AcceptGroupAdd"] {
+        for field in ["namespace", "iqType", "target", "response_fields"] {
+            let mut changed = ir.clone();
+            let op = changed["stanzas"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|s| s["moduleName"] == format!("WASmaxOutGroups{name}Request"))
+                .unwrap();
+            if field == "response_fields" {
+                op["response"]["fields"] = json!([]);
+                assert!(std::panic::catch_unwind(|| response_cases(&changed, false)).is_err());
+            } else {
+                op[field] = json!("wrong");
+                assert!(
+                    std::panic::catch_unwind(|| request_contract(&changed)).is_err(),
+                    "accepted {name} outer {field}"
+                );
+            }
         }
     }
 }

@@ -229,3 +229,10 @@ regression stubs span output and does not claim to retest AST semantics.
 The new CI job pins checkout/setup-python to the commits returned for their v5
 tags on 2026-10-08 and disables checkout credential persistence. No other job's
 action policy or concurrency is changed.
+
+The oracle also rejects extra top-level/nested MEX presence keys and checks the
+outer stanza namespace/type/target consumed by generation, independently of the
+request copy. Both pilots' top-level response fields must contain the reviewed
+result-type field, matching the primary success payload without deriving the
+expected value from the tested variant. Mutation cases cover these mirrored
+contracts; they establish extraction consistency, not additional server rules.
