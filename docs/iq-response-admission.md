@@ -22,6 +22,8 @@ certified complete.
 | `response.parser_unemittable` | The generated initializer cannot represent the recovered payload. |
 | `guards.reference_unsupported` / `guards.reference_nonuniform` | A recovered request reference cannot use the supported uniform wire context. |
 | `guards.request_context_required` | Call `parse_response_with_request` with the actual request ID and target. |
+| `guards.assertion_incomplete` / `guards.from_server_unrecovered` | A guard lacks its required operand or the IR has no recovered server predicate; generation rejects it rather than dropping or inventing it. |
+| `outcomes.payload_coverage_unknown` | Optional-child contracts differ and their implication is not established by the bounded model. |
 | `outcomes.error_contract_unsupported` | A direct error payload has an assertion outside the bounded tag/code/text decoder; no generic fallback may erase that guard. |
 | `outcomes.unemittable` | A variant parser cannot be emitted, or an earlier variant can shadow a later one under the emitter's known predicates. The message names variant indexes and tags. |
 
@@ -79,6 +81,42 @@ with a diagnostic; and disjoint root tags participate in both admission and
 runtime selection. A stricter earlier child guard is a negative control for
 coverage. These constructed IR cases check generator invariants; they do not
 claim new server behavior. The real pilot execution tests remain unchanged.
+
+The payload-aware coverage audit also tests the complete path from admission
+through compiled execution. Code/text intervals alone are insufficient: an
+optional-child decoder can fail on bytes, duplicates or missing child fields.
+Both pairwise and collective coverage now count only payload checks implied by
+the later arm. Extra earlier children supply concrete counterexamples; differing
+contracts on the same child fail admission as `outcomes.payload_coverage_unknown`
+until an implication proof is supported. Required error-wrapper and type guards
+participate even when their redundant assertion mirrors are absent. Existing
+rejection tests remain.
+
+Response-level tag, attribute presence/literal, content and unique-child guards
+use the same predicate emitter as outcome selectors, in both contextual and
+context-free entry points. The real Pings parser's tag assertion is checked
+against its preserved source; this does not qualify its unresolved JID-enum
+semantics. Missing guard operands and the operand-free `from_server` marker are
+diagnosed explicitly.
+
+This exposes seven previously admitted operations with unrecovered server guards:
+`UploadPreKeysSpec` (WAWebUploadPreKeysJob), `TitleSpec`
+(WAWebQueryCtwaContextJob), `UnpairDeviceSpec` (WAWebUnpairDeviceJob),
+`RefreshSpec`, `Refresh2Spec`, `Refresh3Spec` (WAWebTosJob), and
+`QueryBusinessProfileJobSpec`. Their associated types remain, but parsing now
+returns `guards.from_server_unrecovered`. A reviewed adapter or further source
+recovery is required; do not hardcode an assumed server address. This is part of
+the unreleased 0.2.0 migration, not rejection of arbitrary extension fields.
+
+### Reference adapter interface
+
+The emitted root-tag guard requires `NodeRef::tag() -> &str`. The in-memory
+compilation fixture deliberately has no public `tag` field on `NodeRef`, so field
+access cannot pass the test. Adapters for this reference output must supply the
+accessor when upgrading. No external client crate, event model or dependency is
+imported; the existing emitted type paths are reference-adapter names, not proof
+of compatibility with a particular downstream crate. Independent conformance
+adapters require the same explicit accessor update.
 
 ## Verified pilots
 
@@ -148,6 +186,7 @@ credentials were used to extract or test protocol behavior.
 | `WASmaxOutGroupsAcceptGroupAddRequest` | C | 5461..5920 |
 | `WASmaxGroupsAcceptGroupAddRPC` | C | 5922..7533 |
 | `WASmaxParseUtils` | B | 2256336..2263058 |
+| `WASmaxInPingsClientResponseServerResponse` | B | 2266135..2266990 |
 | `WASmaxInGroupsIQErrorResourceConstraintMixin` | D | 623..1153 |
 
 These are static observations of this preserved Web build, not proof of the
@@ -167,16 +206,16 @@ context. Copying this test to the first fail-closed commit reproduces the missin
 context API failure. The adapter does not qualify a binary codec or a downstream
 client; independent conformance remains separately owned.
 
-Two debug generations of all 142 IQ operations produced identical 2,061,750-byte
-outputs, SHA-256 `214c9d9fede66c9ff6cf4194e75a506b8fd780b9c56675f0232f864626d6ecbd`,
-in 4.43 and 3.92 seconds, with 39 explicitly rejected parsers. The original base
+Two debug generations of all 142 IQ operations produced identical 2,067,041-byte
+outputs, SHA-256 `b8fb5d0020941e74a1dfc6f2b021844a62982d83e6617d319379c560b40d0742`,
+in 4.15 and 4.02 seconds, with 46 explicitly rejected parsers. The original base
 produced 1,523,859 bytes in 2.84 and 2.98 seconds. The increase includes recovered
 outcome types and context-taking parsers; it is not an optimization claim.
 The Rust reference catalog remains ignored by git. Maintenance requires review
 of the admitted/rejected operation set and the bounded helper against source
 changes; neither a rejection count nor reduced output size is a quality target.
 
-Reproduce with `cargo test --locked -p wa-codegen`, including 181 unit tests and
+Reproduce with `cargo test --locked -p wa-codegen`, including 186 unit tests and
 the compiled runtime integration test; `cargo clippy --locked -p wa-codegen
 --all-targets -- -D warnings`; schema validation; and full bundle regeneration
 with `whatspec update --check`. No generated IR or baseline changes are included.
@@ -186,3 +225,14 @@ the separately reviewed quality work from PR #52, including the source-backed
 baseline reconciliation. This branch integrates that main revision without
 additional baseline changes. Independent two-snapshot pilot qualification is
 maintained in PR #55, outside this emitter patch.
+
+Audit regressions fail at `9de5d0ae8d8561b1036ce3bd875117f2cc152804`:
+payload-aware fallback admission and non-union guard checks fail their unit
+probes; the accessor-only adapter fails compilation with E0615. After correction,
+the compiled fixture additionally exercises both fallback bands with empty,
+UTF-8 and non-UTF-8 bytes, malformed/duplicate children, and controls where the
+earlier parser succeeds. Contextual and context-free guard probes test wrong
+tags, missing/pinned attributes, content, missing/duplicate children and bytes.
+These additional contracts are explicitly constructed test cases, not new
+claimed source operations. All 579 bundle hashes/sizes and setHash were rechecked
+with locked restore before the Pings and helper modules were read by static AST.
