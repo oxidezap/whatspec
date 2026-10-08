@@ -248,3 +248,8 @@ and the full variables shape: six boolean flags plus an `input` object with
 preserved caller/Relay argument definitions; scalar tags are the documented
 name-based approximation, not proven server types or nullability. Mutations
 cover extra operations and changed/missing/extra top-level and nested fields.
+
+Presence is compared as a complete tree, including empty scalar `fields` and
+absent `items` for all nodes in this object-only capture. Nineteen structural
+mutations (children/items on each scalar and items on input) fail the preceding
+oracle's regression test and are rejected by the full-tree comparison.

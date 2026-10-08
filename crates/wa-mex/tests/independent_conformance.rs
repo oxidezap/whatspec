@@ -1,6 +1,6 @@
 //! Presence is a serialization property, separate from inferred type/nullability.
 use std::{collections::BTreeMap, path::Path};
-use wa_ir::{TypeNode, VariablePresence};
+use wa_ir::{TypeNode, VariablePresence, VariablePresenceNode};
 
 fn source(version: &str, module: &str) -> String {
     std::fs::read_to_string(
@@ -54,57 +54,42 @@ fn reviewed_presence(op: &wa_ir::MexOperation) {
             ),
         ])
     );
-    let keys: std::collections::BTreeSet<_> =
-        op.variables_presence.keys().map(String::as_str).collect();
+    let leaf = |presence| VariablePresenceNode {
+        presence,
+        fields: BTreeMap::new(),
+        items: None,
+    };
     assert_eq!(
-        keys,
-        std::collections::BTreeSet::from([
-            "input",
-            "fetch_creation_time",
-            "fetch_full_image",
-            "fetch_status_metadata",
-            "fetch_wamo_sub",
-            "fetch_viewer_metadata",
-            "fetch_pinned_messages",
+        op.variables_presence,
+        BTreeMap::from([
+            ("fetch_creation_time".into(), leaf(VariablePresence::Always)),
+            ("fetch_full_image".into(), leaf(VariablePresence::Always)),
+            (
+                "fetch_status_metadata".into(),
+                leaf(VariablePresence::Always)
+            ),
+            ("fetch_wamo_sub".into(), leaf(VariablePresence::Always)),
+            (
+                "fetch_viewer_metadata".into(),
+                leaf(VariablePresence::Conditional)
+            ),
+            (
+                "fetch_pinned_messages".into(),
+                leaf(VariablePresence::Undetermined)
+            ),
+            (
+                "input".into(),
+                VariablePresenceNode {
+                    presence: VariablePresence::Always,
+                    fields: BTreeMap::from([
+                        ("key".into(), leaf(VariablePresence::Conditional)),
+                        ("type".into(), leaf(VariablePresence::Always)),
+                        ("view_role".into(), leaf(VariablePresence::Conditional)),
+                    ]),
+                    items: None,
+                }
+            ),
         ])
-    );
-    let input_keys: std::collections::BTreeSet<_> = op.variables_presence["input"]
-        .fields
-        .keys()
-        .map(String::as_str)
-        .collect();
-    assert_eq!(
-        input_keys,
-        std::collections::BTreeSet::from(["key", "type", "view_role"])
-    );
-    for (key, expected) in [
-        ("fetch_creation_time", VariablePresence::Always),
-        ("fetch_full_image", VariablePresence::Always),
-        ("fetch_status_metadata", VariablePresence::Always),
-        ("fetch_wamo_sub", VariablePresence::Always),
-        ("fetch_viewer_metadata", VariablePresence::Conditional),
-        ("fetch_pinned_messages", VariablePresence::Undetermined),
-    ] {
-        assert_eq!(op.variables_presence[key].presence, expected, "{key}");
-        // The scalar-name heuristic types these fetch_* names as boolean.
-        // That does not establish call-site nullability or key presence.
-        assert_eq!(op.variables_shape[key], TypeNode::Leaf("boolean".into()));
-    }
-    assert_eq!(
-        op.variables_presence["input"].presence,
-        VariablePresence::Always
-    );
-    assert_eq!(
-        op.variables_presence["input"].fields["key"].presence,
-        VariablePresence::Conditional
-    );
-    assert_eq!(
-        op.variables_presence["input"].fields["view_role"].presence,
-        VariablePresence::Conditional
-    );
-    assert_eq!(
-        op.variables_presence["input"].fields["type"].presence,
-        VariablePresence::Always
     );
 }
 
@@ -255,6 +240,54 @@ fn variables_shape_oracle_rejects_missing_extra_and_changed_fields() {
                     "accepted shape mutation {key}, nested={nested}, remove={remove}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn presence_oracle_rejects_children_and_items_on_scalar_leaves() {
+    let source = source(
+        "2.3000.1047483476",
+        "WAWebMexFetchNewsletterJobQuery.graphql",
+    ) + &source("2.3000.1047483476", "WAWebMexFetchNewsletterJob");
+    let ir = wa_mex::extract_mex(&source, "fixture");
+    for path in [
+        "fetch_creation_time",
+        "fetch_full_image",
+        "fetch_status_metadata",
+        "fetch_wamo_sub",
+        "fetch_viewer_metadata",
+        "fetch_pinned_messages",
+        "key",
+        "type",
+        "view_role",
+        "input",
+    ] {
+        for items in [false, true] {
+            if path == "input" && !items {
+                continue;
+            }
+            let mut op = ir.operations["FetchNewsletter"].clone();
+            let extra = op.variables_presence["fetch_full_image"].clone();
+            let node = if ["key", "type", "view_role"].contains(&path) {
+                op.variables_presence
+                    .get_mut("input")
+                    .unwrap()
+                    .fields
+                    .get_mut(path)
+                    .unwrap()
+            } else {
+                op.variables_presence.get_mut(path).unwrap()
+            };
+            if items {
+                node.items = Some(Box::new(extra));
+            } else {
+                node.fields.insert("unreviewed".into(), extra);
+            }
+            assert!(
+                std::panic::catch_unwind(|| reviewed_presence(&op)).is_err(),
+                "accepted presence structure {path}, items={items}"
+            );
         }
     }
 }
