@@ -191,3 +191,13 @@ no catalog entry 29 vs 41, and unread WAM arguments 93 vs 104. Baselines and CI
 were not changed here, apart from adding the independent fixture-test job.
 Published-SHA CI and combined emitter qualification are
 still required before declaring the repository qualified.
+
+## Post-quality integration
+
+Updated against main `9b8bc4e05eec14fa49b488c8eb8e56ce8ac5bfdb`, the
+merged #52 quality work including the audit remediation. Exact lint baselines
+remain enforced. The whole-file parse validation fix from #55 is included here
+because this baseline owns the same capture helper: invalid input fails before
+any span is emitted, while original outer-module boundaries are retained. CI
+explicitly runs the helper's invalid-input and nested-boundary regressions.
+This update does not depend on the IQ emitter or compiled qualification fixtures.
