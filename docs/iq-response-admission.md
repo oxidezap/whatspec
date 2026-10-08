@@ -236,3 +236,31 @@ tags, missing/pinned attributes, content, missing/duplicate children and bytes.
 These additional contracts are explicitly constructed test cases, not new
 claimed source operations. All 579 bundle hashes/sizes and setHash were rechecked
 with locked restore before the Pings and helper modules were read by static AST.
+
+### Fixture dependency/compiler binding
+
+The compiled runtime fixture builds only the lock-selected `anyhow` package via
+Cargo `--offline --locked` in an isolated target directory. It consumes exactly
+one `compiler-artifact` rlib path from that invocation's JSON output. It does
+not scan `deps`, select by mtime, or guess an artifact hash. Multiple/absent
+reported rlibs fail explicitly. Isolation avoids nesting a build under the
+parent test build's target-directory lock.
+
+A dependency-free build script records Cargo's selected `RUSTC` and target.
+The fixture compiler uses the explicit runtime `RUSTC` override when present,
+otherwise that recorded compiler, for both dependency build and fixture.
+There is no new production dependency and no IQ emitter/IR change.
+
+Regression controls leave invalid metadata and a same-toolchain rlib from a
+different crate build alongside the Cargo artifact. Compiling against each
+wrong artifact fails; the reported artifact compiles and executes, including
+a repeated build using Cargo's fresh-artifact report. A Unix compiler wrapper
+records both dependency and fixture invocations to check override propagation.
+Only one installed toolchain was used; no cross-version E0514 reproduction is
+claimed. The tests qualify the reference fixture build, not an external client.
+
+Observed local wall times after the outer test build: runtime integration
+3.97 seconds and the two infrastructure regressions together 3.67 seconds.
+These are single shared-executor observations, not performance claims. Each
+fixture temporarily builds `anyhow`; successful fixture directories are removed,
+while failed fixtures retain generated source and Cargo artifact messages.
