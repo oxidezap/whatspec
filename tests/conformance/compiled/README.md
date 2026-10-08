@@ -321,3 +321,22 @@ Greptile merge-order finding is covered by the integrated seven-case
 regression: later unknown operands clear earlier constants while later explicit
 writes can restore a known value. Its object-property and opaque-setter neighbor
 regressions also pass. No further implementation was added in this workstream.
+
+## Whole-file capture validation
+
+The module-spans capture now rejects parse errors anywhere in the complete
+verified input before printing a span. It first uses the checked parser, then
+uses the original extraction API to preserve outer-module boundaries. This adds
+a validation parse per bundle; the shared extraction APIs and runtime handling
+of unknown extensions are unchanged.
+
+The new example regression fails before the fix on a complete Wanted module
+followed by `function broken(`, and passes afterward for errors before, between
+and after valid definitions. A nested-definition regression preserves the same
+outer spans as production extraction. CI explicitly runs these example tests.
+The real CLI returns nonzero with empty stdout for the malformed tail. Locked
+synthetic capture runs reject both same-file and later-file errors without
+creating an output directory. All 66 preserved source fixtures still parse and
+select their original named module; the five Python integrity tests, nine
+wa-transform tests and targeted all-target Clippy pass. These checks do not claim
+a new full bundle-store recapture after executor restart.
