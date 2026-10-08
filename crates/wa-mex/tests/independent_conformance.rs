@@ -24,6 +24,29 @@ fn verified_call_sites_keep_presence_separate_from_boolean_type() {
 }
 
 fn reviewed_presence(op: &wa_ir::MexOperation) {
+    let keys: std::collections::BTreeSet<_> =
+        op.variables_presence.keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        std::collections::BTreeSet::from([
+            "input",
+            "fetch_creation_time",
+            "fetch_full_image",
+            "fetch_status_metadata",
+            "fetch_wamo_sub",
+            "fetch_viewer_metadata",
+            "fetch_pinned_messages",
+        ])
+    );
+    let input_keys: std::collections::BTreeSet<_> = op.variables_presence["input"]
+        .fields
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        input_keys,
+        std::collections::BTreeSet::from(["key", "type", "view_role"])
+    );
     for (key, expected) in [
         ("fetch_creation_time", VariablePresence::Always),
         ("fetch_full_image", VariablePresence::Always),
@@ -112,6 +135,31 @@ fn null_undefined_and_unresolved_calls_have_distinct_presence_verdicts() {
             op.variables_shape["fetch_viewer_metadata"],
             TypeNode::Leaf("boolean".into()),
             "presence does not establish nullability: {expression}"
+        );
+    }
+}
+
+#[test]
+fn presence_oracle_rejects_unreviewed_keys() {
+    let source = source(
+        "2.3000.1047483476",
+        "WAWebMexFetchNewsletterJobQuery.graphql",
+    ) + &source("2.3000.1047483476", "WAWebMexFetchNewsletterJob");
+    let ir = wa_mex::extract_mex(&source, "fixture");
+    for nested in [false, true] {
+        let mut op = ir.operations["FetchNewsletter"].clone();
+        if nested {
+            let input = op.variables_presence.get_mut("input").unwrap();
+            input
+                .fields
+                .insert("unreviewed".into(), input.fields["key"].clone());
+        } else {
+            op.variables_presence
+                .insert("unreviewed".into(), op.variables_presence["input"].clone());
+        }
+        assert!(
+            std::panic::catch_unwind(|| reviewed_presence(&op)).is_err(),
+            "accepted extra key, nested={nested}"
         );
     }
 }
