@@ -201,3 +201,9 @@ because this baseline owns the same capture helper: invalid input fails before
 any span is emitted, while original outer-module boundaries are retained. CI
 explicitly runs the helper's invalid-input and nested-boundary regressions.
 This update does not depend on the IQ emitter or compiled qualification fixtures.
+
+Complete provenance records are pinned separately from source-body hashes.
+Changes to setHash, bundle counts/bytes, per-module bundle identity or offsets
+must fail the offline check until deliberately reviewed. These pins were checked
+against the recorded historical bundle locks; recapture does not update them
+automatically. Hash pins detect drift, not authenticity of coordinated edits.
