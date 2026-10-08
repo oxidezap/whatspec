@@ -12,7 +12,6 @@ pub struct Node {
 }
 #[derive(Clone, Copy)]
 pub struct NodeRef<'a> {
-    pub tag: &'a str,
     node: &'a Node,
 }
 impl Node {
@@ -28,13 +27,13 @@ impl Node {
         }
     }
     fn as_ref(&self) -> NodeRef<'_> {
-        NodeRef {
-            tag: &self.tag,
-            node: self,
-        }
+        NodeRef { node: self }
     }
 }
 impl<'a> NodeRef<'a> {
+    pub fn tag(&self) -> &'a str {
+        &self.node.tag
+    }
     pub fn get_attr(&self, name: &str) -> Option<&'a String> {
         self.node.attrs.get(name)
     }
@@ -190,7 +189,7 @@ fn main() {
         "invite",
         12345,
         &jid::Jid::new("456", jid::Server::Pn),
-        target,
+        target.clone(),
     );
     let request = subject.build_iq();
     assert_eq!(request.target.0, "123@g.us");
@@ -205,6 +204,105 @@ fn main() {
     assert_eq!(nodes[0].attrs["code"], "invite");
     assert_eq!(nodes[0].attrs["expiration"], "12345");
     assert_eq!(nodes[0].attrs["admin"], "456@s.whatsapp.net");
+    let guarded = MakeGuardedPayloadSpec::new(target.clone(), Vec::<u8>::new());
+    let plain = MakeGuardedPlainSpec::new(target.clone(), Vec::<u8>::new());
+    let content = MakeGuardedContentSpec::new(target.clone(), Vec::<u8>::new());
+    let mut good = result(vec![Node::new("proof", &[], vec![])]);
+    good.attrs.insert("marker".into(), "present".into());
+    good.attrs.insert("scope".into(), "group".into());
+    assert!(
+        guarded
+            .parse_response_with_request(&good.as_ref(), "req-1", "123@g.us")
+            .is_ok()
+    );
+    assert!(plain.parse_response(&good.as_ref()).is_ok());
+    for mutation in 0..7 {
+        let mut bad = good.clone();
+        match mutation {
+            0 => bad.tag = "message".into(),
+            1 => {
+                bad.attrs.remove("marker");
+            }
+            2 => {
+                bad.attrs.insert("scope".into(), "other".into());
+            }
+            3 => bad.children.clear(),
+            4 => bad.children.push(bad.children[0].clone()),
+            5 => {
+                bad.children.clear();
+                bad.bytes = Some(vec![]);
+            }
+            _ => {
+                bad.attrs.insert("type".into(), "error".into());
+            }
+        }
+        assert!(
+            guarded
+                .parse_response_with_request(&bad.as_ref(), "req-1", "123@g.us")
+                .is_err(),
+            "context mutation {mutation}"
+        );
+        assert!(
+            plain.parse_response(&bad.as_ref()).is_err(),
+            "plain mutation {mutation}"
+        );
+    }
+    good.children.clear();
+    good.bytes = Some(b"accepted".to_vec());
+    assert!(
+        content
+            .parse_response_with_request(&good.as_ref(), "req-1", "123@g.us")
+            .is_ok()
+    );
+    good.bytes = Some(b"other".to_vec());
+    assert!(
+        content
+            .parse_response_with_request(&good.as_ref(), "req-1", "123@g.us")
+            .is_err()
+    );
+    good.bytes = None;
+    assert!(
+        content
+            .parse_response_with_request(&good.as_ref(), "req-1", "123@g.us")
+            .is_err()
+    );
+
+    let coverage = MakePayloadCoverageSpec::new(target.clone(), Vec::<u8>::new());
+    for code in ["410", "470"] {
+        for body in [vec![], b"opaque".to_vec(), vec![0xff]] {
+            let mut node = error(code, Some("unknown"));
+            node.children[0].bytes = Some(body);
+            assert!(matches!(
+                coverage
+                    .parse_response_with_request(&node.as_ref(), "req-1", "123@g.us")
+                    .unwrap(),
+                MakePayloadCoverageResponse::FallbackError(_)
+            ));
+        }
+        for malformed in [
+            vec![Node::new("field", &[("name", "subject")], vec![])],
+            vec![
+                Node::new("field", &[], vec![]),
+                Node::new("field", &[], vec![]),
+            ],
+        ] {
+            let mut node = error(code, Some("unknown"));
+            node.children[0].children = malformed;
+            assert!(matches!(
+                coverage
+                    .parse_response_with_request(&node.as_ref(), "req-1", "123@g.us")
+                    .unwrap(),
+                MakePayloadCoverageResponse::FallbackError(_)
+            ));
+        }
+        let node = error(code, Some("unknown"));
+        assert!(!matches!(
+            coverage
+                .parse_response_with_request(&node.as_ref(), "req-1", "123@g.us")
+                .unwrap(),
+            MakePayloadCoverageResponse::FallbackError(_)
+        ));
+    }
     let bare = result(vec![]);
     assert!(subject.parse_response(&bare.as_ref()).is_err());
     assert!(accept.parse_response(&bare.as_ref()).is_err());
