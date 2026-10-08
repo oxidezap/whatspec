@@ -294,7 +294,7 @@ fn binary_error_content_reaches_fallback() {
 #[test]
 fn absent_and_empty_binary_error_content_remain_distinct() {
     let subject = specs().0;
-    for binary in [None, Some(vec![])] {
+    for binary in [None, Some(vec![]), Some(b"opaque".to_vec()), Some(vec![0xff])] {
         let mut response = error("406", Some("not-acceptable"));
         response.children[0].bytes = binary.clone();
         let MakeSetSubjectRequestResponse::ClientError(value) = subject
@@ -311,7 +311,7 @@ fn absent_and_empty_binary_error_content_remain_distinct() {
         assert_eq!(fallback, binary.is_some(), "{value:?}");
     }
     // Parsers that inspect only attributes must still accept binary content.
-    for bytes in [vec![], b"opaque".to_vec()] {
+    for bytes in [vec![], b"opaque".to_vec(), vec![0xff]] {
         let mut response = error("499", Some("unknown"));
         response.children[0].bytes = Some(bytes);
         assert_eq!(subject_class(&response).unwrap(), "client");

@@ -357,3 +357,20 @@ and fails the pinned test, covering both snapshots and all record groups.
 Unmodified evidence passes all six composition fixture tests. Updating a capture
 now requires reviewing its complete provenance binding and deliberately updating
 the corresponding pin, in addition to source/selected-input integrity checks.
+
+### Payload guards and reference adapter update
+
+Composition includes IQ owner commit `4471cbc3bc1b07e71ef15627281ac149cd41e91d`.
+The independent harness reuses only its adapter/constructors before `fn main`,
+so it now compiles with `NodeRef::tag()` and no public tag field. Its eight
+source-backed groups and expected outcomes remain independently maintained.
+The absent/empty binary regression also covers UTF-8 and non-UTF-8 bytes: the
+child-reading specific error falls through, while attribute-only errors accept
+those bytes. No external client dependency or compatibility certification is added.
+
+Owner regressions additionally exercise constructed payload-coverage and
+response-level guard contracts. They are generator invariants, not recovered
+server operations. Seven newly diagnosed `from_server` contracts bring the
+owner catalog's explicit rejection count to 46; see `docs/iq-response-admission.md`
+for the operation list and generation size/time. The two independently captured
+pilot inputs, source evidence and provenance pins are unchanged.
