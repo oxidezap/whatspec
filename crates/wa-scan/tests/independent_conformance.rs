@@ -31,12 +31,15 @@ fn captured(version: &str) -> Value {
 }
 
 fn operation<'a>(ir: &'a Value, name: &str) -> &'a Value {
-    ir["stanzas"]
+    let module = format!("WASmaxOutGroups{name}Request");
+    let mut matches = ir["stanzas"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|s| s["moduleName"] == format!("WASmaxOutGroups{name}Request"))
-        .unwrap_or_else(|| panic!("{name} missing"))
+        .filter(|s| s["moduleName"] == module);
+    let operation = matches.next().unwrap_or_else(|| panic!("{name} missing"));
+    assert!(matches.next().is_none(), "{name} duplicated");
+    operation
 }
 
 fn request_contract(ir: &Value) {
@@ -524,5 +527,61 @@ fn captured_oracle_rejects_changed_exclusion_diagnostics() {
                 "accepted {version} diagnostic {mutation}"
             );
         }
+    }
+}
+
+#[test]
+fn pilot_lookup_rejects_absence_and_identical_or_divergent_duplicates() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../generated/iq/index.json");
+    let ir: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for name in ["SetSubject", "AcceptGroupAdd"] {
+        let pilot = operation(&ir, name).clone();
+        for mutation in ["absent", "identical", "divergent_before", "divergent_after"] {
+            let mut changed = ir.clone();
+            let stanzas = changed["stanzas"].as_array_mut().unwrap();
+            if mutation == "absent" {
+                stanzas.retain(|s| s["moduleName"] != pilot["moduleName"]);
+            } else {
+                let mut duplicate = pilot.clone();
+                if mutation != "identical" {
+                    duplicate["request"]["target"] = json!("divergent_target");
+                }
+                if mutation == "divergent_before" {
+                    stanzas.insert(0, duplicate);
+                } else {
+                    stanzas.push(duplicate);
+                }
+            }
+            assert!(
+                std::panic::catch_unwind(|| operation(&changed, name)).is_err(),
+                "accepted {name} {mutation}"
+            );
+        }
+    }
+}
+
+#[test]
+fn pilot_lookup_does_not_restrict_unrelated_contracts() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../generated/iq/index.json");
+    let mut ir: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let expected = [
+        operation(&ir, "SetSubject").clone(),
+        operation(&ir, "AcceptGroupAdd").clone(),
+    ];
+    let stanzas = ir["stanzas"].as_array_mut().unwrap();
+    let unrelated = stanzas
+        .iter()
+        .find(|s| {
+            s["moduleName"] != "WASmaxOutGroupsSetSubjectRequest"
+                && s["moduleName"] != "WASmaxOutGroupsAcceptGroupAddRequest"
+        })
+        .expect("full catalog includes unrelated contracts")
+        .clone();
+    stanzas.push(unrelated.clone());
+    let mut divergent = unrelated;
+    divergent["namespace"] = json!("unreviewed_namespace");
+    stanzas.insert(0, divergent);
+    for (name, expected) in ["SetSubject", "AcceptGroupAdd"].into_iter().zip(expected) {
+        assert_eq!(operation(&ir, name), &expected);
     }
 }
