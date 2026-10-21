@@ -8,6 +8,7 @@ pub struct Node {
     pub tag: String,
     pub attrs: BTreeMap<String, String>,
     pub children: Vec<Node>,
+    pub children_attached: bool,
     pub bytes: Option<Vec<u8>>,
 }
 #[derive(Clone, Copy)]
@@ -22,6 +23,7 @@ impl Node {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+            children_attached: !children.is_empty(),
             children,
             bytes: None,
         }
@@ -89,6 +91,7 @@ pub mod jid {
     }
 }
 pub mod node {
+    pub use crate::Node;
     #[derive(Debug, Clone)]
     pub enum NodeContent {
         Nodes(Vec<crate::Node>),
@@ -108,7 +111,16 @@ pub mod builder {
             self
         }
         pub fn bytes(mut self, bytes: Vec<u8>) -> Self {
+            self.0.children.clear();
+            self.0.children_attached = false;
             self.0.bytes = Some(bytes);
+            self
+        }
+        /// Replace child content just as the production NodeBuilder does.
+        pub fn children(mut self, children: impl IntoIterator<Item = crate::Node>) -> Self {
+            self.0.children = children.into_iter().collect();
+            self.0.children_attached = true;
+            self.0.bytes = None;
             self
         }
         pub fn build(self) -> crate::Node {
@@ -182,7 +194,60 @@ fn error(code: &str, text: Option<&str>) -> Node {
     node.attrs.insert("type".into(), "error".into());
     node
 }
+/// Exercise generated requests and parsers against captured node expectations.
 fn main() {
+    for choice in [None, Some(false), Some(true)] {
+        let spec = MakeNullableParentSpec::new("dedup", Some("ctx".into()), choice, Some(MakeNullableParentParentInput { parent_args_has_parent_group_default_membership_approval_mode_present: choice }));
+        let request = spec.build_iq();
+        assert_eq!(request.target.0, "g.us");
+        let node::NodeContent::Nodes(nodes) = request.content.unwrap();
+        let create = &nodes[0];
+        assert_eq!(create.attrs["subject"], "Fixture community");
+        assert_eq!(create.attrs.get("key").map(String::as_str), choice.map(|_| "dedup"));
+        assert_eq!(create.attrs.get("create_ctx").map(String::as_str), choice.map(|_| "ctx"));
+        let parent = &create.children[0];
+        assert_eq!(parent.attrs.get("default_membership_approval_mode").map(String::as_str), choice.map(|_| "request_required"));
+    }
+    for enabled in [false, true] {
+        let spec = MakeOptionalChildrenSpec::new(
+            enabled.then(|| MakeOptionalChildrenPrivacyInput { privacy_content: b"token".to_vec() }),
+            enabled.then(|| MakeOptionalChildrenMemberAddModeInput {}),
+            enabled,
+        );
+        let node::NodeContent::Nodes(nodes) = spec.build_iq().content.unwrap();
+        let create = &nodes[0];
+        assert_eq!(create.children.len(), if enabled { 3 } else { 0 });
+        assert_eq!(create.children_attached, enabled);
+        if enabled {
+            assert_eq!(create.children[0].tag, "privacy");
+            assert_eq!(create.children[0].bytes.as_deref(), Some(b"token".as_slice()));
+            assert_eq!(create.children[1].bytes.as_deref(), Some(b"admin_add".as_slice()));
+            assert_eq!(create.children[2].tag, "locked");
+        }
+    }
+    let tokens = [Some(b"first".to_vec()), None, Some(b"third".to_vec())];
+    let participants = tokens.iter().enumerate().map(|(i, token)| MakeRepeatedParticipantsParticipantInput {
+        jid: jid::Jid::new(&i.to_string(), jid::Server::Pn),
+        phone_number: None,
+        username: None,
+        privacy: token.clone().map(|privacy_content| MakeRepeatedParticipantsParticipantInputPrivacyInput { privacy_content }),
+    }).collect();
+    let node::NodeContent::Nodes(nodes) = MakeRepeatedParticipantsSpec::new(participants).build_iq().content.unwrap();
+    let create = &nodes[0];
+    assert_eq!(create.children.len(), 3);
+    for (i, (participant, token)) in create.children.iter().zip(&tokens).enumerate() {
+        assert_eq!(participant.attrs["jid"], format!("{i}@s.whatsapp.net"));
+        assert_eq!(participant.children_attached, token.is_some());
+        assert_eq!(participant.children.len(), usize::from(token.is_some()));
+        if let Some(token) = token { assert_eq!(participant.children[0].bytes.as_ref(), Some(token)); }
+    }
+    let node::NodeContent::Nodes(nodes) = MakeRepeatedParticipantsSpec::new(Vec::new()).build_iq().content.unwrap();
+    assert!(!nodes[0].children_attached);
+    assert!(nodes[0].children.is_empty());
+    assert!(MakeOptionalRootSpec::new(None).build_iq().content.is_none());
+    let node::NodeContent::Nodes(nodes) = MakeOptionalRootSpec::new(Some(MakeOptionalRootItemInput { dhash: "hash".into() })).build_iq().content.unwrap();
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].attrs["dhash"], "hash");
     let target = jid::Jid::new("123", jid::Server::Group);
     let subject = MakeSetSubjectRequestSpec::new(target.clone(), b"new subject".to_vec());
     let accept = MakeAcceptGroupAddRequestSpec::new(

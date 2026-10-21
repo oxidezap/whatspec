@@ -1,6 +1,6 @@
 //! Emit Rust source fragments: response parsers and request builders.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use wa_ir::wap;
 use wa_ir::{ParsedField, ParsedFieldType, WapAttrKind, WapChildNode, WapContentKind};
@@ -1344,6 +1344,32 @@ fn unique_field(ctx: &VariantCtx, base: &str) -> String {
         .expect("an unused suffix exists")
 }
 
+/// Wrap emitted attribute mutations in the recovered non-null prerequisite.
+fn guard_attribute(lines: &mut Vec<String>, start: usize, indent: &str, field: Option<&str>) {
+    let Some(field) = field else { return };
+    let statements = lines.split_off(start);
+    if statements.is_empty() {
+        return;
+    }
+    lines.push(format!("{indent}if self.{field}.is_some() {{"));
+    lines.extend(
+        statements
+            .into_iter()
+            .map(|line| format!("{indent}    {}", line.strip_prefix(indent).unwrap_or(&line))),
+    );
+    lines.push(format!("{indent}}}"));
+}
+
+/// Optional nodes and structured repeated items own their payload fields.
+/// Opaque repeated content keeps its existing Vec<payload> representation.
+pub(crate) fn owns_payload(child: &WapChildNode) -> bool {
+    !child.presence.is_required()
+        || (child.repeats
+            && (!child.attrs.is_empty()
+                || !child.children.is_empty()
+                || !child.variant_groups.is_empty()))
+}
+
 /// Emit the `let <tag>_node = NodeBuilder::new("tag")…build();` statements for a
 /// request child, recursing into nested children first. `used_names` dedups
 /// repeated tags. Returns `(lines, var_name)` — the caller takes the returned
@@ -1361,6 +1387,9 @@ pub(crate) fn emit_child_builder(
     ctx: &mut VariantCtx,
     path: &[String],
 ) -> (Vec<String>, String, bool) {
+    if owns_payload(child) {
+        return emit_payload_children(child, indent, used_names, ctx);
+    }
     let mut lines: Vec<String> = Vec::new();
     let here: Vec<String> = path.iter().cloned().chain([child.tag.clone()]).collect();
     let base_name = format!("{}_node", snake_case(&child.tag));
@@ -1445,6 +1474,7 @@ pub(crate) fn emit_child_builder(
         }
     }
     for attr in &child.attrs {
+        let first_statement = body.len();
         let alit = rust_lit(&attr.name);
         // The field this SITE reads, which the collection pass resolved: a name shared with
         // another node's attribute was given a distinct field there, and deriving it from the
@@ -1500,12 +1530,18 @@ pub(crate) fn emit_child_builder(
             }
             _ => {}
         }
+        guard_attribute(
+            &mut body,
+            first_statement,
+            indent,
+            ctx.attr_fields.presence_field(attr),
+        );
     }
     body.extend(emit_variant_groups(child, &var_name, indent, ctx));
     body.extend(emit_node_content(child, &var_name, indent, ctx));
     if variant_children || nested_list {
         body.push(format!(
-            "{indent}{var_name} = {var_name}.children({var_name}_children);"
+            "{indent}if !{var_name}_children.is_empty() {{ {var_name} = {var_name}.children({var_name}_children); }}"
         ));
     } else if !nested_var_names.is_empty() {
         body.push(format!(
@@ -1532,6 +1568,135 @@ pub(crate) fn emit_child_builder(
         lines.push(format!("{indent}let {var_name} = {var_name}.build();"));
     }
     (lines, var_name, false)
+}
+
+/// Keep optional payloads inside Option and repeated payloads inside Vec, so
+/// each repeated item owns its nested optional children. A marker uses bool.
+fn emit_payload_children(
+    child: &WapChildNode,
+    indent: &str,
+    used_names: &mut HashMap<String, usize>,
+    ctx: &mut VariantCtx,
+) -> (Vec<String>, String, bool) {
+    let field = unique_field(ctx, &rust_ident(&child.tag));
+    let ty = format!("{}{}Input", ctx.spec_base, pascal_case(&field));
+    let mut required = child.clone();
+    required.presence = wa_ir::WapChildPresence::Required;
+    required.repeats = false;
+    let mut attrs = Vec::new();
+    let mut seen = HashSet::new();
+    let mut map = crate::spec::AttrFieldMap::new();
+    crate::spec::collect_attrs(
+        std::slice::from_ref(&required),
+        &mut attrs,
+        &mut seen,
+        &[],
+        &mut map,
+    );
+    crate::spec::collect_presence_fields(
+        std::slice::from_ref(&required),
+        &mut attrs,
+        &mut seen,
+        &mut map,
+    );
+    let reserved = attrs.iter().map(|(n, _, _)| n.clone()).collect();
+    let mut fields = Vec::new();
+    let inner_indent = format!("{indent}    ");
+    let (body, node, list) = emit_child_builder(
+        &required,
+        &inner_indent,
+        used_names,
+        &mut VariantCtx {
+            spec_base: &ty,
+            enum_defs: ctx.enum_defs,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &map,
+        },
+        &[],
+    );
+    let flag = child.presence == wa_ir::WapChildPresence::PresenceFlag
+        && !child.repeats
+        && attrs.is_empty()
+        && fields.is_empty();
+    let mut definition = vec![
+        format!("/// Payload for one `{}` child.", child.tag),
+        "#[derive(Debug, Clone)]".into(),
+        format!("pub struct {ty} {{"),
+    ];
+    for (name, field_ty, _) in &attrs {
+        definition.push(format!("    pub {name}: {field_ty},"));
+    }
+    for (name, field_ty, _) in &fields {
+        definition.push(format!("    pub {name}: {field_ty},"));
+    }
+    definition.push("}".into());
+    if !flag {
+        definition.extend([
+            format!("impl {ty} {{"),
+            "    fn build_nodes(&self) -> Vec<wacore_binary::node::Node> {".into(),
+        ]);
+        definition.extend(body.iter().cloned());
+        definition.push(if list {
+            format!("        {node}")
+        } else {
+            format!("        vec![{node}]")
+        });
+        definition.extend(["    }".into(), "}".into()]);
+        ctx.enum_defs.extend(definition);
+    }
+    let payload_ty = if child.repeats {
+        format!("Vec<{ty}>")
+    } else {
+        ty
+    };
+    let optional = !child.presence.is_required();
+    ctx.fields.push((
+        field.clone(),
+        if flag {
+            "bool".into()
+        } else if optional {
+            format!("Option<{payload_ty}>")
+        } else {
+            payload_ty
+        },
+        false,
+    ));
+    let nodes = format!("{node}_optional");
+    let mut lines = vec![format!("{indent}let mut {nodes} = Vec::new();")];
+    if flag {
+        lines.push(format!("{indent}if self.{field} {{"));
+        lines.extend(body);
+        lines.push(if list {
+            format!("{inner_indent}{nodes}.extend({node});")
+        } else {
+            format!("{inner_indent}{nodes}.push({node});")
+        });
+    } else if child.repeats {
+        if optional {
+            lines.push(format!("{indent}if let Some(items) = &self.{field} {{"));
+        }
+        let loop_indent = if optional { &inner_indent } else { indent };
+        let items = if optional {
+            "items".to_string()
+        } else {
+            format!("&self.{field}")
+        };
+        lines.push(format!("{loop_indent}for value in {items} {{"));
+        lines.push(format!(
+            "{loop_indent}    {nodes}.extend(value.build_nodes());"
+        ));
+        if optional {
+            lines.push(format!("{loop_indent}}}"));
+        }
+    } else {
+        lines.push(format!("{indent}if let Some(value) = &self.{field} {{"));
+        lines.push(format!(
+            "{inner_indent}{nodes}.extend(value.build_nodes());"
+        ));
+    }
+    lines.push(format!("{indent}}}"));
+    (lines, nodes, true)
 }
 
 /// Emit, for each of a node's variant groups, a top-level `enum` (pushed to
@@ -1630,6 +1795,7 @@ fn emit_variant_groups(
                 v,
                 var_name,
                 &format!("{inner_indent}    "),
+                ctx.attr_fields,
             ));
         }
         build.push(format!("{inner_indent}}}"));
@@ -1862,6 +2028,7 @@ fn variant_arm(
     v: &wa_ir::WapVariant,
     var_name: &str,
     indent: &str,
+    attr_fields: &crate::spec::AttrFieldMap,
 ) -> Vec<String> {
     let mut binds: Vec<String> = v
         .attrs
@@ -1882,6 +2049,7 @@ fn variant_arm(
     let mut lines = vec![format!("{indent}{pat} => {{")];
     let body_indent = format!("{indent}    ");
     for a in &v.attrs {
+        let first_statement = lines.len();
         let alit = rust_lit(&a.name);
         let ident = rust_ident(&a.name);
         match &a.kind {
@@ -1907,6 +2075,12 @@ fn variant_arm(
             )),
             _ => {}
         }
+        guard_attribute(
+            &mut lines,
+            first_statement,
+            &body_indent,
+            attr_fields.presence_field(a),
+        );
     }
     // …and the children the variant contributes, built from the payload the enum now carries.
     for (c, (member, _, _)) in v
@@ -1914,7 +2088,13 @@ fn variant_arm(
         .iter()
         .zip(variant_child_members(enum_name, vname, v))
     {
-        lines.extend(variant_child_build(c, &member, var_name, &body_indent));
+        lines.extend(variant_child_build(
+            c,
+            &member,
+            var_name,
+            &body_indent,
+            attr_fields,
+        ));
     }
     lines.push(format!("{indent}}}"));
     lines
@@ -2041,6 +2221,7 @@ fn variant_child_build(
     member: &str,
     var_name: &str,
     indent: &str,
+    attr_fields: &crate::spec::AttrFieldMap,
 ) -> Vec<String> {
     // The opaque fallback: the caller built the nodes, so they are taken as they are — one for
     // a child that does not repeat, however many for one that does.
@@ -2058,7 +2239,7 @@ fn variant_child_build(
             .filter_map(|a| {
                 let alit = rust_lit(&a.name);
                 let ident = rust_ident(&a.name);
-                Some(match &a.kind {
+                let statement = match &a.kind {
                     WapAttrKind::Const => format!(
                         "{ind}{node} = {node}.attr({alit}, {});",
                         rust_lit(a.value.as_deref()?)
@@ -2078,6 +2259,11 @@ fn variant_child_build(
                         format!("{ind}{node} = {node}.attr({alit}, {src}.{ident}.as_str());")
                     }
                     _ => return None,
+                };
+                Some(if let Some(field) = attr_fields.presence_field(a) {
+                    format!("{ind}if self.{field}.is_some() {{ {} }}", statement.trim_start())
+                } else {
+                    statement
                 })
             })
             .collect()
@@ -2458,8 +2644,10 @@ mod tests {
         }
     }
 
+    /// Construct an attribute fixture with an explicit wire kind and literal.
     fn attr(name: &str, kind: WapAttrKind, value: Option<&str>) -> WapAttrDef {
         WapAttrDef {
+            presence_arg_path: None,
             name: name.into(),
             kind,
             value: value.map(|v| v.into()),

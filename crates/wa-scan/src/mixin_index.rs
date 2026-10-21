@@ -98,6 +98,7 @@ pub(crate) struct MixinIqFragment {
 #[derive(Default)]
 pub struct MixinIndex {
     by_module: BTreeMap<String, MixinIqFragment>,
+    pub(crate) contributions: MixinContributions,
 }
 
 impl MixinIndex {
@@ -145,6 +146,7 @@ pub(crate) fn build_pass(
             &mut contributions,
             &mut visiting,
             helpers,
+            false,
         );
     }
 
@@ -156,7 +158,23 @@ pub(crate) fn build_pass(
             by_module.insert(name.to_string(), frag);
         }
     }
-    MixinIndex { by_module }
+    // Only the traced Create dependency closure receives scoped declarations
+    // and the selected merge export's second-argument root. The public fragment
+    // index above keeps the existing extraction behavior for every other request.
+    let mut qualified = MixinContributions::new();
+    resolve_contribution_rec(
+        "WASmaxOutGroupsCreateRequest",
+        &slices,
+        &deps,
+        &mut qualified,
+        &mut HashSet::new(),
+        helpers,
+        true,
+    );
+    MixinIndex {
+        by_module,
+        contributions: qualified,
+    }
 }
 
 /// WASmaxOut* module names a slice references via `o("…")` (excluding itself) —
@@ -205,6 +223,7 @@ fn resolve_contribution_rec(
     contributions: &mut MixinContributions,
     visiting: &mut HashSet<String>,
     helpers: &HelperIndex,
+    qualified_create: bool,
 ) {
     if contributions.contains_key(name) || visiting.contains(name) {
         return;
@@ -212,12 +231,20 @@ fn resolve_contribution_rec(
     visiting.insert(name.to_string());
     if let Some(ds) = deps.get(name) {
         for d in ds {
-            resolve_contribution_rec(d, slices, deps, contributions, visiting, helpers);
+            resolve_contribution_rec(
+                d,
+                slices,
+                deps,
+                contributions,
+                visiting,
+                helpers,
+                qualified_create,
+            );
         }
     }
     visiting.remove(name);
     if let Some(slice) = slices.get(name) {
-        let contrib = resolve_contribution(slice, contributions, helpers);
+        let contrib = resolve_contribution(slice, contributions, helpers, qualified_create);
         contributions.insert(name.to_string(), contrib);
     }
 }
@@ -663,8 +690,10 @@ mod tests {
     use super::*;
     use wa_ir::WapAttrDef;
 
+    /// Build a constant fragment attribute for composition assertions.
     fn attr(name: &str) -> WapAttrDef {
         WapAttrDef {
+            presence_arg_path: None,
             name: name.to_string(),
             kind: WapAttrKind::Const,
             value: None,
@@ -697,12 +726,16 @@ mod tests {
         }
     }
 
+    /// Assemble a fragment index from the test module contributions.
     fn index(entries: &[(&str, MixinIqFragment)]) -> MixinIndex {
         let mut by_module = BTreeMap::new();
         for (k, v) in entries {
             by_module.insert(k.to_string(), v.clone());
         }
-        MixinIndex { by_module }
+        MixinIndex {
+            by_module,
+            ..Default::default()
+        }
     }
 
     #[test]

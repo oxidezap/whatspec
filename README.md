@@ -6,6 +6,13 @@ WhatsApp Web ships its whole protocol (IQ stanzas, protobuf schemas, GraphQL ope
 
 ## What it extracts
 
+Schema 4.4 adds request-attribute `presenceArgPath` for `optionalMerge` inputs.
+It is a nullability guard, not the attribute value and not a truthiness test:
+the upstream combinator runs for any non-null input, including `false`.
+The Create IQ contract now resolves its nested mixins at their call sites,
+including the named-subject branch and the parent approval attribute. Other
+requests retain their existing extraction boundary until independently qualified.
+
 | Domain | `generated/…` | What it is |
 |---|---|---|
 | **iq** | `iq/index.json` (+ Rust) | `<iq>` request builders & response parsers, per namespace |

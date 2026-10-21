@@ -265,6 +265,7 @@ mod tests {
         enum_attr_kind(name, ename, module, vars, WapAttrKind::String)
     }
 
+    /// Build an attribute fixture linked to the supplied enum and wire kind.
     fn enum_attr_kind(
         name: &str,
         ename: &str,
@@ -273,6 +274,7 @@ mod tests {
         kind: WapAttrKind,
     ) -> WapAttrDef {
         WapAttrDef {
+            presence_arg_path: None,
             name: name.into(),
             kind,
             value: None,
@@ -286,8 +288,10 @@ mod tests {
         }
     }
 
+    /// Build a scalar attribute fixture without an enum reference.
     fn plain_attr(name: &str, kind: WapAttrKind) -> WapAttrDef {
         WapAttrDef {
+            presence_arg_path: None,
             name: name.into(),
             kind,
             value: None,

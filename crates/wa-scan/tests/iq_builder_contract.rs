@@ -382,3 +382,46 @@ fn a_key_bundle_fetch_descends_into_its_union() {
         );
     }
 }
+
+#[test]
+/// Preserve the traced parent approval literal and its independent non-null guard.
+fn community_create_parent_mode_has_a_presence_argument() {
+    let Some(ir) = committed_ir() else { return };
+    let create = &stanza(&ir, "WASmaxOutGroupsCreateRequest").request.children[0];
+    let parent = create.children.iter().find(|n| n.tag == "parent").unwrap();
+    assert_eq!(parent.children.len(), 0);
+    let mode = parent
+        .attrs
+        .iter()
+        .find(|a| a.name == "default_membership_approval_mode")
+        .unwrap();
+    assert_eq!(mode.value.as_deref(), Some("request_required"));
+    assert!(!mode.required);
+    assert_eq!(
+        path(mode.presence_arg_path.as_deref().unwrap()),
+        [
+            ("parentArgs", false),
+            ("hasParentGroupDefaultMembershipApprovalMode", false)
+        ]
+    );
+    let named = &create.variant_groups[0].variants[0].attrs[0];
+    assert_eq!(
+        path(named.arg_path.as_deref().unwrap()),
+        [
+            ("namedSubjectOrUnnamedSubjectFallbackMixinGroupArgs", false),
+            ("namedSubject", false),
+            ("anySubject", false)
+        ]
+    );
+    let body = &create
+        .children
+        .iter()
+        .find(|n| n.tag == "description")
+        .unwrap()
+        .children[0];
+    assert!(body.children.is_empty());
+    assert_eq!(
+        path(body.content.as_ref().unwrap().arg_path.as_deref().unwrap()),
+        [("descriptionArgs", false), ("bodyElementValue", false)]
+    );
+}

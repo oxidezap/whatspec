@@ -1176,12 +1176,18 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // Spec fields from request-children attrs (skip const + generated id).
     let mut spec_fields: Vec<(String, &'static str, WapAttrKind)> = Vec::new();
     let mut seen_spec = HashSet::new();
-    let mut attr_fields: AttrFieldMap = HashMap::new();
+    let mut attr_fields = AttrFieldMap::new();
     collect_attrs(
         &op.request.children,
         &mut spec_fields,
         &mut seen_spec,
         &[],
+        &mut attr_fields,
+    );
+    collect_presence_fields(
+        &op.request.children,
+        &mut spec_fields,
+        &mut seen_spec,
         &mut attr_fields,
     );
 
@@ -1535,7 +1541,7 @@ fn emit_build_iq(
         // A top-level child that repeats yields a LIST of nodes, which the `vec![a, b]` spelling
         // cannot hold — those are spread in, and the rest pushed one by one.
         if top_var_names.iter().any(|(_, is_list)| *is_list) {
-            lines.push("            Some(NodeContent::Nodes({".to_string());
+            lines.push("            {".to_string());
             lines.push("                let mut __children = Vec::new();".to_string());
             for (v, is_list) in &top_var_names {
                 lines.push(if *is_list {
@@ -1544,8 +1550,8 @@ fn emit_build_iq(
                     format!("                __children.push({v});")
                 });
             }
-            lines.push("                __children".to_string());
-            lines.push("            })),".to_string());
+            lines.push("                if __children.is_empty() { None } else { Some(NodeContent::Nodes(__children)) }".to_string());
+            lines.push("            },".to_string());
         } else {
             lines.push(format!(
                 "            Some(NodeContent::Nodes(vec![{}])),",
@@ -1578,9 +1584,92 @@ fn emit_build_iq(
 ///
 /// The first site keeps the plain spelling, so nothing that never collided moves. A later site
 /// takes its owning tag as a prefix, and a numeric suffix past that.
-pub(crate) type AttrFieldMap = HashMap<(Vec<String>, String), String>;
+#[derive(Default)]
+pub(crate) struct AttrFieldMap {
+    values: HashMap<(Vec<String>, String), String>,
+    presence: HashMap<Vec<(String, bool)>, String>,
+}
 
-fn collect_attrs(
+impl AttrFieldMap {
+    /// Start an empty mapping of value sites and shared presence arguments.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Find the input field for one attribute site.
+    pub fn get(&self, key: &(Vec<String>, String)) -> Option<&String> {
+        self.values.get(key)
+    }
+
+    /// Record a collision-free input name for an attribute site.
+    pub fn insert(&mut self, key: (Vec<String>, String), field: String) {
+        self.values.insert(key, field);
+    }
+
+    /// Resolve the shared non-null choice independently of the wire value.
+    pub fn presence_field(&self, attr: &wa_ir::WapAttrDef) -> Option<&str> {
+        let path = attr.presence_arg_path.as_ref()?;
+        let key: Vec<_> = path.iter().map(|s| (s.key.clone(), s.list)).collect();
+        self.presence.get(&key).map(String::as_str)
+    }
+}
+
+/// A presence argument is a separate input from the attribute's wire value.
+/// Attributes contributed by the same optional merge share one nullable choice.
+pub(crate) fn collect_presence_fields(
+    children: &[WapChildNode],
+    out: &mut Vec<(String, &'static str, WapAttrKind)>,
+    seen: &mut HashSet<String>,
+    map: &mut AttrFieldMap,
+) {
+    for child in children {
+        if crate::emit::owns_payload(child) {
+            continue;
+        }
+        for attr in child.attrs.iter().chain(
+            child
+                .variant_groups
+                .iter()
+                .flat_map(|g| &g.variants)
+                .flat_map(|v| &v.attrs),
+        ) {
+            let Some(path) = &attr.presence_arg_path else {
+                continue;
+            };
+            if path.is_empty() {
+                continue;
+            }
+            let key: Vec<_> = path.iter().map(|s| (s.key.clone(), s.list)).collect();
+            if map.presence.contains_key(&key) {
+                continue;
+            }
+            let base = format!(
+                "{}_present",
+                path.iter()
+                    .map(|s| s.key.as_str())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            );
+            let mut field = rust_ident(&base);
+            let mut suffix = 2;
+            while !seen.insert(field.clone()) {
+                field = rust_ident(&format!("{base}_{suffix}"));
+                suffix += 1;
+            }
+            map.presence.insert(key, field.clone());
+            // The boolean payload is deliberately ignored: Some(false) is
+            // non-null and must emit the attribute just like Some(true).
+            out.push((field, "Option<bool>", WapAttrKind::Optional));
+        }
+        collect_presence_fields(&child.children, out, seen, map);
+        for variant in child.variant_groups.iter().flat_map(|g| &g.variants) {
+            collect_presence_fields(&variant.children, out, seen, map);
+        }
+    }
+}
+
+/// Collect required-node attribute values, leaving optional payloads in their own structs.
+pub(crate) fn collect_attrs(
     children: &[WapChildNode],
     out: &mut Vec<(String, &'static str, WapAttrKind)>,
     seen: &mut HashSet<String>,
@@ -1588,6 +1677,9 @@ fn collect_attrs(
     map: &mut AttrFieldMap,
 ) {
     for child in children {
+        if crate::emit::owns_payload(child) {
+            continue;
+        }
         let mut here = path.to_vec();
         here.push(child.tag.clone());
         for attr in &child.attrs {
@@ -1787,6 +1879,7 @@ mod tests {
         let node = |tag: &str, kind: WapAttrKind| wa_ir::WapChildNode {
             tag: tag.into(),
             attrs: vec![wa_ir::WapAttrDef {
+                presence_arg_path: None,
                 name: "jid".into(),
                 kind,
                 value: None,
@@ -1806,7 +1899,7 @@ mod tests {
         ];
         let mut out = Vec::new();
         let mut seen = HashSet::new();
-        let mut map = HashMap::new();
+        let mut map = AttrFieldMap::new();
         collect_attrs(&children, &mut out, &mut seen, &[], &mut map);
         let names: Vec<&str> = out.iter().map(|(n, _, _)| n.as_str()).collect();
         assert_eq!(
@@ -1830,7 +1923,7 @@ mod tests {
         // Two sibling `<participant>` nodes are one repeated shape, not two fields.
         let mut out = Vec::new();
         let mut seen = HashSet::new();
-        let mut map = HashMap::new();
+        let mut map = AttrFieldMap::new();
         collect_attrs(
             &[
                 node("participant", WapAttrKind::UserJid),

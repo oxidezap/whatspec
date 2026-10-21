@@ -10,14 +10,14 @@
     },
     "iq": {
       "builder": {
-        "argPathAttrs": 219,
+        "argPathAttrs": 223,
         "argPathAttrsMissing": 49,
-        "argPathChildren": 110,
+        "argPathChildren": 111,
         "argPathChildrenMissing": 10,
-        "argPathContents": 44,
+        "argPathContents": 46,
         "argPathContentsMissing": 23,
-        "elementValues": 67,
-        "optionalChildren": 34,
+        "elementValues": 72,
+        "optionalChildren": 35,
         "presenceFlagChildren": 31,
         "repeatBounds": 35
       },
@@ -111,37 +111,37 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "63e1bff0e0e31c1a64e2ac94d671789b220f1522447605d1d1c63ad623f5e5d6"
+      "sha256": "13210f6948d3c394472e10656863972d1ac322c21253f48d5c06f376928d5d46"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "f2653d2fe43c07a06edf01dcde426cf822be96684bceea49feff197abcc9c699"
+      "sha256": "67f7c0befad6db13c34b92354387b2204842806f9bca208796c5fc2dd6981f72"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "43f320d46d739a22b1d23a332c3e9e88743f88a4e640dfc4b07627e5d1afc697"
+      "sha256": "234dbd35acab17e35bf29b65187dda6af99ee3ce21a6b0417a12b0dcbe5ad98d"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "0367940465a8cc81e50e385834327ad995c1afa8b0436c1a50e495e97c3e0220"
+      "sha256": "4a22ad7fb2b1dd0aadecdf92d274f0c52332f5807a17062e90940b15e155ee39"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "f7251fd9aaa07062495e431a80d40dcdb44ffd8fb68b1776d65c41b92e29aafd"
+      "sha256": "fc7aa8849031d7b970f5a6bf03e4ae34e4543eff114ef4d022d08ccb37795225"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "947598a2e611a63702547473a86345d182707d257c0e2ccd4a21c963edf7e946"
+      "sha256": "f478302f7eb75d53973f4f1a24042529fc71194f481ed2dd21b56ed339ae2d3f"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "f51755b1591366ec09c924ce2f6814f1e5540677c28de12fa38c84d21ac9f110"
+      "sha256": "aca3b102b610e35c3062eb96cfca36a887aa257c98ea94e9df3c9e68b54881be"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -150,27 +150,27 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "d3c58057c970a73fe4d8cf0862bd9c576119158025a6bf23de14543314b27315"
+      "sha256": "ac217bf5038d61e37fce76bd6fb463a2813273acdc35e294d3cdf09e4ff5a5e3"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "55bd73333bfdf1448f07df02b715db20db390dfa68cc968b20745b2982707bbe"
+      "sha256": "95973d45ac5ce43090f01eea11a96658cdbc533141395ac8540801dcb056ea44"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "ee12376073131d9a197b37ab0735551d86486e1f13510a34bc89fcfe958f70cd"
+      "sha256": "357cadf07e0b10c829a1b1ffe550db3055f0d84fc01540bdd5b3c793c4c3ebfd"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "333a1f4d1f9581fc45266dabb4b8df90c66226c74f722c04135f94dfb4d727ee"
+      "sha256": "d899388bb0ea4137687c7b13a54014bab24e887ac6d231b9c90971742152b260"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "509bcfb6e6c70d24bf37062af711c3b7d26db3db1fec10429180857930ef4992"
+      "sha256": "721a78556c2d2d2048e53e1fe51d12257a0e716641006e22d0d99c21a717b05d"
     }
   },
   "enumDefs": 399,
@@ -180,7 +180,7 @@
   "mexOperations": 137,
   "notifTypes": 27,
   "protoEntities": 241,
-  "schemaVersion": "4.3.0",
+  "schemaVersion": "4.4.0",
   "serverRequestDefs": 24,
   "stanzaDefs": 199,
   "tokenDoubleByte": 1024,

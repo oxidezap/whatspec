@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "4.3.0",
+  "schemaVersion": "4.4.0",
   "waVersion": "2.3000.1047483476",
   "stanzas": [
     {
@@ -74328,7 +74328,44 @@
         "children": [
           {
             "tag": "create",
-            "attrs": [],
+            "attrs": [
+              {
+                "presenceArgPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  }
+                ],
+                "name": "key",
+                "kind": "string",
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  },
+                  {
+                    "key": "anyKey"
+                  }
+                ]
+              },
+              {
+                "presenceArgPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  }
+                ],
+                "name": "create_ctx",
+                "kind": "optional",
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  },
+                  {
+                    "key": "anyCreateCtx"
+                  }
+                ]
+              }
+            ],
             "children": [
               {
                 "tag": "participant",
@@ -74376,7 +74413,39 @@
                     ]
                   }
                 ],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "privacy",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "participantArgs",
+                          "list": true
+                        },
+                        {
+                          "key": "permissionTokenMixinArgs"
+                        },
+                        {
+                          "key": "anyElementValue"
+                        }
+                      ]
+                    },
+                    "repeats": false,
+                    "presence": "optional",
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "permissionTokenMixinArgs"
+                      }
+                    ]
+                  }
+                ],
                 "repeats": true,
                 "repeatMin": 0,
                 "repeatMax": 19999,
@@ -74408,26 +74477,18 @@
                   {
                     "tag": "body",
                     "attrs": [],
-                    "children": [
-                      {
-                        "tag": "parent",
-                        "attrs": [],
-                        "children": [],
-                        "repeats": false
-                      },
-                      {
-                        "tag": "membership_approval_mode",
-                        "attrs": [],
-                        "children": [],
-                        "repeats": false
-                      },
-                      {
-                        "tag": "locked",
-                        "attrs": [],
-                        "children": [],
-                        "repeats": false
-                      }
-                    ],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "descriptionArgs"
+                        },
+                        {
+                          "key": "bodyElementValue"
+                        }
+                      ]
+                    },
                     "repeats": false
                   }
                 ],
@@ -74465,31 +74526,22 @@
               },
               {
                 "tag": "parent",
-                "attrs": [],
-                "children": [],
-                "repeats": false,
-                "presence": "optional",
-                "argPath": [
+                "attrs": [
                   {
-                    "key": "parentArgs"
+                    "presenceArgPath": [
+                      {
+                        "key": "parentArgs"
+                      },
+                      {
+                        "key": "hasParentGroupDefaultMembershipApprovalMode"
+                      }
+                    ],
+                    "name": "default_membership_approval_mode",
+                    "kind": "const",
+                    "value": "request_required",
+                    "required": false
                   }
-                ]
-              },
-              {
-                "tag": "membership_approval_mode",
-                "attrs": [],
-                "children": [],
-                "repeats": false,
-                "presence": "optional",
-                "argPath": [
-                  {
-                    "key": "parentArgs"
-                  }
-                ]
-              },
-              {
-                "tag": "locked",
-                "attrs": [],
+                ],
                 "children": [],
                 "repeats": false,
                 "presence": "optional",
@@ -74553,19 +74605,40 @@
               {
                 "tag": "membership_approval_mode",
                 "attrs": [],
-                "children": [],
-                "repeats": false,
-                "presence": "optional",
-                "argPath": [
+                "children": [
                   {
-                    "key": "membershipApprovalModeArgs"
+                    "tag": "group_join",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": false,
+                    "variantGroups": [
+                      {
+                        "variants": [
+                          {
+                            "attrs": [
+                              {
+                                "name": "state",
+                                "kind": "const",
+                                "value": "on",
+                                "required": true
+                              }
+                            ]
+                          },
+                          {
+                            "attrs": [
+                              {
+                                "name": "state",
+                                "kind": "const",
+                                "value": "off",
+                                "required": true
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
                   }
-                ]
-              },
-              {
-                "tag": "locked",
-                "attrs": [],
-                "children": [],
+                ],
                 "repeats": false,
                 "presence": "optional",
                 "argPath": [
@@ -74697,9 +74770,103 @@
                     "key": "hasCapi"
                   }
                 ]
+              },
+              {
+                "tag": "member_add_mode",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "const",
+                  "value": "admin_add"
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "groupMemberAddModeMixinArgs"
+                  }
+                ]
+              },
+              {
+                "tag": "member_link_mode",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "const",
+                  "value": "admin_link"
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "groupMemberLinkModeMixinArgs"
+                  }
+                ]
+              },
+              {
+                "tag": "member_share_group_history_mode",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "const",
+                  "value": "admin_share"
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "groupMemberShareGroupHistoryModeMixinArgs"
+                  }
+                ]
               }
             ],
-            "repeats": false
+            "repeats": false,
+            "variantGroups": [
+              {
+                "variants": [
+                  {
+                    "attrs": [
+                      {
+                        "name": "subject",
+                        "kind": "string",
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "namedSubjectOrUnnamedSubjectFallbackMixinGroupArgs"
+                          },
+                          {
+                            "key": "namedSubject"
+                          },
+                          {
+                            "key": "anySubject"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "subject",
+                        "kind": "optional",
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "namedSubjectOrUnnamedSubjectFallbackMixinGroupArgs"
+                          },
+                          {
+                            "key": "unnamedSubjectFallback"
+                          },
+                          {
+                            "key": "anySubject"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       },

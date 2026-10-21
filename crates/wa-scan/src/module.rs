@@ -15,7 +15,10 @@ use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::helper_index::HelperIndex;
 use crate::mixin_index::MixinIndex;
-use crate::request::{VarScope, build_var_scope, enforce_argument_boundary, resolve_child_node};
+use crate::request::{
+    VarScope, build_scoped_var_scope, build_var_scope, enforce_argument_boundary,
+    resolve_child_node,
+};
 use crate::response_index::ResponseIndex;
 use wa_oxc::{arg_expr, as_call, callee_method, callee_object};
 
@@ -111,7 +114,14 @@ pub fn scan_module_outcome(
     };
 
     // Pass 1: variable/function scope (offset-based, lifetime-free) + smax aliases.
-    let scope = build_var_scope(&ret.program);
+    // Admit the traced Create contract first. Other requests still use the
+    // fragment boundary until their nested argument shapes are qualified.
+    let qualified_create = module_name == "WASmaxOutGroupsCreateRequest";
+    let scope = if qualified_create {
+        build_scoped_var_scope(&ret.program)
+    } else {
+        build_var_scope(&ret.program)
+    };
     let aliases = build_alias_map(&ret.program);
 
     // Pass 2: collect exports, iq requests, the response parser, and the mixin
@@ -121,6 +131,7 @@ pub fn scan_module_outcome(
         scope: &scope,
         aliases: &aliases,
         helpers,
+        contributions: qualified_create.then_some(&mixins.contributions),
         iq_calls: Vec::new(),
         parser: None,
         exports: Vec::new(),
@@ -442,6 +453,7 @@ struct ResolvedIqCall {
 }
 
 struct ModuleScanner<'src> {
+    contributions: Option<&'src crate::request::MixinContributions>,
     source: &'src str,
     scope: &'src VarScope,
     helpers: &'src HelperIndex,
@@ -597,8 +609,22 @@ pub(crate) fn iq_type_from_merge_name(method: &str) -> Option<IqType> {
 }
 
 impl ModuleScanner<'_> {
+    /// Recognize one IQ builder using a consistent function-local alias map.
     fn try_iq_call(&self, call: &CallExpression, mixin_type: Option<IqType>) -> Option<IqCall> {
-        let wap = parse_wap_call(call, self.aliases)?;
+        // Alias recovery reparses the owning function. Most calls visited here
+        // are not IQ builders and must not pay for that work.
+        if !matches!(callee_method(call), Some("wap" | "smax"))
+            || wa_oxc::first_string_arg(call) != Some("iq")
+        {
+            return None;
+        }
+        let aliases = crate::request::scoped_aliases(
+            self.scope,
+            self.source,
+            call.span().start as usize,
+            self.aliases,
+        );
+        let wap = parse_wap_call(call, &aliases)?;
         if wap.tag != "iq" {
             return None;
         }
@@ -606,7 +632,7 @@ impl ModuleScanner<'_> {
         // case namespace/type are resolved later from the referenced mixins.
         let attrs = wap
             .attrs_node
-            .map(|n| extract_attrs_from_obj(n, self.source, self.aliases))
+            .map(|n| extract_attrs_from_obj(n, self.source, &aliases))
             .unwrap_or_default();
         // namespace: literal xmlns if present locally; else left None for the
         // post-walk mixin resolution (which re-applies the drop-if-unresolved guard).
@@ -632,7 +658,7 @@ impl ModuleScanner<'_> {
                 crate::request::annotate_attr_arg_paths(
                     &mut root,
                     n,
-                    self.aliases,
+                    &aliases,
                     self.scope,
                     self.source,
                     Some(call.span().start as usize),
@@ -649,11 +675,8 @@ impl ModuleScanner<'_> {
                     self.source,
                     self.scope,
                     self.source,
-                    self.aliases,
-                    // The request's locally-built children resolve structurally; the
-                    // cross-module attrs a referenced mixin contributes arrive via
-                    // `resolve_fragment_children` (Phase 2/3), merged in afterward.
-                    None,
+                    &aliases,
+                    self.contributions,
                     self.helpers,
                     0,
                     // `ce` is at a real module offset (source == module_source), so its
@@ -767,6 +790,25 @@ mod tests {
                 .iter()
                 .any(|a| a.name.as_deref() == Some("iq"))
         );
+    }
+
+    /// Unrelated calls cannot trigger alias recovery or qualify a false IQ receiver.
+    #[test]
+    fn unrelated_calls_do_not_change_scoped_iq_recognition() {
+        let noise = "unrelated(\"iq\"); other.smax(\"noise\", null);".repeat(512);
+        let source = format!(
+            r#"__d("WASmaxOutSyntheticRequest",["WASmaxJsx"],function(g,r,d,o,e,i){{
+            e.send = function(args) {{
+                var builder = o("WASmaxJsx");
+                {noise}
+                other.smax("iq", {{xmlns:"wrong",type:"get"}});
+                return builder.smax("iq", {{xmlns:"w:probe",type:"get"}});
+            }};
+        }});"#
+        );
+        let stanzas = scan_module_source(&source, &mi(), &ri(), &hi());
+        assert_eq!(stanzas.len(), 1);
+        assert_eq!(stanzas[0].namespace, "w:probe");
     }
 
     #[test]

@@ -125,6 +125,13 @@ pub enum WapChildPresence {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct WapAttrDef {
+    /// Argument passed to an `optionalMerge` that contributes this attribute.
+    /// The merge runs when it is non-null, including `false`. This controls
+    /// presence, never the attribute's wire value.
+    /// A recovered nullability prerequisite, not a claim that there are no other
+    /// conditions. Absent when this guard cannot be addressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presence_arg_path: Option<WapArgPath>,
     pub name: String,
     pub kind: WapAttrKind,
     /// The fixed wire value the builder writes itself.
