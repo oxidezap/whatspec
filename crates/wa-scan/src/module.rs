@@ -116,7 +116,7 @@ pub fn scan_module_outcome(
     // Pass 1: variable/function scope (offset-based, lifetime-free) + smax aliases.
     // Admit the traced Create contract first. Other requests still use the
     // fragment boundary until their nested argument shapes are qualified.
-    let qualified_create = module_name == "WASmaxOutGroupsCreateRequest";
+    let qualified_create = module_name == crate::mixin_index::QUALIFIED_CREATE_MODULE;
     let scope = if qualified_create {
         build_scoped_var_scope(&ret.program)
     } else {

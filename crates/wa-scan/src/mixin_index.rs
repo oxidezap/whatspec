@@ -38,6 +38,9 @@ use crate::request::{
 use wa_oxc::{arg_expr, callee_method, callee_object};
 use wa_transform::ModuleDefinition;
 
+/// The only request whose nested mixin argument shapes are qualified.
+pub(crate) const QUALIFIED_CREATE_MODULE: &str = "WASmaxOutGroupsCreateRequest";
+
 /// A mixin folded in by another, with the argument the folding frame handed it.
 ///
 /// The pair is what lets a fold rebase: the module says WHAT is contributed, the
@@ -163,7 +166,7 @@ pub(crate) fn build_pass(
     // index above keeps the existing extraction behavior for every other request.
     let mut qualified = MixinContributions::new();
     resolve_contribution_rec(
-        "WASmaxOutGroupsCreateRequest",
+        QUALIFIED_CREATE_MODULE,
         &slices,
         &deps,
         &mut qualified,
