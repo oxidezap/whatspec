@@ -64,9 +64,9 @@ fn scoped_values_and_nested_optional_mixins_survive_extraction() {
     );
 }
 
-/// Nested guards cannot be collapsed into one sufficient presence choice.
+/// An inner guard rebased through its outer argument names both nullability checks.
 #[test]
-fn nested_optional_merge_does_not_replace_an_inner_guard() {
+fn nested_optional_merge_preserves_the_rebased_inner_guard() {
     let source = r#"
 __d("WASmaxOutInnerMixin",["WASmaxJsx"],function(t,n,r,o,a,i,l){
 function merge(dst){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("parent",{mode:"request_required"}))}l.mergeInnerMixin=merge;
@@ -88,9 +88,10 @@ function create(args){return o("WASmaxJsx").smax("iq",{xmlns:"w:g2",type:"set"},
         .attrs[0];
     assert!(!attr.required);
     assert_eq!(attr.name, "mode");
-    assert!(
-        attr.presence_arg_path.is_none(),
-        "distinct outer/inner guards require a conjunction: {attr:?}"
+    let path = attr.presence_arg_path.as_ref().unwrap();
+    assert_eq!(
+        path.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(),
+        ["outer", "inner"]
     );
 }
 

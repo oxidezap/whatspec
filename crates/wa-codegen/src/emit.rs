@@ -1360,6 +1360,16 @@ fn guard_attribute(lines: &mut Vec<String>, start: usize, indent: &str, field: O
     lines.push(format!("{indent}}}"));
 }
 
+/// Optional nodes and structured repeated items own their payload fields.
+/// Opaque repeated content keeps its existing Vec<payload> representation.
+pub(crate) fn owns_payload(child: &WapChildNode) -> bool {
+    !child.presence.is_required()
+        || (child.repeats
+            && (!child.attrs.is_empty()
+                || !child.children.is_empty()
+                || !child.variant_groups.is_empty()))
+}
+
 /// Emit the `let <tag>_node = NodeBuilder::new("tag")…build();` statements for a
 /// request child, recursing into nested children first. `used_names` dedups
 /// repeated tags. Returns `(lines, var_name)` — the caller takes the returned
@@ -1377,8 +1387,8 @@ pub(crate) fn emit_child_builder(
     ctx: &mut VariantCtx,
     path: &[String],
 ) -> (Vec<String>, String, bool) {
-    if !child.presence.is_required() {
-        return emit_optional_child(child, indent, used_names, ctx);
+    if owns_payload(child) {
+        return emit_payload_children(child, indent, used_names, ctx);
     }
     let mut lines: Vec<String> = Vec::new();
     let here: Vec<String> = path.iter().cloned().chain([child.tag.clone()]).collect();
@@ -1531,7 +1541,7 @@ pub(crate) fn emit_child_builder(
     body.extend(emit_node_content(child, &var_name, indent, ctx));
     if variant_children || nested_list {
         body.push(format!(
-            "{indent}{var_name} = {var_name}.children({var_name}_children);"
+            "{indent}if !{var_name}_children.is_empty() {{ {var_name} = {var_name}.children({var_name}_children); }}"
         ));
     } else if !nested_var_names.is_empty() {
         body.push(format!(
@@ -1560,9 +1570,9 @@ pub(crate) fn emit_child_builder(
     (lines, var_name, false)
 }
 
-/// Keep an optional child's typed payload inside its Option, so omission never
-/// requires a dummy privacy body or attribute value. A flag uses a boolean.
-fn emit_optional_child(
+/// Keep optional payloads inside Option and repeated payloads inside Vec, so
+/// each repeated item owns its nested optional children. A marker uses bool.
+fn emit_payload_children(
     child: &WapChildNode,
     indent: &str,
     used_names: &mut HashMap<String, usize>,
@@ -1572,6 +1582,7 @@ fn emit_optional_child(
     let ty = format!("{}{}Input", ctx.spec_base, pascal_case(&field));
     let mut required = child.clone();
     required.presence = wa_ir::WapChildPresence::Required;
+    required.repeats = false;
     let mut attrs = Vec::new();
     let mut seen = HashSet::new();
     let mut map = crate::spec::AttrFieldMap::new();
@@ -1605,10 +1616,11 @@ fn emit_optional_child(
         &[],
     );
     let flag = child.presence == wa_ir::WapChildPresence::PresenceFlag
+        && !child.repeats
         && attrs.is_empty()
         && fields.is_empty();
     let mut definition = vec![
-        format!("/// Payload for the optional `{}` child.", child.tag),
+        format!("/// Payload for one `{}` child.", child.tag),
         "#[derive(Debug, Clone)]".into(),
         format!("pub struct {ty} {{"),
     ];
@@ -1633,12 +1645,20 @@ fn emit_optional_child(
         definition.extend(["    }".into(), "}".into()]);
         ctx.enum_defs.extend(definition);
     }
+    let payload_ty = if child.repeats {
+        format!("Vec<{ty}>")
+    } else {
+        ty
+    };
+    let optional = !child.presence.is_required();
     ctx.fields.push((
         field.clone(),
         if flag {
             "bool".into()
+        } else if optional {
+            format!("Option<{payload_ty}>")
         } else {
-            format!("Option<{ty}>")
+            payload_ty
         },
         false,
     ));
@@ -1652,6 +1672,23 @@ fn emit_optional_child(
         } else {
             format!("{inner_indent}{nodes}.push({node});")
         });
+    } else if child.repeats {
+        if optional {
+            lines.push(format!("{indent}if let Some(items) = &self.{field} {{"));
+        }
+        let loop_indent = if optional { &inner_indent } else { indent };
+        let items = if optional {
+            "items".to_string()
+        } else {
+            format!("&self.{field}")
+        };
+        lines.push(format!("{loop_indent}for value in {items} {{"));
+        lines.push(format!(
+            "{loop_indent}    {nodes}.extend(value.build_nodes());"
+        ));
+        if optional {
+            lines.push(format!("{loop_indent}}}"));
+        }
     } else {
         lines.push(format!("{indent}if let Some(value) = &self.{field} {{"));
         lines.push(format!(

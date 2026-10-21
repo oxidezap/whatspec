@@ -1477,7 +1477,13 @@ pub(crate) fn resolve_child_node(
                                 let outer = guard.clone().filter(|p| !p.is_empty());
                                 attr.presence_arg_path = match attr.presence_arg_path.take() {
                                     None => outer,
-                                    Some(inner) if Some(&inner) == outer.as_ref() => Some(inner),
+                                    Some(inner)
+                                        if outer
+                                            .as_ref()
+                                            .is_some_and(|outer| inner.starts_with(outer)) =>
+                                    {
+                                        Some(inner)
+                                    }
                                     Some(_) => None,
                                 };
                             }

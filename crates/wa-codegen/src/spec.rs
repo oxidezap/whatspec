@@ -1541,7 +1541,7 @@ fn emit_build_iq(
         // A top-level child that repeats yields a LIST of nodes, which the `vec![a, b]` spelling
         // cannot hold — those are spread in, and the rest pushed one by one.
         if top_var_names.iter().any(|(_, is_list)| *is_list) {
-            lines.push("            Some(NodeContent::Nodes({".to_string());
+            lines.push("            {".to_string());
             lines.push("                let mut __children = Vec::new();".to_string());
             for (v, is_list) in &top_var_names {
                 lines.push(if *is_list {
@@ -1550,8 +1550,8 @@ fn emit_build_iq(
                     format!("                __children.push({v});")
                 });
             }
-            lines.push("                __children".to_string());
-            lines.push("            })),".to_string());
+            lines.push("                if __children.is_empty() { None } else { Some(NodeContent::Nodes(__children)) }".to_string());
+            lines.push("            },".to_string());
         } else {
             lines.push(format!(
                 "            Some(NodeContent::Nodes(vec![{}])),",
@@ -1623,7 +1623,7 @@ pub(crate) fn collect_presence_fields(
     map: &mut AttrFieldMap,
 ) {
     for child in children {
-        if !child.presence.is_required() {
+        if crate::emit::owns_payload(child) {
             continue;
         }
         for attr in child.attrs.iter().chain(
@@ -1677,7 +1677,7 @@ pub(crate) fn collect_attrs(
     map: &mut AttrFieldMap,
 ) {
     for child in children {
-        if !child.presence.is_required() {
+        if crate::emit::owns_payload(child) {
             continue;
         }
         let mut here = path.to_vec();

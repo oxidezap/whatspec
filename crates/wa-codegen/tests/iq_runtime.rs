@@ -184,6 +184,41 @@ fn generated_pilot_requests_and_responses_execute() {
     }];
     ir.stanzas.push(op);
 
+    let mut op = subject.clone();
+    op.module_name = "RepeatedParticipants".into();
+    op.exported_function = Some("makeRepeatedParticipants".into());
+    op.response = Default::default();
+    op.target = wa_ir::IqTarget::GroupServer;
+    op.request.target = wa_ir::IqTarget::GroupServer;
+    op.request.target_arg_path = None;
+    let participant = upstream_create
+        .children
+        .iter()
+        .find(|c| c.tag == "participant")
+        .unwrap()
+        .clone();
+    op.request.children = vec![wa_ir::WapChildNode {
+        tag: "create".into(),
+        children: vec![participant],
+        ..Default::default()
+    }];
+    ir.stanzas.push(op);
+
+    let mut op = subject.clone();
+    op.module_name = "OptionalRoot".into();
+    op.exported_function = Some("makeOptionalRoot".into());
+    op.response = Default::default();
+    op.target = wa_ir::IqTarget::Server;
+    op.request =
+        serde_json::from_str::<wa_ir::IqIr>(include_str!("../../../generated/iq/index.json"))
+            .unwrap()
+            .stanzas
+            .into_iter()
+            .find(|s| s.module_name == "WASmaxOutBlocklistsGetBlockListRequest")
+            .unwrap()
+            .request;
+    ir.stanzas.push(op);
+
     let dir = std::env::temp_dir().join(format!("whatspec-iq-runtime-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let generated = wa_codegen::generate_iq(&ir);
