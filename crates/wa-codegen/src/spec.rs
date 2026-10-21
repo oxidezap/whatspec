@@ -1787,6 +1787,7 @@ mod tests {
         let node = |tag: &str, kind: WapAttrKind| wa_ir::WapChildNode {
             tag: tag.into(),
             attrs: vec![wa_ir::WapAttrDef {
+                presence_arg_path: None,
                 name: "jid".into(),
                 kind,
                 value: None,

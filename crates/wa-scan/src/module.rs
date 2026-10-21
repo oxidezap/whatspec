@@ -15,7 +15,10 @@ use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::helper_index::HelperIndex;
 use crate::mixin_index::MixinIndex;
-use crate::request::{VarScope, build_var_scope, enforce_argument_boundary, resolve_child_node};
+use crate::request::{
+    VarScope, build_scoped_var_scope, build_var_scope, enforce_argument_boundary,
+    resolve_child_node,
+};
 use crate::response_index::ResponseIndex;
 use wa_oxc::{arg_expr, as_call, callee_method, callee_object};
 
@@ -111,7 +114,14 @@ pub fn scan_module_outcome(
     };
 
     // Pass 1: variable/function scope (offset-based, lifetime-free) + smax aliases.
-    let scope = build_var_scope(&ret.program);
+    // Admit the traced Create contract first. Other requests still use the
+    // fragment boundary until their nested argument shapes are qualified.
+    let qualified_create = module_name == "WASmaxOutGroupsCreateRequest";
+    let scope = if qualified_create {
+        build_scoped_var_scope(&ret.program)
+    } else {
+        build_var_scope(&ret.program)
+    };
     let aliases = build_alias_map(&ret.program);
 
     // Pass 2: collect exports, iq requests, the response parser, and the mixin
@@ -121,6 +131,7 @@ pub fn scan_module_outcome(
         scope: &scope,
         aliases: &aliases,
         helpers,
+        contributions: qualified_create.then_some(&mixins.contributions),
         iq_calls: Vec::new(),
         parser: None,
         exports: Vec::new(),
@@ -442,6 +453,7 @@ struct ResolvedIqCall {
 }
 
 struct ModuleScanner<'src> {
+    contributions: Option<&'src crate::request::MixinContributions>,
     source: &'src str,
     scope: &'src VarScope,
     helpers: &'src HelperIndex,
@@ -598,7 +610,13 @@ pub(crate) fn iq_type_from_merge_name(method: &str) -> Option<IqType> {
 
 impl ModuleScanner<'_> {
     fn try_iq_call(&self, call: &CallExpression, mixin_type: Option<IqType>) -> Option<IqCall> {
-        let wap = parse_wap_call(call, self.aliases)?;
+        let aliases = crate::request::scoped_aliases(
+            self.scope,
+            self.source,
+            call.span().start as usize,
+            self.aliases,
+        );
+        let wap = parse_wap_call(call, &aliases)?;
         if wap.tag != "iq" {
             return None;
         }
@@ -649,11 +667,8 @@ impl ModuleScanner<'_> {
                     self.source,
                     self.scope,
                     self.source,
-                    self.aliases,
-                    // The request's locally-built children resolve structurally; the
-                    // cross-module attrs a referenced mixin contributes arrive via
-                    // `resolve_fragment_children` (Phase 2/3), merged in afterward.
-                    None,
+                    &aliases,
+                    self.contributions,
                     self.helpers,
                     0,
                     // `ce` is at a real module offset (source == module_source), so its

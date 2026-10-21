@@ -98,6 +98,7 @@ pub(crate) struct MixinIqFragment {
 #[derive(Default)]
 pub struct MixinIndex {
     by_module: BTreeMap<String, MixinIqFragment>,
+    pub(crate) contributions: MixinContributions,
 }
 
 impl MixinIndex {
@@ -156,7 +157,10 @@ pub(crate) fn build_pass(
             by_module.insert(name.to_string(), frag);
         }
     }
-    MixinIndex { by_module }
+    MixinIndex {
+        by_module,
+        contributions,
+    }
 }
 
 /// WASmaxOut* module names a slice references via `o("…")` (excluding itself) —
@@ -665,6 +669,7 @@ mod tests {
 
     fn attr(name: &str) -> WapAttrDef {
         WapAttrDef {
+            presence_arg_path: None,
             name: name.to_string(),
             kind: WapAttrKind::Const,
             value: None,
@@ -702,7 +707,10 @@ mod tests {
         for (k, v) in entries {
             by_module.insert(k.to_string(), v.clone());
         }
-        MixinIndex { by_module }
+        MixinIndex {
+            by_module,
+            ..Default::default()
+        }
     }
 
     #[test]

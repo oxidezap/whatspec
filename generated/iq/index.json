@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "4.3.0",
+  "schemaVersion": "4.4.0",
   "waVersion": "2.3000.1047483476",
   "stanzas": [
     {
@@ -20839,6 +20839,9 @@
                             "key": "queryNewsletterParamsArgs"
                           },
                           {
+                            "key": "queryNewsletterJIDParams"
+                          },
+                          {
                             "key": "anyJid"
                           }
                         ]
@@ -20853,6 +20856,9 @@
                           },
                           {
                             "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "queryNewsletterJIDParams"
                           },
                           {
                             "key": "anyViewRole"
@@ -20881,6 +20887,9 @@
                             "key": "queryNewsletterParamsArgs"
                           },
                           {
+                            "key": "queryNewsletterInviteParams"
+                          },
+                          {
                             "key": "anyKey"
                           }
                         ]
@@ -20895,6 +20904,9 @@
                           },
                           {
                             "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "queryNewsletterInviteParams"
                           },
                           {
                             "key": "anyViewRole"
@@ -20922,6 +20934,9 @@
                             "key": "messageDirectionsArgs"
                           },
                           {
+                            "key": "beforeMixin"
+                          },
+                          {
                             "key": "messagesBefore"
                           }
                         ]
@@ -20940,6 +20955,9 @@
                           },
                           {
                             "key": "messageDirectionsArgs"
+                          },
+                          {
+                            "key": "afterMixin"
                           },
                           {
                             "key": "messagesAfter"
@@ -29626,6 +29644,9 @@
                             "key": "queryNewsletterParamsArgs"
                           },
                           {
+                            "key": "queryNewsletterJIDParams"
+                          },
+                          {
                             "key": "anyJid"
                           }
                         ]
@@ -29640,6 +29661,9 @@
                           },
                           {
                             "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "queryNewsletterJIDParams"
                           },
                           {
                             "key": "anyViewRole"
@@ -29668,6 +29692,9 @@
                             "key": "queryNewsletterParamsArgs"
                           },
                           {
+                            "key": "queryNewsletterInviteParams"
+                          },
+                          {
                             "key": "anyKey"
                           }
                         ]
@@ -29682,6 +29709,9 @@
                           },
                           {
                             "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "queryNewsletterInviteParams"
                           },
                           {
                             "key": "anyViewRole"
@@ -29709,6 +29739,9 @@
                             "key": "statusDirectionsArgs"
                           },
                           {
+                            "key": "statusBeforeMixin"
+                          },
+                          {
                             "key": "statusesBefore"
                           }
                         ]
@@ -29727,6 +29760,9 @@
                           },
                           {
                             "key": "statusDirectionsArgs"
+                          },
+                          {
+                            "key": "statusAfterMixin"
                           },
                           {
                             "key": "statusesAfter"
@@ -41727,6 +41763,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "fBClient"
+                          },
+                          {
                             "key": "configAppid"
                           }
                         ]
@@ -41746,6 +41785,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "fBClient"
+                          },
+                          {
                             "key": "configDeviceid"
                           }
                         ]
@@ -41763,6 +41805,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "fBClient"
                           },
                           {
                             "key": "configFbid"
@@ -41788,6 +41833,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "androidClient"
+                          },
+                          {
                             "key": "configPlatform"
                           }
                         ]
@@ -41805,6 +41853,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "androidClient"
                           },
                           {
                             "key": "configId"
@@ -41826,6 +41877,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "androidClient"
+                          },
+                          {
                             "key": "configAppid"
                           }
                         ]
@@ -41843,6 +41897,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "androidClient"
                           },
                           {
                             "key": "configAppMute"
@@ -41864,6 +41921,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "androidClient"
+                          },
+                          {
                             "key": "configPkey"
                           }
                         ]
@@ -41883,6 +41943,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "androidClient"
+                          },
+                          {
                             "key": "configVoipPayloadType"
                           }
                         ]
@@ -41900,6 +41963,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "androidClient"
                           },
                           {
                             "key": "configNumAcc"
@@ -41926,6 +41992,9 @@
                                 "key": "configMixinsArgs"
                               },
                               {
+                                "key": "androidClient"
+                              },
+                              {
                                 "key": "itemArgs",
                                 "list": true
                               },
@@ -41947,6 +42016,9 @@
                               },
                               {
                                 "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "androidClient"
                               },
                               {
                                 "key": "itemArgs",
@@ -41972,6 +42044,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "androidClient"
+                          },
+                          {
                             "key": "itemArgs",
                             "list": true
                           }
@@ -41994,6 +42069,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configPlatform"
@@ -42021,6 +42099,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configId"
                           }
                         ]
@@ -42038,6 +42119,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configVoip"
@@ -42059,6 +42143,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configPreview"
                           }
                         ]
@@ -42076,6 +42163,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configDefault"
@@ -42097,6 +42187,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configGroups"
                           }
                         ]
@@ -42114,6 +42207,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configCall"
@@ -42135,6 +42231,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configStatusSound"
                           }
                         ]
@@ -42152,6 +42251,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configLg"
@@ -42173,6 +42275,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configLc"
                           }
                         ]
@@ -42190,6 +42295,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configBackgroundLocation"
@@ -42211,6 +42319,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configNseVer"
                           }
                         ]
@@ -42228,6 +42339,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configNseCall"
@@ -42249,6 +42363,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configNseRead"
                           }
                         ]
@@ -42266,6 +42383,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configNseRetry"
@@ -42287,6 +42407,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configRegPush"
                           }
                         ]
@@ -42304,6 +42427,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configPkey"
@@ -42325,6 +42451,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configVoipPayloadType"
                           }
                         ]
@@ -42342,6 +42471,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configSettings"
@@ -42363,6 +42495,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configAppMute"
                           }
                         ]
@@ -42382,6 +42517,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "appleClient"
+                          },
+                          {
                             "key": "configAppleWatchId"
                           }
                         ]
@@ -42399,6 +42537,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "configAppleWatchPkey"
@@ -42425,6 +42566,9 @@
                                 "key": "configMixinsArgs"
                               },
                               {
+                                "key": "appleClient"
+                              },
+                              {
                                 "key": "itemArgs",
                                 "list": true
                               },
@@ -42446,6 +42590,9 @@
                               },
                               {
                                 "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "appleClient"
                               },
                               {
                                 "key": "itemArgs",
@@ -42471,6 +42618,9 @@
                                 "key": "configMixinsArgs"
                               },
                               {
+                                "key": "appleClient"
+                              },
+                              {
                                 "key": "itemArgs",
                                 "list": true
                               },
@@ -42494,6 +42644,9 @@
                                 "key": "configMixinsArgs"
                               },
                               {
+                                "key": "appleClient"
+                              },
+                              {
                                 "key": "itemArgs",
                                 "list": true
                               },
@@ -42515,6 +42668,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
                           },
                           {
                             "key": "itemArgs",
@@ -42547,6 +42703,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "wNSClient"
+                          },
+                          {
                             "key": "configVersion"
                           }
                         ]
@@ -42564,6 +42723,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "wNSClient"
                           },
                           {
                             "key": "configId"
@@ -42595,6 +42757,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "enterpriseClient"
+                          },
+                          {
                             "key": "configId"
                           }
                         ]
@@ -42624,6 +42789,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "webClient"
+                          },
+                          {
                             "key": "configEndpoint"
                           }
                         ]
@@ -42641,6 +42809,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "webClient"
                           },
                           {
                             "key": "configAuth"
@@ -42662,6 +42833,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "webClient"
+                          },
+                          {
                             "key": "configP256dh"
                           }
                         ]
@@ -42681,6 +42855,9 @@
                             "key": "configMixinsArgs"
                           },
                           {
+                            "key": "webClient"
+                          },
+                          {
                             "key": "configLg"
                           }
                         ]
@@ -42698,6 +42875,9 @@
                           },
                           {
                             "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "webClient"
                           },
                           {
                             "key": "configLc"
@@ -74328,7 +74508,44 @@
         "children": [
           {
             "tag": "create",
-            "attrs": [],
+            "attrs": [
+              {
+                "presenceArgPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  }
+                ],
+                "name": "key",
+                "kind": "string",
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  },
+                  {
+                    "key": "anyKey"
+                  }
+                ]
+              },
+              {
+                "presenceArgPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  }
+                ],
+                "name": "create_ctx",
+                "kind": "optional",
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "dedupAttrsMixinArgs"
+                  },
+                  {
+                    "key": "anyCreateCtx"
+                  }
+                ]
+              }
+            ],
             "children": [
               {
                 "tag": "participant",
@@ -74376,7 +74593,39 @@
                     ]
                   }
                 ],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "privacy",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "participantArgs",
+                          "list": true
+                        },
+                        {
+                          "key": "permissionTokenMixinArgs"
+                        },
+                        {
+                          "key": "anyElementValue"
+                        }
+                      ]
+                    },
+                    "repeats": false,
+                    "presence": "optional",
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "permissionTokenMixinArgs"
+                      }
+                    ]
+                  }
+                ],
                 "repeats": true,
                 "repeatMin": 0,
                 "repeatMax": 19999,
@@ -74408,26 +74657,18 @@
                   {
                     "tag": "body",
                     "attrs": [],
-                    "children": [
-                      {
-                        "tag": "parent",
-                        "attrs": [],
-                        "children": [],
-                        "repeats": false
-                      },
-                      {
-                        "tag": "membership_approval_mode",
-                        "attrs": [],
-                        "children": [],
-                        "repeats": false
-                      },
-                      {
-                        "tag": "locked",
-                        "attrs": [],
-                        "children": [],
-                        "repeats": false
-                      }
-                    ],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic",
+                      "argPath": [
+                        {
+                          "key": "descriptionArgs"
+                        },
+                        {
+                          "key": "bodyElementValue"
+                        }
+                      ]
+                    },
                     "repeats": false
                   }
                 ],
@@ -74465,31 +74706,22 @@
               },
               {
                 "tag": "parent",
-                "attrs": [],
-                "children": [],
-                "repeats": false,
-                "presence": "optional",
-                "argPath": [
+                "attrs": [
                   {
-                    "key": "parentArgs"
+                    "presenceArgPath": [
+                      {
+                        "key": "parentArgs"
+                      },
+                      {
+                        "key": "hasParentGroupDefaultMembershipApprovalMode"
+                      }
+                    ],
+                    "name": "default_membership_approval_mode",
+                    "kind": "const",
+                    "value": "request_required",
+                    "required": false
                   }
-                ]
-              },
-              {
-                "tag": "membership_approval_mode",
-                "attrs": [],
-                "children": [],
-                "repeats": false,
-                "presence": "optional",
-                "argPath": [
-                  {
-                    "key": "parentArgs"
-                  }
-                ]
-              },
-              {
-                "tag": "locked",
-                "attrs": [],
+                ],
                 "children": [],
                 "repeats": false,
                 "presence": "optional",
@@ -74553,19 +74785,40 @@
               {
                 "tag": "membership_approval_mode",
                 "attrs": [],
-                "children": [],
-                "repeats": false,
-                "presence": "optional",
-                "argPath": [
+                "children": [
                   {
-                    "key": "membershipApprovalModeArgs"
+                    "tag": "group_join",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": false,
+                    "variantGroups": [
+                      {
+                        "variants": [
+                          {
+                            "attrs": [
+                              {
+                                "name": "state",
+                                "kind": "const",
+                                "value": "on",
+                                "required": true
+                              }
+                            ]
+                          },
+                          {
+                            "attrs": [
+                              {
+                                "name": "state",
+                                "kind": "const",
+                                "value": "off",
+                                "required": true
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
                   }
-                ]
-              },
-              {
-                "tag": "locked",
-                "attrs": [],
-                "children": [],
+                ],
                 "repeats": false,
                 "presence": "optional",
                 "argPath": [
@@ -74697,9 +74950,103 @@
                     "key": "hasCapi"
                   }
                 ]
+              },
+              {
+                "tag": "member_add_mode",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "const",
+                  "value": "admin_add"
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "groupMemberAddModeMixinArgs"
+                  }
+                ]
+              },
+              {
+                "tag": "member_link_mode",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "const",
+                  "value": "admin_link"
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "groupMemberLinkModeMixinArgs"
+                  }
+                ]
+              },
+              {
+                "tag": "member_share_group_history_mode",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "const",
+                  "value": "admin_share"
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "groupMemberShareGroupHistoryModeMixinArgs"
+                  }
+                ]
               }
             ],
-            "repeats": false
+            "repeats": false,
+            "variantGroups": [
+              {
+                "variants": [
+                  {
+                    "attrs": [
+                      {
+                        "name": "subject",
+                        "kind": "string",
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "namedSubjectOrUnnamedSubjectFallbackMixinGroupArgs"
+                          },
+                          {
+                            "key": "namedSubject"
+                          },
+                          {
+                            "key": "anySubject"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "subject",
+                        "kind": "optional",
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "namedSubjectOrUnnamedSubjectFallbackMixinGroupArgs"
+                          },
+                          {
+                            "key": "unnamedSubjectFallback"
+                          },
+                          {
+                            "key": "anySubject"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       },

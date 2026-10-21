@@ -186,6 +186,7 @@ fn classify_attr_node<'a>(
     aliases: &AliasMap,
 ) -> WapAttrDef {
     let owned = |kind: WapAttrKind, val: Option<String>, required: bool| WapAttrDef {
+        presence_arg_path: None,
         name: name.to_string(),
         kind,
         value: val,
@@ -203,6 +204,7 @@ fn classify_attr_node<'a>(
                      ename: String,
                      guard: Option<String>| {
         WapAttrDef {
+            presence_arg_path: None,
             name: name.to_string(),
             kind,
             value: guard,

@@ -2460,6 +2460,7 @@ mod tests {
 
     fn attr(name: &str, kind: WapAttrKind, value: Option<&str>) -> WapAttrDef {
         WapAttrDef {
+            presence_arg_path: None,
             name: name.into(),
             kind,
             value: value.map(|v| v.into()),

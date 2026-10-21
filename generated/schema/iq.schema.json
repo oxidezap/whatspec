@@ -821,6 +821,16 @@
         "name": {
           "type": "string"
         },
+        "presenceArgPath": {
+          "description": "Argument passed to an `optionalMerge` that contributes this attribute.\nThe merge runs when it is non-null, including `false`. This controls\npresence, never the attribute's wire value.\nA recovered nullability prerequisite, not a claim that there are no other\nconditions. Absent when this guard cannot be addressed.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/WapArgSegment"
+          }
+        },
         "required": {
           "type": "boolean"
         },

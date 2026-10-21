@@ -367,6 +367,55 @@ pub(crate) fn build_var_scope(program: &Program) -> VarScope {
     b.scope
 }
 
+/// Lexical declaration ownership for qualified IQ contracts. The legacy stanza
+/// scanner still uses its existing resolver until its callback shapes are audited.
+pub(crate) fn build_scoped_var_scope(program: &Program) -> VarScope {
+    let mut scope = build_var_scope(program);
+    let owners: Vec<_> = scope
+        .vars
+        .iter()
+        .map(|(name, inits)| {
+            (
+                name.clone(),
+                inits
+                    .iter()
+                    .map(|init| {
+                        if init.fn_body.is_none() {
+                            scope.innermost_fn(init.init_start).map(|(s, e, _)| (s, e))
+                        } else {
+                            init.owner_fn
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    for (name, owners) in owners {
+        for (init, owner) in scope.vars.get_mut(&name).into_iter().flatten().zip(owners) {
+            init.owner_fn = owner;
+        }
+    }
+    scope
+}
+
+/// Resolve builder aliases in the function that owns this expression. Minified
+/// siblings reuse names, so their assignments cannot establish an alias here.
+pub(crate) fn scoped_aliases(
+    scope: &VarScope,
+    source: &str,
+    offset: usize,
+    outer: &AliasMap,
+) -> AliasMap {
+    let Some((start, end, params)) = scope.innermost_fn(offset) else {
+        return AliasMap::default().over(outer, &Default::default());
+    };
+    let allocator = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&allocator, &source[start..end]);
+    let mut shadowed = crate::alias::bound_names(&parsed.program);
+    shadowed.extend(params.iter().cloned());
+    build_alias_map(&parsed.program).over(outer, &shadowed)
+}
+
 struct ScopeBuilder {
     scope: VarScope,
     /// Spans of the function bodies currently being walked (outermost → innermost).
@@ -545,6 +594,7 @@ fn prefix_arg_paths(nodes: &mut [WapChildNode], prefix: &[WapArgSegment]) {
         prefix_one(&mut n.arg_path, prefix);
         for a in &mut n.attrs {
             prefix_one(&mut a.arg_path, prefix);
+            prefix_one(&mut a.presence_arg_path, prefix);
         }
         if let Some(c) = n.content.as_mut() {
             prefix_one(&mut c.arg_path, prefix);
@@ -553,6 +603,7 @@ fn prefix_arg_paths(nodes: &mut [WapChildNode], prefix: &[WapArgSegment]) {
             for v in &mut g.variants {
                 for a in &mut v.attrs {
                     prefix_one(&mut a.arg_path, prefix);
+                    prefix_one(&mut a.presence_arg_path, prefix);
                 }
                 prefix_arg_paths(&mut v.children, prefix);
             }
@@ -646,6 +697,7 @@ pub(crate) fn clear_arg_paths(nodes: &mut [WapChildNode]) {
         n.arg_path = None;
         for a in &mut n.attrs {
             a.arg_path = None;
+            a.presence_arg_path = None;
         }
         if let Some(c) = n.content.as_mut() {
             c.arg_path = None;
@@ -654,6 +706,7 @@ pub(crate) fn clear_arg_paths(nodes: &mut [WapChildNode]) {
             for v in &mut g.variants {
                 for a in &mut v.attrs {
                     a.arg_path = None;
+                    a.presence_arg_path = None;
                 }
                 clear_arg_paths(&mut v.children);
             }
@@ -1412,6 +1465,27 @@ pub(crate) fn resolve_child_node(
                         module_source,
                         ref_off,
                     );
+                    if is_optional_merge {
+                        let guard = call
+                            .arguments
+                            .get(args_idx)
+                            .and_then(arg_expr)
+                            .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0));
+                        for node in &mut contrib {
+                            for attr in &mut node.attrs {
+                                attr.required = false;
+                                attr.presence_arg_path = guard.clone().filter(|p| !p.is_empty());
+                            }
+                            if node.tag == WILDCARD_TAG {
+                                for child in &mut node.children {
+                                    if child.presence.is_required() {
+                                        child.presence = WapChildPresence::Optional;
+                                        child.arg_path = guard.clone().filter(|p| !p.is_empty());
+                                    }
+                                }
+                            }
+                        }
+                    }
                     apply_contribution(&mut out, &contrib, is_optional_merge);
                 }
             }
@@ -1864,6 +1938,8 @@ fn resolve_function_returns_each(
         return Vec::new();
     }
     let body = &module_source[body_start..body_end];
+    let local_aliases = scoped_aliases(scope, module_source, body_start, aliases);
+    let aliases = &local_aliases;
     // Lexical scope: this body's own vars (shifted to module-absolute offsets) SHADOW
     // the module scope, but the module scope still backs cross-function refs. Mirrors
     // the merge in `resolve_function_return`.
@@ -2070,11 +2146,19 @@ pub(crate) fn resolve_contribution(
 ) -> Vec<WapChildNode> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
-    let scope = build_var_scope(&ret.program);
+    let mut scope = build_scoped_var_scope(&ret.program);
     let aliases = build_alias_map(&ret.program);
     let Some((bs, be)) = find_merge_fn_body(&ret.program, &scope) else {
         return Vec::new();
     };
+
+    // Only this known merge export has the (destination, arguments) contract.
+    // Make its second formal the root while resolving its branch calls.
+    for (start, end, params) in &mut scope.fn_params {
+        if (*start, *end) == (bs, be) && params.len() == 2 {
+            params.remove(0);
+        }
+    }
 
     // A MixinGroup disjunction (`if(flagA) merge…A; if(flagB) merge…B; else throw`)
     // contributes a single node carrying its branches as mutually-exclusive variants
@@ -2770,6 +2854,7 @@ mod tests {
         let user = WapChildNode {
             tag: "user".to_string(),
             attrs: vec![WapAttrDef {
+                presence_arg_path: None,
                 name: "jid".to_string(),
                 kind: WapAttrKind::UserJid,
                 value: None,
@@ -3392,6 +3477,7 @@ mod tests {
             attrs: attrs
                 .iter()
                 .map(|a| wa_ir::WapAttrDef {
+                    presence_arg_path: None,
                     name: a.to_string(),
                     kind: wa_ir::WapAttrKind::Const,
                     value: None,

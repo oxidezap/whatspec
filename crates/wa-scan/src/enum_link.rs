@@ -296,6 +296,7 @@ mod tests {
     /// A pending link with an optional FORM B guard value (rides in `value`).
     fn pending_guard(module: &str, name: &str, guard: Option<&str>) -> WapAttrDef {
         WapAttrDef {
+            presence_arg_path: None,
             name: "type".into(),
             kind: WapAttrKind::String,
             value: guard.map(str::to_string),
