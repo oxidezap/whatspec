@@ -111,6 +111,11 @@ pub mod builder {
             self.0.bytes = Some(bytes);
             self
         }
+        pub fn children(mut self, children: impl IntoIterator<Item = crate::Node>) -> Self {
+            self.0.children = children.into_iter().collect();
+            self.0.bytes = None;
+            self
+        }
         pub fn build(self) -> crate::Node {
             self.0
         }
@@ -183,6 +188,18 @@ fn error(code: &str, text: Option<&str>) -> Node {
     node
 }
 fn main() {
+    for choice in [None, Some(false), Some(true)] {
+        let spec = MakeNullableParentSpec::new("dedup", Some("ctx".into()), choice, choice);
+        let request = spec.build_iq();
+        assert_eq!(request.target.0, "g.us");
+        let node::NodeContent::Nodes(nodes) = request.content.unwrap();
+        let create = &nodes[0];
+        assert_eq!(create.attrs["subject"], "Fixture community");
+        assert_eq!(create.attrs.get("key").map(String::as_str), choice.map(|_| "dedup"));
+        assert_eq!(create.attrs.get("create_ctx").map(String::as_str), choice.map(|_| "ctx"));
+        let parent = &create.children[0];
+        assert_eq!(parent.attrs.get("default_membership_approval_mode").map(String::as_str), choice.map(|_| "request_required"));
+    }
     let target = jid::Jid::new("123", jid::Server::Group);
     let subject = MakeSetSubjectRequestSpec::new(target.clone(), b"new subject".to_vec());
     let accept = MakeAcceptGroupAddRequestSpec::new(

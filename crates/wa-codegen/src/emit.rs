@@ -1344,6 +1344,21 @@ fn unique_field(ctx: &VariantCtx, base: &str) -> String {
         .expect("an unused suffix exists")
 }
 
+fn guard_attribute(lines: &mut Vec<String>, start: usize, indent: &str, field: Option<&str>) {
+    let Some(field) = field else { return };
+    let statements = lines.split_off(start);
+    if statements.is_empty() {
+        return;
+    }
+    lines.push(format!("{indent}if self.{field}.is_some() {{"));
+    lines.extend(
+        statements
+            .into_iter()
+            .map(|line| format!("{indent}    {}", line.strip_prefix(indent).unwrap_or(&line))),
+    );
+    lines.push(format!("{indent}}}"));
+}
+
 /// Emit the `let <tag>_node = NodeBuilder::new("tag")…build();` statements for a
 /// request child, recursing into nested children first. `used_names` dedups
 /// repeated tags. Returns `(lines, var_name)` — the caller takes the returned
@@ -1445,6 +1460,7 @@ pub(crate) fn emit_child_builder(
         }
     }
     for attr in &child.attrs {
+        let first_statement = body.len();
         let alit = rust_lit(&attr.name);
         // The field this SITE reads, which the collection pass resolved: a name shared with
         // another node's attribute was given a distinct field there, and deriving it from the
@@ -1500,6 +1516,12 @@ pub(crate) fn emit_child_builder(
             }
             _ => {}
         }
+        guard_attribute(
+            &mut body,
+            first_statement,
+            indent,
+            ctx.attr_fields.presence_field(attr),
+        );
     }
     body.extend(emit_variant_groups(child, &var_name, indent, ctx));
     body.extend(emit_node_content(child, &var_name, indent, ctx));
@@ -1630,6 +1652,7 @@ fn emit_variant_groups(
                 v,
                 var_name,
                 &format!("{inner_indent}    "),
+                ctx.attr_fields,
             ));
         }
         build.push(format!("{inner_indent}}}"));
@@ -1862,6 +1885,7 @@ fn variant_arm(
     v: &wa_ir::WapVariant,
     var_name: &str,
     indent: &str,
+    attr_fields: &crate::spec::AttrFieldMap,
 ) -> Vec<String> {
     let mut binds: Vec<String> = v
         .attrs
@@ -1882,6 +1906,7 @@ fn variant_arm(
     let mut lines = vec![format!("{indent}{pat} => {{")];
     let body_indent = format!("{indent}    ");
     for a in &v.attrs {
+        let first_statement = lines.len();
         let alit = rust_lit(&a.name);
         let ident = rust_ident(&a.name);
         match &a.kind {
@@ -1907,6 +1932,12 @@ fn variant_arm(
             )),
             _ => {}
         }
+        guard_attribute(
+            &mut lines,
+            first_statement,
+            &body_indent,
+            attr_fields.presence_field(a),
+        );
     }
     // …and the children the variant contributes, built from the payload the enum now carries.
     for (c, (member, _, _)) in v
@@ -1914,7 +1945,13 @@ fn variant_arm(
         .iter()
         .zip(variant_child_members(enum_name, vname, v))
     {
-        lines.extend(variant_child_build(c, &member, var_name, &body_indent));
+        lines.extend(variant_child_build(
+            c,
+            &member,
+            var_name,
+            &body_indent,
+            attr_fields,
+        ));
     }
     lines.push(format!("{indent}}}"));
     lines
@@ -2041,6 +2078,7 @@ fn variant_child_build(
     member: &str,
     var_name: &str,
     indent: &str,
+    attr_fields: &crate::spec::AttrFieldMap,
 ) -> Vec<String> {
     // The opaque fallback: the caller built the nodes, so they are taken as they are — one for
     // a child that does not repeat, however many for one that does.
@@ -2058,7 +2096,7 @@ fn variant_child_build(
             .filter_map(|a| {
                 let alit = rust_lit(&a.name);
                 let ident = rust_ident(&a.name);
-                Some(match &a.kind {
+                let statement = match &a.kind {
                     WapAttrKind::Const => format!(
                         "{ind}{node} = {node}.attr({alit}, {});",
                         rust_lit(a.value.as_deref()?)
@@ -2078,6 +2116,11 @@ fn variant_child_build(
                         format!("{ind}{node} = {node}.attr({alit}, {src}.{ident}.as_str());")
                     }
                     _ => return None,
+                };
+                Some(if let Some(field) = attr_fields.presence_field(a) {
+                    format!("{ind}if self.{field}.is_some() {{ {} }}", statement.trim_start())
+                } else {
+                    statement
                 })
             })
             .collect()

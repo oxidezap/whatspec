@@ -7,6 +7,14 @@ mod support;
 fn generated_pilot_requests_and_responses_execute() {
     let mut ir: wa_ir::IqIr =
         serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
+    let upstream_create = ir
+        .stanzas
+        .iter()
+        .find(|s| s.module_name == "WASmaxOutGroupsCreateRequest")
+        .unwrap()
+        .request
+        .children[0]
+        .clone();
     ir.stanzas.retain(|op| {
         matches!(
             op.module_name.as_str(),
@@ -124,9 +132,44 @@ fn generated_pilot_requests_and_responses_execute() {
     .collect();
     ir.stanzas.push(op);
 
+    // A nullability choice is independent of the constant's wire value. Two
+    // attributes supplied by one mixin must share its presence argument.
+    let mut op = subject.clone();
+    op.module_name = "NullableParent".into();
+    op.exported_function = Some("makeNullableParent".into());
+    op.target = wa_ir::IqTarget::GroupServer;
+    op.request.target = wa_ir::IqTarget::GroupServer;
+    op.request.target_arg_path = None;
+    op.response = Default::default();
+    op.request.children = serde_json::from_value(serde_json::json!([{
+        "tag":"create", "repeats":false,
+        "attrs":[{"name":"subject","kind":"const","required":true,"value":"Fixture community"}],
+        "children":[]
+    }]))
+    .unwrap();
+    op.request.children[0].attrs.extend(upstream_create.attrs);
+    op.request.children[0].children.push(
+        upstream_create
+            .children
+            .into_iter()
+            .find(|c| c.tag == "parent")
+            .unwrap(),
+    );
+    ir.stanzas.push(op);
+
     let dir = std::env::temp_dir().join(format!("whatspec-iq-runtime-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("generated.rs"), wa_codegen::generate_iq(&ir)).unwrap();
+    let generated = wa_codegen::generate_iq(&ir);
+    assert!(generated.contains(
+        "pub parent_args_has_parent_group_default_membership_approval_mode_present: Option<bool>"
+    ));
+    assert_eq!(
+        generated
+            .matches("pub dedup_attrs_mixin_args_present: Option<bool>")
+            .count(),
+        1
+    );
+    fs::write(dir.join("generated.rs"), generated).unwrap();
     fs::write(dir.join("main.rs"), include_str!("fixtures/iq_runtime.rs")).unwrap();
     let compiler = support::FixtureCompiler::build(&dir);
     let compile = compiler.command(&dir, false).output().unwrap();

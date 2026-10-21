@@ -610,6 +610,13 @@ pub(crate) fn iq_type_from_merge_name(method: &str) -> Option<IqType> {
 
 impl ModuleScanner<'_> {
     fn try_iq_call(&self, call: &CallExpression, mixin_type: Option<IqType>) -> Option<IqCall> {
+        // Alias recovery reparses the owning function. Most calls visited here
+        // are not IQ builders and must not pay for that work.
+        if !matches!(callee_method(call), Some("wap" | "smax"))
+            || wa_oxc::first_string_arg(call) != Some("iq")
+        {
+            return None;
+        }
         let aliases = crate::request::scoped_aliases(
             self.scope,
             self.source,
@@ -782,6 +789,24 @@ mod tests {
                 .iter()
                 .any(|a| a.name.as_deref() == Some("iq"))
         );
+    }
+
+    #[test]
+    fn unrelated_calls_do_not_change_scoped_iq_recognition() {
+        let noise = "unrelated(\"iq\"); other.smax(\"noise\", null);".repeat(512);
+        let source = format!(
+            r#"__d("WASmaxOutSyntheticRequest",["WASmaxJsx"],function(g,r,d,o,e,i){{
+            e.send = function(args) {{
+                var builder = o("WASmaxJsx");
+                {noise}
+                other.smax("iq", {{xmlns:"wrong",type:"get"}});
+                return builder.smax("iq", {{xmlns:"w:probe",type:"get"}});
+            }};
+        }});"#
+        );
+        let stanzas = scan_module_source(&source, &mi(), &ri(), &hi());
+        assert_eq!(stanzas.len(), 1);
+        assert_eq!(stanzas[0].namespace, "w:probe");
     }
 
     #[test]
