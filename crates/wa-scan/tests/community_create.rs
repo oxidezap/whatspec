@@ -77,22 +77,28 @@ function merge(dst,args){return o("WASmaxMixins").optionalMerge(o("WASmaxOutInne
 __d("WASmaxOutGroupsCreateRequest",["WASmaxJsx","WASmaxMixins","WASmaxOutOuterMixin"],function(t,n,r,o,a,i,l){
 function create(args){return o("WASmaxJsx").smax("iq",{xmlns:"w:g2",type:"set"},o("WASmaxMixins").optionalMerge(o("WASmaxOutOuterMixin").mergeOuterMixin,o("WASmaxJsx").smax("parent",null),args.outer))}l.makeCreateRequest=create;
 });"#;
-    let ir = extract_iq(source, "test");
-    let attr = &ir
-        .stanzas
-        .iter()
-        .find(|s| s.module_name == "WASmaxOutGroupsCreateRequest")
-        .unwrap()
-        .request
-        .children[0]
-        .attrs[0];
-    assert!(!attr.required);
-    assert_eq!(attr.name, "mode");
-    let path = attr.presence_arg_path.as_ref().unwrap();
-    assert_eq!(
-        path.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(),
-        ["outer", "inner"]
-    );
+    for (guard, expected) in [
+        ("args.outer", vec!["outer", "inner"]),
+        ("args", vec!["inner"]),
+    ] {
+        let source = source.replace("args.outer", guard);
+        let ir = extract_iq(&source, "test");
+        let attr = &ir
+            .stanzas
+            .iter()
+            .find(|s| s.module_name == "WASmaxOutGroupsCreateRequest")
+            .unwrap()
+            .request
+            .children[0]
+            .attrs[0];
+        assert!(!attr.required);
+        assert_eq!(attr.name, "mode");
+        let path = attr.presence_arg_path.as_ref().unwrap();
+        assert_eq!(
+            path.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(),
+            expected
+        );
+    }
 }
 
 /// A module-wide alias collision must not erase the selected IQ's root target.

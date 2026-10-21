@@ -1474,9 +1474,9 @@ pub(crate) fn resolve_child_node(
                         for node in &mut contrib {
                             for attr in &mut node.attrs {
                                 attr.required = false;
-                                let outer = guard.clone().filter(|p| !p.is_empty());
+                                let outer = guard.clone();
                                 attr.presence_arg_path = match attr.presence_arg_path.take() {
-                                    None => outer,
+                                    None => outer.filter(|path| !path.is_empty()),
                                     Some(inner)
                                         if outer
                                             .as_ref()
