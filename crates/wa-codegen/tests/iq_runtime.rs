@@ -3,6 +3,7 @@
 use std::{fs, process::Command};
 mod support;
 
+/// Compile and execute generated request and response contracts against wire assertions.
 #[test]
 fn generated_pilot_requests_and_responses_execute() {
     let mut ir: wa_ir::IqIr =
@@ -147,14 +148,40 @@ fn generated_pilot_requests_and_responses_execute() {
         "children":[]
     }]))
     .unwrap();
-    op.request.children[0].attrs.extend(upstream_create.attrs);
+    op.request.children[0]
+        .attrs
+        .extend(upstream_create.attrs.clone());
     op.request.children[0].children.push(
         upstream_create
             .children
-            .into_iter()
+            .iter()
             .find(|c| c.tag == "parent")
+            .cloned()
             .unwrap(),
     );
+    ir.stanzas.push(op);
+
+    let mut op = subject.clone();
+    op.module_name = "OptionalChildren".into();
+    op.exported_function = Some("makeOptionalChildren".into());
+    op.response = Default::default();
+    op.target = wa_ir::IqTarget::GroupServer;
+    op.request.target = wa_ir::IqTarget::GroupServer;
+    op.request.target_arg_path = None;
+    let children = ["privacy", "member_add_mode", "locked"].map(|tag| {
+        upstream_create
+            .children
+            .iter()
+            .chain(upstream_create.children.iter().flat_map(|c| &c.children))
+            .find(|c| c.tag == tag)
+            .unwrap()
+            .clone()
+    });
+    op.request.children = vec![wa_ir::WapChildNode {
+        tag: "create".into(),
+        children: children.into(),
+        ..Default::default()
+    }];
     ir.stanzas.push(op);
 
     let dir = std::env::temp_dir().join(format!("whatspec-iq-runtime-{}", std::process::id()));

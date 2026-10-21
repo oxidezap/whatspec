@@ -1474,7 +1474,12 @@ pub(crate) fn resolve_child_node(
                         for node in &mut contrib {
                             for attr in &mut node.attrs {
                                 attr.required = false;
-                                attr.presence_arg_path = guard.clone().filter(|p| !p.is_empty());
+                                let outer = guard.clone().filter(|p| !p.is_empty());
+                                attr.presence_arg_path = match attr.presence_arg_path.take() {
+                                    None => outer,
+                                    Some(inner) if Some(&inner) == outer.as_ref() => Some(inner),
+                                    Some(_) => None,
+                                };
                             }
                             if node.tag == WILDCARD_TAG {
                                 for child in &mut node.children {
@@ -2143,10 +2148,15 @@ pub(crate) fn resolve_contribution(
     slice: &str,
     contributions: &MixinContributions,
     helpers: &HelperIndex,
+    qualified_create: bool,
 ) -> Vec<WapChildNode> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
-    let mut scope = build_scoped_var_scope(&ret.program);
+    let mut scope = if qualified_create {
+        build_scoped_var_scope(&ret.program)
+    } else {
+        build_var_scope(&ret.program)
+    };
     let aliases = build_alias_map(&ret.program);
     let Some((bs, be)) = find_merge_fn_body(&ret.program, &scope) else {
         return Vec::new();
@@ -2155,7 +2165,7 @@ pub(crate) fn resolve_contribution(
     // Only this known merge export has the (destination, arguments) contract.
     // Make its second formal the root while resolving its branch calls.
     for (start, end, params) in &mut scope.fn_params {
-        if (*start, *end) == (bs, be) && params.len() == 2 {
+        if qualified_create && (*start, *end) == (bs, be) && params.len() == 2 {
             params.remove(0);
         }
     }

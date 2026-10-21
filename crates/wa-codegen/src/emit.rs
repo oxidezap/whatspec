@@ -1,6 +1,6 @@
 //! Emit Rust source fragments: response parsers and request builders.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use wa_ir::wap;
 use wa_ir::{ParsedField, ParsedFieldType, WapAttrKind, WapChildNode, WapContentKind};
@@ -1344,6 +1344,7 @@ fn unique_field(ctx: &VariantCtx, base: &str) -> String {
         .expect("an unused suffix exists")
 }
 
+/// Wrap emitted attribute mutations in the recovered non-null prerequisite.
 fn guard_attribute(lines: &mut Vec<String>, start: usize, indent: &str, field: Option<&str>) {
     let Some(field) = field else { return };
     let statements = lines.split_off(start);
@@ -1376,6 +1377,9 @@ pub(crate) fn emit_child_builder(
     ctx: &mut VariantCtx,
     path: &[String],
 ) -> (Vec<String>, String, bool) {
+    if !child.presence.is_required() {
+        return emit_optional_child(child, indent, used_names, ctx);
+    }
     let mut lines: Vec<String> = Vec::new();
     let here: Vec<String> = path.iter().cloned().chain([child.tag.clone()]).collect();
     let base_name = format!("{}_node", snake_case(&child.tag));
@@ -1554,6 +1558,108 @@ pub(crate) fn emit_child_builder(
         lines.push(format!("{indent}let {var_name} = {var_name}.build();"));
     }
     (lines, var_name, false)
+}
+
+/// Keep an optional child's typed payload inside its Option, so omission never
+/// requires a dummy privacy body or attribute value. A flag uses a boolean.
+fn emit_optional_child(
+    child: &WapChildNode,
+    indent: &str,
+    used_names: &mut HashMap<String, usize>,
+    ctx: &mut VariantCtx,
+) -> (Vec<String>, String, bool) {
+    let field = unique_field(ctx, &rust_ident(&child.tag));
+    let ty = format!("{}{}Input", ctx.spec_base, pascal_case(&field));
+    let mut required = child.clone();
+    required.presence = wa_ir::WapChildPresence::Required;
+    let mut attrs = Vec::new();
+    let mut seen = HashSet::new();
+    let mut map = crate::spec::AttrFieldMap::new();
+    crate::spec::collect_attrs(
+        std::slice::from_ref(&required),
+        &mut attrs,
+        &mut seen,
+        &[],
+        &mut map,
+    );
+    crate::spec::collect_presence_fields(
+        std::slice::from_ref(&required),
+        &mut attrs,
+        &mut seen,
+        &mut map,
+    );
+    let reserved = attrs.iter().map(|(n, _, _)| n.clone()).collect();
+    let mut fields = Vec::new();
+    let inner_indent = format!("{indent}    ");
+    let (body, node, list) = emit_child_builder(
+        &required,
+        &inner_indent,
+        used_names,
+        &mut VariantCtx {
+            spec_base: &ty,
+            enum_defs: ctx.enum_defs,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &map,
+        },
+        &[],
+    );
+    let flag = child.presence == wa_ir::WapChildPresence::PresenceFlag
+        && attrs.is_empty()
+        && fields.is_empty();
+    let mut definition = vec![
+        format!("/// Payload for the optional `{}` child.", child.tag),
+        "#[derive(Debug, Clone)]".into(),
+        format!("pub struct {ty} {{"),
+    ];
+    for (name, field_ty, _) in &attrs {
+        definition.push(format!("    pub {name}: {field_ty},"));
+    }
+    for (name, field_ty, _) in &fields {
+        definition.push(format!("    pub {name}: {field_ty},"));
+    }
+    definition.push("}".into());
+    if !flag {
+        definition.extend([
+            format!("impl {ty} {{"),
+            "    fn build_nodes(&self) -> Vec<wacore_binary::node::Node> {".into(),
+        ]);
+        definition.extend(body.iter().cloned());
+        definition.push(if list {
+            format!("        {node}")
+        } else {
+            format!("        vec![{node}]")
+        });
+        definition.extend(["    }".into(), "}".into()]);
+        ctx.enum_defs.extend(definition);
+    }
+    ctx.fields.push((
+        field.clone(),
+        if flag {
+            "bool".into()
+        } else {
+            format!("Option<{ty}>")
+        },
+        false,
+    ));
+    let nodes = format!("{node}_optional");
+    let mut lines = vec![format!("{indent}let mut {nodes} = Vec::new();")];
+    if flag {
+        lines.push(format!("{indent}if self.{field} {{"));
+        lines.extend(body);
+        lines.push(if list {
+            format!("{inner_indent}{nodes}.extend({node});")
+        } else {
+            format!("{inner_indent}{nodes}.push({node});")
+        });
+    } else {
+        lines.push(format!("{indent}if let Some(value) = &self.{field} {{"));
+        lines.push(format!(
+            "{inner_indent}{nodes}.extend(value.build_nodes());"
+        ));
+    }
+    lines.push(format!("{indent}}}"));
+    (lines, nodes, true)
 }
 
 /// Emit, for each of a node's variant groups, a top-level `enum` (pushed to

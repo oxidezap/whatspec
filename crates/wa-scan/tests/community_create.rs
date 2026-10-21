@@ -17,6 +17,7 @@ __d("WASmaxOutGroupsCreateRequest",["WASmaxJsx","WASmaxChildren","WASmaxMixins",
 });
 "#;
 
+/// Keep sibling locals out of Create while retaining nested optional-merge metadata.
 #[test]
 fn scoped_values_and_nested_optional_mixins_survive_extraction() {
     let ir = extract_iq(SOURCE, "test");
@@ -61,4 +62,98 @@ fn scoped_values_and_nested_optional_mixins_survive_extraction() {
             .collect::<Vec<_>>(),
         ["parentArgs", "hasMode"]
     );
+}
+
+/// Nested guards cannot be collapsed into one sufficient presence choice.
+#[test]
+fn nested_optional_merge_does_not_replace_an_inner_guard() {
+    let source = r#"
+__d("WASmaxOutInnerMixin",["WASmaxJsx"],function(t,n,r,o,a,i,l){
+function merge(dst){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("parent",{mode:"request_required"}))}l.mergeInnerMixin=merge;
+});
+__d("WASmaxOutOuterMixin",["WASmaxMixins","WASmaxJsx","WASmaxOutInnerMixin"],function(t,n,r,o,a,i,l){
+function merge(dst,args){return o("WASmaxMixins").optionalMerge(o("WASmaxOutInnerMixin").mergeInnerMixin,dst,args.inner)}l.mergeOuterMixin=merge;
+});
+__d("WASmaxOutGroupsCreateRequest",["WASmaxJsx","WASmaxMixins","WASmaxOutOuterMixin"],function(t,n,r,o,a,i,l){
+function create(args){return o("WASmaxJsx").smax("iq",{xmlns:"w:g2",type:"set"},o("WASmaxMixins").optionalMerge(o("WASmaxOutOuterMixin").mergeOuterMixin,o("WASmaxJsx").smax("parent",null),args.outer))}l.makeCreateRequest=create;
+});"#;
+    let ir = extract_iq(source, "test");
+    let attr = &ir
+        .stanzas
+        .iter()
+        .find(|s| s.module_name == "WASmaxOutGroupsCreateRequest")
+        .unwrap()
+        .request
+        .children[0]
+        .attrs[0];
+    assert!(!attr.required);
+    assert_eq!(attr.name, "mode");
+    assert!(
+        attr.presence_arg_path.is_none(),
+        "distinct outer/inner guards require a conjunction: {attr:?}"
+    );
+}
+
+/// A module-wide alias collision must not erase the selected IQ's root target.
+#[test]
+fn root_attributes_use_the_selected_functions_aliases() {
+    let source = r#"__d("WASmaxOutGroupsCreateRequest",["WAWap","Other"],function(t,n,r,o,a,i,l){
+function unrelated(){var w=o("Other");return w.call()}
+function create(args){var w=o("WAWap");return w.wap("iq",{xmlns:"w:g2",type:"set",to:w.S_WHATSAPP_NET})}l.makeCreateRequest=create;
+});"#;
+    let ir = extract_iq(source, "test");
+    assert_eq!(ir.stanzas.len(), 1);
+    assert_eq!(ir.stanzas[0].target, wa_ir::IqTarget::Server);
+}
+
+/// Paths of the three unqualified requests stay at merge-base 587a514's contract.
+#[test]
+fn shared_mixin_index_preserves_non_create_argument_paths() {
+    fn paths(value: &serde_json::Value) -> serde_json::Value {
+        use serde_json::Value;
+        let entries: Vec<_> = match value {
+            Value::Object(map) => map
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        if matches!(k.as_str(), "argPath" | "presenceArgPath" | "targetArgPath") {
+                            v.clone()
+                        } else {
+                            paths(v)
+                        },
+                    )
+                })
+                .collect(),
+            Value::Array(array) => array
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (i.to_string(), paths(v)))
+                .collect(),
+            _ => Vec::new(),
+        };
+        Value::Object(
+            entries
+                .into_iter()
+                .filter(|(_, v)| v.as_object().is_none_or(|o| !o.is_empty()))
+                .collect(),
+        )
+    }
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/non_create_argument_paths.json")).unwrap();
+    let ir: serde_json::Value =
+        serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
+    for (module, baseline) in expected.as_object().unwrap() {
+        let stanza = ir["stanzas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["moduleName"] == module.as_str())
+            .unwrap();
+        assert_eq!(
+            paths(&stanza["request"]),
+            *baseline,
+            "unqualified contract changed: {module}"
+        );
+    }
 }

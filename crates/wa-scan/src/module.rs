@@ -609,6 +609,7 @@ pub(crate) fn iq_type_from_merge_name(method: &str) -> Option<IqType> {
 }
 
 impl ModuleScanner<'_> {
+    /// Recognize one IQ builder using a consistent function-local alias map.
     fn try_iq_call(&self, call: &CallExpression, mixin_type: Option<IqType>) -> Option<IqCall> {
         // Alias recovery reparses the owning function. Most calls visited here
         // are not IQ builders and must not pay for that work.
@@ -631,7 +632,7 @@ impl ModuleScanner<'_> {
         // case namespace/type are resolved later from the referenced mixins.
         let attrs = wap
             .attrs_node
-            .map(|n| extract_attrs_from_obj(n, self.source, self.aliases))
+            .map(|n| extract_attrs_from_obj(n, self.source, &aliases))
             .unwrap_or_default();
         // namespace: literal xmlns if present locally; else left None for the
         // post-walk mixin resolution (which re-applies the drop-if-unresolved guard).
@@ -657,7 +658,7 @@ impl ModuleScanner<'_> {
                 crate::request::annotate_attr_arg_paths(
                     &mut root,
                     n,
-                    self.aliases,
+                    &aliases,
                     self.scope,
                     self.source,
                     Some(call.span().start as usize),
@@ -791,6 +792,7 @@ mod tests {
         );
     }
 
+    /// Unrelated calls cannot trigger alias recovery or qualify a false IQ receiver.
     #[test]
     fn unrelated_calls_do_not_change_scoped_iq_recognition() {
         let noise = "unrelated(\"iq\"); other.smax(\"noise\", null);".repeat(512);

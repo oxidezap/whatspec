@@ -1,0 +1,1101 @@
+{
+  "WASmaxOutNewslettersGetNewsletterMessagesRequest": {
+    "children": {
+      "0": {
+        "attrs": {
+          "0": {
+            "argPath": [
+              {
+                "key": "newsletterMessageRequestPayloadMixinArgs"
+              },
+              {
+                "key": "messagesCount"
+              }
+            ]
+          }
+        },
+        "variantGroups": {
+          "0": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyJid"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyKey"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterMessageRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "messageDirectionsArgs"
+                      },
+                      {
+                        "key": "messagesBefore"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterMessageRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "messageDirectionsArgs"
+                      },
+                      {
+                        "key": "messagesAfter"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "WASmaxOutNewslettersGetNewsletterStatusesRequest": {
+    "children": {
+      "0": {
+        "attrs": {
+          "0": {
+            "argPath": [
+              {
+                "key": "newsletterStatusRequestPayloadMixinArgs"
+              },
+              {
+                "key": "statusesCount"
+              }
+            ]
+          }
+        },
+        "variantGroups": {
+          "0": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyJid"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyKey"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterStatusRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "statusDirectionsArgs"
+                      },
+                      {
+                        "key": "statusesBefore"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterStatusRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "statusDirectionsArgs"
+                      },
+                      {
+                        "key": "statusesAfter"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "WASmaxOutPushConfigSetRequest": {
+    "children": {
+      "0": {
+        "variantGroups": {
+          "0": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configAppid"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configDeviceid"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configFbid"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configPlatform"
+                      }
+                    ]
+                  },
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configAppid"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configAppMute"
+                      }
+                    ]
+                  },
+                  "4": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configPkey"
+                      }
+                    ]
+                  },
+                  "5": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configVoipPayloadType"
+                      }
+                    ]
+                  },
+                  "6": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configNumAcc"
+                      }
+                    ]
+                  }
+                },
+                "children": {
+                  "0": {
+                    "attrs": {
+                      "0": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemJid"
+                          }
+                        ]
+                      },
+                      "1": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemMute"
+                          }
+                        ]
+                      }
+                    },
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "itemArgs",
+                        "list": true
+                      }
+                    ]
+                  }
+                }
+              },
+              "2": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configPlatform"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configVoip"
+                      }
+                    ]
+                  },
+                  "4": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configPreview"
+                      }
+                    ]
+                  },
+                  "5": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configDefault"
+                      }
+                    ]
+                  },
+                  "6": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configGroups"
+                      }
+                    ]
+                  },
+                  "7": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configCall"
+                      }
+                    ]
+                  },
+                  "8": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configStatusSound"
+                      }
+                    ]
+                  },
+                  "9": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configLg"
+                      }
+                    ]
+                  },
+                  "10": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configLc"
+                      }
+                    ]
+                  },
+                  "11": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configBackgroundLocation"
+                      }
+                    ]
+                  },
+                  "12": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configNseVer"
+                      }
+                    ]
+                  },
+                  "13": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configNseCall"
+                      }
+                    ]
+                  },
+                  "14": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configNseRead"
+                      }
+                    ]
+                  },
+                  "15": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configNseRetry"
+                      }
+                    ]
+                  },
+                  "16": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configRegPush"
+                      }
+                    ]
+                  },
+                  "17": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configPkey"
+                      }
+                    ]
+                  },
+                  "18": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configVoipPayloadType"
+                      }
+                    ]
+                  },
+                  "19": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configSettings"
+                      }
+                    ]
+                  },
+                  "20": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configAppMute"
+                      }
+                    ]
+                  },
+                  "21": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configAppleWatchId"
+                      }
+                    ]
+                  },
+                  "22": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configAppleWatchPkey"
+                      }
+                    ]
+                  }
+                },
+                "children": {
+                  "0": {
+                    "attrs": {
+                      "0": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemJid"
+                          }
+                        ]
+                      },
+                      "1": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemMute"
+                          }
+                        ]
+                      },
+                      "2": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemNotify"
+                          }
+                        ]
+                      },
+                      "3": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemCall"
+                          }
+                        ]
+                      }
+                    },
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "itemArgs",
+                        "list": true
+                      }
+                    ]
+                  }
+                }
+              },
+              "3": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configVersion"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  }
+                }
+              },
+              "4": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  }
+                }
+              },
+              "5": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configEndpoint"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configAuth"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configP256dh"
+                      }
+                    ]
+                  },
+                  "4": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configLg"
+                      }
+                    ]
+                  },
+                  "5": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "configLc"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "1": {
+        "attrs": {
+          "0": {
+            "argPath": [
+              {
+                "key": "setSetConfigOrSetClearMixinGroupArgs"
+              },
+              {
+                "key": "setClear"
+              },
+              {
+                "key": "clearPlatform"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

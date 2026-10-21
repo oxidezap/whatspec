@@ -89,6 +89,7 @@ pub mod jid {
     }
 }
 pub mod node {
+    pub use crate::Node;
     #[derive(Debug, Clone)]
     pub enum NodeContent {
         Nodes(Vec<crate::Node>),
@@ -189,7 +190,7 @@ fn error(code: &str, text: Option<&str>) -> Node {
 }
 fn main() {
     for choice in [None, Some(false), Some(true)] {
-        let spec = MakeNullableParentSpec::new("dedup", Some("ctx".into()), choice, choice);
+        let spec = MakeNullableParentSpec::new("dedup", Some("ctx".into()), choice, Some(MakeNullableParentParentInput { parent_args_has_parent_group_default_membership_approval_mode_present: choice }));
         let request = spec.build_iq();
         assert_eq!(request.target.0, "g.us");
         let node::NodeContent::Nodes(nodes) = request.content.unwrap();
@@ -199,6 +200,22 @@ fn main() {
         assert_eq!(create.attrs.get("create_ctx").map(String::as_str), choice.map(|_| "ctx"));
         let parent = &create.children[0];
         assert_eq!(parent.attrs.get("default_membership_approval_mode").map(String::as_str), choice.map(|_| "request_required"));
+    }
+    for enabled in [false, true] {
+        let spec = MakeOptionalChildrenSpec::new(
+            enabled.then(|| MakeOptionalChildrenPrivacyInput { privacy_content: b"token".to_vec() }),
+            enabled.then(|| MakeOptionalChildrenMemberAddModeInput {}),
+            enabled,
+        );
+        let node::NodeContent::Nodes(nodes) = spec.build_iq().content.unwrap();
+        let create = &nodes[0];
+        assert_eq!(create.children.len(), if enabled { 3 } else { 0 });
+        if enabled {
+            assert_eq!(create.children[0].tag, "privacy");
+            assert_eq!(create.children[0].bytes.as_deref(), Some(b"token".as_slice()));
+            assert_eq!(create.children[1].bytes.as_deref(), Some(b"admin_add".as_slice()));
+            assert_eq!(create.children[2].tag, "locked");
+        }
     }
     let target = jid::Jid::new("123", jid::Server::Group);
     let subject = MakeSetSubjectRequestSpec::new(target.clone(), b"new subject".to_vec());

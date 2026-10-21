@@ -1591,18 +1591,22 @@ pub(crate) struct AttrFieldMap {
 }
 
 impl AttrFieldMap {
+    /// Start an empty mapping of value sites and shared presence arguments.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Find the input field for one attribute site.
     pub fn get(&self, key: &(Vec<String>, String)) -> Option<&String> {
         self.values.get(key)
     }
 
+    /// Record a collision-free input name for an attribute site.
     pub fn insert(&mut self, key: (Vec<String>, String), field: String) {
         self.values.insert(key, field);
     }
 
+    /// Resolve the shared non-null choice independently of the wire value.
     pub fn presence_field(&self, attr: &wa_ir::WapAttrDef) -> Option<&str> {
         let path = attr.presence_arg_path.as_ref()?;
         let key: Vec<_> = path.iter().map(|s| (s.key.clone(), s.list)).collect();
@@ -1612,13 +1616,16 @@ impl AttrFieldMap {
 
 /// A presence argument is a separate input from the attribute's wire value.
 /// Attributes contributed by the same optional merge share one nullable choice.
-fn collect_presence_fields(
+pub(crate) fn collect_presence_fields(
     children: &[WapChildNode],
     out: &mut Vec<(String, &'static str, WapAttrKind)>,
     seen: &mut HashSet<String>,
     map: &mut AttrFieldMap,
 ) {
     for child in children {
+        if !child.presence.is_required() {
+            continue;
+        }
         for attr in child.attrs.iter().chain(
             child
                 .variant_groups
@@ -1661,7 +1668,8 @@ fn collect_presence_fields(
     }
 }
 
-fn collect_attrs(
+/// Collect required-node attribute values, leaving optional payloads in their own structs.
+pub(crate) fn collect_attrs(
     children: &[WapChildNode],
     out: &mut Vec<(String, &'static str, WapAttrKind)>,
     seen: &mut HashSet<String>,
@@ -1669,6 +1677,9 @@ fn collect_attrs(
     map: &mut AttrFieldMap,
 ) {
     for child in children {
+        if !child.presence.is_required() {
+            continue;
+        }
         let mut here = path.to_vec();
         here.push(child.tag.clone());
         for attr in &child.attrs {

@@ -131,7 +131,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "3fc1c367d7c09a94775637eee22fea0ab189097a30bc511943512cefbc0e87be"
+      "sha256": "fc7aa8849031d7b970f5a6bf03e4ae34e4543eff114ef4d022d08ccb37795225"
     },
     "mex": {
       "file": "mex/index.json",
