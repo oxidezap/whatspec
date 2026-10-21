@@ -690,6 +690,7 @@ mod tests {
     use super::*;
     use wa_ir::WapAttrDef;
 
+    /// Build a constant fragment attribute for composition assertions.
     fn attr(name: &str) -> WapAttrDef {
         WapAttrDef {
             presence_arg_path: None,
@@ -725,6 +726,7 @@ mod tests {
         }
     }
 
+    /// Assemble a fragment index from the test module contributions.
     fn index(entries: &[(&str, MixinIqFragment)]) -> MixinIndex {
         let mut by_module = BTreeMap::new();
         for (k, v) in entries {

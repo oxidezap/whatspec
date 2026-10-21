@@ -384,6 +384,7 @@ fn a_key_bundle_fetch_descends_into_its_union() {
 }
 
 #[test]
+/// Preserve the traced parent approval literal and its independent non-null guard.
 fn community_create_parent_mode_has_a_presence_argument() {
     let Some(ir) = committed_ir() else { return };
     let create = &stanza(&ir, "WASmaxOutGroupsCreateRequest").request.children[0];

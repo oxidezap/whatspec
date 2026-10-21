@@ -109,6 +109,7 @@ function create(args){var w=o("WAWap");return w.wap("iq",{xmlns:"w:g2",type:"set
 /// Paths of the three unqualified requests stay at merge-base 587a514's contract.
 #[test]
 fn shared_mixin_index_preserves_non_create_argument_paths() {
+    /// Retain argument paths and their exact tree locations for baseline comparison.
     fn paths(value: &serde_json::Value) -> serde_json::Value {
         use serde_json::Value;
         let entries: Vec<_> = match value {

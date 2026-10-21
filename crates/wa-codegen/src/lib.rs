@@ -245,6 +245,7 @@ mod tests {
         WapAttrKind, WapChildNode,
     };
 
+    /// Build an attribute fixture without optional-merge prerequisites.
     fn attr(name: &str, kind: WapAttrKind) -> WapAttrDef {
         WapAttrDef {
             presence_arg_path: None,

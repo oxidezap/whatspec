@@ -2607,6 +2607,7 @@ mod tests {
         }
     }
 
+    /// Construct an attribute fixture with an explicit wire kind and literal.
     fn attr(name: &str, kind: WapAttrKind, value: Option<&str>) -> WapAttrDef {
         WapAttrDef {
             presence_arg_path: None,

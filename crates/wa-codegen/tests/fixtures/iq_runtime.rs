@@ -112,6 +112,7 @@ pub mod builder {
             self.0.bytes = Some(bytes);
             self
         }
+        /// Replace child content just as the production NodeBuilder does.
         pub fn children(mut self, children: impl IntoIterator<Item = crate::Node>) -> Self {
             self.0.children = children.into_iter().collect();
             self.0.bytes = None;
@@ -188,6 +189,7 @@ fn error(code: &str, text: Option<&str>) -> Node {
     node.attrs.insert("type".into(), "error".into());
     node
 }
+/// Exercise generated requests and parsers against captured node expectations.
 fn main() {
     for choice in [None, Some(false), Some(true)] {
         let spec = MakeNullableParentSpec::new("dedup", Some("ctx".into()), choice, Some(MakeNullableParentParentInput { parent_args_has_parent_group_default_membership_approval_mode_present: choice }));
