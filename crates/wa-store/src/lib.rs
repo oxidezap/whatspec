@@ -6,8 +6,11 @@
 
 pub mod lock;
 
-#[cfg(feature = "restore")]
+#[cfg(feature = "capture-restore")]
 pub mod capture;
 
 #[cfg(feature = "restore")]
 pub mod restore;
+
+#[cfg(feature = "capture-restore")]
+mod archive;

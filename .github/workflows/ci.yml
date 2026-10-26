@@ -50,6 +50,11 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Store transport feature boundaries
+        run: |
+          cargo test -p wa-store --no-default-features
+          cargo test -p wa-store --no-default-features --features capture-restore
+
       - name: Test conformance capture parser
         run: cargo test -p wa-transform --example module_spans
 

@@ -18,7 +18,7 @@ default = ["fetch"]
 # HTTP/TLS stack) plus the `restore` command that pulls a locked bundle set from
 # the durable release store. On by default. Build with --no-default-features to
 # get a fetch-free binary that only processes local bundles via `--bundles <dir>`.
-fetch = ["dep:wa-fetch", "wa-store/restore"]
+fetch = ["dep:wa-fetch", "wa-fetch/native", "wa-store/restore"]
 
 [dependencies]
 anyhow = { workspace = true }

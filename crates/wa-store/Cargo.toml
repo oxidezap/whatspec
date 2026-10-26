@@ -10,7 +10,9 @@ description = "Content-addressed locks and restoration for WhatsApp Web JS and w
 
 [features]
 default = ["restore"]
-restore = ["dep:anyhow", "dep:flate2", "dep:lzma-rust2", "dep:tar", "dep:tempfile", "dep:url", "dep:wa-fetch"]
+restore = ["capture-restore", "wa-fetch/native"]
+# Capture validation and restoration with a caller-supplied HTTP transport.
+capture-restore = ["dep:anyhow", "dep:flate2", "dep:lzma-rust2", "dep:tar", "dep:tempfile", "dep:url", "dep:wa-fetch"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
@@ -21,7 +23,7 @@ serde_json = { workspace = true }
 tar = { workspace = true, optional = true }
 tempfile = { version = "3", optional = true }
 url = { version = "2.5", optional = true }
-wa-fetch = { workspace = true, optional = true }
+wa-fetch = { workspace = true, default-features = false, optional = true }
 wa-text = { workspace = true }
 
 [dev-dependencies]
