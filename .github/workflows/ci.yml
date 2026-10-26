@@ -73,6 +73,11 @@ jobs:
       - name: wa-fetch WASM adapter builds
         run: cargo check -p wa-fetch --no-default-features --target wasm32-unknown-unknown
 
+      - name: Native fetch supports the declared Rust 1.88 floor
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          cargo +1.88.0 check --locked -p wa-fetch --all-targets
+
       # The CLI must build fetch-free (offline `--bundles` workflow; keeps the
       # network transport optional rather than load-bearing).
       - name: whatspec builds without fetch

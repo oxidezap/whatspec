@@ -1,5 +1,5 @@
 //! Native adapter for the [`HttpClient`] port: a blocking client backed by
-//! `ureq` over rustls with the pure-Rust OxiTLS/RustCrypto `CryptoProvider` (no `ring`,
+//! `ureq` over rustls with the pure-Rust RustCrypto `CryptoProvider` (no `ring`,
 //! so the dependency tree stays free of any C build).
 //!
 //! Gated behind the `native` feature; a WASM build leaves this out and supplies
@@ -11,15 +11,18 @@ use ureq::tls::{TlsConfig, TlsProvider};
 
 use crate::http::{FetchError, HttpClient, HttpResponse, RedirectResponse};
 
-/// TLS config: rustls with the pure-Rust OxiTLS/RustCrypto `CryptoProvider` instead of
+/// TLS config: rustls with the pure-Rust RustCrypto `CryptoProvider` instead of
 /// `ring`. ureq's `rustls-no-provider` feature drops ring and refuses to pick a
 /// backend from feature flags alone, so we hand the provider in explicitly;
 /// roots come from the bundled webpki set (`rustls-webpki-roots`).
 fn tls_config() -> TlsConfig {
+    tls_config_builder().build()
+}
+
+fn tls_config_builder() -> ureq::tls::TlsConfigBuilder {
     TlsConfig::builder()
         .provider(TlsProvider::Rustls)
-        .unversioned_rustls_crypto_provider(Arc::new(oxitls_rustcrypto_provider::provider()))
-        .build()
+        .unversioned_rustls_crypto_provider(Arc::new(rustls_rustcrypto::provider()))
 }
 
 /// The native [`HttpClient`]: two reusable `ureq::Agent`s.
@@ -39,15 +42,19 @@ pub struct UreqClient {
 
 impl UreqClient {
     pub fn new() -> Self {
+        Self::with_tls_config(tls_config())
+    }
+
+    fn with_tls_config(config: TlsConfig) -> Self {
         let agent: ureq::Agent = ureq::config::Config::builder()
             .http_status_as_error(false)
-            .tls_config(tls_config())
+            .tls_config(config.clone())
             .build()
             .into();
         let no_redirect: ureq::Agent = ureq::config::Config::builder()
             .http_status_as_error(false)
             .max_redirects(0)
-            .tls_config(tls_config())
+            .tls_config(config)
             .build()
             .into();
         Self { agent, no_redirect }
@@ -116,3 +123,7 @@ impl HttpClient for UreqClient {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "native_tests.rs"]
+mod tests;

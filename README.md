@@ -196,7 +196,7 @@ A Rust consumer can instead use the committed reference modules directly; they d
 
 - **Deterministic:** the same bundle always produces byte-identical output (stable sort keys, no incidental ordering).
 - **C-free:** pure-Rust throughout (TLS via rustls + the current
-  OxiTLS/RustCrypto provider, hashing via `sha2`), enforced in CI.
+  RustCrypto provider, hashing via `sha2`), enforced in CI.
 - **WASM-friendly:** the IR crate and the bundle-discovery layer compile to `wasm32`, so a browser-based fetcher can reuse them.
 
 ## Disclaimer
