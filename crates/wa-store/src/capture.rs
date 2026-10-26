@@ -371,6 +371,8 @@ pub fn restore_captures(
 /// redirects for public release downloads. For private releases, it must also
 /// implement [`HttpClient::get_redirect`] without following redirects: restoration
 /// validates the asset redirect before requesting it without the GitHub token.
+/// The adapter receives that token in an `Authorization` header for GitHub API
+/// requests; it must never forward the header to another origin on redirect.
 /// The trait's default unsupported implementation cannot restore private assets.
 ///
 /// Both methods must enforce their supplied `max_bytes` limit while reading the
