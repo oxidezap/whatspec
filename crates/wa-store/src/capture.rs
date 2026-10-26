@@ -365,6 +365,19 @@ pub fn restore_captures(
 }
 
 /// Restore locked captures through a caller-supplied HTTP adapter.
+///
+/// The adapter must verify HTTPS certificates and return non-2xx statuses rather
+/// than treating them as transport errors. [`HttpClient::get`] must follow
+/// redirects for public release downloads. For private releases, it must also
+/// implement [`HttpClient::get_redirect`] without following redirects: restoration
+/// validates the asset redirect before requesting it without the GitHub token.
+/// The trait's default unsupported implementation cannot restore private assets.
+///
+/// Both methods must enforce their supplied `max_bytes` limit while reading the
+/// body. Calls allow up to 8 MiB for release metadata, 256 MiB for a compressed
+/// archive, and the locked capture size plus one byte for a direct CDN payload,
+/// with a 64 MiB capture ceiling. Restoration separately checks size, hash and
+/// wasm magic, and caps archive decompression and entry counts.
 pub fn restore_captures_with(
     client: &impl HttpClient,
     captures: &[WasmCapture],
