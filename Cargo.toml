@@ -60,7 +60,7 @@ wa-abprops = { path = "crates/wa-abprops" }
 wa-appstate = { path = "crates/wa-appstate" }
 wa-codegen = { path = "crates/wa-codegen" }
 wa-enums = { path = "crates/wa-enums" }
-wa-fetch = { path = "crates/wa-fetch" }
+wa-fetch = { path = "crates/wa-fetch", default-features = false }
 wa-ir = { path = "crates/wa-ir" }
 wa-mex = { path = "crates/wa-mex" }
 wa-notif = { path = "crates/wa-notif" }

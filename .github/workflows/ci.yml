@@ -50,6 +50,11 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Store transport feature boundaries
+        run: |
+          cargo test -p wa-store --no-default-features
+          cargo test -p wa-store --no-default-features --features capture-restore
+
       - name: Test conformance capture parser
         run: cargo test -p wa-transform --example module_spans
 
@@ -67,6 +72,11 @@ jobs:
       # (ureq) transport off — the path the web/tsify layer will use.
       - name: wa-fetch WASM adapter builds
         run: cargo check -p wa-fetch --no-default-features --target wasm32-unknown-unknown
+
+      - name: Native fetch supports the declared Rust 1.88 floor
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          cargo +1.88.0 check --locked -p wa-fetch --all-targets
 
       # The CLI must build fetch-free (offline `--bundles` workflow; keeps the
       # network transport optional rather than load-bearing).

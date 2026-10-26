@@ -10,20 +10,24 @@ description = "Discover and download WhatsApp Web JS bundles. Ports-and-adapters
 
 [features]
 default = ["native"]
-# Native HTTP adapter (ureq over rustls + pure-Rust OxiTLS/RustCrypto, no `ring`) plus
+# Native HTTP adapter (ureq over rustls + pure-Rust RustCrypto, no `ring`) plus
 # the on-disk version-keyed bundle cache (needs std::fs, serde, sha2). Disable to
 # keep only the WASM-safe HttpClient port + discovery parser, for a
 # browser-`fetch` adapter to drive.
-native = ["dep:ureq", "dep:oxitls-rustcrypto-provider", "dep:serde"]
+native = ["dep:ureq", "dep:rustls-rustcrypto", "dep:serde"]
 
 [dependencies]
 anyhow = { workspace = true }
-oxitls-rustcrypto-provider = { version = "0.3.0", optional = true }
+# The published 0.0.2-alpha still uses vulnerable crypto-bigint 0.5. The
+# maintained upstream has migrated to the corrected RustCrypto generation.
+# Replace this revision with a release containing it once one is published.
+# Keep the lockfile MSRV-compatible; aes 0.9.3 needs Rust 1.89, unlike 0.9.2.
+rustls-rustcrypto = { git = "https://github.com/RustCrypto/rustls-rustcrypto.git", rev = "70f76c039e587192688af18a80d5d6435dedaf22", optional = true }
 # Native cache only — manifest (de)serialization.
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true }
 # Native adapter only — minimal blocking HTTP (no tokio/hyper). TLS uses rustls
-# with a pure-Rust OxiTLS/RustCrypto provider instead of `ring`. `rustls-no-provider`
+# with a pure-Rust RustCrypto provider instead of `ring`. `rustls-no-provider`
 # drops ring; `rustls-webpki-roots` keeps the bundled roots.
 ureq = { version = "3.3.0", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
 # Pure/WASM-safe; provides the shared sha256_hex used by the bundle cache.
@@ -38,3 +42,6 @@ required-features = ["native"]
 name = "btarchive"
 path = "examples/btarchive.rs"
 required-features = ["native"]
+
+[dev-dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }

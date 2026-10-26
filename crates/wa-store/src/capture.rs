@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
-use wa_fetch::{HttpClient, UreqClient, is_cdn_payload};
+#[cfg(feature = "restore")]
+use wa_fetch::UreqClient;
+use wa_fetch::is_cdn_payload;
+pub use wa_fetch::{FetchError, HttpClient, HttpResponse, RedirectResponse};
 
 const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
@@ -119,10 +122,6 @@ fn github_headers(token: Option<&str>) -> Vec<(String, String)> {
     headers
 }
 
-fn get(url: &str, headers: &[(String, String)], max: u64) -> Result<Vec<u8>> {
-    get_with(&UreqClient::new(), url, headers, max)
-}
-
 fn get_with(
     client: &impl HttpClient,
     url: &str,
@@ -185,10 +184,6 @@ fn release_with(
     .context("decode GitHub release metadata")
 }
 
-fn release_assets(repo: &str, tag: &str, token: Option<&str>) -> Result<Vec<Asset>> {
-    release_assets_with(&UreqClient::new(), repo, tag, token)
-}
-
 fn release_assets_with(
     client: &impl HttpClient,
     repo: &str,
@@ -229,10 +224,6 @@ fn release_assets_with(
         "GitHub release has more than {} assets",
         MAX_ASSET_PAGES * 100
     )
-}
-
-fn asset_bytes(asset: &Asset, token: Option<&str>) -> Result<Vec<u8>> {
-    asset_bytes_with(&UreqClient::new(), asset, token)
 }
 
 fn asset_bytes_with(
@@ -309,7 +300,7 @@ fn take_archive(
     archive: &[u8],
     missing: &mut BTreeMap<String, WasmCapture>,
 ) -> Result<Vec<(PathBuf, Vec<u8>)>> {
-    let tar = super::restore::decompress(archive, MAX_UNPACKED_BYTES)?;
+    let tar = crate::archive::decompress(archive, MAX_UNPACKED_BYTES)?;
     let mut selected = Vec::new();
     let mut count = 0usize;
     for entry in tar::Archive::new(tar.as_slice()).entries()? {
@@ -364,7 +355,33 @@ fn select_archive(
 ///
 /// Existing files are accepted only after the same size/hash/magic checks. Release
 /// archives may contain a superset; only matching locked basenames are materialized.
+#[cfg(feature = "restore")]
 pub fn restore_captures(
+    captures: &[WasmCapture],
+    sources: &[ReleaseSource],
+    directory: &Path,
+) -> Result<()> {
+    restore_captures_with(&UreqClient::new(), captures, sources, directory)
+}
+
+/// Restore locked captures through a caller-supplied HTTP adapter.
+///
+/// The adapter must verify HTTPS certificates and return non-2xx statuses rather
+/// than treating them as transport errors. [`HttpClient::get`] must follow
+/// redirects for public release downloads. For private releases, it must also
+/// implement [`HttpClient::get_redirect`] without following redirects: restoration
+/// validates the asset redirect before requesting it without the GitHub token.
+/// The adapter receives that token in an `Authorization` header for GitHub API
+/// requests; it must never forward the header to another origin on redirect.
+/// The trait's default unsupported implementation cannot restore private assets.
+///
+/// Both methods must enforce their supplied `max_bytes` limit while reading the
+/// body. Calls allow up to 8 MiB for release metadata, 256 MiB for a compressed
+/// archive, and the locked capture size plus one byte for a direct CDN payload,
+/// with a 64 MiB capture ceiling. Restoration separately checks size, hash and
+/// wasm magic, and caps archive decompression and entry counts.
+pub fn restore_captures_with(
+    client: &impl HttpClient,
     captures: &[WasmCapture],
     sources: &[ReleaseSource],
     directory: &Path,
@@ -386,7 +403,8 @@ pub fn restore_captures(
     for name in missing.keys().cloned().collect::<Vec<_>>() {
         let capture = &missing[&name];
         if let Some(url) = &capture.url
-            && let Ok(bytes) = get(
+            && let Ok(bytes) = get_with(
+                client,
                 url,
                 &[("User-Agent".to_owned(), "wa-store".to_owned())],
                 capture.size.unwrap_or(MAX_WASM_BYTES) + 1,
@@ -402,7 +420,9 @@ pub fn restore_captures(
         if missing.is_empty() {
             break;
         }
-        let Ok(mut assets) = release_assets(&source.repo, &source.release, token.as_deref()) else {
+        let Ok(mut assets) =
+            release_assets_with(client, &source.repo, &source.release, token.as_deref())
+        else {
             continue;
         };
         assets.retain(|asset| {
@@ -414,7 +434,7 @@ pub fn restore_captures(
             if missing.is_empty() {
                 break;
             }
-            let Ok(bytes) = asset_bytes(&asset, token.as_deref()) else {
+            let Ok(bytes) = asset_bytes_with(client, &asset, token.as_deref()) else {
                 continue;
             };
             let Ok(selection) = select_archive(&bytes, &missing) else {
@@ -437,6 +457,55 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+
+    #[test]
+    fn injected_transport_restores_verified_bytes_and_rejects_corruption() {
+        struct Canned(Vec<u8>);
+        impl HttpClient for Canned {
+            fn get(
+                &self,
+                _: &str,
+                _: &[(&str, &str)],
+                max: u64,
+            ) -> std::result::Result<HttpResponse, FetchError> {
+                assert_eq!(max, 9);
+                Ok(HttpResponse {
+                    status: 200,
+                    body: self.0.clone(),
+                })
+            }
+        }
+        let bytes = b"\0asm\x01\0\0\0".to_vec();
+        let capture = WasmCapture {
+            file_name: "fixture.wasm".into(),
+            sha256: wa_text::sha256_hex(&bytes),
+            size: Some(8),
+            url: Some("https://static.whatsapp.net/rsrc.php/fixture.wasm".into()),
+        };
+        let valid = tempfile::tempdir().unwrap();
+        restore_captures_with(
+            &Canned(bytes.clone()),
+            std::slice::from_ref(&capture),
+            &[],
+            valid.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(valid.path().join("fixture.wasm")).unwrap(),
+            bytes
+        );
+        let invalid = tempfile::tempdir().unwrap();
+        assert!(
+            restore_captures_with(
+                &Canned(b"corrupt!".to_vec()),
+                &[capture],
+                &[],
+                invalid.path()
+            )
+            .is_err()
+        );
+        assert!(!invalid.path().join("fixture.wasm").exists());
+    }
 
     #[test]
     fn capture_boundary_rejects_paths_hashes_and_non_cdn_urls() {
