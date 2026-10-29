@@ -19,6 +19,7 @@ wa-ir = { workspace = true }
 wa-oxc = { workspace = true }
 wa-scan = { workspace = true }
 wa-transform = { workspace = true }
+wa-text = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

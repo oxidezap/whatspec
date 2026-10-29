@@ -16,6 +16,17 @@ The committed complete handler/type/tag-constant fixtures reproduce the same
 contracts. Rust tests mutate guards, read order, import bindings, callback
 modes/effects and object shapes; unsupported forms reject the projection.
 
+Envelope extraction fingerprints the opaque module frame, action callback and
+local action helpers with SHA-256, using AST spans. The root prefix and final
+projection are still lowered independently; they are not part of these opaque
+fingerprints. Prefix bindings cannot shadow an opaque dependency or remove an
+opaque root capture. This is snapshot qualification, not a proof that arbitrary
+JavaScript calls are pure: any opaque source change (including whitespace)
+rejects extraction until its source effects and adapters are independently
+requalified and the fingerprints deliberately updated. Property writes, aliases,
+mutating calls and changes in transitive factory helpers therefore cannot pass
+merely because they lack an identifier assignment.
+
 The envelope suite interprets the committed IR against the same 29 source inputs
 and compares results, errors, telemetry and ordered accessor reads. Independent
 IR mutations cover destination guards, projection, markers, local catch recovery

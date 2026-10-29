@@ -507,13 +507,14 @@ fn diagnostic(
 }
 
 fn actions(
+    source: &str,
     expr: &Expression<'_>,
     node: &str,
     marker: &str,
     captured: &BTreeSet<String>,
     resolver: &ConstResolver<'_>,
     loaders: &BTreeSet<String>,
-) -> Result<(String, String), String> {
+) -> Result<(String, String, BTreeSet<String>), String> {
     let filter = as_call(expr).ok_or("action filter call")?;
     let (mapped, "filter") = as_member(&filter.callee).ok_or("action filter")? else {
         return Err("action filter method".into());
@@ -540,6 +541,7 @@ fn actions(
     else {
         return Err("non-function action callback".into());
     };
+    let opaque_references = crate::group_qualification::actions(source, callback)?;
     if !plain_function(callback, 1) {
         return Err("action callback arity or effects".into());
     }
@@ -695,14 +697,17 @@ fn actions(
     Ok((
         missing.ok_or("missing marker arm")?,
         unknown.ok_or("missing rejecting default arm")?,
+        opaque_references,
     ))
 }
 
 fn lower_callback(
+    source: &str,
     f: &Function<'_>,
     slices: &HashMap<&str, &str>,
     loaders: &BTreeSet<String>,
 ) -> Result<GroupEnvelopeContract, String> {
+    crate::group_qualification::module_frame(source, f)?;
     let body = f.body.as_ref().ok_or("missing group parser body")?;
     let node = f
         .params
@@ -733,6 +738,7 @@ fn lower_callback(
     {
         return Err("action boundary locals".into());
     }
+    let mut opaque_references = crate::group_qualification::helpers(source, prefix)?;
     fn hoist(lower: &mut Lower, s: &Statement<'_>) -> Result<(), String> {
         match s {
             Statement::VariableDeclaration(v) => {
@@ -812,7 +818,8 @@ fn lower_callback(
     let marker_local = lower.bind(marker_name.as_ref());
     let result_local = lower.bind(result_name.as_ref());
     let resolver = ConstResolver::new(slices);
-    let (missing_identification_tag, unknown_action_error_prefix) = actions(
+    let (missing_identification_tag, unknown_action_error_prefix, action_references) = actions(
+        source,
         action_vars.declarations[1]
             .init
             .as_ref()
@@ -827,6 +834,11 @@ fn lower_callback(
             .collect(),
         &resolver,
         &lower.loaders,
+    )?;
+    opaque_references.extend(action_references);
+    crate::group_qualification::validate_prefix_bindings(
+        lower.locals.keys().map(String::as_str),
+        &opaque_references,
     )?;
     let projection = lower.expr(ret.argument.as_ref().ok_or("empty envelope projection")?)?;
     let GroupEnvelopeExpr::Object { .. } = &projection else {
@@ -894,8 +906,12 @@ pub fn extract_group_envelope(
                         .push(Err("unrecognized group parser callback".into()));
                     return;
                 };
-                self.results
-                    .push(lower_callback(callback, self.slices, &self.loaders));
+                self.results.push(lower_callback(
+                    self.slices["WAWebHandleGroupNotification"],
+                    callback,
+                    self.slices,
+                    &self.loaders,
+                ));
                 return;
             }
             walk::walk_new_expression(self, n);
@@ -930,6 +946,59 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn opaque_module_effects_require_requalification() {
+        for effect in [
+            "babelHelpers.taggedTemplateLiteralLoose=null;",
+            "babelHelpers[\"taggedTemplateLiteralLoose\"]=null;",
+            "var helper=babelHelpers;helper.taggedTemplateLiteralLoose=null;",
+            "Object.assign(babelHelpers,{taggedTemplateLiteralLoose:null});",
+            "Object.defineProperty(babelHelpers,\"taggedTemplateLiteralLoose\",{value:null});",
+            "unknownEffect(babelHelpers);",
+            "function poison(){Object.assign(babelHelpers,{taggedTemplateLiteralLoose:null});}poison();",
+        ] {
+            let anchor = "function(t,n,r,o,a,i,l){";
+            let changed = SOURCE.replace(anchor, &format!("{anchor}{effect}"));
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err(), "{effect}");
+        }
+    }
+    #[test]
+    fn opaque_actions_and_helpers_cannot_hide_call_effects() {
+        for effect in [
+            "Object.assign(e.$2.attrs,{id:\"changed\"});",
+            "Object.defineProperty(e.$2.attrs,\"id\",{value:\"changed\"});",
+            "var target=e.$2.attrs;Object.assign(target,{id:\"changed\"});",
+            "unknownEffect(e);",
+            "unknownEffect(e.$2.attrs);",
+            "e.$2.attrs.id.toString=function(){return \"changed\"};",
+        ] {
+            for anchor in ["GROUP_NOTIFICATION_TAG.SUSPENDED:", "function v(e){"] {
+                let changed = SOURCE.replace(anchor, &format!("{anchor}{effect}"));
+                assert_ne!(changed, SOURCE);
+                assert!(extract(&changed).is_err(), "{anchor}: {effect}");
+            }
+        }
+        // Factory helper calls are also part of the opaque module frame.
+        let changed = SOURCE.replace("function y(e,t,n){", "function y(e,t,n){unknownEffect(e);");
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed).is_err());
+    }
+    #[test]
+    fn prefix_cannot_redirect_dependencies_of_opaque_code() {
+        for effect in ["var y=null;", "var T=null;", "var I=null;", "var v=null;"] {
+            let changed = SOURCE.replace("function v(e){", &format!("{effect}function v(e){{"));
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err(), "{effect}");
+        }
+        // Renaming the modeled binding and projection alone must not make the
+        // unchanged action callback read an outer factory binding instead.
+        let changed = SOURCE
+            .replace("var u=o(\"WAWebJidToWid\")", "var q=o(\"WAWebJidToWid\")")
+            .replace("chatId:u", "chatId:q");
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed).is_err());
     }
     #[test]
     fn mapped_arguments_and_parameter_initializers_cannot_poison_loaders() {

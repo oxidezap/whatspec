@@ -2190,6 +2190,7 @@ dependencies = [
  "wa-ir",
  "wa-oxc",
  "wa-scan",
+ "wa-text",
  "wa-transform",
 ]
 

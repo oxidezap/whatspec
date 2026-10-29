@@ -821,4 +821,5 @@ pub mod group_link;
 
 pub mod group_envelope;
 
+mod group_qualification;
 mod group_scope;
