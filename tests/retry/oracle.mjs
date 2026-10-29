@@ -85,7 +85,34 @@ for(const [from,to,name] of [['_===S','_!==S','two-guard'],['_>S','_<S','collisi
   const mutated=source.replace(from,to);
   assert.ok(cases.some(c=>JSON.stringify(run(c).effects.map(e=>e.name))!==JSON.stringify(run(c,{},mutated).effects.map(e=>e.name))),`undetected mutation ${name}`);
 }
+// Qualify the key inclusion gate at the first suspension of the receipt helper.
+// Calls after this boundary, PQ flags and eventual key upload are outside scope.
+const receipt=audit.modules.find(m=>m.module==='WAWebSendRetryReceiptJob');
+const keysSource=receipt.inventory.generators.at(-1).source;
+const keyCases=[];
+for(let retryCount=0;retryCount<=6;retryCount++)for(const isStateless of [false,true]) {
+  const calls=[];
+  const deps={
+    WAWebSignalStoreApi:{waSignalStore:{getSignedPreKey:()=>calls.push('signed'),getOrGenSinglePreKey:()=>calls.push('prekey')}},
+    WAWebSignalKeyApi:{generatePreKeyPair:()=>assert.fail('not invoked by this stub')},
+    WAWebAdvSignatureApi:{getADVEncodedIdentity:()=>({then:()=>{calls.push('identity');return {};}})},
+  };
+  const lookup=name=>{assert.ok(name in deps,`unsupported key dependency ${name}`);return deps[name];};
+  const context=vm.createContext({d:2,c:undefined,o:lookup,n:name=>{assert.equal(name,'Promise');return {all:a=>({pending:a}),resolve:x=>x};}});
+  const fn=new vm.Script(`(${keysSource})`).runInContext(context,{timeout:1000});
+  const step=fn({identityKeyPair:{},retryCount,isStateless}).next();
+  const includeKeys=isStateless||retryCount>=2;
+  assert.equal(step.done,!includeKeys);
+  assert.deepEqual(calls,includeKeys?['signed','prekey','identity']:[]);
+  keyCases.push({retryCount,isStateless,includeKeys});
+}
 const exportCases=cases.map(c=>({name:c.name,retryCount:c.count,savedRegId:c.saved===undefined?7:c.saved,receivedRegId:7,bundleHandled:!!c.handled,sameBaseKey:!!c.same,peer:!!c.peer,chatKind:c.kind||'user',sessionScope:c.scope||'default',effects:c.expected,terminal:c.terminal||'return'}));
-if(process.argv.includes('--write'))fs.writeFileSync(new URL('./session-cases.json',import.meta.url),JSON.stringify({formatVersion:1,sourceSha256:record.sourceSha256,cases:exportCases},null,2)+'\n');
-else assert.deepEqual(JSON.parse(fs.readFileSync(new URL('./session-cases.json',import.meta.url))).cases,exportCases);
+if(process.argv.includes('--write'))fs.writeFileSync(new URL('./session-cases.json',import.meta.url),JSON.stringify({formatVersion:1,sourceSha256:record.sourceSha256,receiptSourceSha256:receipt.sourceSha256,keyCases,cases:exportCases},null,2)+'\n');
+else {
+  const fixture=JSON.parse(fs.readFileSync(new URL('./session-cases.json',import.meta.url)));
+  assert.deepEqual(fixture.cases,exportCases);
+  assert.deepEqual(fixture.keyCases,keyCases);
+  assert.equal(fixture.sourceSha256,record.sourceSha256);
+  assert.equal(fixture.receiptSourceSha256,receipt.sourceSha256);
+}
 console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; 3 policy mutations detected`);
