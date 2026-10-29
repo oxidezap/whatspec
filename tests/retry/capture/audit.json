@@ -1,0 +1,1405 @@
+{
+  "bundleCount": 579,
+  "completeness": {
+    "continuations": "generator-yield-sites-only",
+    "excluded": [
+      "callee behavior",
+      "runtime flags",
+      "logical and conditional expression control flow",
+      "exception and cancellation semantics",
+      "queue scheduling",
+      "crypto",
+      "storage",
+      "transport"
+    ],
+    "policy": "partial-not-executable",
+    "syntax": "complete-for-selected-node-kinds"
+  },
+  "formatVersion": 1,
+  "modules": [
+    {
+      "definitions": [
+        {
+          "bundleSha256": "1ee0c4f92eeddf751b83800a4e225043e774a40cda9462a080bb3306acc7a9b9",
+          "end": 43133,
+          "start": 34749
+        },
+        {
+          "bundleSha256": "9b681e073f14f9d50e3dc12b456e4f980b554eff4d58827bc91c90a697e9ca38",
+          "end": 2007850,
+          "start": 1999466
+        }
+      ],
+      "inventory": {
+        "generators": [
+          {
+            "end": 3222,
+            "source": "function*(e){var t=yield I(e);if(t.error){o(\"WALogger\").WARN(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest: no chat info found for incoming retry request. error: \",\"\"])),t.error).sendLogs(yield o(\"WAWebHandleRetryRequestNonMigratedLog\").buildNoChatInfoSendLogsArg(e));return}var a=t.accountLid,i=t.chat,l=t.from,m=t.lidOrigin,p=e.from;e.from=l;var _=e.participant,f=e.recipient,g=e.retryCount,h=e.type,y=p.isStatus()||i.isStatus(),C=y?o(\"WAWebStatusSessionGatingUtils\").getStatusSessionScope():o(\"WAWebSessionScope\").SessionScope.DEFAULT,b=y?C:void 0;return o(\"WALogger\").LOG(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: receivedFrom=\",\" chat=\",\" sessionScope=\",\"\"])),p.toLogString(),i.toLogString(),C),o(\"WAWebMessageQueue\").onMessageQueue({chatWid:i,isOffline:!1,msgCategory:null,action:(function(){var t=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){var t=yield E(i,e,C);if(t!=null){var s=t.identity,u=t.isLidBot,y=t.originalMsgId,v=t.requester;r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(i,\"RetryReceiptReceived\",\"originalMsgId:\"+y+\" - requester:\"+v.toString());try{if(h===\"enc_rekey_retry\"){var S=yield o(\"WAWebVoipStackInterface\").getVoipStackInterface();yield S==null?void 0:S.resendEncRekeyRetry(l.toString({legacy:!0}),g)}else if(h!==\"voip_1x1_retry\"){var R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:v,retryCount:g,sessionScope:b}),L=R==null?o(\"WAWebApiContact\").getAlternateDeviceWid(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(v)):null;if(L&&(R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:L,retryCount:g,sessionScope:b})),!R){var k;o(\"WALogger\").WARN(c||(c=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest \",\" retry not authorized\"])),(k=R)==null?void 0:k.type);return}var I={to:p,participant:_,msgRecord:R,retryCount:g,isLidBot:u,sessionScope:C};f&&(I.recipient=f),m&&(I.lidOrigin=m),a&&(I.accountLid=a),yield o(\"WAWebSendRetryMsgJob\").sendRetry(I)}}catch(e){o(\"WALogger\").WARN(d||(d=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest error: \",\"\"])),e)}}});function s(){return t.apply(this,arguments)}return s})()})}",
+            "start": 948
+          },
+          {
+            "end": 3161,
+            "source": "function*(){var t=yield E(i,e,C);if(t!=null){var s=t.identity,u=t.isLidBot,y=t.originalMsgId,v=t.requester;r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(i,\"RetryReceiptReceived\",\"originalMsgId:\"+y+\" - requester:\"+v.toString());try{if(h===\"enc_rekey_retry\"){var S=yield o(\"WAWebVoipStackInterface\").getVoipStackInterface();yield S==null?void 0:S.resendEncRekeyRetry(l.toString({legacy:!0}),g)}else if(h!==\"voip_1x1_retry\"){var R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:v,retryCount:g,sessionScope:b}),L=R==null?o(\"WAWebApiContact\").getAlternateDeviceWid(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(v)):null;if(L&&(R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:L,retryCount:g,sessionScope:b})),!R){var k;o(\"WALogger\").WARN(c||(c=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest \",\" retry not authorized\"])),(k=R)==null?void 0:k.type);return}var I={to:p,participant:_,msgRecord:R,retryCount:g,isLidBot:u,sessionScope:C};f&&(I.recipient=f),m&&(I.lidOrigin=m),a&&(I.accountLid=a),yield o(\"WAWebSendRetryMsgJob\").sendRetry(I)}}catch(e){o(\"WALogger\").WARN(d||(d=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest error: \",\"\"])),e)}}}",
+            "start": 1852
+          },
+          {
+            "end": 5252,
+            "source": "function*(e,t,r){var a=t.from,i=t.isLid,l=i===void 0?!1:i,s=t.offline,u=t.originalMsgId,c=t.participant,d=t.retryCount;if(d>=o(\"WAWebPostMessageHighRetryCountMetric\").MAX_RETRY){o(\"WALogger\").LOG(m||(m=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest refusing retry attempt #\",\" for \",\"\"])),d,e.toLogString()).sendLogs(\"retry-request-cap-exhausted\",{sampling:.01});return}var h=e.isUser()?a:c;if(!h){o(\"WALogger\").WARN(p||(p=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: no requester found for incoming retry request.\"])));return}var y=h.device||0;try{var C=yield o(\"WAWebApiDeviceList\").hasDevice(h,y);if(!C){o(\"WALogger\").WARN(_||(_=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: device \",\" not found for \",\"\"])),y,h.user),o(\"WALogger\").WARN(f||(f=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: no device found for isUser:\",\" lid:\",\" isLidBot:\",\"\"])),e.isUser(),h.isLid(),l).sendLogs(\"no-device-found-for-retry-request\",{sampling:.001}),new(o(\"WAWebMdRetryFromUnknownDeviceWamEvent\")).MdRetryFromUnknownDeviceWamEvent({offline:s,senderType:y===o(\"WAJids\").DEFAULT_DEVICE_ID?o(\"WAWebWamEnumDeviceType\").DEVICE_TYPE.PRIMARY:o(\"WAWebWamEnumDeviceType\").DEVICE_TYPE.COMPANION}).commit();return}return yield o(\"WAWebSendMsgQueueMap\").sendMsgQueueMap.enqueue(e.toString(),n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){yield o(\"WAWebUpdateLocalSignalSession\").updateLocalSignalSession(e,t,r),yield o(\"WAWebManageE2ESessionsJob\").ensureE2ESessions({identityChanged:!1,sessionScope:r,wids:[h]});var n=yield o(\"WAWebSignalProtocolStore\").getPersistSignalProtocolStore().getIdentityWithRowId(o(\"WAWebSignalCommonUtils\").createSignalAddress(h));return{originalMsgId:u,chat:e,requester:h,isLidBot:l,identity:n}}))}catch(e){o(\"WALogger\").WARN(g||(g=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest error: \",\"\"])),e)}}",
+            "start": 3365
+          },
+          {
+            "end": 5135,
+            "source": "function*(){yield o(\"WAWebUpdateLocalSignalSession\").updateLocalSignalSession(e,t,r),yield o(\"WAWebManageE2ESessionsJob\").ensureE2ESessions({identityChanged:!1,sessionScope:r,wids:[h]});var n=yield o(\"WAWebSignalProtocolStore\").getPersistSignalProtocolStore().getIdentityWithRowId(o(\"WAWebSignalCommonUtils\").createSignalAddress(h));return{originalMsgId:u,chat:e,requester:h,isLidBot:l,identity:n}}",
+            "start": 4737
+          },
+          {
+            "end": 7772,
+            "source": "function*(e){var t,n,a,i=D(e);if(o(\"WALogger\").LOG(h||(h=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: retry request from \",\", target chat: \",\", type: \",\",\\n      participant: \",\", recipient: \",\"\"])),e.from.toLogString(),(t=i)==null?void 0:t.toLogString(),e.type,(n=e.participant)==null?void 0:n.toLogString(),(a=e.recipient)==null?void 0:a.toLogString()),i==null)return o(\"WALogger\").LOG(y||(y=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: no target chat found\"]))),{error:\"no_target_chat\"};if(i=o(\"WAWebSimpleSignalPNToFBIDMigration\").maybeReplaceFbidWithDeprecatedBotPn(i),i=o(\"WAWebMaibaWASSMigration\").resolveMaibaAiHubFbidToLidOrChatId(i),i.isUser()){o(\"WALogger\").LOG(C||(C=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: this is a user chat\"])));var l=!o(\"WAWebLid1X1MigrationGating\").Lid1X1MigrationUtils.isLidMigrated()&&i.isLid();if(o(\"WAWebLid1X1MigrationGating\").Lid1X1MigrationUtils.isLidMigrated()||l){var s;o(\"WALogger\").LOG(b||(b=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: in migrated/pre-migrated flow\"])));var u=new(r(\"WAWebMsgKey\"))({fromMe:!0,remote:i,id:e.originalMsgId}),c=[u,o(\"WAWebLidMigrationUtils\").getAlternateMsgKey(u)].filter(Boolean).map(function(e){return e.toString()}),d;if(e.type===\"retry\"){var m=(yield o(\"WAWebSchemaMessage\").getMessageTable().bulkGet(c,!1)).filter(Boolean);if(m.length===0)return o(\"WALogger\").LOG(v||(v=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: could not find messages\"]))),{error:o(\"WAWebHandleRetryRequestNonMigratedLog\").selectRetryErrorType(e)};m.length>1&&o(\"WALogger\").WARN(S||(S=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: multiple messages found\"]))),d=o(\"WAWebWidFactory\").createWidFromWidLike(m[0].to)}else e.type,d=e.from;var p;if(e.from.isBot())p=e.from;else{var _=o(\"WAWebWidFactory\").asUserWidOrThrow(e.from);p=d.isLid()?o(\"WAWebLidMigrationUtils\").toLid(_):o(\"WAWebLidMigrationUtils\").toPn(_)}if(p==null)return{error:\"empty_from_user\"};var f=o(\"WAWebWidFactory\").createDeviceWidFromUserAndDevice(p.user,p.server,(s=e.from.device)!=null?s:0),g=yield o(\"WAWebSchemaChat\").getChatTable().get(d.toString()),R=g==null?void 0:g.lidOriginType,L=(g==null?void 0:g.accountLid)!=null?o(\"WAWebWidFactory\").createWidFromWidLike(g.accountLid):void 0;return{chat:d,from:f,lidOrigin:R,accountLid:L}}}return{chat:i,from:e.from}}",
+            "start": 5391
+          }
+        ],
+        "nodes": [
+          {
+            "enclosingIfTests": [],
+            "end": 879,
+            "kind": "return",
+            "source": "return L.apply(this,arguments)",
+            "start": 849
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3247,
+            "kind": "return",
+            "source": "return L=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e){var t=yield I(e);if(t.error){o(\"WALogger\").WARN(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest: no chat info found for incoming retry request. error: \",\"\"])),t.error).sendLogs(yield o(\"WAWebHandleRetryRequestNonMigratedLog\").buildNoChatInfoSendLogsArg(e));return}var a=t.accountLid,i=t.chat,l=t.from,m=t.lidOrigin,p=e.from;e.from=l;var _=e.participant,f=e.recipient,g=e.retryCount,h=e.type,y=p.isStatus()||i.isStatus(),C=y?o(\"WAWebStatusSessionGatingUtils\").getStatusSessionScope():o(\"WAWebSessionScope\").SessionScope.DEFAULT,b=y?C:void 0;return o(\"WALogger\").LOG(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: receivedFrom=\",\" chat=\",\" sessionScope=\",\"\"])),p.toLogString(),i.toLogString(),C),o(\"WAWebMessageQueue\").onMessageQueue({chatWid:i,isOffline:!1,msgCategory:null,action:(function(){var t=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){var t=yield E(i,e,C);if(t!=null){var s=t.identity,u=t.isLidBot,y=t.originalMsgId,v=t.requester;r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(i,\"RetryReceiptReceived\",\"originalMsgId:\"+y+\" - requester:\"+v.toString());try{if(h===\"enc_rekey_retry\"){var S=yield o(\"WAWebVoipStackInterface\").getVoipStackInterface();yield S==null?void 0:S.resendEncRekeyRetry(l.toString({legacy:!0}),g)}else if(h!==\"voip_1x1_retry\"){var R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:v,retryCount:g,sessionScope:b}),L=R==null?o(\"WAWebApiContact\").getAlternateDeviceWid(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(v)):null;if(L&&(R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:L,retryCount:g,sessionScope:b})),!R){var k;o(\"WALogger\").WARN(c||(c=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest \",\" retry not authorized\"])),(k=R)==null?void 0:k.type);return}var I={to:p,participant:_,msgRecord:R,retryCount:g,isLidBot:u,sessionScope:C};f&&(I.recipient=f),m&&(I.lidOrigin=m),a&&(I.accountLid=a),yield o(\"WAWebSendRetryMsgJob\").sendRetry(I)}}catch(e){o(\"WALogger\").WARN(d||(d=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest error: \",\"\"])),e)}}});function s(){return t.apply(this,arguments)}return s})()})}),L.apply(this,arguments)",
+            "start": 893
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 977,
+            "kind": "suspend",
+            "source": "yield I(e)",
+            "start": 967
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 988,
+            "kind": "if",
+            "source": "t.error",
+            "start": 981
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 988,
+                "start": 981
+              }
+            ],
+            "end": 1242,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebHandleRetryRequestNonMigratedLog\").buildNoChatInfoSendLogsArg(e)",
+            "start": 1164
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 988,
+                "start": 981
+              }
+            ],
+            "end": 1250,
+            "kind": "return",
+            "source": "return",
+            "start": 1244
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3221,
+            "kind": "return",
+            "source": "return o(\"WALogger\").LOG(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: receivedFrom=\",\" chat=\",\" sessionScope=\",\"\"])),p.toLogString(),i.toLogString(),C),o(\"WAWebMessageQueue\").onMessageQueue({chatWid:i,isOffline:!1,msgCategory:null,action:(function(){var t=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){var t=yield E(i,e,C);if(t!=null){var s=t.identity,u=t.isLidBot,y=t.originalMsgId,v=t.requester;r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(i,\"RetryReceiptReceived\",\"originalMsgId:\"+y+\" - requester:\"+v.toString());try{if(h===\"enc_rekey_retry\"){var S=yield o(\"WAWebVoipStackInterface\").getVoipStackInterface();yield S==null?void 0:S.resendEncRekeyRetry(l.toString({legacy:!0}),g)}else if(h!==\"voip_1x1_retry\"){var R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:v,retryCount:g,sessionScope:b}),L=R==null?o(\"WAWebApiContact\").getAlternateDeviceWid(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(v)):null;if(L&&(R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:L,retryCount:g,sessionScope:b})),!R){var k;o(\"WALogger\").WARN(c||(c=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest \",\" retry not authorized\"])),(k=R)==null?void 0:k.type);return}var I={to:p,participant:_,msgRecord:R,retryCount:g,isLidBot:u,sessionScope:C};f&&(I.recipient=f),m&&(I.lidOrigin=m),a&&(I.accountLid=a),yield o(\"WAWebSendRetryMsgJob\").sendRetry(I)}}catch(e){o(\"WALogger\").WARN(d||(d=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest error: \",\"\"])),e)}}});function s(){return t.apply(this,arguments)}return s})()})",
+            "start": 1527
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1884,
+            "kind": "suspend",
+            "source": "yield E(i,e,C)",
+            "start": 1870
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1895,
+            "kind": "if",
+            "source": "t!=null",
+            "start": 1888
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              }
+            ],
+            "end": 2127,
+            "kind": "if",
+            "source": "h===\"enc_rekey_retry\"",
+            "start": 2106
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              }
+            ],
+            "end": 2193,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebVoipStackInterface\").getVoipStackInterface()",
+            "start": 2135
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              }
+            ],
+            "end": 2263,
+            "kind": "suspend",
+            "source": "yield S==null?void 0:S.resendEncRekeyRetry(l.toString({legacy:!0}),g)",
+            "start": 2194
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              }
+            ],
+            "end": 2292,
+            "kind": "if",
+            "source": "h!==\"voip_1x1_retry\"",
+            "start": 2272
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              },
+              {
+                "end": 2292,
+                "start": 2272
+              }
+            ],
+            "end": 2433,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:v,retryCount:g,sessionScope:b})",
+            "start": 2300
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              },
+              {
+                "end": 2292,
+                "start": 2272
+              }
+            ],
+            "end": 2693,
+            "kind": "if",
+            "source": "L&&(R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:L,retryCount:g,sessionScope:b})),!R",
+            "start": 2550
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              },
+              {
+                "end": 2292,
+                "start": 2272
+              },
+              {
+                "end": 2693,
+                "start": 2550
+              }
+            ],
+            "end": 2689,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:L,retryCount:g,sessionScope:b})",
+            "start": 2556
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              },
+              {
+                "end": 2292,
+                "start": 2272
+              },
+              {
+                "end": 2693,
+                "start": 2550
+              }
+            ],
+            "end": 2856,
+            "kind": "return",
+            "source": "return",
+            "start": 2850
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1895,
+                "start": 1888
+              },
+              {
+                "end": 2127,
+                "start": 2106
+              },
+              {
+                "end": 2292,
+                "start": 2272
+              }
+            ],
+            "end": 3037,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSendRetryMsgJob\").sendRetry(I)",
+            "start": 2993
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3206,
+            "kind": "return",
+            "source": "return t.apply(this,arguments)",
+            "start": 3176
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3215,
+            "kind": "return",
+            "source": "return s",
+            "start": 3207
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3296,
+            "kind": "return",
+            "source": "return k.apply(this,arguments)",
+            "start": 3266
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5277,
+            "kind": "return",
+            "source": "return k=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e,t,r){var a=t.from,i=t.isLid,l=i===void 0?!1:i,s=t.offline,u=t.originalMsgId,c=t.participant,d=t.retryCount;if(d>=o(\"WAWebPostMessageHighRetryCountMetric\").MAX_RETRY){o(\"WALogger\").LOG(m||(m=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest refusing retry attempt #\",\" for \",\"\"])),d,e.toLogString()).sendLogs(\"retry-request-cap-exhausted\",{sampling:.01});return}var h=e.isUser()?a:c;if(!h){o(\"WALogger\").WARN(p||(p=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: no requester found for incoming retry request.\"])));return}var y=h.device||0;try{var C=yield o(\"WAWebApiDeviceList\").hasDevice(h,y);if(!C){o(\"WALogger\").WARN(_||(_=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: device \",\" not found for \",\"\"])),y,h.user),o(\"WALogger\").WARN(f||(f=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: no device found for isUser:\",\" lid:\",\" isLidBot:\",\"\"])),e.isUser(),h.isLid(),l).sendLogs(\"no-device-found-for-retry-request\",{sampling:.001}),new(o(\"WAWebMdRetryFromUnknownDeviceWamEvent\")).MdRetryFromUnknownDeviceWamEvent({offline:s,senderType:y===o(\"WAJids\").DEFAULT_DEVICE_ID?o(\"WAWebWamEnumDeviceType\").DEVICE_TYPE.PRIMARY:o(\"WAWebWamEnumDeviceType\").DEVICE_TYPE.COMPANION}).commit();return}return yield o(\"WAWebSendMsgQueueMap\").sendMsgQueueMap.enqueue(e.toString(),n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){yield o(\"WAWebUpdateLocalSignalSession\").updateLocalSignalSession(e,t,r),yield o(\"WAWebManageE2ESessionsJob\").ensureE2ESessions({identityChanged:!1,sessionScope:r,wids:[h]});var n=yield o(\"WAWebSignalProtocolStore\").getPersistSignalProtocolStore().getIdentityWithRowId(o(\"WAWebSignalCommonUtils\").createSignalAddress(h));return{originalMsgId:u,chat:e,requester:h,isLidBot:l,identity:n}}))}catch(e){o(\"WALogger\").WARN(g||(g=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest error: \",\"\"])),e)}}),k.apply(this,arguments)",
+            "start": 3310
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3541,
+            "kind": "if",
+            "source": "d>=o(\"WAWebPostMessageHighRetryCountMetric\").MAX_RETRY",
+            "start": 3487
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 3541,
+                "start": 3487
+              }
+            ],
+            "end": 3748,
+            "kind": "return",
+            "source": "return",
+            "start": 3742
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3775,
+            "kind": "if",
+            "source": "!h",
+            "start": 3773
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 3775,
+                "start": 3773
+              }
+            ],
+            "end": 3922,
+            "kind": "return",
+            "source": "return",
+            "start": 3916
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3995,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebApiDeviceList\").hasDevice(h,y)",
+            "start": 3951
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4001,
+            "kind": "if",
+            "source": "!C",
+            "start": 3999
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 4001,
+                "start": 3999
+              }
+            ],
+            "end": 4614,
+            "kind": "return",
+            "source": "return",
+            "start": 4608
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5137,
+            "kind": "return",
+            "source": "return yield o(\"WAWebSendMsgQueueMap\").sendMsgQueueMap.enqueue(e.toString(),n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){yield o(\"WAWebUpdateLocalSignalSession\").updateLocalSignalSession(e,t,r),yield o(\"WAWebManageE2ESessionsJob\").ensureE2ESessions({identityChanged:!1,sessionScope:r,wids:[h]});var n=yield o(\"WAWebSignalProtocolStore\").getPersistSignalProtocolStore().getIdentityWithRowId(o(\"WAWebSignalCommonUtils\").createSignalAddress(h));return{originalMsgId:u,chat:e,requester:h,isLidBot:l,identity:n}}))",
+            "start": 4615
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5137,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSendMsgQueueMap\").sendMsgQueueMap.enqueue(e.toString(),n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){yield o(\"WAWebUpdateLocalSignalSession\").updateLocalSignalSession(e,t,r),yield o(\"WAWebManageE2ESessionsJob\").ensureE2ESessions({identityChanged:!1,sessionScope:r,wids:[h]});var n=yield o(\"WAWebSignalProtocolStore\").getPersistSignalProtocolStore().getIdentityWithRowId(o(\"WAWebSignalCommonUtils\").createSignalAddress(h));return{originalMsgId:u,chat:e,requester:h,isLidBot:l,identity:n}}))",
+            "start": 4622
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4821,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebUpdateLocalSignalSession\").updateLocalSignalSession(e,t,r)",
+            "start": 4749
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4922,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebManageE2ESessionsJob\").ensureE2ESessions({identityChanged:!1,sessionScope:r,wids:[h]})",
+            "start": 4822
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5069,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSignalProtocolStore\").getPersistSignalProtocolStore().getIdentityWithRowId(o(\"WAWebSignalCommonUtils\").createSignalAddress(h))",
+            "start": 4929
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5134,
+            "kind": "return",
+            "source": "return{originalMsgId:u,chat:e,requester:h,isLidBot:l,identity:n}",
+            "start": 5070
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5322,
+            "kind": "return",
+            "source": "return T.apply(this,arguments)",
+            "start": 5292
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 7797,
+            "kind": "return",
+            "source": "return T=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e){var t,n,a,i=D(e);if(o(\"WALogger\").LOG(h||(h=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: retry request from \",\", target chat: \",\", type: \",\",\\n      participant: \",\", recipient: \",\"\"])),e.from.toLogString(),(t=i)==null?void 0:t.toLogString(),e.type,(n=e.participant)==null?void 0:n.toLogString(),(a=e.recipient)==null?void 0:a.toLogString()),i==null)return o(\"WALogger\").LOG(y||(y=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: no target chat found\"]))),{error:\"no_target_chat\"};if(i=o(\"WAWebSimpleSignalPNToFBIDMigration\").maybeReplaceFbidWithDeprecatedBotPn(i),i=o(\"WAWebMaibaWASSMigration\").resolveMaibaAiHubFbidToLidOrChatId(i),i.isUser()){o(\"WALogger\").LOG(C||(C=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: this is a user chat\"])));var l=!o(\"WAWebLid1X1MigrationGating\").Lid1X1MigrationUtils.isLidMigrated()&&i.isLid();if(o(\"WAWebLid1X1MigrationGating\").Lid1X1MigrationUtils.isLidMigrated()||l){var s;o(\"WALogger\").LOG(b||(b=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: in migrated/pre-migrated flow\"])));var u=new(r(\"WAWebMsgKey\"))({fromMe:!0,remote:i,id:e.originalMsgId}),c=[u,o(\"WAWebLidMigrationUtils\").getAlternateMsgKey(u)].filter(Boolean).map(function(e){return e.toString()}),d;if(e.type===\"retry\"){var m=(yield o(\"WAWebSchemaMessage\").getMessageTable().bulkGet(c,!1)).filter(Boolean);if(m.length===0)return o(\"WALogger\").LOG(v||(v=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: could not find messages\"]))),{error:o(\"WAWebHandleRetryRequestNonMigratedLog\").selectRetryErrorType(e)};m.length>1&&o(\"WALogger\").WARN(S||(S=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: multiple messages found\"]))),d=o(\"WAWebWidFactory\").createWidFromWidLike(m[0].to)}else e.type,d=e.from;var p;if(e.from.isBot())p=e.from;else{var _=o(\"WAWebWidFactory\").asUserWidOrThrow(e.from);p=d.isLid()?o(\"WAWebLidMigrationUtils\").toLid(_):o(\"WAWebLidMigrationUtils\").toPn(_)}if(p==null)return{error:\"empty_from_user\"};var f=o(\"WAWebWidFactory\").createDeviceWidFromUserAndDevice(p.user,p.server,(s=e.from.device)!=null?s:0),g=yield o(\"WAWebSchemaChat\").getChatTable().get(d.toString()),R=g==null?void 0:g.lidOriginType,L=(g==null?void 0:g.accountLid)!=null?o(\"WAWebWidFactory\").createWidFromWidLike(g.accountLid):void 0;return{chat:d,from:f,lidOrigin:R,accountLid:L}}}return{chat:i,from:e.from}}),T.apply(this,arguments)",
+            "start": 5336
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5769,
+            "kind": "if",
+            "source": "o(\"WALogger\").LOG(h||(h=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: retry request from \",\", target chat: \",\", type: \",\",\\n      participant: \",\", recipient: \",\"\"])),e.from.toLogString(),(t=i)==null?void 0:t.toLogString(),e.type,(n=e.participant)==null?void 0:n.toLogString(),(a=e.recipient)==null?void 0:a.toLogString()),i==null",
+            "start": 5424
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 5769,
+                "start": 5424
+              }
+            ],
+            "end": 5913,
+            "kind": "return",
+            "source": "return o(\"WALogger\").LOG(y||(y=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: no target chat found\"]))),{error:\"no_target_chat\"};",
+            "start": 5770
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 6076,
+            "kind": "if",
+            "source": "i=o(\"WAWebSimpleSignalPNToFBIDMigration\").maybeReplaceFbidWithDeprecatedBotPn(i),i=o(\"WAWebMaibaWASSMigration\").resolveMaibaAiHubFbidToLidOrChatId(i),i.isUser()",
+            "start": 5916
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              }
+            ],
+            "end": 6349,
+            "kind": "if",
+            "source": "o(\"WAWebLid1X1MigrationGating\").Lid1X1MigrationUtils.isLidMigrated()||l",
+            "start": 6278
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 6653,
+            "kind": "return",
+            "source": "return e.toString()",
+            "start": 6634
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              }
+            ],
+            "end": 6677,
+            "kind": "if",
+            "source": "e.type===\"retry\"",
+            "start": 6661
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              },
+              {
+                "end": 6677,
+                "start": 6661
+              }
+            ],
+            "end": 6747,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSchemaMessage\").getMessageTable().bulkGet(c,!1)",
+            "start": 6686
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              },
+              {
+                "end": 6677,
+                "start": 6661
+              }
+            ],
+            "end": 6780,
+            "kind": "if",
+            "source": "m.length===0",
+            "start": 6768
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              },
+              {
+                "end": 6677,
+                "start": 6661
+              },
+              {
+                "end": 6780,
+                "start": 6768
+              }
+            ],
+            "end": 6977,
+            "kind": "return",
+            "source": "return o(\"WALogger\").LOG(v||(v=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: could not find messages\"]))),{error:o(\"WAWebHandleRetryRequestNonMigratedLog\").selectRetryErrorType(e)};",
+            "start": 6781
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              }
+            ],
+            "end": 7201,
+            "kind": "if",
+            "source": "e.from.isBot()",
+            "start": 7187
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              }
+            ],
+            "end": 7363,
+            "kind": "if",
+            "source": "p==null",
+            "start": 7356
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              },
+              {
+                "end": 7363,
+                "start": 7356
+              }
+            ],
+            "end": 7396,
+            "kind": "return",
+            "source": "return{error:\"empty_from_user\"};",
+            "start": 7364
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              }
+            ],
+            "end": 7562,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSchemaChat\").getChatTable().get(d.toString())",
+            "start": 7503
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6076,
+                "start": 5916
+              },
+              {
+                "end": 6349,
+                "start": 6278
+              }
+            ],
+            "end": 7743,
+            "kind": "return",
+            "source": "return{chat:d,from:f,lidOrigin:R,accountLid:L}",
+            "start": 7697
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 7771,
+            "kind": "return",
+            "source": "return{chat:i,from:e.from}",
+            "start": 7745
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 7860,
+            "kind": "if",
+            "source": "n.isBot()&&r!=null",
+            "start": 7842
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 7860,
+                "start": 7842
+              }
+            ],
+            "end": 7870,
+            "kind": "return",
+            "source": "return r;",
+            "start": 7861
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 7883,
+            "kind": "if",
+            "source": "n.isUser()",
+            "start": 7873
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 7883,
+                "start": 7873
+              }
+            ],
+            "end": 7975,
+            "kind": "if",
+            "source": "o(\"WAWebUserPrefsMeUser\").isMeAccount(a)",
+            "start": 7935
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 7883,
+                "start": 7873
+              },
+              {
+                "end": 7975,
+                "start": 7935
+              }
+            ],
+            "end": 7982,
+            "kind": "if",
+            "source": "!r",
+            "start": 7980
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 7883,
+                "start": 7873
+              },
+              {
+                "end": 7975,
+                "start": 7935
+              },
+              {
+                "end": 7982,
+                "start": 7980
+              }
+            ],
+            "end": 8271,
+            "kind": "return",
+            "source": "return o(\"WALogger\").WARN(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"getTargetChat: from is a peer device, but without recipient, isLid: \",\", peer device: \",\", retryCount: \",\", hasKeyBundle: \",\"\"])),n.isLid(),(i=n.device)!=null?i:\"primary\",t.retryCount,t.keyBundle!=null),null",
+            "start": 7990
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 7883,
+                "start": 7873
+              },
+              {
+                "end": 7975,
+                "start": 7935
+              }
+            ],
+            "end": 8280,
+            "kind": "return",
+            "source": "return r",
+            "start": 8272
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 7883,
+                "start": 7873
+              }
+            ],
+            "end": 8328,
+            "kind": "return",
+            "source": "return o(\"WAWebWidFactory\").asUserWidOrThrow(a)",
+            "start": 8281
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 8337,
+            "kind": "return",
+            "source": "return n",
+            "start": 8329
+          }
+        ]
+      },
+      "module": "WAWebHandleRetryRequest",
+      "source": "__d(\"WAWebHandleRetryRequest\",[\"WAJids\",\"WALogger\",\"WAWebApiContact\",\"WAWebApiDeviceList\",\"WAWebHandleRetryRequestNonMigratedLog\",\"WAWebLid1X1MigrationGating\",\"WAWebLidMigrationUtils\",\"WAWebMaibaWASSMigration\",\"WAWebManageE2ESessionsJob\",\"WAWebMdRetryFromUnknownDeviceWamEvent\",\"WAWebMessageQueue\",\"WAWebMsgKey\",\"WAWebPostMessageHighRetryCountMetric\",\"WAWebProcessRetryKeyBundle\",\"WAWebSchemaChat\",\"WAWebSchemaMessage\",\"WAWebSendMsgQueueMap\",\"WAWebSendRetryMsgJob\",\"WAWebSessionScope\",\"WAWebSignalCommonUtils\",\"WAWebSignalProtocolStore\",\"WAWebSimpleSignalPNToFBIDMigration\",\"WAWebStatusSessionGatingUtils\",\"WAWebUpdateLocalSignalSession\",\"WAWebUserPrefsMeUser\",\"WAWebVoipStackInterface\",\"WAWebWamEnumDeviceType\",\"WAWebWidFactory\",\"asyncToGeneratorRuntime\",\"cr:10198\",\"gkx\"],(function(t,n,r,o,a,i,l){var e,s,u,c,d,m,p,_,f,g,h,y,C,b,v,S;function R(e){return L.apply(this,arguments)}function L(){return L=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e){var t=yield I(e);if(t.error){o(\"WALogger\").WARN(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest: no chat info found for incoming retry request. error: \",\"\"])),t.error).sendLogs(yield o(\"WAWebHandleRetryRequestNonMigratedLog\").buildNoChatInfoSendLogsArg(e));return}var a=t.accountLid,i=t.chat,l=t.from,m=t.lidOrigin,p=e.from;e.from=l;var _=e.participant,f=e.recipient,g=e.retryCount,h=e.type,y=p.isStatus()||i.isStatus(),C=y?o(\"WAWebStatusSessionGatingUtils\").getStatusSessionScope():o(\"WAWebSessionScope\").SessionScope.DEFAULT,b=y?C:void 0;return o(\"WALogger\").LOG(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: receivedFrom=\",\" chat=\",\" sessionScope=\",\"\"])),p.toLogString(),i.toLogString(),C),o(\"WAWebMessageQueue\").onMessageQueue({chatWid:i,isOffline:!1,msgCategory:null,action:(function(){var t=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){var t=yield E(i,e,C);if(t!=null){var s=t.identity,u=t.isLidBot,y=t.originalMsgId,v=t.requester;r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(i,\"RetryReceiptReceived\",\"originalMsgId:\"+y+\" - requester:\"+v.toString());try{if(h===\"enc_rekey_retry\"){var S=yield o(\"WAWebVoipStackInterface\").getVoipStackInterface();yield S==null?void 0:S.resendEncRekeyRetry(l.toString({legacy:!0}),g)}else if(h!==\"voip_1x1_retry\"){var R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:v,retryCount:g,sessionScope:b}),L=R==null?o(\"WAWebApiContact\").getAlternateDeviceWid(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(v)):null;if(L&&(R=yield o(\"WAWebProcessRetryKeyBundle\").getMsgIfAuthorized({chat:i,identity:s,originalMsgId:y,requester:L,retryCount:g,sessionScope:b})),!R){var k;o(\"WALogger\").WARN(c||(c=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest \",\" retry not authorized\"])),(k=R)==null?void 0:k.type);return}var I={to:p,participant:_,msgRecord:R,retryCount:g,isLidBot:u,sessionScope:C};f&&(I.recipient=f),m&&(I.lidOrigin=m),a&&(I.accountLid=a),yield o(\"WAWebSendRetryMsgJob\").sendRetry(I)}}catch(e){o(\"WALogger\").WARN(d||(d=babelHelpers.taggedTemplateLiteralLoose([\"handleMessageRetryRequest error: \",\"\"])),e)}}});function s(){return t.apply(this,arguments)}return s})()})}),L.apply(this,arguments)}function E(e,t,n){return k.apply(this,arguments)}function k(){return k=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e,t,r){var a=t.from,i=t.isLid,l=i===void 0?!1:i,s=t.offline,u=t.originalMsgId,c=t.participant,d=t.retryCount;if(d>=o(\"WAWebPostMessageHighRetryCountMetric\").MAX_RETRY){o(\"WALogger\").LOG(m||(m=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest refusing retry attempt #\",\" for \",\"\"])),d,e.toLogString()).sendLogs(\"retry-request-cap-exhausted\",{sampling:.01});return}var h=e.isUser()?a:c;if(!h){o(\"WALogger\").WARN(p||(p=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: no requester found for incoming retry request.\"])));return}var y=h.device||0;try{var C=yield o(\"WAWebApiDeviceList\").hasDevice(h,y);if(!C){o(\"WALogger\").WARN(_||(_=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: device \",\" not found for \",\"\"])),y,h.user),o(\"WALogger\").WARN(f||(f=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest: no device found for isUser:\",\" lid:\",\" isLidBot:\",\"\"])),e.isUser(),h.isLid(),l).sendLogs(\"no-device-found-for-retry-request\",{sampling:.001}),new(o(\"WAWebMdRetryFromUnknownDeviceWamEvent\")).MdRetryFromUnknownDeviceWamEvent({offline:s,senderType:y===o(\"WAJids\").DEFAULT_DEVICE_ID?o(\"WAWebWamEnumDeviceType\").DEVICE_TYPE.PRIMARY:o(\"WAWebWamEnumDeviceType\").DEVICE_TYPE.COMPANION}).commit();return}return yield o(\"WAWebSendMsgQueueMap\").sendMsgQueueMap.enqueue(e.toString(),n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(){yield o(\"WAWebUpdateLocalSignalSession\").updateLocalSignalSession(e,t,r),yield o(\"WAWebManageE2ESessionsJob\").ensureE2ESessions({identityChanged:!1,sessionScope:r,wids:[h]});var n=yield o(\"WAWebSignalProtocolStore\").getPersistSignalProtocolStore().getIdentityWithRowId(o(\"WAWebSignalCommonUtils\").createSignalAddress(h));return{originalMsgId:u,chat:e,requester:h,isLidBot:l,identity:n}}))}catch(e){o(\"WALogger\").WARN(g||(g=babelHelpers.taggedTemplateLiteralLoose([\"handleRetryRequest error: \",\"\"])),e)}}),k.apply(this,arguments)}function I(e){return T.apply(this,arguments)}function T(){return T=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e){var t,n,a,i=D(e);if(o(\"WALogger\").LOG(h||(h=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: retry request from \",\", target chat: \",\", type: \",\",\\n      participant: \",\", recipient: \",\"\"])),e.from.toLogString(),(t=i)==null?void 0:t.toLogString(),e.type,(n=e.participant)==null?void 0:n.toLogString(),(a=e.recipient)==null?void 0:a.toLogString()),i==null)return o(\"WALogger\").LOG(y||(y=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: no target chat found\"]))),{error:\"no_target_chat\"};if(i=o(\"WAWebSimpleSignalPNToFBIDMigration\").maybeReplaceFbidWithDeprecatedBotPn(i),i=o(\"WAWebMaibaWASSMigration\").resolveMaibaAiHubFbidToLidOrChatId(i),i.isUser()){o(\"WALogger\").LOG(C||(C=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: this is a user chat\"])));var l=!o(\"WAWebLid1X1MigrationGating\").Lid1X1MigrationUtils.isLidMigrated()&&i.isLid();if(o(\"WAWebLid1X1MigrationGating\").Lid1X1MigrationUtils.isLidMigrated()||l){var s;o(\"WALogger\").LOG(b||(b=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: in migrated/pre-migrated flow\"])));var u=new(r(\"WAWebMsgKey\"))({fromMe:!0,remote:i,id:e.originalMsgId}),c=[u,o(\"WAWebLidMigrationUtils\").getAlternateMsgKey(u)].filter(Boolean).map(function(e){return e.toString()}),d;if(e.type===\"retry\"){var m=(yield o(\"WAWebSchemaMessage\").getMessageTable().bulkGet(c,!1)).filter(Boolean);if(m.length===0)return o(\"WALogger\").LOG(v||(v=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: could not find messages\"]))),{error:o(\"WAWebHandleRetryRequestNonMigratedLog\").selectRetryErrorType(e)};m.length>1&&o(\"WALogger\").WARN(S||(S=babelHelpers.taggedTemplateLiteralLoose([\"getActualChatInfo: multiple messages found\"]))),d=o(\"WAWebWidFactory\").createWidFromWidLike(m[0].to)}else e.type,d=e.from;var p;if(e.from.isBot())p=e.from;else{var _=o(\"WAWebWidFactory\").asUserWidOrThrow(e.from);p=d.isLid()?o(\"WAWebLidMigrationUtils\").toLid(_):o(\"WAWebLidMigrationUtils\").toPn(_)}if(p==null)return{error:\"empty_from_user\"};var f=o(\"WAWebWidFactory\").createDeviceWidFromUserAndDevice(p.user,p.server,(s=e.from.device)!=null?s:0),g=yield o(\"WAWebSchemaChat\").getChatTable().get(d.toString()),R=g==null?void 0:g.lidOriginType,L=(g==null?void 0:g.accountLid)!=null?o(\"WAWebWidFactory\").createWidFromWidLike(g.accountLid):void 0;return{chat:d,from:f,lidOrigin:R,accountLid:L}}}return{chat:i,from:e.from}}),T.apply(this,arguments)}function D(t){var n=t.from,r=t.recipient;if(n.isBot()&&r!=null)return r;if(n.isUser()){var a=o(\"WAWebWidFactory\").asUserWidOrThrow(n);if(o(\"WAWebUserPrefsMeUser\").isMeAccount(a)){if(!r){var i;return o(\"WALogger\").WARN(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"getTargetChat: from is a peer device, but without recipient, isLid: \",\", peer device: \",\", retryCount: \",\", hasKeyBundle: \",\"\"])),n.isLid(),(i=n.device)!=null?i:\"primary\",t.retryCount,t.keyBundle!=null),null}return r}return o(\"WAWebWidFactory\").asUserWidOrThrow(a)}return n}l.handleRetryRequest=R,l.getTargetChat=D}),98)",
+      "sourceSha256": "de5655e0bf0080f16bc8425b1048f427c64297c0632f5ead44d831de3364eafa"
+    },
+    {
+      "definitions": [
+        {
+          "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+          "end": 985385,
+          "start": 978584
+        }
+      ],
+      "inventory": {
+        "generators": [
+          {
+            "end": 3903,
+            "source": "function*(t){var a=t.externalId,i=t.isPeer,l=i===void 0?!1:i,u=t.isStateless,d=u===void 0?!1:u,m=t.participant,p=t.rawTs,_=t.receiptModeBitmask,g=t.recipient,h=t.retryCount,y=t.retryReason,C=t.to;if(r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(C,\"RetryReceiptSent\",\"externalId:\"+a),!r(\"gkx\")(\"26258\")){var b=n(\"cr:4533\")==null?void 0:n(\"cr:4533\").getDebugDoNotSendRetryReceipt();if(b!=null&&b>0)return n(\"cr:4533\")==null||n(\"cr:4533\").setDebugDoNotSendRetryReceipt(b-1),(c||(c=n(\"Promise\"))).resolve()}try{var v=o(\"WAWebSignalProtocolStore\").getSignalProtocolStore(),S=yield(c||(c=n(\"Promise\"))).all([v.getLocalRegistrationId(),v.getIdentityKeyPair()]),R=S[0],L=S[1];if(R==null||L==null)throw r(\"err\")(\"No registration info found\");var E=C.isUser()&&!C.isBot()&&!o(\"WAWebUserPrefsMeUser\").isMeAccount(o(\"WAWebWidFactory\").asUserWidOrThrow(C)),k;try{k=yield f(h,o(\"WAWebCryptoCurve25519\").toCurveKeyPair(L),d,E)}catch(t){o(\"WALogger\").ERROR(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"error: \",\"\"])),t).sendLogs(\"sendRetryReceipt: error while creating key section in retry receipt\")}var I=!C.isBot()&&!!(m!=null&&m.isBot());if(I)return;var T=o(\"WAWap\").DROP_ATTR,D=o(\"WAWap\").DROP_ATTR,x=o(\"WAWap\").DROP_ATTR,$,P=!1;if(C.equals(o(\"WAWebCoexV2BotWid\").COEX_V2_BOT_FBID_WID)&&o(\"WAWebCoexV2GatingUtils\").isCoexV2RecvEnabled()){$=o(\"WAWebCommsWapMd\").USER_JID(C);var N=g!=null?o(\"WAWebCoexV2ReceiptRecipient\").toCoexV2ReceiptRecipient(g):null;N!=null&&(D=o(\"WAWebCommsWapMd\").USER_JID(N))}else if(C.isUser()){if($=o(\"WAWebCommsWapMd\").DEVICE_JID(C),o(\"WAWebUserPrefsMeUser\").isMeAccount(o(\"WAWebWidFactory\").asUserWidOrThrow(C)))if(l)T=\"peer\",P=!0;else if(g)D=o(\"WAWebCommsWapMd\").USER_JID(g);else return(c||(c=n(\"Promise\"))).reject(r(\"err\")(\"sendRetryReceipt: send retry to peer device without recipient\"))}else $=o(\"WAWebCommsWapMd\").CHAT_JID(C),x=m?o(\"WAWebCommsWapMd\").DEVICE_JID(m):o(\"WAWap\").DROP_ATTR;var M=P?null:o(\"WAWebSendReceiptJobCommon\").genReceiptMetaModeNode(_!=null?_:0),w=o(\"WAWap\").wap(\"receipt\",{id:o(\"WAWap\").CUSTOM_STRING(a),to:$,participant:x,recipient:D,type:\"retry\",category:T},o(\"WAWap\").wap(\"retry\",{v:\"1\",count:o(\"WAWap\").INT(h),id:o(\"WAWap\").CUSTOM_STRING(a),t:o(\"WAWap\").CUSTOM_STRING(p),error:y!=null?o(\"WAWap\").INT(y):o(\"WAWap\").DROP_ATTR}),o(\"WAWap\").wap(\"registration\",null,o(\"WAWap\").BIG_ENDIAN_CONTENT(R)),k,M);return o(\"WAWebDeprecatedSendIqWorkerCompatible\").deprecatedSendStanzaAndWaitForAck(w,o(\"WAWebCommsAckParser\").toCoreAckTemplate({id:a,class:\"receipt\",from:C,participant:m,type:\"retry\"}))}catch(e){o(\"WALogger\").ERROR(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"error: \",\"\"])),e).sendLogs(\"sendRetryReceipt: error while creating or sending the retry message\")}}",
+            "start": 1171
+          },
+          {
+            "end": 4361,
+            "source": "function*(e,t,n,r){n===void 0&&(n=!1),r===void 0&&(r=!1);var a=yield h({identityKeyPair:t,is1on1:r,isStateless:n,retryCount:e}),i=a[0],l=a[1];return l&&(yield o(\"WAWebSignalStoreApi\").waSignalStore.markKeyAsUploaded(l.keyId),yield o(\"WAWebSignalStoreApi\").waSignalStore.markPreKeyAsDirectDistribution(l.keyId)),i}",
+            "start": 4048
+          },
+          {
+            "end": 5879,
+            "source": "function*(e){var t=e.identityKeyPair,a=e.is1on1,i=a===void 0?!1:a,l=e.isStateless,s=l===void 0?!1:l,m=e.retryCount,p=s||m>=d;if(!p)return(c||(c=n(\"Promise\"))).resolve([null,null]);try{var _=yield(c||(c=n(\"Promise\"))).all([o(\"WAWebSignalStoreApi\").waSignalStore.getSignedPreKey(),o(\"WAWebSignalStoreApi\").waSignalStore.getOrGenSinglePreKey(o(\"WAWebSignalKeyApi\").generatePreKeyPair),o(\"WAWebAdvSignatureApi\").getADVEncodedIdentity().then(function(e){return(e==null||e.byteLength===0)&&o(\"WALogger\").ERROR(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"getADVEncodedIdentity: sending empty device-identity\"]))).sendLogs(\"sending-retry-response-with-empty-device-identity\",{sampling:r(\"gkx\")(\"26259\")?1:.1}),o(\"WAWap\").wap(\"device-identity\",null,e)})]),f=_[0],g=_[1],h=_[2];if(!f)throw r(\"err\")(\"Signed pre key is not available\");var y=null;if(i&&o(\"WAWebPQGatingUtils\").isPq1on1MessageEnabled()&&(yield o(\"WAWebKyberPreKeyStore\").isPQMigrated())){var C=yield o(\"WAWebKyberPreKeyStore\").loadLatestKyberLastResortKey();C!=null&&(y=o(\"WAWebSignalUtilsApi\").xmppPqPreKey(C))}var b=o(\"WAWap\").wap(\"keys\",null,o(\"WAWap\").wap(\"type\",null,o(\"WAWebSignalConst\").KEY_BUNDLE_TYPE),o(\"WAWap\").wap(\"identity\",null,t.pubKey),o(\"WAWebSignalUtilsApi\").xmppPreKey(g),o(\"WAWebSignalUtilsApi\").xmppSignedPreKey(f),y,h);return[b,g]}catch(e){throw r(\"err\")(\"Could not create keys section for retry\")}}",
+            "start": 4500
+          }
+        ],
+        "nodes": [
+          {
+            "enclosingIfTests": [],
+            "end": 1102,
+            "kind": "return",
+            "source": "return _.apply(this,arguments)",
+            "start": 1072
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3928,
+            "kind": "return",
+            "source": "return _=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(t){var a=t.externalId,i=t.isPeer,l=i===void 0?!1:i,u=t.isStateless,d=u===void 0?!1:u,m=t.participant,p=t.rawTs,_=t.receiptModeBitmask,g=t.recipient,h=t.retryCount,y=t.retryReason,C=t.to;if(r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(C,\"RetryReceiptSent\",\"externalId:\"+a),!r(\"gkx\")(\"26258\")){var b=n(\"cr:4533\")==null?void 0:n(\"cr:4533\").getDebugDoNotSendRetryReceipt();if(b!=null&&b>0)return n(\"cr:4533\")==null||n(\"cr:4533\").setDebugDoNotSendRetryReceipt(b-1),(c||(c=n(\"Promise\"))).resolve()}try{var v=o(\"WAWebSignalProtocolStore\").getSignalProtocolStore(),S=yield(c||(c=n(\"Promise\"))).all([v.getLocalRegistrationId(),v.getIdentityKeyPair()]),R=S[0],L=S[1];if(R==null||L==null)throw r(\"err\")(\"No registration info found\");var E=C.isUser()&&!C.isBot()&&!o(\"WAWebUserPrefsMeUser\").isMeAccount(o(\"WAWebWidFactory\").asUserWidOrThrow(C)),k;try{k=yield f(h,o(\"WAWebCryptoCurve25519\").toCurveKeyPair(L),d,E)}catch(t){o(\"WALogger\").ERROR(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"error: \",\"\"])),t).sendLogs(\"sendRetryReceipt: error while creating key section in retry receipt\")}var I=!C.isBot()&&!!(m!=null&&m.isBot());if(I)return;var T=o(\"WAWap\").DROP_ATTR,D=o(\"WAWap\").DROP_ATTR,x=o(\"WAWap\").DROP_ATTR,$,P=!1;if(C.equals(o(\"WAWebCoexV2BotWid\").COEX_V2_BOT_FBID_WID)&&o(\"WAWebCoexV2GatingUtils\").isCoexV2RecvEnabled()){$=o(\"WAWebCommsWapMd\").USER_JID(C);var N=g!=null?o(\"WAWebCoexV2ReceiptRecipient\").toCoexV2ReceiptRecipient(g):null;N!=null&&(D=o(\"WAWebCommsWapMd\").USER_JID(N))}else if(C.isUser()){if($=o(\"WAWebCommsWapMd\").DEVICE_JID(C),o(\"WAWebUserPrefsMeUser\").isMeAccount(o(\"WAWebWidFactory\").asUserWidOrThrow(C)))if(l)T=\"peer\",P=!0;else if(g)D=o(\"WAWebCommsWapMd\").USER_JID(g);else return(c||(c=n(\"Promise\"))).reject(r(\"err\")(\"sendRetryReceipt: send retry to peer device without recipient\"))}else $=o(\"WAWebCommsWapMd\").CHAT_JID(C),x=m?o(\"WAWebCommsWapMd\").DEVICE_JID(m):o(\"WAWap\").DROP_ATTR;var M=P?null:o(\"WAWebSendReceiptJobCommon\").genReceiptMetaModeNode(_!=null?_:0),w=o(\"WAWap\").wap(\"receipt\",{id:o(\"WAWap\").CUSTOM_STRING(a),to:$,participant:x,recipient:D,type:\"retry\",category:T},o(\"WAWap\").wap(\"retry\",{v:\"1\",count:o(\"WAWap\").INT(h),id:o(\"WAWap\").CUSTOM_STRING(a),t:o(\"WAWap\").CUSTOM_STRING(p),error:y!=null?o(\"WAWap\").INT(y):o(\"WAWap\").DROP_ATTR}),o(\"WAWap\").wap(\"registration\",null,o(\"WAWap\").BIG_ENDIAN_CONTENT(R)),k,M);return o(\"WAWebDeprecatedSendIqWorkerCompatible\").deprecatedSendStanzaAndWaitForAck(w,o(\"WAWebCommsAckParser\").toCoreAckTemplate({id:a,class:\"receipt\",from:C,participant:m,type:\"retry\"}))}catch(e){o(\"WALogger\").ERROR(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"error: \",\"\"])),e).sendLogs(\"sendRetryReceipt: error while creating or sending the retry message\")}}),_.apply(this,arguments)",
+            "start": 1116
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1492,
+            "kind": "if",
+            "source": "r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(C,\"RetryReceiptSent\",\"externalId:\"+a),!r(\"gkx\")(\"26258\")",
+            "start": 1370
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1492,
+                "start": 1370
+              }
+            ],
+            "end": 1586,
+            "kind": "if",
+            "source": "b!=null&&b>0",
+            "start": 1574
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1492,
+                "start": 1370
+              },
+              {
+                "end": 1586,
+                "start": 1574
+              }
+            ],
+            "end": 1693,
+            "kind": "return",
+            "source": "return n(\"cr:4533\")==null||n(\"cr:4533\").setDebugDoNotSendRetryReceipt(b-1),(c||(c=n(\"Promise\"))).resolve()",
+            "start": 1587
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1844,
+            "kind": "suspend",
+            "source": "yield(c||(c=n(\"Promise\"))).all([v.getLocalRegistrationId(),v.getIdentityKeyPair()])",
+            "start": 1761
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1878,
+            "kind": "if",
+            "source": "R==null||L==null",
+            "start": 1862
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1878,
+                "start": 1862
+              }
+            ],
+            "end": 1924,
+            "kind": "throw",
+            "source": "throw r(\"err\")(\"No registration info found\");",
+            "start": 1879
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 2102,
+            "kind": "suspend",
+            "source": "yield f(h,o(\"WAWebCryptoCurve25519\").toCurveKeyPair(L),d,E)",
+            "start": 2043
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 2323,
+            "kind": "if",
+            "source": "I",
+            "start": 2322
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 2323,
+                "start": 2322
+              }
+            ],
+            "end": 2331,
+            "kind": "return",
+            "source": "return;",
+            "start": 2324
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 2518,
+            "kind": "if",
+            "source": "C.equals(o(\"WAWebCoexV2BotWid\").COEX_V2_BOT_FBID_WID)&&o(\"WAWebCoexV2GatingUtils\").isCoexV2RecvEnabled()",
+            "start": 2414
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 2518,
+                "start": 2414
+              }
+            ],
+            "end": 2699,
+            "kind": "if",
+            "source": "C.isUser()",
+            "start": 2689
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 2518,
+                "start": 2414
+              },
+              {
+                "end": 2699,
+                "start": 2689
+              }
+            ],
+            "end": 2820,
+            "kind": "if",
+            "source": "$=o(\"WAWebCommsWapMd\").DEVICE_JID(C),o(\"WAWebUserPrefsMeUser\").isMeAccount(o(\"WAWebWidFactory\").asUserWidOrThrow(C))",
+            "start": 2704
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 2518,
+                "start": 2414
+              },
+              {
+                "end": 2699,
+                "start": 2689
+              },
+              {
+                "end": 2820,
+                "start": 2704
+              }
+            ],
+            "end": 2825,
+            "kind": "if",
+            "source": "l",
+            "start": 2824
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 2518,
+                "start": 2414
+              },
+              {
+                "end": 2699,
+                "start": 2689
+              },
+              {
+                "end": 2820,
+                "start": 2704
+              },
+              {
+                "end": 2825,
+                "start": 2824
+              }
+            ],
+            "end": 2849,
+            "kind": "if",
+            "source": "g",
+            "start": 2848
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 2518,
+                "start": 2414
+              },
+              {
+                "end": 2699,
+                "start": 2689
+              },
+              {
+                "end": 2820,
+                "start": 2704
+              },
+              {
+                "end": 2825,
+                "start": 2824
+              },
+              {
+                "end": 2849,
+                "start": 2848
+              }
+            ],
+            "end": 2999,
+            "kind": "return",
+            "source": "return(c||(c=n(\"Promise\"))).reject(r(\"err\")(\"sendRetryReceipt: send retry to peer device without recipient\"))",
+            "start": 2890
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3726,
+            "kind": "return",
+            "source": "return o(\"WAWebDeprecatedSendIqWorkerCompatible\").deprecatedSendStanzaAndWaitForAck(w,o(\"WAWebCommsAckParser\").toCoreAckTemplate({id:a,class:\"receipt\",from:C,participant:m,type:\"retry\"}))",
+            "start": 3539
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 3979,
+            "kind": "return",
+            "source": "return g.apply(this,arguments)",
+            "start": 3949
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4386,
+            "kind": "return",
+            "source": "return g=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e,t,n,r){n===void 0&&(n=!1),r===void 0&&(r=!1);var a=yield h({identityKeyPair:t,is1on1:r,isStateless:n,retryCount:e}),i=a[0],l=a[1];return l&&(yield o(\"WAWebSignalStoreApi\").waSignalStore.markKeyAsUploaded(l.keyId),yield o(\"WAWebSignalStoreApi\").waSignalStore.markPreKeyAsDirectDistribution(l.keyId)),i}),g.apply(this,arguments)",
+            "start": 3993
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4175,
+            "kind": "suspend",
+            "source": "yield h({identityKeyPair:t,is1on1:r,isStateless:n,retryCount:e})",
+            "start": 4111
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4360,
+            "kind": "return",
+            "source": "return l&&(yield o(\"WAWebSignalStoreApi\").waSignalStore.markKeyAsUploaded(l.keyId),yield o(\"WAWebSignalStoreApi\").waSignalStore.markPreKeyAsDirectDistribution(l.keyId)),i",
+            "start": 4190
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4272,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSignalStoreApi\").waSignalStore.markKeyAsUploaded(l.keyId)",
+            "start": 4201
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4357,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSignalStoreApi\").waSignalStore.markPreKeyAsDirectDistribution(l.keyId)",
+            "start": 4273
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4431,
+            "kind": "return",
+            "source": "return y.apply(this,arguments)",
+            "start": 4401
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5904,
+            "kind": "return",
+            "source": "return y=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e){var t=e.identityKeyPair,a=e.is1on1,i=a===void 0?!1:a,l=e.isStateless,s=l===void 0?!1:l,m=e.retryCount,p=s||m>=d;if(!p)return(c||(c=n(\"Promise\"))).resolve([null,null]);try{var _=yield(c||(c=n(\"Promise\"))).all([o(\"WAWebSignalStoreApi\").waSignalStore.getSignedPreKey(),o(\"WAWebSignalStoreApi\").waSignalStore.getOrGenSinglePreKey(o(\"WAWebSignalKeyApi\").generatePreKeyPair),o(\"WAWebAdvSignatureApi\").getADVEncodedIdentity().then(function(e){return(e==null||e.byteLength===0)&&o(\"WALogger\").ERROR(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"getADVEncodedIdentity: sending empty device-identity\"]))).sendLogs(\"sending-retry-response-with-empty-device-identity\",{sampling:r(\"gkx\")(\"26259\")?1:.1}),o(\"WAWap\").wap(\"device-identity\",null,e)})]),f=_[0],g=_[1],h=_[2];if(!f)throw r(\"err\")(\"Signed pre key is not available\");var y=null;if(i&&o(\"WAWebPQGatingUtils\").isPq1on1MessageEnabled()&&(yield o(\"WAWebKyberPreKeyStore\").isPQMigrated())){var C=yield o(\"WAWebKyberPreKeyStore\").loadLatestKyberLastResortKey();C!=null&&(y=o(\"WAWebSignalUtilsApi\").xmppPqPreKey(C))}var b=o(\"WAWap\").wap(\"keys\",null,o(\"WAWap\").wap(\"type\",null,o(\"WAWebSignalConst\").KEY_BUNDLE_TYPE),o(\"WAWap\").wap(\"identity\",null,t.pubKey),o(\"WAWebSignalUtilsApi\").xmppPreKey(g),o(\"WAWebSignalUtilsApi\").xmppSignedPreKey(f),y,h);return[b,g]}catch(e){throw r(\"err\")(\"Could not create keys section for retry\")}}),y.apply(this,arguments)",
+            "start": 4445
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 4630,
+            "kind": "if",
+            "source": "!p",
+            "start": 4628
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 4630,
+                "start": 4628
+              }
+            ],
+            "end": 4680,
+            "kind": "return",
+            "source": "return(c||(c=n(\"Promise\"))).resolve([null,null]);",
+            "start": 4631
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5250,
+            "kind": "suspend",
+            "source": "yield(c||(c=n(\"Promise\"))).all([o(\"WAWebSignalStoreApi\").waSignalStore.getSignedPreKey(),o(\"WAWebSignalStoreApi\").waSignalStore.getOrGenSinglePreKey(o(\"WAWebSignalKeyApi\").generatePreKeyPair),o(\"WAWebAdvSignatureApi\").getADVEncodedIdentity().then(function(e){return(e==null||e.byteLength===0)&&o(\"WALogger\").ERROR(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"getADVEncodedIdentity: sending empty device-identity\"]))).sendLogs(\"sending-retry-response-with-empty-device-identity\",{sampling:r(\"gkx\")(\"26259\")?1:.1}),o(\"WAWap\").wap(\"device-identity\",null,e)})])",
+            "start": 4690
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5246,
+            "kind": "return",
+            "source": "return(e==null||e.byteLength===0)&&o(\"WALogger\").ERROR(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"getADVEncodedIdentity: sending empty device-identity\"]))).sendLogs(\"sending-retry-response-with-empty-device-identity\",{sampling:r(\"gkx\")(\"26259\")?1:.1}),o(\"WAWap\").wap(\"device-identity\",null,e)",
+            "start": 4949
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5277,
+            "kind": "if",
+            "source": "!f",
+            "start": 5275
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 5277,
+                "start": 5275
+              }
+            ],
+            "end": 5328,
+            "kind": "throw",
+            "source": "throw r(\"err\")(\"Signed pre key is not available\");",
+            "start": 5278
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5444,
+            "kind": "if",
+            "source": "i&&o(\"WAWebPQGatingUtils\").isPq1on1MessageEnabled()&&(yield o(\"WAWebKyberPreKeyStore\").isPQMigrated())",
+            "start": 5342
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 5444,
+                "start": 5342
+              }
+            ],
+            "end": 5443,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebKyberPreKeyStore\").isPQMigrated()",
+            "start": 5396
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 5444,
+                "start": 5342
+              }
+            ],
+            "end": 5515,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebKyberPreKeyStore\").loadLatestKyberLastResortKey()",
+            "start": 5452
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5810,
+            "kind": "return",
+            "source": "return[b,g]",
+            "start": 5799
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5877,
+            "kind": "throw",
+            "source": "throw r(\"err\")(\"Could not create keys section for retry\")",
+            "start": 5820
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 5985,
+            "kind": "if",
+            "source": "e instanceof o(\"WAWebHandleMsgError\").UnknownDeviceMessageError",
+            "start": 5922
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 5985,
+                "start": 5922
+              }
+            ],
+            "end": 6020,
+            "kind": "return",
+            "source": "return m.UnknownCompanionNoPrekey;",
+            "start": 5986
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 6086,
+            "kind": "if",
+            "source": "e instanceof o(\"WAWebSignalCommonErrors\").SignalDecryptionError",
+            "start": 6023
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6086,
+                "start": 6023
+              }
+            ],
+            "end": 6609,
+            "kind": "return",
+            "source": "return e.message===\"errSignalNoSession\"||e.message===\"errLoadSenderKeySession\"?m.SignalErrorNoSession:e.message===\"errSignalInvalidMsg\"?m.SignalErrorInvalidMessage:e.message===\"errSignalInvalidKey\"?m.SignalErrorInvalidKey:e.message===\"errSignalTooManyMessagesInFuture\"||e.message===\"errSignalGrpTooManyMessagesInFuture\"?m.SignalErrorFutureMessage:e.message===\"errInvalidMacWithDecryptedPlaintext\"||e.message===\"errInvalidMacInvalidCipherKey\"||e.message===\"errInvalidMacInvalidCipherKeyNewChain\"?m.SignalErrorBadMac:void 0;",
+            "start": 6087
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 6692,
+            "kind": "if",
+            "source": "e instanceof o(\"WAWebEphemeralDecodeBroadcastSetting\").BroadcastEphSettingsError",
+            "start": 6612
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 6692,
+                "start": 6612
+              }
+            ],
+            "end": 6730,
+            "kind": "return",
+            "source": "return m.BadBroadcastEphemeralSetting",
+            "start": 6693
+          }
+        ]
+      },
+      "module": "WAWebSendRetryReceiptJob",
+      "source": "__d(\"WAWebSendRetryReceiptJob\",[\"$InternalEnum\",\"Promise\",\"WALogger\",\"WAWap\",\"WAWebAdvSignatureApi\",\"WAWebCoexV2BotWid\",\"WAWebCoexV2GatingUtils\",\"WAWebCoexV2ReceiptRecipient\",\"WAWebCommsAckParser\",\"WAWebCommsWapMd\",\"WAWebCryptoCurve25519\",\"WAWebDeprecatedSendIqWorkerCompatible\",\"WAWebEphemeralDecodeBroadcastSetting\",\"WAWebHandleMsgError\",\"WAWebKyberPreKeyStore\",\"WAWebPQGatingUtils\",\"WAWebSendReceiptJobCommon\",\"WAWebSignalCommonErrors\",\"WAWebSignalConst\",\"WAWebSignalKeyApi\",\"WAWebSignalProtocolStore\",\"WAWebSignalStoreApi\",\"WAWebSignalUtilsApi\",\"WAWebUserPrefsMeUser\",\"WAWebWidFactory\",\"asyncToGeneratorRuntime\",\"cr:10198\",\"cr:4533\",\"err\",\"gkx\"],(function(t,n,r,o,a,i,l){var e,s,u,c,d=2,m=n(\"$InternalEnum\")({UnknownError:0,SignalErrorNoSession:1,SignalErrorInvalidKey:2,SignalErrorInvalidKeyId:3,SignalErrorInvalidMessage:4,SignalErrorInvalidSignature:5,SignalErrorFutureMessage:6,SignalErrorBadMac:7,SignalErrorInvalidSession:8,SignalErrorInvalidMsgKey:9,BadBroadcastEphemeralSetting:10,UnknownCompanionNoPrekey:11,AdvFailure:12,StatusRevokeDelay:13});function p(e){return _.apply(this,arguments)}function _(){return _=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(t){var a=t.externalId,i=t.isPeer,l=i===void 0?!1:i,u=t.isStateless,d=u===void 0?!1:u,m=t.participant,p=t.rawTs,_=t.receiptModeBitmask,g=t.recipient,h=t.retryCount,y=t.retryReason,C=t.to;if(r(\"gkx\")(\"26258\")||n(\"cr:10198\")==null||n(\"cr:10198\").injectDebug(C,\"RetryReceiptSent\",\"externalId:\"+a),!r(\"gkx\")(\"26258\")){var b=n(\"cr:4533\")==null?void 0:n(\"cr:4533\").getDebugDoNotSendRetryReceipt();if(b!=null&&b>0)return n(\"cr:4533\")==null||n(\"cr:4533\").setDebugDoNotSendRetryReceipt(b-1),(c||(c=n(\"Promise\"))).resolve()}try{var v=o(\"WAWebSignalProtocolStore\").getSignalProtocolStore(),S=yield(c||(c=n(\"Promise\"))).all([v.getLocalRegistrationId(),v.getIdentityKeyPair()]),R=S[0],L=S[1];if(R==null||L==null)throw r(\"err\")(\"No registration info found\");var E=C.isUser()&&!C.isBot()&&!o(\"WAWebUserPrefsMeUser\").isMeAccount(o(\"WAWebWidFactory\").asUserWidOrThrow(C)),k;try{k=yield f(h,o(\"WAWebCryptoCurve25519\").toCurveKeyPair(L),d,E)}catch(t){o(\"WALogger\").ERROR(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"error: \",\"\"])),t).sendLogs(\"sendRetryReceipt: error while creating key section in retry receipt\")}var I=!C.isBot()&&!!(m!=null&&m.isBot());if(I)return;var T=o(\"WAWap\").DROP_ATTR,D=o(\"WAWap\").DROP_ATTR,x=o(\"WAWap\").DROP_ATTR,$,P=!1;if(C.equals(o(\"WAWebCoexV2BotWid\").COEX_V2_BOT_FBID_WID)&&o(\"WAWebCoexV2GatingUtils\").isCoexV2RecvEnabled()){$=o(\"WAWebCommsWapMd\").USER_JID(C);var N=g!=null?o(\"WAWebCoexV2ReceiptRecipient\").toCoexV2ReceiptRecipient(g):null;N!=null&&(D=o(\"WAWebCommsWapMd\").USER_JID(N))}else if(C.isUser()){if($=o(\"WAWebCommsWapMd\").DEVICE_JID(C),o(\"WAWebUserPrefsMeUser\").isMeAccount(o(\"WAWebWidFactory\").asUserWidOrThrow(C)))if(l)T=\"peer\",P=!0;else if(g)D=o(\"WAWebCommsWapMd\").USER_JID(g);else return(c||(c=n(\"Promise\"))).reject(r(\"err\")(\"sendRetryReceipt: send retry to peer device without recipient\"))}else $=o(\"WAWebCommsWapMd\").CHAT_JID(C),x=m?o(\"WAWebCommsWapMd\").DEVICE_JID(m):o(\"WAWap\").DROP_ATTR;var M=P?null:o(\"WAWebSendReceiptJobCommon\").genReceiptMetaModeNode(_!=null?_:0),w=o(\"WAWap\").wap(\"receipt\",{id:o(\"WAWap\").CUSTOM_STRING(a),to:$,participant:x,recipient:D,type:\"retry\",category:T},o(\"WAWap\").wap(\"retry\",{v:\"1\",count:o(\"WAWap\").INT(h),id:o(\"WAWap\").CUSTOM_STRING(a),t:o(\"WAWap\").CUSTOM_STRING(p),error:y!=null?o(\"WAWap\").INT(y):o(\"WAWap\").DROP_ATTR}),o(\"WAWap\").wap(\"registration\",null,o(\"WAWap\").BIG_ENDIAN_CONTENT(R)),k,M);return o(\"WAWebDeprecatedSendIqWorkerCompatible\").deprecatedSendStanzaAndWaitForAck(w,o(\"WAWebCommsAckParser\").toCoreAckTemplate({id:a,class:\"receipt\",from:C,participant:m,type:\"retry\"}))}catch(e){o(\"WALogger\").ERROR(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"error: \",\"\"])),e).sendLogs(\"sendRetryReceipt: error while creating or sending the retry message\")}}),_.apply(this,arguments)}function f(e,t,n,r){return g.apply(this,arguments)}function g(){return g=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e,t,n,r){n===void 0&&(n=!1),r===void 0&&(r=!1);var a=yield h({identityKeyPair:t,is1on1:r,isStateless:n,retryCount:e}),i=a[0],l=a[1];return l&&(yield o(\"WAWebSignalStoreApi\").waSignalStore.markKeyAsUploaded(l.keyId),yield o(\"WAWebSignalStoreApi\").waSignalStore.markPreKeyAsDirectDistribution(l.keyId)),i}),g.apply(this,arguments)}function h(e){return y.apply(this,arguments)}function y(){return y=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(e){var t=e.identityKeyPair,a=e.is1on1,i=a===void 0?!1:a,l=e.isStateless,s=l===void 0?!1:l,m=e.retryCount,p=s||m>=d;if(!p)return(c||(c=n(\"Promise\"))).resolve([null,null]);try{var _=yield(c||(c=n(\"Promise\"))).all([o(\"WAWebSignalStoreApi\").waSignalStore.getSignedPreKey(),o(\"WAWebSignalStoreApi\").waSignalStore.getOrGenSinglePreKey(o(\"WAWebSignalKeyApi\").generatePreKeyPair),o(\"WAWebAdvSignatureApi\").getADVEncodedIdentity().then(function(e){return(e==null||e.byteLength===0)&&o(\"WALogger\").ERROR(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"getADVEncodedIdentity: sending empty device-identity\"]))).sendLogs(\"sending-retry-response-with-empty-device-identity\",{sampling:r(\"gkx\")(\"26259\")?1:.1}),o(\"WAWap\").wap(\"device-identity\",null,e)})]),f=_[0],g=_[1],h=_[2];if(!f)throw r(\"err\")(\"Signed pre key is not available\");var y=null;if(i&&o(\"WAWebPQGatingUtils\").isPq1on1MessageEnabled()&&(yield o(\"WAWebKyberPreKeyStore\").isPQMigrated())){var C=yield o(\"WAWebKyberPreKeyStore\").loadLatestKyberLastResortKey();C!=null&&(y=o(\"WAWebSignalUtilsApi\").xmppPqPreKey(C))}var b=o(\"WAWap\").wap(\"keys\",null,o(\"WAWap\").wap(\"type\",null,o(\"WAWebSignalConst\").KEY_BUNDLE_TYPE),o(\"WAWap\").wap(\"identity\",null,t.pubKey),o(\"WAWebSignalUtilsApi\").xmppPreKey(g),o(\"WAWebSignalUtilsApi\").xmppSignedPreKey(f),y,h);return[b,g]}catch(e){throw r(\"err\")(\"Could not create keys section for retry\")}}),y.apply(this,arguments)}function C(e){if(e instanceof o(\"WAWebHandleMsgError\").UnknownDeviceMessageError)return m.UnknownCompanionNoPrekey;if(e instanceof o(\"WAWebSignalCommonErrors\").SignalDecryptionError)return e.message===\"errSignalNoSession\"||e.message===\"errLoadSenderKeySession\"?m.SignalErrorNoSession:e.message===\"errSignalInvalidMsg\"?m.SignalErrorInvalidMessage:e.message===\"errSignalInvalidKey\"?m.SignalErrorInvalidKey:e.message===\"errSignalTooManyMessagesInFuture\"||e.message===\"errSignalGrpTooManyMessagesInFuture\"?m.SignalErrorFutureMessage:e.message===\"errInvalidMacWithDecryptedPlaintext\"||e.message===\"errInvalidMacInvalidCipherKey\"||e.message===\"errInvalidMacInvalidCipherKeyNewChain\"?m.SignalErrorBadMac:void 0;if(e instanceof o(\"WAWebEphemeralDecodeBroadcastSetting\").BroadcastEphSettingsError)return m.BadBroadcastEphemeralSetting}l.RetryReason=m,l.sendRetryReceipt=p,l.getRetryReasonFromError=C}),98)",
+      "sourceSha256": "39a97ce6c6cfddc3d3f3ed61136dd2cebc30a6b9f55d0f8646eb5edb6f7c2a63"
+    },
+    {
+      "definitions": [
+        {
+          "bundleSha256": "1ee0c4f92eeddf751b83800a4e225043e774a40cda9462a080bb3306acc7a9b9",
+          "end": 34747,
+          "start": 32379
+        },
+        {
+          "bundleSha256": "9b681e073f14f9d50e3dc12b456e4f980b554eff4d58827bc91c90a697e9ca38",
+          "end": 1999464,
+          "start": 1997096
+        }
+      ],
+      "inventory": {
+        "generators": [
+          {
+            "end": 2308,
+            "source": "function*(t,n,a){var i=n.from,l=n.keyBundle,c=n.offline,d=n.originalMsgId,m=n.participant,p=n.regId,_=n.retryCount,f=m||i,g=a!=null?a:o(\"WAWebSessionScope\").SessionScope.DEFAULT;if(o(\"WALogger\").LOG(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: retryCount: \",\", offline: \",\", has keyBundle: \",\"\"])),_,c.toString(),(!!l).toString()),t.isGroup()){var h=o(\"WAWebChatCollection\").ChatCollection.get(t);h&&f&&o(\"WAWebApiParticipantStore\").markForgetSenderKey(h.id,[f])}t.isStatus()&&f&&(yield r(\"WAWebUserPrefsStatus\").markForgetStatusSenderKey([f])),t.isBroadcastList()&&f&&o(\"WAWebBroadcastSenderKeyManager\").markForgetBroadcastSenderKey(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(f),t.toString());var y=o(\"WAWebWidFactory\").asUserWidOrThrow(f),C=yield o(\"WAWebSignal\").Session.getRemoteRegId(f,g);if(o(\"WAWebUserPrefsMeUser\").isMeAccount(y)&&C!==p)throw r(\"err\")(\"updateLocalSignalSession: detect registration Id change remote: \"+p+\", local: \"+String(C)+\" for peer device\");var b=t.isUser()&&!o(\"WAWebUserPrefsMeUser\").isMeAccount(y),v=yield o(\"WAWebProcessRetryKeyBundle\").processKeyBundle({is1on1:b,keyBundle:l,offline:c,remoteRegId:p,requester:f,savedRegId:C,sessionScope:g});v||C!=null&&C!==p&&(o(\"WALogger\").LOG(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: delete session because reg does not match, saved: \",\", received: \",\"\"])),C,p),yield o(\"WAWebSignal\").Session.deleteRemoteSession(f));var S=2;if(_===S)return o(\"WAWebSignal\").Session.saveSessionBaseKey(f,d,g);if(_>S){var R=yield o(\"WAWebSignal\").Session.hasSameBaseKey(f,d,g);if(R){o(\"WALogger\").LOG(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: delete local session due to same base key\"])));var L=g===o(\"WAWebSessionScope\").SessionScope.STATUS?g:void 0;return o(\"WAWebSignal\").Session.deleteRemoteSession(f,L)}}}",
+            "start": 442
+          }
+        ],
+        "nodes": [
+          {
+            "enclosingIfTests": [],
+            "end": 373,
+            "kind": "return",
+            "source": "return d.apply(this,arguments)",
+            "start": 343
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 2333,
+            "kind": "return",
+            "source": "return d=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(t,n,a){var i=n.from,l=n.keyBundle,c=n.offline,d=n.originalMsgId,m=n.participant,p=n.regId,_=n.retryCount,f=m||i,g=a!=null?a:o(\"WAWebSessionScope\").SessionScope.DEFAULT;if(o(\"WALogger\").LOG(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: retryCount: \",\", offline: \",\", has keyBundle: \",\"\"])),_,c.toString(),(!!l).toString()),t.isGroup()){var h=o(\"WAWebChatCollection\").ChatCollection.get(t);h&&f&&o(\"WAWebApiParticipantStore\").markForgetSenderKey(h.id,[f])}t.isStatus()&&f&&(yield r(\"WAWebUserPrefsStatus\").markForgetStatusSenderKey([f])),t.isBroadcastList()&&f&&o(\"WAWebBroadcastSenderKeyManager\").markForgetBroadcastSenderKey(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(f),t.toString());var y=o(\"WAWebWidFactory\").asUserWidOrThrow(f),C=yield o(\"WAWebSignal\").Session.getRemoteRegId(f,g);if(o(\"WAWebUserPrefsMeUser\").isMeAccount(y)&&C!==p)throw r(\"err\")(\"updateLocalSignalSession: detect registration Id change remote: \"+p+\", local: \"+String(C)+\" for peer device\");var b=t.isUser()&&!o(\"WAWebUserPrefsMeUser\").isMeAccount(y),v=yield o(\"WAWebProcessRetryKeyBundle\").processKeyBundle({is1on1:b,keyBundle:l,offline:c,remoteRegId:p,requester:f,savedRegId:C,sessionScope:g});v||C!=null&&C!==p&&(o(\"WALogger\").LOG(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: delete session because reg does not match, saved: \",\", received: \",\"\"])),C,p),yield o(\"WAWebSignal\").Session.deleteRemoteSession(f));var S=2;if(_===S)return o(\"WAWebSignal\").Session.saveSessionBaseKey(f,d,g);if(_>S){var R=yield o(\"WAWebSignal\").Session.hasSameBaseKey(f,d,g);if(R){o(\"WALogger\").LOG(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: delete local session due to same base key\"])));var L=g===o(\"WAWebSessionScope\").SessionScope.STATUS?g:void 0;return o(\"WAWebSignal\").Session.deleteRemoteSession(f,L)}}}),d.apply(this,arguments)",
+            "start": 387
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 813,
+            "kind": "if",
+            "source": "o(\"WALogger\").LOG(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: retryCount: \",\", offline: \",\", has keyBundle: \",\"\"])),_,c.toString(),(!!l).toString()),t.isGroup()",
+            "start": 623
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1014,
+            "kind": "suspend",
+            "source": "yield r(\"WAWebUserPrefsStatus\").markForgetStatusSenderKey([f])",
+            "start": 952
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1272,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSignal\").Session.getRemoteRegId(f,g)",
+            "start": 1222
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1323,
+            "kind": "if",
+            "source": "o(\"WAWebUserPrefsMeUser\").isMeAccount(y)&&C!==p",
+            "start": 1276
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1323,
+                "start": 1276
+              }
+            ],
+            "end": 1450,
+            "kind": "throw",
+            "source": "throw r(\"err\")(\"updateLocalSignalSession: detect registration Id change remote: \"+p+\", local: \"+String(C)+\" for peer device\");",
+            "start": 1324
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1654,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebProcessRetryKeyBundle\").processKeyBundle({is1on1:b,keyBundle:l,offline:c,remoteRegId:p,requester:f,savedRegId:C,sessionScope:g})",
+            "start": 1512
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1898,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSignal\").Session.deleteRemoteSession(f)",
+            "start": 1845
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1916,
+            "kind": "if",
+            "source": "_===S",
+            "start": 1911
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1916,
+                "start": 1911
+              }
+            ],
+            "end": 1975,
+            "kind": "return",
+            "source": "return o(\"WAWebSignal\").Session.saveSessionBaseKey(f,d,g);",
+            "start": 1917
+          },
+          {
+            "enclosingIfTests": [],
+            "end": 1981,
+            "kind": "if",
+            "source": "_>S",
+            "start": 1978
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1981,
+                "start": 1978
+              }
+            ],
+            "end": 2041,
+            "kind": "suspend",
+            "source": "yield o(\"WAWebSignal\").Session.hasSameBaseKey(f,d,g)",
+            "start": 1989
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1981,
+                "start": 1978
+              }
+            ],
+            "end": 2046,
+            "kind": "if",
+            "source": "R",
+            "start": 2045
+          },
+          {
+            "enclosingIfTests": [
+              {
+                "end": 1981,
+                "start": 1978
+              },
+              {
+                "end": 2046,
+                "start": 2045
+              }
+            ],
+            "end": 2305,
+            "kind": "return",
+            "source": "return o(\"WAWebSignal\").Session.deleteRemoteSession(f,L)",
+            "start": 2249
+          }
+        ]
+      },
+      "module": "WAWebUpdateLocalSignalSession",
+      "source": "__d(\"WAWebUpdateLocalSignalSession\",[\"WALogger\",\"WAWebApiParticipantStore\",\"WAWebBroadcastSenderKeyManager\",\"WAWebChatCollection\",\"WAWebProcessRetryKeyBundle\",\"WAWebSessionScope\",\"WAWebSignal\",\"WAWebUserPrefsMeUser\",\"WAWebUserPrefsStatus\",\"WAWebWidFactory\",\"asyncToGeneratorRuntime\",\"err\"],(function(t,n,r,o,a,i,l){var e,s,u;function c(e,t,n){return d.apply(this,arguments)}function d(){return d=n(\"asyncToGeneratorRuntime\").asyncToGenerator(function*(t,n,a){var i=n.from,l=n.keyBundle,c=n.offline,d=n.originalMsgId,m=n.participant,p=n.regId,_=n.retryCount,f=m||i,g=a!=null?a:o(\"WAWebSessionScope\").SessionScope.DEFAULT;if(o(\"WALogger\").LOG(e||(e=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: retryCount: \",\", offline: \",\", has keyBundle: \",\"\"])),_,c.toString(),(!!l).toString()),t.isGroup()){var h=o(\"WAWebChatCollection\").ChatCollection.get(t);h&&f&&o(\"WAWebApiParticipantStore\").markForgetSenderKey(h.id,[f])}t.isStatus()&&f&&(yield r(\"WAWebUserPrefsStatus\").markForgetStatusSenderKey([f])),t.isBroadcastList()&&f&&o(\"WAWebBroadcastSenderKeyManager\").markForgetBroadcastSenderKey(o(\"WAWebWidFactory\").createDeviceWidFromWidOrThrow(f),t.toString());var y=o(\"WAWebWidFactory\").asUserWidOrThrow(f),C=yield o(\"WAWebSignal\").Session.getRemoteRegId(f,g);if(o(\"WAWebUserPrefsMeUser\").isMeAccount(y)&&C!==p)throw r(\"err\")(\"updateLocalSignalSession: detect registration Id change remote: \"+p+\", local: \"+String(C)+\" for peer device\");var b=t.isUser()&&!o(\"WAWebUserPrefsMeUser\").isMeAccount(y),v=yield o(\"WAWebProcessRetryKeyBundle\").processKeyBundle({is1on1:b,keyBundle:l,offline:c,remoteRegId:p,requester:f,savedRegId:C,sessionScope:g});v||C!=null&&C!==p&&(o(\"WALogger\").LOG(s||(s=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: delete session because reg does not match, saved: \",\", received: \",\"\"])),C,p),yield o(\"WAWebSignal\").Session.deleteRemoteSession(f));var S=2;if(_===S)return o(\"WAWebSignal\").Session.saveSessionBaseKey(f,d,g);if(_>S){var R=yield o(\"WAWebSignal\").Session.hasSameBaseKey(f,d,g);if(R){o(\"WALogger\").LOG(u||(u=babelHelpers.taggedTemplateLiteralLoose([\"updateLocalSignalSession: delete local session due to same base key\"])));var L=g===o(\"WAWebSessionScope\").SessionScope.STATUS?g:void 0;return o(\"WAWebSignal\").Session.deleteRemoteSession(f,L)}}}),d.apply(this,arguments)}l.updateLocalSignalSession=c}),98)",
+      "sourceSha256": "d68c5f1c5a7556dadd9d107734a1bc2fc992b392151eb5b51e3e33d5045f417e"
+    }
+  ],
+  "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+  "waVersion": "2.3000.1047483476"
+}
