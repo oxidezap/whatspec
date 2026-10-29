@@ -10,15 +10,14 @@ Divergent duplicate definitions, missing modules and parse recovery fail closed.
 
 `retry_audit` inventories if tests, returns, throws and generator suspension sites
 in HandleRetryRequest, UpdateLocalSignalSession, SendRetryReceiptJob and its
-ProcessRetryKeyBundle authorization dependency. The
-inventory is lexical, not execution order. An enclosing if test records lexical
+ProcessRetryKeyBundle authorization dependency. The inventory is lexical, not execution order. An enclosing if test records lexical
 containment, not whether the true or false arm runs. Nested functions start a new
 continuation. Logical/conditional expressions, catch/finally routing, callee
 behavior and account flags are deliberately not interpreted. Completeness is
 explicitly partial and this file must never feed a production state machine.
 
-`oracle.mjs` executes only the AST-selected UpdateLocalSignalSession generator
-in an isolated VM with synthetic dependency stubs. It checks hand-reviewed
+`oracle.mjs` and `authorization.mjs` execute AST-selected session and
+authorization generators in isolated VMs with synthetic dependency stubs. It checks hand-reviewed
 expected calls independently of the syntax inventory. It resumes every yielded
 operation with success, injected rejection, or cancellation. Returned promises
 are represented as effect markers, so final-return operations are observed at
@@ -32,7 +31,8 @@ delete. Three session mutations change retry-2, retry->2 and collision guards an
 must be detected. No defaults are promoted to effective account configuration.
 The receipt key gate also has 14 cases at its first suspension, covering
 retry counts 0 through 6 with stateless addressing on and off. The rest of
-HandleRetryRequest and SendRetryReceiptJob has syntax drift coverage only. The actual getMsgIfAuthorized generator has 12 scenarios covering identity
+HandleRetryRequest and SendRetryReceiptJob has syntax drift coverage only.
+The actual getMsgIfAuthorized generator has 12 scenarios covering identity
 row binding, changed identity, already-delivered rejection, alternate-device
 lookup restricted to missing records, coex precedence, addons and revoked-row
 binding. Four additional mutations alter identity binding and authorization
