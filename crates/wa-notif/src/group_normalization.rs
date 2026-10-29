@@ -30,6 +30,13 @@ impl Eval<'_> {
             return Ok(Value::Text(text.into()));
         }
         if let Some(text) = self.resolver.resolve(expr) {
+            let import = as_member(expr)
+                .and_then(|(obj, _)| as_member(obj))
+                .and_then(|(owner, _)| as_call(owner))
+                .ok_or("invalid constant reference")?;
+            if import.arguments.len() != 1 || as_identifier(&import.callee).is_none() {
+                return Err("effectful constant reference".into());
+            }
             return Ok(Value::Text(text));
         }
         match expr {
@@ -88,6 +95,9 @@ impl Eval<'_> {
                     .and_then(arg_expr)
                     .and_then(as_string_lit)
                     .ok_or("nonliteral attribute")?;
+                if c.arguments.len() != if method == "mapChildrenWithTag" { 2 } else { 1 } {
+                    return Err("unsupported accessor arity".into());
+                }
                 match (method, attr) {
                     ("attrString", "unlink_type") => Ok(Value::Text(self.kind.clone())),
                     ("hasAttr", "unlink_reason") => Ok(Value::Bool(self.reason.is_some())),
@@ -456,5 +466,21 @@ mod tests {
         let changed = GROUP.replace("t===\"parent_group\"", "t!==\"parent_group\"");
         assert_ne!(changed, GROUP);
         assert!(extract(&changed).is_err());
+    }
+    #[test]
+    fn extra_accessor_arguments_and_changed_group_projection_reject() {
+        for changed in [
+            GROUP.replace(
+                "attrString(\"unlink_type\")",
+                "attrString(\"unlink_type\",unknownEffect())",
+            ),
+            GROUP.replace(
+                "subjectTime:e.attrInt(\"s_t\")",
+                "subject:e.attrInt(\"s_t\")",
+            ),
+        ] {
+            assert_ne!(changed, GROUP);
+            assert!(extract(&changed).is_err());
+        }
     }
 }
