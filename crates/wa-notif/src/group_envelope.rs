@@ -964,6 +964,8 @@ mod tests {
             "(c=>{})(null);c=null;",
             "for(c of [null]){}",
             "for(c in {x:1}){}",
+            "if(false){class c{}}c=null;",
+            "eval(\"c=null\");",
         ] {
             for anchor in ["function v(e){", "var n,a=t.tag();"] {
                 let changed = SOURCE.replacen(anchor, &format!("{anchor}{injected}"), 1);

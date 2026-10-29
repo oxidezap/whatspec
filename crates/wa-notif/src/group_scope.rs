@@ -128,6 +128,10 @@ pub(crate) fn validate_import_bindings(
             self.aliases = previous;
         }
         fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+            if as_identifier(&call.callee) == Some("eval") {
+                self.errors
+                    .push("direct eval can mutate lexical bindings".into());
+            }
             if call
                 .arguments
                 .first()
@@ -166,6 +170,11 @@ pub(crate) fn validate_captured_writes(
     #[derive(Default)]
     struct Locals(BTreeSet<String>, BTreeSet<String>);
     impl<'a> Visit<'a> for Locals {
+        fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+            if let Some(id) = &class.id {
+                self.1.insert(id.name.to_string());
+            }
+        }
         fn visit_arrow_function_expression(
             &mut self,
             _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
