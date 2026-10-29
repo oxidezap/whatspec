@@ -447,6 +447,9 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
                 return Err("changed normalized payload".into());
             }
             let (action_type, unsupported_action) = match obj.remove("actionType") {
+                Some(Value::Text(v)) if v == sentinel => {
+                    return Err("unknown input escapes finite action table".into());
+                }
                 Some(Value::Text(v)) => (Some(v), false),
                 Some(Value::Null | Value::Undefined) => (None, false),
                 Some(Value::Unsupported) => (None, true),
@@ -529,6 +532,14 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebGroupType", TYPES),
         ]))
+    }
+    #[test]
+    fn unknown_input_strings_cannot_escape_as_constant_fallbacks() {
+        for value in ["t", "n"] {
+            let changed = GROUP.replace("actionType:a[t]", &format!("actionType:{value}"));
+            assert_ne!(changed, GROUP);
+            assert!(extract(&changed).is_err());
+        }
     }
     #[test]
     fn node_identity_cannot_be_forged_with_a_string() {

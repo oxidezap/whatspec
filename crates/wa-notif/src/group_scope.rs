@@ -91,6 +91,14 @@ pub(crate) fn validate_import_bindings(
         errors: Vec<String>,
     }
     impl<'a> Visit<'a> for Check<'_> {
+        fn visit_for_of_statement(&mut self, _: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.errors
+                .push("iteration assignment scopes require qualification".into());
+        }
+        fn visit_for_in_statement(&mut self, _: &oxc_ast::ast::ForInStatement<'a>) {
+            self.errors
+                .push("iteration assignment scopes require qualification".into());
+        }
         fn visit_arrow_function_expression(
             &mut self,
             _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
@@ -219,6 +227,12 @@ pub(crate) fn validate_captured_writes(
         invalid: bool,
     }
     impl<'a> Visit<'a> for Writes<'_> {
+        fn visit_for_of_statement(&mut self, _: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.invalid = true;
+        }
+        fn visit_for_in_statement(&mut self, _: &oxc_ast::ast::ForInStatement<'a>) {
+            self.invalid = true;
+        }
         fn visit_arrow_function_expression(
             &mut self,
             _: &oxc_ast::ast::ArrowFunctionExpression<'a>,

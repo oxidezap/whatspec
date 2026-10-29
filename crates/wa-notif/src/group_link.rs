@@ -167,6 +167,12 @@ fn project_case(
         .id
         .get_identifier_name()
         .ok_or("destructured action table")?;
+    if kind_name == table_name
+        || kind_name.as_str() == dispatched_child
+        || table_name.as_str() == dispatched_child
+    {
+        return Err("LINK type/table/child bindings collide".into());
+    }
     let kind_read =
         as_call(kind.init.as_ref().ok_or("missing link type read")?).ok_or("non-call link type")?;
     let (node, method) = as_member(&kind_read.callee).ok_or("unsupported link type receiver")?;
@@ -464,6 +470,26 @@ mod tests {
             ("WAWebGroupType", TYPES),
             ("WAWebHandleGroupNotificationConst", TAGS),
         ]))
+    }
+    #[test]
+    fn link_type_table_and_child_bindings_must_be_distinct() {
+        for changed in [
+            HANDLER
+                .replace(
+                    "i=t.attrString(\"link_type\"),l={",
+                    "i=t.attrString(\"link_type\"),i={",
+                )
+                .replace("actionType:l[i]", "actionType:i[i]"),
+            HANDLER
+                .replace(
+                    "i=t.attrString(\"link_type\"),l={",
+                    "t=t.attrString(\"link_type\"),l={",
+                )
+                .replace("actionType:l[i]", "actionType:l[t]"),
+        ] {
+            assert_ne!(changed, HANDLER);
+            assert!(extract(&changed).is_err());
+        }
     }
     #[test]
     fn link_receivers_and_callback_binding_collisions_reject() {

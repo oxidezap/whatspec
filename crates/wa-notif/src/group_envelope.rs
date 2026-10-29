@@ -72,7 +72,13 @@ pub(crate) fn loader_aliases(statements: &[Statement<'_>]) -> Result<BTreeSet<St
                 .ok_or("module loader pattern".to_string())
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
-    if loaders.len() != 3 {
+    let parameter_names: BTreeSet<_> = factory
+        .params
+        .items
+        .iter()
+        .filter_map(|p| p.pattern.get_identifier_name().map(|name| name.to_string()))
+        .collect();
+    if loaders.len() != 3 || parameter_names.len() != factory.params.items.len() {
         return Err("ambiguous module loaders".into());
     }
     struct Writes<'s> {
@@ -80,7 +86,19 @@ pub(crate) fn loader_aliases(statements: &[Statement<'_>]) -> Result<BTreeSet<St
         changed: bool,
     }
     impl<'a> Visit<'a> for Writes<'_> {
-        fn visit_function(&mut self, _: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
+        fn visit_function(&mut self, f: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {
+            if f.id
+                .as_ref()
+                .is_some_and(|id| self.loaders.contains(id.name.as_str()))
+            {
+                self.changed = true;
+            }
+        }
+        fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+            if self.loaders.contains(id.name.as_str()) {
+                self.changed = true;
+            }
+        }
         fn visit_assignment_expression(&mut self, a: &oxc_ast::ast::AssignmentExpression<'a>) {
             if !crate::group_scope::assignment_names(&a.left).is_disjoint(self.loaders) {
                 self.changed = true;
@@ -221,6 +239,9 @@ impl Lower {
                         .static_name()
                         .ok_or("dynamic envelope key")?
                         .into_owned();
+                    if name == "__proto__" || p.computed {
+                        return Err("prototype setter or computed envelope key".into());
+                    }
                     if !keys.insert(name.clone()) {
                         return Err("duplicate envelope output key".into());
                     }
@@ -889,6 +910,18 @@ mod tests {
         ]))
     }
     #[test]
+    fn duplicate_factory_parameters_reject() {
+        let changed = SOURCE.replace("function(t,n,r,o,a,i,l){", "function(t,n,r,o,a,i,o){");
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed).is_err());
+    }
+    #[test]
+    fn prototype_setters_in_projection_reject() {
+        let changed = SOURCE.replace("return{externalId:", "return{__proto__:null,externalId:");
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed).is_err());
+    }
+    #[test]
     fn prefix_marker_initialization_is_preserved_in_the_program() {
         let changed = SOURCE.replace("function v(e){", "var D=!0;function v(e){");
         assert_ne!(changed, SOURCE);
@@ -929,6 +962,8 @@ mod tests {
             "try{}catch(c){}c=null;",
             "function nested(){if(false){let c;}c=null;}nested();",
             "(c=>{})(null);c=null;",
+            "for(c of [null]){}",
+            "for(c in {x:1}){}",
         ] {
             for anchor in ["function v(e){", "var n,a=t.tag();"] {
                 let changed = SOURCE.replacen(anchor, &format!("{anchor}{injected}"), 1);
@@ -949,6 +984,10 @@ mod tests {
             "({...o}={});",
             "o++;",
             "--o;",
+            "for(o of [null]){}",
+            "for(o in {x:1}){}",
+            "var {o}={o:null};",
+            "function o(){}",
         ] {
             for anchor in ["function(t,n,r,o,a,i,l){", "function v(e){"] {
                 let changed = SOURCE.replacen(anchor, &format!("{anchor}{target}"), 1);
