@@ -930,6 +930,20 @@ mod tests {
         ]))
     }
     #[test]
+    fn catch_parameter_initializers_cannot_write_module_loaders() {
+        for pattern in ["{x=(o=null)}", "{x=(o++)}", "{outer:{x=(o=null)}={}}"] {
+            let anchor = "function(t,n,r,o,a,i,l){";
+            let changed = SOURCE.replace(
+                anchor,
+                &format!(
+                    "{anchor}function poison(){{try{{throw {{}}}}catch({pattern}){{}}}}poison();"
+                ),
+            );
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err(), "{pattern}");
+        }
+    }
+    #[test]
     fn lexical_loader_collisions_cannot_hide_captured_writes() {
         for scope in [
             "if(false){let o;}o=null;",

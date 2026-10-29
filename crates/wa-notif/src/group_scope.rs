@@ -108,6 +108,7 @@ pub(crate) fn validate_import_bindings(
                 names.visit_binding_pattern(&parameter.pattern);
                 self.lexical.extend(names.names);
                 self.lexical.extend(names.lexical);
+                self.assignments.extend(names.assignments);
             }
             self.visit_block_statement(&clause.body);
         }
