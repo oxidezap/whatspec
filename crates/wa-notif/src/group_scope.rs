@@ -85,6 +85,13 @@ pub(crate) fn validate_import_bindings(
         errors: Vec<String>,
     }
     impl<'a> Visit<'a> for Check<'_> {
+        fn visit_arrow_function_expression(
+            &mut self,
+            _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            self.errors
+                .push("arrow-function scope requires explicit qualification".into());
+        }
         fn visit_function(&mut self, f: &Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
             let mut bindings = Bindings::default();
             bindings.visit_formal_parameters(&f.params);
@@ -145,6 +152,11 @@ pub(crate) fn validate_captured_writes(
     #[derive(Default)]
     struct Locals(BTreeSet<String>, BTreeSet<String>);
     impl<'a> Visit<'a> for Locals {
+        fn visit_arrow_function_expression(
+            &mut self,
+            _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
         fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
             self.0.insert(id.name.to_string());
         }
@@ -201,6 +213,12 @@ pub(crate) fn validate_captured_writes(
         invalid: bool,
     }
     impl<'a> Visit<'a> for Writes<'_> {
+        fn visit_arrow_function_expression(
+            &mut self,
+            _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            self.invalid = true;
+        }
         fn visit_function(&mut self, f: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {
             if validate_captured_writes(f, self.captured, self.marker).is_err() {
                 self.invalid = true;

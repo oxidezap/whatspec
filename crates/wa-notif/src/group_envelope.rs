@@ -876,6 +876,7 @@ mod tests {
             "if(false){let c;}c=null;",
             "try{}catch(c){}c=null;",
             "function nested(){if(false){let c;}c=null;}nested();",
+            "(c=>{})(null);c=null;",
         ] {
             for anchor in ["function v(e){", "var n,a=t.tag();"] {
                 let changed = SOURCE.replacen(anchor, &format!("{anchor}{injected}"), 1);
