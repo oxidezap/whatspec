@@ -128,7 +128,7 @@ pub(crate) fn validate_import_bindings(
             self.aliases = previous;
         }
         fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-            if as_identifier(&call.callee) == Some("eval") {
+            if as_identifier(call.callee.without_parentheses()) == Some("eval") {
                 self.errors
                     .push("direct eval can mutate lexical bindings".into());
             }
