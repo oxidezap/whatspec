@@ -74,6 +74,12 @@ pub(crate) fn validate_import_bindings(
                 self.names.insert(id.name.to_string());
             }
         }
+        fn visit_update_expression(&mut self, u: &oxc_ast::ast::UpdateExpression<'a>) {
+            if let Some(name) = u.argument.get_identifier_name() {
+                self.assignments.insert(name.to_owned());
+            }
+            walk::walk_update_expression(self, u);
+        }
         fn visit_assignment_expression(&mut self, a: &oxc_ast::ast::AssignmentExpression<'a>) {
             self.assignments.extend(assignment_names(&a.left));
             walk::walk_assignment_expression(self, a);

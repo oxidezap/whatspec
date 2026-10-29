@@ -27,6 +27,7 @@ use wa_oxc::{arg_expr, as_call, as_identifier, as_member, as_string_lit};
 #[derive(Clone, PartialEq)]
 enum Value {
     Text(String),
+    Node,
     Null,
     Undefined,
     Bool(bool),
@@ -73,9 +74,13 @@ impl Eval<'_> {
             {
                 let left = self.expr(&b.left)?;
                 let right = self.expr(&b.right)?;
-                if matches!(left, Value::Object(_) | Value::Groups | Value::Unsupported)
-                    || matches!(right, Value::Object(_) | Value::Groups | Value::Unsupported)
-                {
+                if matches!(
+                    left,
+                    Value::Object(_) | Value::Groups | Value::Unsupported | Value::Node
+                ) || matches!(
+                    right,
+                    Value::Object(_) | Value::Groups | Value::Unsupported | Value::Node
+                ) {
                     return Err("reference equality requires identity modeling".into());
                 }
                 Ok(Value::Bool(left == right))
@@ -120,9 +125,7 @@ impl Eval<'_> {
             }
             Expression::CallExpression(c) => {
                 let (object, method) = as_member(&c.callee).ok_or("unsupported call")?;
-                if as_identifier(object).and_then(|id| self.vars.get(id))
-                    != Some(&Value::Text("$node".into()))
-                {
+                if as_identifier(object).and_then(|id| self.vars.get(id)) != Some(&Value::Node) {
                     return Err("unrecognized call receiver".into());
                 }
                 let attr = c
@@ -427,7 +430,7 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
     for kind in &values {
         for reason in std::iter::once(None).chain(values.iter().map(|v| Some(v.clone()))) {
             let mut vars = HashMap::new();
-            vars.insert(param.to_string(), Value::Text("$node".into()));
+            vars.insert(param.to_string(), Value::Node);
             let mut eval = Eval {
                 resolver: &resolver,
                 vars,
@@ -526,6 +529,12 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebGroupType", TYPES),
         ]))
+    }
+    #[test]
+    fn node_identity_cannot_be_forged_with_a_string() {
+        let changed = GROUP.replace("function I(e){", "function I(e){var e=\"$node\";");
+        assert_ne!(changed, GROUP);
+        assert!(extract(&changed).is_err());
     }
     #[test]
     fn null_action_exceptions_are_retained_against_non_null_fallbacks() {

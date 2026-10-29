@@ -87,6 +87,15 @@ pub(crate) fn loader_aliases(statements: &[Statement<'_>]) -> Result<BTreeSet<St
             }
             walk::walk_assignment_expression(self, a);
         }
+        fn visit_update_expression(&mut self, u: &oxc_ast::ast::UpdateExpression<'a>) {
+            if u.argument
+                .get_identifier_name()
+                .is_some_and(|name| self.loaders.contains(name))
+            {
+                self.changed = true;
+            }
+            walk::walk_update_expression(self, u);
+        }
         fn visit_variable_declarator(&mut self, d: &oxc_ast::ast::VariableDeclarator<'a>) {
             if d.id
                 .get_identifier_name()
@@ -880,6 +889,13 @@ mod tests {
         ]))
     }
     #[test]
+    fn prefix_marker_initialization_is_preserved_in_the_program() {
+        let changed = SOURCE.replace("function v(e){", "var D=!0;function v(e){");
+        assert_ne!(changed, SOURCE);
+        let contract = extract(&changed).unwrap();
+        assert!(contract.prefix.iter().any(|op| matches!(op, GroupEnvelopeOp::Bind { local, value: Some(_) } if *local == contract.actions.missing_identification_local)));
+    }
+    #[test]
     fn marker_fallthrough_aliases_fail_closed() {
         let marker = "case o(\"WAWebHandleGroupNotificationConst\").GROUP_NOTIFICATION_TAG.MISSING_PARTICIPANT_IDENTIFICATION:";
         for alias in ["case \"second_marker\":", "case \"second_marker\":void 0;"] {
@@ -931,6 +947,8 @@ mod tests {
             "({x:{o=null}}={x:{}});",
             "[...o]=[];",
             "({...o}={});",
+            "o++;",
+            "--o;",
         ] {
             for anchor in ["function(t,n,r,o,a,i,l){", "function v(e){"] {
                 let changed = SOURCE.replacen(anchor, &format!("{anchor}{target}"), 1);

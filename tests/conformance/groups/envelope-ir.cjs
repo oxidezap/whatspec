@@ -68,7 +68,6 @@ function evaluateEnvelope(contract, node, facts) {
   }
   ops(contract.prefix);
   const action = contract.actions;
-  locals[action.missingIdentificationLocal] = false;
   locals[action.resultLocal] = node.mapChildren(child => {
     const tag = child.tag();
     if(tag === action.missingIdentificationTag) {

@@ -121,6 +121,14 @@ for(const test of cases) {
   flags = {username: false, history: false, opus: false, meLid: '100001:2@lid', mePn: '200002:2@s.whatsapp.net', ...test.flags};
   assert.equal(JSON.stringify(run(test, redeclared)), JSON.stringify(run(test)), test.name+' var redeclaration');
 }
+// A prefix initialization survives the initializer-free marker declaration at
+// the action boundary, just as `var D=true; var D;` does in JavaScript.
+const initializedMarker = structuredClone(contract);
+initializedMarker.prefix.push({op: 'bind', local: contract.actions.missingIdentificationLocal, value: {expr: 'bool', value: true}});
+for(const username of [false, true]) {
+  flags = {username, history: false, opus: false, meLid: '100001:2@lid', mePn: '200002:2@s.whatsapp.net'};
+  assert.equal(run({node: input()}, initializedMarker).success.hasIncompleteParticipantInformation, username);
+}
 const mutations = [
   ['destination guard', ir => { ir.prefix[0].thenOps.at(-1).value.left.left.value.local = 5; }],
   ['projection', ir => { ir.projection.fields.find(f => f.name === 'author').value.local = 8; }],
