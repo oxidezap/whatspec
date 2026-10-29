@@ -17,9 +17,7 @@ pub fn generate_appstate_validation(ir: &AppstateValidationIr) -> Result<String,
             return Err("validator arity".into());
         }
         out.push_str(&format!("#[allow(unused_variables)]\npub(super) fn {}<'a>(transforms: &mut impl Transforms<'a>, {})->Result<Value<'a>,ValidationError>{{\n",snake_case(name),(0..f.parameters).map(|i|format!("a{i}:Value<'a>")).collect::<Vec<_>>().join(",")));
-        let mut slots = 0;
-        count_slots(&f.body, &mut slots);
-        for i in 0..slots {
+        for i in owned_slots(&f.body) {
             out.push_str(&format!(
                 "#[allow(unused_assignments,unused_mut)] let mut s{i}=Value::Undefined;\n"
             ));
@@ -29,25 +27,21 @@ pub fn generate_appstate_validation(ir: &AppstateValidationIr) -> Result<String,
     }
     Ok(out)
 }
-fn count_expr(e: &E, max: &mut usize) {
-    if let E::Map { body, .. } = e {
-        count_slots(body, max);
-    }
-}
-fn count_slots(body: &[S], max: &mut usize) {
-    for s in body {
-        match s {
-            S::Bind { slot, value } => {
-                *max = (*max).max(slot + 1);
-                count_expr(value, max);
+fn owned_slots(body: &[S]) -> std::collections::BTreeSet<usize> {
+    let mut slots = std::collections::BTreeSet::new();
+    for statement in body {
+        match statement {
+            S::Bind { slot, .. } => {
+                slots.insert(*slot);
             }
             S::If { yes, no, .. } => {
-                count_slots(yes, max);
-                count_slots(no, max);
+                slots.extend(owned_slots(yes));
+                slots.extend(owned_slots(no));
             }
             _ => {}
         }
     }
+    slots
 }
 fn statements(body: &[S], out: &mut String) -> Result<(), String> {
     for s in body {
@@ -145,9 +139,7 @@ fn expr(e: &E) -> Result<String, String> {
         ),
         E::Map { input, body } => {
             let mut rendered = String::new();
-            let mut slots = 0;
-            count_slots(body, &mut slots);
-            for i in 0..slots {
+            for i in owned_slots(body) {
                 rendered.push_str(&format!(
                     "#[allow(unused_assignments,unused_mut)] let mut s{i}=Value::Undefined;"
                 ));

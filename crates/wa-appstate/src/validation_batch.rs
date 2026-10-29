@@ -183,10 +183,13 @@ fn operation_enum(source: &str) -> Result<(i32, i32, String), String> {
     }
     let allocator = Allocator::default();
     let parsed = parse_cjs(&allocator, text);
+    qualify_enum_initialization(&parsed.program)?;
     #[derive(Default)]
     struct Enums {
         locals: HashMap<String, (i32, i32)>,
         export: Option<String>,
+        export_object: String,
+        export_count: usize,
     }
     impl<'a> Visit<'a> for Enums {
         fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -199,16 +202,26 @@ fn operation_enum(source: &str) -> Result<(i32, i32, String), String> {
                     call.arguments[0].as_expression()
             {
                 let mut fields = HashMap::new();
+                let mut unsupported = object.properties.len() != 2;
                 for property in &object.properties {
                     if let ObjectPropertyKind::ObjectProperty(property) = property
                         && let Some(key) = property.key.static_name()
                         && let Some(value) = wa_oxc::as_int(&property.value)
                         && let Ok(value) = i32::try_from(value)
                     {
-                        fields.insert(key.to_string(), value);
+                        if property.computed
+                            || property.method
+                            || property.kind != PropertyKind::Init
+                            || fields.insert(key.to_string(), value).is_some()
+                        {
+                            unsupported = true;
+                        }
+                    } else {
+                        unsupported = true;
                     }
                 }
-                if fields.len() == 2
+                if !unsupported
+                    && fields.len() == 2
                     && let (Some(set), Some(remove)) = (fields.get("SET"), fields.get("REMOVE"))
                 {
                     self.locals.insert(id.name.to_string(), (*set, *remove));
@@ -219,15 +232,109 @@ fn operation_enum(source: &str) -> Result<(i32, i32, String), String> {
         fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
             if let AssignmentTarget::StaticMemberExpression(member) = &a.left
                 && member.property.name == "SyncdMutation$SyncdOperation"
-                && let Expression::Identifier(id) = &a.right
+                && wa_oxc::as_identifier(&member.object) == Some(self.export_object.as_str())
             {
-                self.export = Some(id.name.to_string());
+                self.export_count += 1;
+                self.export = if a.operator == oxc_syntax::operator::AssignmentOperator::Assign {
+                    wa_oxc::as_identifier(&a.right).map(str::to_owned)
+                } else {
+                    None
+                };
             }
             walk::walk_assignment_expression(self, a);
         }
     }
-    let mut finder = Enums::default();
+    let export_object = super::validation::module_export_binding(&parsed.program)?;
+    let mut finder = Enums {
+        export_object: export_object.clone(),
+        ..Default::default()
+    };
     finder.visit_program(&parsed.program);
+    if finder.export_count != 1 {
+        return Err("operation enum export replaced or missing".into());
+    }
+    let names: HashSet<_> = finder.locals.keys().cloned().collect();
+    #[derive(Default)]
+    struct Writes {
+        names: HashSet<String>,
+        requires: HashSet<String>,
+        export_object: String,
+        invalid: bool,
+    }
+    impl<'a> Visit<'a> for Writes {
+        fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
+            let invalid = match &a.left {
+                AssignmentTarget::AssignmentTargetIdentifier(id) => {
+                    self.names.contains(id.name.as_str())
+                        || self.requires.contains(id.name.as_str())
+                        || id.name.as_str() == self.export_object.as_str()
+                }
+                AssignmentTarget::StaticMemberExpression(member) => {
+                    references_enum(&member.object, &self.names)
+                }
+                AssignmentTarget::ComputedMemberExpression(member) => {
+                    references_enum(&member.object, &self.names)
+                        || wa_oxc::as_identifier(&member.object)
+                            == Some(self.export_object.as_str())
+                }
+                _ => true,
+            };
+            self.invalid |= invalid;
+            walk::walk_assignment_expression(self, a);
+        }
+        fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+            if matches!(&d.id,BindingPattern::BindingIdentifier(id) if self.requires.contains(id.name.as_str())||id.name.as_str()==self.export_object.as_str())
+            {
+                self.invalid = true;
+            }
+            let mut aliases = self.names.clone();
+            aliases.insert(self.export_object.clone());
+            if d.init
+                .as_ref()
+                .is_some_and(|e| references_enum(e, &aliases))
+            {
+                self.invalid = true;
+            }
+            walk::walk_variable_declarator(self, d);
+        }
+        fn visit_update_expression(&mut self, u: &UpdateExpression<'a>) {
+            self.invalid = true;
+            walk::walk_update_expression(self, u);
+        }
+        fn visit_unary_expression(&mut self, u: &UnaryExpression<'a>) {
+            if u.operator == oxc_syntax::operator::UnaryOperator::Delete {
+                self.invalid = true;
+            }
+            walk::walk_unary_expression(self, u);
+        }
+        fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
+            let allowed = wa_oxc::as_identifier(&c.callee) == Some("__d")
+                || (wa_oxc::as_identifier(&c.callee)
+                    .is_some_and(|name| self.requires.contains(name))
+                    && matches!(
+                        wa_oxc::first_string_arg(c),
+                        Some("$InternalEnum" | "WAProtoConst")
+                    ))
+                || matches!(&c.callee,Expression::CallExpression(require) if wa_oxc::first_string_arg(require)==Some("$InternalEnum"));
+            if !allowed {
+                self.invalid = true;
+            }
+            walk::walk_call_expression(self, c);
+        }
+        fn visit_new_expression(&mut self, _: &NewExpression<'a>) {
+            self.invalid = true;
+        }
+    }
+    let mut writes = Writes {
+        names,
+        requires: super::validation::require_bindings(&parsed.program),
+        export_object,
+        invalid: false,
+    };
+    writes.visit_program(&parsed.program);
+    if writes.invalid {
+        return Err("unqualified mutation or alias of operation enum".into());
+    }
     let (set, remove) = finder
         .export
         .and_then(|name| finder.locals.get(&name).copied())
@@ -242,6 +349,68 @@ fn operation_enum(source: &str) -> Result<(i32, i32, String), String> {
     ))
 }
 
+fn references_enum(expression: &Expression<'_>, names: &HashSet<String>) -> bool {
+    struct References<'b> {
+        names: &'b HashSet<String>,
+        found: bool,
+    }
+    impl<'a> Visit<'a> for References<'_> {
+        fn visit_identifier_reference(&mut self, id: &IdentifierReference<'a>) {
+            self.found |= self.names.contains(id.name.as_str());
+        }
+    }
+    let mut visitor = References {
+        names,
+        found: false,
+    };
+    visitor.visit_expression(expression);
+    visitor.found
+}
+
+fn qualify_enum_initialization(program: &Program<'_>) -> Result<(), String> {
+    let [Statement::ExpressionStatement(definition)] = program.body.as_slice() else {
+        return Err("unqualified enum module wrapper".into());
+    };
+    let Expression::CallExpression(define) = &definition.expression else {
+        return Err("unqualified enum module definition".into());
+    };
+    let mut expression = define
+        .arguments
+        .get(2)
+        .and_then(Argument::as_expression)
+        .ok_or("missing enum module factory")?;
+    while let Expression::ParenthesizedExpression(p) = expression {
+        expression = &p.expression;
+    }
+    let Expression::FunctionExpression(factory) = expression else {
+        return Err("unsupported enum factory".into());
+    };
+    if factory.r#async
+        || factory.generator
+        || factory.params.rest.is_some()
+        || factory.params.items.iter().any(|p| p.initializer.is_some())
+    {
+        return Err("unsupported enum factory effects".into());
+    }
+    let [
+        Statement::VariableDeclaration(_),
+        Statement::ExpressionStatement(assignments),
+    ] = factory
+        .body
+        .as_ref()
+        .ok_or("missing enum factory body")?
+        .statements
+        .as_slice()
+    else {
+        return Err("unsupported enum initialization control flow".into());
+    };
+    let Expression::SequenceExpression(assignments) = &assignments.expression else {
+        return Err("unqualified enum metadata exports".into());
+    };
+    if assignments.expressions.iter().any(|expression|!matches!(expression,Expression::AssignmentExpression(a) if a.operator==oxc_syntax::operator::AssignmentOperator::Assign && matches!(&a.left,AssignmentTarget::StaticMemberExpression(m) if wa_oxc::as_identifier(&m.object).is_some()))){return Err("unsupported enum metadata mutation".into());}
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +418,31 @@ mod tests {
     fn qualify_and_reject_drift() {
         let source = format!("{REFERENCE};{}", include_str!("fixtures/server_sync.pb.js"));
         let original = extract(&source, "test").unwrap();
+        for inserted in [
+            "s={SET:7,REMOVE:8},",
+            "s.REMOVE=8,",
+            "s[\"REMOVE\"]=8,",
+            "Object.assign(s,{REMOVE:8}),",
+            "eval(\"s.REMOVE=8\"),",
+        ] {
+            assert!(
+                extract(
+                    &source.replace(
+                        "l.SyncdMutation$SyncdOperation=s",
+                        &format!("{inserted}l.SyncdMutation$SyncdOperation=s")
+                    ),
+                    "test"
+                )
+                .is_err()
+            );
+        }
+        for change in [
+            "{SET:0,REMOVE:1,...{REMOVE:2}}",
+            "{SET:0,REMOVE:1,REMOVE:2}",
+            "{SET:0,REMOVE:getValue()}",
+        ] {
+            assert!(extract(&source.replace("{SET:0,REMOVE:1}", change), "test").is_err());
+        }
         assert_eq!(
             original.type_set.body,
             extract(&source.replace(';', ";\n"), "test")

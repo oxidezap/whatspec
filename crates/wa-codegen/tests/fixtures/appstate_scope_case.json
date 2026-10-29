@@ -1,0 +1,66 @@
+{
+  "method": "validateSnapshotProtobuf",
+  "input": {
+    "version": {
+      "version": 0
+    },
+    "records": [
+      {
+        "index": {
+          "blob": {
+            "$bytes": [
+              1
+            ]
+          }
+        },
+        "value": {
+          "blob": {
+            "$bytes": [
+              1
+            ]
+          }
+        },
+        "keyId": {
+          "id": {
+            "$bytes": [
+              1
+            ]
+          }
+        }
+      }
+    ],
+    "mac": {
+      "$bytes": [
+        1
+      ]
+    },
+    "keyId": {
+      "id": {
+        "$bytes": []
+      }
+    }
+  },
+  "metric": "TEST_METRIC",
+  "result": {
+    "version": {
+      "version": 0
+    },
+    "records": [
+      {
+        "$bytes": [
+          1
+        ]
+      }
+    ],
+    "mac": {
+      "$bytes": [
+        1
+      ]
+    },
+    "keyId": {
+      "id": {
+        "$bytes": []
+      }
+    }
+  }
+}

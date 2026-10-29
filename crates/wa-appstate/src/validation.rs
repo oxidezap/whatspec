@@ -40,13 +40,15 @@ pub fn extract(source: &str, version: &str) -> Result<AppstateValidationIr, Stri
     if !parsed.errors.is_empty() || parsed.panicked {
         return Err("validation module parse error".into());
     }
+    let (class_return, receiver) = exported_class(&parsed.program)?;
     let mut finder = Finder {
         functions: BTreeMap::new(),
         error: None,
         offset: 0,
         requires: require_bindings(&parsed.program),
+        receiver,
     };
-    finder.visit_program(&parsed.program);
+    finder.visit_expression(class_return);
     if let Some(error) = finder.error {
         return Err(error);
     }
@@ -68,6 +70,7 @@ struct Finder {
     error: Option<String>,
     offset: usize,
     requires: HashSet<String>,
+    receiver: String,
 }
 impl<'a> Visit<'a> for Finder {
     fn visit_assignment_expression(&mut self, assignment: &AssignmentExpression<'a>) {
@@ -77,18 +80,30 @@ impl<'a> Visit<'a> for Finder {
             let name = member.property.name.as_str();
             if name.starts_with("validate") {
                 let result = (|| {
+                    if as_identifier(&member.object) != Some(self.receiver.as_str()) {
+                        return Err("validator is not on the exported class".into());
+                    }
+                    if function.r#async || function.generator || function.params.rest.is_some() {
+                        return Err(
+                            "asynchronous, generator or rest validator is not qualified".into()
+                        );
+                    }
                     if !NAMES[..].contains(&name) {
                         return Err(format!("unknown validator {name}"));
                     }
                     let mut lower = Lower {
                         locals: HashMap::new(),
                         slots: 0,
+                        map_depth: 0,
                         requires: self.requires.clone(),
                         receiver: as_identifier(&member.object)
                             .ok_or("unsupported validator receiver")?
                             .into(),
                     };
                     for (i, param) in function.params.items.iter().enumerate() {
+                        if param.initializer.is_some() {
+                            return Err("parameter initializers are not qualified".into());
+                        }
                         let BindingPattern::BindingIdentifier(id) = &param.pattern else {
                             return Err("unsupported parameter".into());
                         };
@@ -97,6 +112,7 @@ impl<'a> Visit<'a> for Finder {
                             .insert(id.name.to_string(), E::Argument { index: i });
                     }
                     let body = function.body.as_ref().ok_or("missing validator body")?;
+                    lower.declare_scope(&body.statements)?;
                     let statements = lower.statements(&body.statements)?;
                     Ok(ValidationFunction {
                         module: MODULE.into(),
@@ -123,10 +139,39 @@ impl<'a> Visit<'a> for Finder {
 pub(super) struct Lower {
     locals: HashMap<String, E>,
     slots: usize,
+    map_depth: usize,
     receiver: String,
     requires: HashSet<String>,
 }
 impl Lower {
+    fn declare_scope(&mut self, statements: &[Statement<'_>]) -> Result<(), String> {
+        #[derive(Default)]
+        struct Bindings(Vec<String>);
+        impl<'a> Visit<'a> for Bindings {
+            fn visit_function(&mut self, _: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
+            fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
+                self.0.push(id.name.to_string());
+            }
+        }
+        let mut bindings = Bindings::default();
+        for statement in statements {
+            bindings.visit_statement(statement);
+        }
+        let mut own = HashSet::new();
+        for name in bindings.0 {
+            if !own.insert(name.clone()) {
+                continue;
+            }
+            if matches!(self.locals.get(&name), Some(E::Argument { .. })) {
+                return Err("parameter redeclaration is not qualified".into());
+            }
+            let slot = self.slots;
+            self.slots += 1;
+            self.locals.insert(name, E::Slot { index: slot });
+        }
+        Ok(())
+    }
+
     fn module<'b>(&self, expression: &'b Expression<'_>) -> Option<&'b str> {
         let mut inner = expression;
         while let Expression::ParenthesizedExpression(p) = inner {
@@ -149,10 +194,17 @@ impl Lower {
         let mut lower = Self {
             locals: HashMap::new(),
             slots: 0,
+            map_depth: 0,
             receiver: String::new(),
             requires,
         };
+        if function.r#async || function.generator || function.params.rest.is_some() {
+            return Err("unsupported function kind".into());
+        }
         for (index, param) in function.params.items.iter().enumerate() {
+            if param.initializer.is_some() {
+                return Err("parameter initializers are not qualified".into());
+            }
             let BindingPattern::BindingIdentifier(id) = &param.pattern else {
                 return Err("unsupported decoded validator parameter".into());
             };
@@ -160,6 +212,13 @@ impl Lower {
                 .locals
                 .insert(id.name.to_string(), E::Argument { index });
         }
+        lower.declare_scope(
+            &function
+                .body
+                .as_ref()
+                .ok_or("missing function body")?
+                .statements,
+        )?;
         lower.statements(
             &function
                 .body
@@ -184,11 +243,17 @@ impl Lower {
                     let BindingPattern::BindingIdentifier(id) = &d.id else {
                         return Err("unsupported binding".into());
                     };
-                    let value = self.expr(d.init.as_ref().ok_or("uninitialized binding")?)?;
-                    let slot = self.slots;
-                    self.slots += 1;
-                    self.locals
-                        .insert(id.name.to_string(), E::Slot { index: slot });
+                    if v.kind != VariableDeclarationKind::Var {
+                        return Err("block-scoped declarations are not qualified".into());
+                    }
+                    let Some(E::Slot { index: slot }) = self.locals.get(id.name.as_str()).cloned()
+                    else {
+                        return Err("unqualified variable binding".into());
+                    };
+                    let value = match &d.init {
+                        Some(init) => self.expr(init)?,
+                        None => return Err("uninitialized declarations are not qualified".into()),
+                    };
                     out.push(S::Bind { slot, value });
                 }
                 out
@@ -263,9 +328,14 @@ impl Lower {
                 .cloned()
                 .ok_or_else(|| format!("unbound {}", i.name))?,
             Expression::NullLiteral(_) => E::Null,
-            Expression::NumericLiteral(n) if n.value.fract() == 0.0 => E::Integer {
-                value: n.value as i64,
-            },
+            Expression::NumericLiteral(n)
+                if n.value.fract() == 0.0
+                    && (-9_007_199_254_740_991.0..=9_007_199_254_740_991.0).contains(&n.value) =>
+            {
+                E::Integer {
+                    value: n.value as i64,
+                }
+            }
             Expression::StringLiteral(s) => E::String {
                 value: s.value.to_string(),
             },
@@ -351,6 +421,9 @@ impl Lower {
                         return Err("unsupported object property".into());
                     }
                     let key = p.key.static_name().ok_or("dynamic object key")?.to_string();
+                    if fields.iter().any(|(name, _)| name == &key) {
+                        return Err("duplicate object property".into());
+                    }
                     fields.push((key, self.expr(&p.value)?));
                 }
                 E::Object { fields }
@@ -364,6 +437,19 @@ impl Lower {
                     let Expression::FunctionExpression(callback) = arg(&c.arguments[0])? else {
                         return Err("map callback".into());
                     };
+                    if callback.r#async || callback.generator || callback.params.rest.is_some() {
+                        return Err(
+                            "asynchronous, generator or rest callback is not qualified".into()
+                        );
+                    }
+                    if callback
+                        .params
+                        .items
+                        .iter()
+                        .any(|p| p.initializer.is_some())
+                    {
+                        return Err("callback parameter initializers are not qualified".into());
+                    }
                     if callback.params.items.len() != 1 {
                         return Err("map parameters".into());
                     }
@@ -371,23 +457,23 @@ impl Lower {
                     else {
                         return Err("map binding".into());
                     };
-                    let old = self
-                        .locals
+                    if self.map_depth != 0 {
+                        return Err("nested map capture is not qualified".into());
+                    }
+                    let input = Box::new(self.expr(object)?);
+                    let outer = self.locals.clone();
+                    self.locals
                         .insert(id.name.to_string(), E::Argument { index: 3 });
-                    let body =
-                        self.statements(&callback.body.as_ref().ok_or("map body")?.statements)?;
-                    match old {
-                        Some(v) => {
-                            self.locals.insert(id.name.to_string(), v);
-                        }
-                        None => {
-                            self.locals.remove(id.name.as_str());
-                        }
-                    }
-                    E::Map {
-                        input: Box::new(self.expr(object)?),
-                        body,
-                    }
+                    self.map_depth += 1;
+                    let result = (|| {
+                        let body = &callback.body.as_ref().ok_or("map body")?.statements;
+                        self.declare_scope(body)?;
+                        self.statements(body)
+                    })();
+                    self.map_depth -= 1;
+                    self.locals = outer;
+                    let body = result?;
+                    E::Map { input, body }
                 } else {
                     if self.module(object) == Some("decodeProtobuf") && method == "decodeProtobuf" {
                         if c.arguments.len() != 2 {
@@ -495,4 +581,157 @@ pub(super) fn require_bindings(program: &Program<'_>) -> HashSet<String> {
     let mut visitor = Imports::default();
     visitor.visit_program(program);
     visitor.names
+}
+
+fn unparen<'a, 'b>(mut expression: &'b Expression<'a>) -> &'b Expression<'a> {
+    while let Expression::ParenthesizedExpression(p) = expression {
+        expression = &p.expression;
+    }
+    expression
+}
+fn exported_class<'a, 'b>(
+    program: &'b Program<'a>,
+) -> Result<(&'b Expression<'a>, String), String> {
+    let [Statement::ExpressionStatement(statement)] = program.body.as_slice() else {
+        return Err("unsupported module wrapper".into());
+    };
+    let Expression::CallExpression(define) = &statement.expression else {
+        return Err("unsupported module definition".into());
+    };
+    let Expression::FunctionExpression(factory) =
+        unparen(arg(define.arguments.get(2).ok_or("missing factory")?)?)
+    else {
+        return Err("unsupported module factory".into());
+    };
+    let BindingPattern::BindingIdentifier(exports) = &factory
+        .params
+        .items
+        .last()
+        .ok_or("missing exports parameter")?
+        .pattern
+    else {
+        return Err("unsupported exports binding".into());
+    };
+    if factory.r#async
+        || factory.generator
+        || factory.params.rest.is_some()
+        || factory.params.items.iter().any(|p| p.initializer.is_some())
+    {
+        return Err("asynchronous module factory".into());
+    }
+    let body = factory.body.as_ref().ok_or("missing factory body")?;
+    if body.statements.len() != 2
+        || !matches!(body.statements.first(),Some(Statement::VariableDeclaration(v)) if v.declarations.len()==1)
+    {
+        return Err("unqualified module initialization order".into());
+    }
+    let mut initializers = HashMap::new();
+    let mut exported = None;
+    for statement in &body.statements {
+        match statement {
+            Statement::VariableDeclaration(declaration) => {
+                for binding in &declaration.declarations {
+                    let BindingPattern::BindingIdentifier(id) = &binding.id else {
+                        return Err("unsupported module binding".into());
+                    };
+                    initializers.insert(
+                        id.name.as_str(),
+                        binding
+                            .init
+                            .as_ref()
+                            .ok_or("uninitialized module binding")?,
+                    );
+                }
+            }
+            Statement::ExpressionStatement(statement) => {
+                let Expression::AssignmentExpression(assignment) = &statement.expression else {
+                    return Err("unsupported module export statement".into());
+                };
+                let AssignmentTarget::StaticMemberExpression(member) = &assignment.left else {
+                    return Err("unsupported module export target".into());
+                };
+                if assignment.operator != AssignmentOperator::Assign
+                    || member.property.name != "default"
+                    || as_identifier(&member.object) != Some(exports.name.as_str())
+                    || exported.is_some()
+                {
+                    return Err("unsupported or duplicate default export".into());
+                }
+                exported = Some(
+                    as_identifier(&assignment.right)
+                        .ok_or("default export must name the validator class")?,
+                );
+            }
+            _ => return Err("unsupported module initialization".into()),
+        }
+    }
+    let initializer = initializers
+        .get(exported.ok_or("missing default export")?)
+        .ok_or("unresolved exported class")?;
+    let Expression::CallExpression(call) = unparen(initializer) else {
+        return Err("unsupported exported class initializer".into());
+    };
+    if !call.arguments.is_empty() {
+        return Err("unsupported class initializer arguments".into());
+    }
+    let Expression::FunctionExpression(class_factory) = unparen(&call.callee) else {
+        return Err("unsupported class factory".into());
+    };
+    if class_factory.r#async || class_factory.generator {
+        return Err("asynchronous class factory".into());
+    }
+    if !class_factory.params.items.is_empty() || class_factory.params.rest.is_some() {
+        return Err("unsupported class factory parameters".into());
+    }
+    let statements = &class_factory
+        .body
+        .as_ref()
+        .ok_or("missing class factory body")?
+        .statements;
+    let [
+        Statement::FunctionDeclaration(constructor),
+        Statement::ReturnStatement(returned),
+    ] = statements.as_slice()
+    else {
+        return Err("unqualified exported class body".into());
+    };
+    let returned = returned
+        .argument
+        .as_ref()
+        .ok_or("missing exported class return")?;
+    let Expression::SequenceExpression(sequence) = returned else {
+        return Err("unqualified class method assignments".into());
+    };
+    let receiver = as_identifier(sequence.expressions.last().ok_or("empty class return")?)
+        .ok_or("unresolved returned constructor")?
+        .to_string();
+    if sequence.expressions.len()!=7 || sequence.expressions[..6].iter().any(|e|!matches!(e,Expression::AssignmentExpression(a) if a.operator==AssignmentOperator::Assign && matches!(&a.left,AssignmentTarget::StaticMemberExpression(m) if as_identifier(&m.object)==Some(receiver.as_str())) && matches!(&a.right,Expression::FunctionExpression(_)))) {return Err("unsupported class initialization effects".into());}
+    if constructor.id.as_ref().map(|id| id.name.as_str()) != Some(receiver.as_str()) {
+        return Err("returned constructor is not declared in class factory".into());
+    }
+    Ok((returned, receiver))
+}
+
+pub(super) fn module_export_binding(program: &Program<'_>) -> Result<String, String> {
+    let [Statement::ExpressionStatement(statement)] = program.body.as_slice() else {
+        return Err("unsupported module wrapper".into());
+    };
+    let Expression::CallExpression(define) = &statement.expression else {
+        return Err("unsupported module definition".into());
+    };
+    let Expression::FunctionExpression(factory) =
+        unparen(arg(define.arguments.get(2).ok_or("missing factory")?)?)
+    else {
+        return Err("unsupported module factory".into());
+    };
+    let BindingPattern::BindingIdentifier(id) = &factory
+        .params
+        .items
+        .last()
+        .ok_or("missing module exports")?
+        .pattern
+    else {
+        return Err("unsupported exports parameter".into());
+    };
+    Ok(id.name.to_string())
 }

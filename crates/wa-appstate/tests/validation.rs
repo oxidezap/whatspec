@@ -31,6 +31,41 @@ fn complete_protobuf_methods_and_alpha_renaming() {
 fn reject_incomplete_or_unsupported_method() {
     assert!(
         extract(
+            &SOURCE.replace(
+                "function(t,n,r){var e=n==null",
+                "function(t,n={id:\"fallback\"},r){var e=n==null"
+            ),
+            "test"
+        )
+        .is_err()
+    );
+    assert!(
+        extract(
+            &SOURCE.replace(
+                "function(t){return e.validateRecordProtobuf",
+                "function(t=fallback()){return e.validateRecordProtobuf"
+            ),
+            "test"
+        )
+        .is_err()
+    );
+    assert!(
+        extract(
+            &SOURCE.replace("fileSizeBytes:i", "fileSizeBytes:18446744073709551616"),
+            "test"
+        )
+        .is_err()
+    );
+    assert!(extract(&SOURCE.replace("l.default=e", "l.default=null"), "test").is_err());
+    assert!(
+        extract(
+            &SOURCE.replace("l.default=e", "l.default=unrelated"),
+            "test"
+        )
+        .is_err()
+    );
+    assert!(
+        extract(
             &SOURCE.replace("validateKeyIdProtobuf=function", "unlisted=function"),
             "test"
         )

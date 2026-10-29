@@ -313,3 +313,30 @@ fn extraction_fixtures_match_programs_and_mutation_trips_the_gate() {
         batch
     );
 }
+
+#[allow(dead_code, clippy::all)]
+mod scope_regression {
+    include!("fixtures/appstate_scope.rs.txt");
+}
+#[test]
+fn callbacks_capture_outer_slots_and_restore_shadowed_names() {
+    const SOURCE: &str = include_str!("../../wa-appstate/tests/fixtures/server_sync_protobuf.js");
+    let source = SOURCE.replace(
+        "var u=i.map(function(t){return e.validateRecordProtobuf(n,t)});",
+        "var saved=a;var u=i.map(function(t){var a=saved;return a});",
+    );
+    let ir = wa_appstate::validation::extract(&source, "test").unwrap();
+    assert_eq!(
+        wa_codegen::generate_appstate_validation(&ir).unwrap(),
+        include_str!("fixtures/appstate_scope.rs.txt")
+    );
+    let case: Json =
+        serde_json::from_str(include_str!("fixtures/appstate_scope_case.json")).unwrap();
+    let output = scope_regression::validate_snapshot_protobuf(
+        &mut OracleTransforms,
+        Value::Text("test".into()),
+        read(&case["input"]),
+    )
+    .unwrap();
+    assert_eq!(write(output), case["result"]);
+}
