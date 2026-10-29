@@ -56,7 +56,7 @@ function evaluateEnvelope(contract, node, facts) {
   function ops(program) {
     for(const op of program) {
       switch(op.op) {
-        case 'bind': locals[op.local] = op.value == null ? undefined : expr(op.value); break;
+        case 'bind': if(op.value != null) locals[op.local] = expr(op.value); break;
         case 'evaluate': expr(op.value); break;
         case 'if': ops(expr(op.condition) ? op.thenOps : op.elseOps); break;
         case 'tryDiagnostic':

@@ -549,7 +549,14 @@ fn actions(
     let mut missing = None;
     let mut marker_assignment = None;
     let mut unknown = None;
-    for case in &switch.cases {
+    fn terminates(statements: &[Statement<'_>]) -> bool {
+        match statements.last() {
+            Some(Statement::ReturnStatement(_) | Statement::ThrowStatement(_)) => true,
+            Some(Statement::BlockStatement(block)) => terminates(&block.body),
+            _ => false,
+        }
+    }
+    for (index, case) in switch.cases.iter().enumerate() {
         if let Some(test) = &case.test {
             let Some((obj, "MISSING_PARTICIPANT_IDENTIFICATION")) = as_member(test) else {
                 continue;
@@ -563,6 +570,9 @@ fn actions(
             let wire = resolver
                 .resolve(test)
                 .ok_or("missing identification wire constant")?;
+            if index > 0 && !terminates(&switch.cases[index - 1].consequent) {
+                return Err("fall-through into missing-identification arm".into());
+            }
             if missing.is_some() {
                 return Err("duplicate missing-identification arm".into());
             }
@@ -868,6 +878,32 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn marker_fallthrough_aliases_fail_closed() {
+        let marker = "case o(\"WAWebHandleGroupNotificationConst\").GROUP_NOTIFICATION_TAG.MISSING_PARTICIPANT_IDENTIFICATION:";
+        for alias in ["case \"second_marker\":", "case \"second_marker\":void 0;"] {
+            let changed = SOURCE.replace(marker, &format!("{alias}{marker}"));
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err());
+        }
+    }
+    #[test]
+    fn initializer_free_redeclaration_is_retained_as_no_assignment() {
+        let changed = SOURCE.replace("function v(e){", "var c;function v(e){");
+        assert_ne!(changed, SOURCE);
+        let contract = extract(&changed).unwrap();
+        assert_eq!(
+            contract.prefix.len(),
+            extract(SOURCE).unwrap().prefix.len() + 1
+        );
+        assert!(contract.prefix.iter().any(|op| matches!(
+            op,
+            GroupEnvelopeOp::Bind {
+                local: 7,
+                value: None
+            }
+        )));
     }
     #[test]
     fn hidden_captured_writes_and_loader_patterns_reject() {

@@ -481,7 +481,14 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
     }
     let kinds: BTreeSet<_> = rows
         .iter()
-        .filter(|r| r.action_type.is_some() || r.unsupported_action)
+        .filter(|r| {
+            rows.iter()
+                .find(|fallback| fallback.unlink_type.is_none() && fallback.reason == r.reason)
+                .is_some_and(|fallback| {
+                    fallback.action_type != r.action_type
+                        || fallback.unsupported_action != r.unsupported_action
+                })
+        })
         .map(|r| r.unlink_type.clone())
         .collect();
     let reasons: BTreeSet<_> = rows
@@ -519,6 +526,22 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebGroupType", TYPES),
         ]))
+    }
+    #[test]
+    fn null_action_exceptions_are_retained_against_non_null_fallbacks() {
+        let changed = GROUP.replace(
+            "actionType:a[t]",
+            "actionType:t===\"future_kind\"?null:\"fallback\"",
+        );
+        assert_ne!(changed, GROUP);
+        let contract = extract(&changed).unwrap();
+        assert!(contract.rows.iter().any(|r| r.unlink_type.as_deref() == Some("future_kind") && r.action_type.is_none()));
+        assert!(
+            contract
+                .rows
+                .iter()
+                .any(|r| r.unlink_type.is_none() && r.action_type.as_deref() == Some("fallback"))
+        );
     }
     #[test]
     fn missing_lookup_is_undefined_during_strict_comparisons() {

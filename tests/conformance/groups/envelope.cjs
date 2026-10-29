@@ -113,6 +113,14 @@ assert.equal(outcome('to-requires-lid-fact-before-matching-pn').errorName, 'Miss
 assert.match(outcome('invalid-time-precedes-unknown-action').errorReason, /"t"=\{integer\}/);
 assert.equal(outcome('bot-participant-is-a-supported-user-class').success.author.jid, '200002@bot');
 assert.equal(outcome('unknown-country-is-undefined-with-username-gate-enabled').success.authorUsernameCountryCode, undefined);
+// JavaScript's `var c;` redeclaration preserves an already assigned local.
+// This is an accepted source form and must be a no-op in the interpreter.
+const redeclared = structuredClone(contract);
+redeclared.prefix.push({op: 'bind', local: 7, value: null});
+for(const test of cases) {
+  flags = {username: false, history: false, opus: false, meLid: '100001:2@lid', mePn: '200002:2@s.whatsapp.net', ...test.flags};
+  assert.equal(JSON.stringify(run(test, redeclared)), JSON.stringify(run(test)), test.name+' var redeclaration');
+}
 const mutations = [
   ['destination guard', ir => { ir.prefix[0].thenOps.at(-1).value.left.left.value.local = 5; }],
   ['projection', ir => { ir.projection.fields.find(f => f.name === 'author').value.local = 8; }],
