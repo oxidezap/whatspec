@@ -155,3 +155,47 @@ fn reject_factory_shadowing_and_non_native_object_strings() {
         assert!(extract(&changed, "test").is_err(), "{projection}");
     }
 }
+
+#[test]
+fn maps_require_stable_ordinary_array_provenance() {
+    for projection in [
+        "s.map(function(t){return t}).length",
+        "({rows:s}).rows.map(function(t){return t}).length",
+    ] {
+        let changed = SOURCE.replace("fileSizeBytes:i", &format!("fileSizeBytes:{projection}"));
+        assert!(
+            extract(&changed, "test")
+                .unwrap_err()
+                .contains("qualified ordinary array")
+        );
+    }
+    let changed = SOURCE.replace("var u=i.map", "var rows=i;var u=rows.map");
+    assert_ne!(changed, SOURCE);
+    assert!(extract(&changed, "test").is_ok());
+    let changed = SOURCE.replace("var u=i.map", "var rows=i;rows=r.mac;var u=rows.map");
+    assert!(
+        extract(&changed, "test")
+            .unwrap_err()
+            .contains("qualified ordinary array")
+    );
+    let changed = SOURCE.replace("var u=i.map", "var rows=i;var rows=r.mac;var u=rows.map");
+    assert!(
+        extract(&changed, "test")
+            .unwrap_err()
+            .contains("qualified ordinary array")
+    );
+}
+
+#[test]
+fn map_callbacks_cannot_change_captured_receiver_types() {
+    let changed = SOURCE.replace(
+        "function(t){return e.validateRecordProtobuf",
+        "function(t){i=r.mac;return e.validateRecordProtobuf",
+    );
+    assert_ne!(changed, SOURCE);
+    assert!(
+        extract(&changed, "test")
+            .unwrap_err()
+            .contains("callback assignment to a captured slot")
+    );
+}

@@ -24,7 +24,9 @@ The Rust emitter produces ordinary functions and control flow over a borrowed by
 view. Objects and arrays share immutable storage across slots; native text views
 borrow their input. String length counts UTF-16 units. Named function expressions,
 default parameters, loader-shadowing factory bindings, prototype-setting literals
-and lone-surrogate string literals fail extraction.
+and lone-surrogate string literals fail extraction. Mapping requires a qualified
+ordinary-array origin through stable bindings; typed-array or unknown receivers
+and callback writes to captured slots are rejected.
 There is no JavaScript runtime or IR interpreter. `Transforms` supplies the
 protobuf decoder and representation conversions. `WASyncdKeyTypes.toSyncKeyId` is
 an identity operation in this snapshot. `WALongInt.numberOrThrowIfTooLarge` checks

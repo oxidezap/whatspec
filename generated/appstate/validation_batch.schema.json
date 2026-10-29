@@ -487,6 +487,7 @@
           "minimum": 0
         },
         "startByte": {
+          "description": "UTF-8 byte span relative to the complete Metro module in module_sha256.",
           "type": "integer",
           "format": "uint",
           "minimum": 0

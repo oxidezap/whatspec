@@ -112,7 +112,16 @@ impl<'a> Visit<'a> for Finder {
                         locals: HashMap::new(),
                         slots: 0,
                         map_depth: 0,
+                        map_floor: 0,
                         requires: self.requires.clone(),
+                        array_field: match name {
+                            "validateSnapshotProtobuf" => Some("records"),
+                            "validatePatchProtobuf" => Some("mutations"),
+                            _ => None,
+                        },
+                        array_argument: false,
+                        arrays: HashSet::new(),
+                        mutable: HashSet::new(),
                         receiver: as_identifier(&member.object)
                             .ok_or("unsupported validator receiver")?
                             .into(),
@@ -157,17 +166,32 @@ pub(super) struct Lower {
     locals: HashMap<String, E>,
     slots: usize,
     map_depth: usize,
+    map_floor: usize,
     receiver: String,
     requires: HashSet<String>,
+    array_field: Option<&'static str>,
+    array_argument: bool,
+    arrays: HashSet<usize>,
+    mutable: HashSet<usize>,
 }
 impl Lower {
     fn declare_scope(&mut self, statements: &[Statement<'_>]) -> Result<(), String> {
         #[derive(Default)]
-        struct Bindings(Vec<String>);
+        struct Bindings {
+            names: Vec<String>,
+            assigned: HashSet<String>,
+        }
+
         impl<'a> Visit<'a> for Bindings {
             fn visit_function(&mut self, _: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
             fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
-                self.0.push(id.name.to_string());
+                self.names.push(id.name.to_string());
+            }
+            fn visit_assignment_expression(&mut self, assignment: &AssignmentExpression<'a>) {
+                if let AssignmentTarget::AssignmentTargetIdentifier(id) = &assignment.left {
+                    self.assigned.insert(id.name.to_string());
+                }
+                walk::walk_assignment_expression(self, assignment);
             }
         }
         let mut bindings = Bindings::default();
@@ -175,8 +199,9 @@ impl Lower {
             bindings.visit_statement(statement);
         }
         let mut own = HashSet::new();
-        for name in bindings.0 {
+        for name in bindings.names {
             if !own.insert(name.clone()) {
+                bindings.assigned.insert(name);
                 continue;
             }
             if matches!(self.locals.get(&name), Some(E::Argument { .. })) {
@@ -186,7 +211,25 @@ impl Lower {
             self.slots += 1;
             self.locals.insert(name, E::Slot { index: slot });
         }
+        for name in bindings.assigned {
+            if let Some(E::Slot { index }) = self.locals.get(&name) {
+                self.mutable.insert(*index);
+            }
+        }
         Ok(())
+    }
+
+    fn ordinary_array(&self, value: &E) -> bool {
+        match value {
+            E::Argument { index: 1 } => self.array_argument,
+            E::Field { object, field } => {
+                matches!(object.as_ref(), E::Argument { index: 1 })
+                    && self.array_field == Some(field.as_str())
+            }
+            E::Slot { index } => self.arrays.contains(index) && !self.mutable.contains(index),
+            E::Map { .. } => true,
+            _ => false,
+        }
     }
 
     fn module<'b>(&self, expression: &'b Expression<'_>) -> Option<&'b str> {
@@ -212,8 +255,14 @@ impl Lower {
             locals: HashMap::new(),
             slots: 0,
             map_depth: 0,
+            map_floor: 0,
             receiver: String::new(),
             requires,
+            array_field: None,
+            // Lower::function is used only by the whole-module-qualified decoded SET method.
+            array_argument: true,
+            arrays: HashSet::new(),
+            mutable: HashSet::new(),
         };
         if function.r#async || function.generator || function.params.rest.is_some() {
             return Err("unsupported function kind".into());
@@ -271,6 +320,9 @@ impl Lower {
                         Some(init) => self.expr(init)?,
                         None => return Err("uninitialized declarations are not qualified".into()),
                     };
+                    if !self.mutable.contains(&slot) && self.ordinary_array(&value) {
+                        self.arrays.insert(slot);
+                    }
                     out.push(S::Bind { slot, value });
                 }
                 out
@@ -416,6 +468,9 @@ impl Lower {
                 let Some(E::Slot { index }) = self.locals.get(id.name.as_str()) else {
                     return Err("assignment outside local".into());
                 };
+                if self.map_depth != 0 && *index < self.map_floor {
+                    return Err("callback assignment to a captured slot is not qualified".into());
+                }
                 E::Assign {
                     slot: *index,
                     value: Box::new(self.expr(&a.right)?),
@@ -484,9 +539,15 @@ impl Lower {
                         return Err("nested map capture is not qualified".into());
                     }
                     let input = Box::new(self.expr(object)?);
+                    if !self.ordinary_array(&input) {
+                        return Err("map receiver is not a qualified ordinary array".into());
+                    }
                     let outer = self.locals.clone();
+                    let outer_arrays = self.arrays.clone();
+                    let outer_mutable = self.mutable.clone();
                     self.locals
                         .insert(id.name.to_string(), E::Argument { index: 3 });
+                    self.map_floor = self.slots;
                     self.map_depth += 1;
                     let result = (|| {
                         let body = &callback.body.as_ref().ok_or("map body")?.statements;
@@ -495,6 +556,8 @@ impl Lower {
                     })();
                     self.map_depth -= 1;
                     self.locals = outer;
+                    self.arrays = outer_arrays;
+                    self.mutable = outer_mutable;
                     let body = result?;
                     E::Map { input, body }
                 } else {
