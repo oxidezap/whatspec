@@ -30,7 +30,7 @@ function createHarness(evidenceName='envelope-evidence.json'){
   const callbackBytes=Buffer.from(sources.WAWebHandleGroupNotification).subarray(evidence.callback.startByte,evidence.callback.endByte);
   assert.equal(hash(callbackBytes),evidence.callback.sha256,'original callback span');
   const cache={};let flags;let parser;
-  const stats={telemetryErrors:0,localLidReads:0};
+  const stats={telemetryErrors:0,localLidReads:0,reads:[]};
   const logger=()=>({sendLogs(){}});
   const logError=()=>{stats.telemetryErrors++;return logger();};
   const facts={
@@ -84,13 +84,24 @@ function createHarness(evidenceName='envelope-evidence.json'){
   load('WAWebHandleGroupNotification');
   assert.equal(typeof parser,'function');
   const Klass=load('WAParsableWapNode').ParsableWapNode;
+  // Trace actual accessor invocation order, including nested adapter reads.
+  const methods = ['assertTag','hasAttr','attrString','attrGroupJid','attrUserJid','maybeAttrPhoneUserJid','attrTime','maybeAttrString','tag','mapChildren'];
+  for(const method of methods) {
+    const original = Klass.prototype[method];
+    assert.equal(typeof original, 'function', method);
+    Klass.prototype[method] = function(...args) {
+      stats.reads.push([method, ...args.filter(arg => typeof arg !== 'function')]);
+      return original.apply(this, args);
+    };
+  }
   return {
     evidence,
     stats,
-    parse(input,overrides={}){
-      stats.telemetryErrors=0;stats.localLidReads=0;
+    parse(input,overrides={},contract){
+      stats.telemetryErrors=0;stats.localLidReads=0;stats.reads=[];
       flags={history:false,username:false,opus:false,me:'200002@s.whatsapp.net',meLid:'100001:2@lid',mePn:'200002:2@s.whatsapp.net',...overrides};
-      return parser(new Klass('synthetic',input));
+      const node = new Klass('synthetic',input);
+      return contract ? require('./envelope-ir.cjs').evaluateEnvelope(contract,node,facts) : parser(node);
     },
   };
 }

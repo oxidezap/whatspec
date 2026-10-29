@@ -51,19 +51,27 @@ function encodeNode(node) {
   else assert.equal(node.content, undefined);
   return encoded;
 }
+const contract = require('../../../generated/notif/group-envelope.json');
 const outcomes = [];
+function run(test, ir) {
+  const result = {};
+  try { result.success = harness.parse(test.node, flags, ir); }
+  catch(error) { result.error = String(error); result.errorName = error.name; result.errorParser = error.parser ?? null; result.errorReason = error.reason ?? null; }
+  result.telemetryErrors = harness.stats.telemetryErrors;
+  result.localLidReads = harness.stats.localLidReads;
+  result.reads = harness.stats.reads;
+  return result;
+}
+
 for (const test of cases) {
   flags = {username: false, history: false, opus: false, meLid: '100001:2@lid', mePn: '200002:2@s.whatsapp.net', ...test.flags};
   const result = {name: test.name, flags, input: encodeNode(test.node)};
-  try { result.success = harness.parse(test.node, flags); }
-  catch (error) {
-    result.error = String(error);
-    result.errorName = error.name;
-    result.errorParser = error.parser ?? null;
-    result.errorReason = error.reason ?? null;
-  }
-  result.telemetryErrors = harness.stats.telemetryErrors;
-  result.localLidReads = harness.stats.localLidReads;
+  const original = run(test);
+  const interpreted = run(test, contract);
+  // Cross-realm objects are compared by their observable JSON values; undefined
+  // properties are separately retained by the existing explicit assertions.
+  assert.equal(JSON.stringify(interpreted), JSON.stringify(original), test.name);
+  Object.assign(result, original);
   outcomes.push(result);
 }
 const outcome = name => outcomes.find(test => test.name === name);
@@ -105,5 +113,19 @@ assert.equal(outcome('to-requires-lid-fact-before-matching-pn').errorName, 'Miss
 assert.match(outcome('invalid-time-precedes-unknown-action').errorReason, /"t"=\{integer\}/);
 assert.equal(outcome('bot-participant-is-a-supported-user-class').success.author.jid, '200002@bot');
 assert.equal(outcome('unknown-country-is-undefined-with-username-gate-enabled').success.authorUsernameCountryCode, undefined);
+const mutations = [
+  ['destination guard', ir => { ir.prefix[0].thenOps.at(-1).value.left.left.value.local = 5; }],
+  ['projection', ir => { ir.projection.fields.find(f => f.name === 'author').value.local = 8; }],
+  ['marker', ir => { ir.actions.missingIdentificationTag = 'wrong_marker'; }],
+  ['catch', ir => { const index = ir.prefix.findIndex(op => op.op === 'tryDiagnostic'); ir.prefix.splice(index, 1, ...ir.prefix[index].body); }],
+  ['read order', ir => { [ir.prefix[1], ir.prefix[2]] = [ir.prefix[2], ir.prefix[1]]; }],
+];
+for(const [name, mutate] of mutations) {
+  const changed = structuredClone(contract); mutate(changed);
+  assert.ok(cases.some(test => {
+    flags = {username: false, history: false, opus: false, meLid: '100001:2@lid', mePn: '200002:2@s.whatsapp.net', ...test.flags};
+    return JSON.stringify(run(test, changed)) !== JSON.stringify(run(test));
+  }), name+' mutation escaped differential comparison');
+}
 if (process.argv.includes('--json')) console.log(JSON.stringify({waVersion: evidence.waVersion, setHash: evidence.setHash, callback: evidence.callback, cases: outcomes}, null, 2));
 else console.log(`${outcomes.length} isolated official group envelope cases passed`);

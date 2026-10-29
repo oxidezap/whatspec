@@ -16,6 +16,11 @@ The committed complete handler/type/tag-constant fixtures reproduce the same
 contracts. Rust tests mutate guards, read order, import bindings, callback
 modes/effects and object shapes; unsupported forms reject the projection.
 
+The envelope suite interprets the committed IR against the same 29 source inputs
+and compares results, errors, telemetry and ordered accessor reads. Independent
+IR mutations cover destination guards, projection, markers, local catch recovery
+and read order. Complex child payloads stay at the external adapter boundary.
+
 Run all source comparisons with:
 
 ```sh
