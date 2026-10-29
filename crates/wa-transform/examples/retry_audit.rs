@@ -8,11 +8,12 @@ use oxc_span::{GetSpan, SourceType, Span};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path};
 
-const MODULES: [&str; 4] = [
+const MODULES: [&str; 5] = [
     "WAWebHandleRetryRequest",
     "WAWebUpdateLocalSignalSession",
     "WAWebSendRetryReceiptJob",
     "WAWebProcessRetryKeyBundle",
+    "WAWebApiMessageInfoStore",
 ];
 
 struct Inventory<'s> {

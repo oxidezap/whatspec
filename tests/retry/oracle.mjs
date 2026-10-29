@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { authorizationOracle } from './authorization.mjs';
+import { eligibilityOracle } from './eligibility.mjs';
 const baseline = JSON.parse(fs.readFileSync(new URL('./capture/audit.json', import.meta.url)));
 const audit = process.argv[2] && process.argv[2] !== '--write' ? JSON.parse(fs.readFileSync(process.argv[2])) : baseline;
 assert.deepEqual(audit, baseline, 'retry source/inventory drift requires review; no automatic policy adoption');
@@ -109,6 +110,10 @@ for(let retryCount=0;retryCount<=6;retryCount++)for(const isStateless of [false,
   assert.deepEqual(calls,includeKeys?['signed','prekey','identity']:[]);
   keyCases.push({retryCount,isStateless,includeKeys});
 }
+const eligibility=eligibilityOracle(audit);
+const eligibilityPath=new URL('./eligibility-cases.json',import.meta.url);
+if(process.argv.includes('--write'))fs.writeFileSync(eligibilityPath,JSON.stringify(eligibility,null,2)+'\n');
+else assert.deepEqual(JSON.parse(fs.readFileSync(eligibilityPath)),eligibility);
 const authorization=authorizationOracle(audit);
 const exportCases=cases.map(c=>({name:c.name,retryCount:c.count,savedRegId:c.saved===undefined?7:c.saved,receivedRegId:7,bundleHandled:!!c.handled,sameBaseKey:!!c.same,peer:!!c.peer,chatKind:c.kind||'user',sessionScope:c.scope||'default',effects:c.expected,terminal:c.terminal||'return'}));
 if(process.argv.includes('--write'))fs.writeFileSync(new URL('./session-cases.json',import.meta.url),JSON.stringify({formatVersion:1,sourceSha256:record.sourceSha256,receiptSourceSha256:receipt.sourceSha256,authorization,keyCases,cases:exportCases},null,2)+'\n');
@@ -120,4 +125,4 @@ else {
   assert.equal(fixture.sourceSha256,record.sourceSha256);
   assert.equal(fixture.receiptSourceSha256,receipt.sourceSha256);
 }
-console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; 7 semantic mutations detected`);
+console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; 11 semantic mutations detected`);

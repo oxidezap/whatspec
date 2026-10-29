@@ -10,14 +10,15 @@ Divergent duplicate definitions, missing modules and parse recovery fail closed.
 
 `retry_audit` inventories if tests, returns, throws and generator suspension sites
 in HandleRetryRequest, UpdateLocalSignalSession, SendRetryReceiptJob and its
-ProcessRetryKeyBundle authorization dependency. The inventory is lexical, not execution order. An enclosing if test records lexical
+ProcessRetryKeyBundle authorization dependency, plus ApiMessageInfoStore.
+The inventory is lexical, not execution order. An enclosing if test records lexical
 containment, not whether the true or false arm runs. Nested functions start a new
 continuation. Logical/conditional expressions, catch/finally routing, callee
 behavior and account flags are deliberately not interpreted. Completeness is
 explicitly partial and this file must never feed a production state machine.
 
 `oracle.mjs` and `authorization.mjs` execute AST-selected session and
-authorization generators in isolated VMs with synthetic dependency stubs. It checks hand-reviewed
+authorization/eligibility generators in isolated VMs with synthetic dependency stubs. It checks hand-reviewed
 expected calls independently of the syntax inventory. It resumes every yielded
 operation with success, injected rejection, or cancellation. Returned promises
 are represented as effect markers, so final-return operations are observed at
@@ -38,7 +39,13 @@ lookup restricted to missing records, coex precedence, addons and revoked-row
 binding. Four additional mutations alter identity binding and authorization
 guards and must fail the semantic oracle even without a hash check. Every
 yield is also resumed with rejection or generator interruption. Eligibility
-providers are synthetic facts: their internal policy is not qualified.
+facts are synthetic. The actual isRetryEligible generator also has 12 cases
+for identity-row ordering/equality, companion versus primary identity changes,
+delivery presence and alternate message-info records. Four mutations change
+those guards. Its frozen enum is checked against captured source, including
+upstream's ELGIBLE spelling. Record storage and coex eligibility providers remain
+stubbed; their internal behavior is not qualified. These cases live separately
+in eligibility-cases.json so the existing consumer fixture pin remains stable.
 PN/LID migration, complete peer/status routing, receipt key upload, PQ gating
 and ACK behavior still need executable dependency-closure oracles before
 policy generation is justified.
