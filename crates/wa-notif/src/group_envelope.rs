@@ -725,7 +725,10 @@ fn lower_callback(
     let Statement::VariableDeclaration(action_vars) = action_stmt else {
         return Err("non-variable action result".into());
     };
-    if action_vars.declarations.len() != 2 || action_vars.declarations[0].init.is_some() {
+    if !action_vars.kind.is_var()
+        || action_vars.declarations.len() != 2
+        || action_vars.declarations[0].init.is_some()
+    {
         return Err("action boundary locals".into());
     }
     fn hoist(lower: &mut Lower, s: &Statement<'_>) -> Result<(), String> {
@@ -925,6 +928,32 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn lexical_loader_collisions_cannot_hide_captured_writes() {
+        for scope in [
+            "if(false){let o;}o=null;",
+            "{const o=1;}o=null;",
+            "try{}catch(o){}o=null;",
+            "if(false){class o{}}o=null;",
+            "\"use strict\";if(false){function o(){}}o=null;",
+        ] {
+            let anchor = "function(t,n,r,o,a,i,l){";
+            let changed = SOURCE.replace(
+                anchor,
+                &format!("{anchor}function poisonedLoader(){{{scope}}}poisonedLoader();"),
+            );
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err(), "{scope}");
+        }
+    }
+    #[test]
+    fn lexical_action_boundaries_reject_temporal_dead_zones() {
+        let changed = SOURCE
+            .replace("var D,x=e.mapChildren", "let D,x=e.mapChildren")
+            .replace("function v(e){", "D=!0;function v(e){");
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed).is_err());
     }
     #[test]
     fn dispatch_collisions_duplicate_cases_and_shadowed_boolean_reject() {

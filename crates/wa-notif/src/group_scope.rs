@@ -84,15 +84,46 @@ pub(crate) fn validate_import_bindings(
     #[derive(Default)]
     struct Bindings {
         names: BTreeSet<String>,
+        lexical: BTreeSet<String>,
         assignments: BTreeSet<String>,
     }
     impl<'a> Visit<'a> for Bindings {
+        fn visit_variable_declaration(
+            &mut self,
+            declaration: &oxc_ast::ast::VariableDeclaration<'a>,
+        ) {
+            if declaration.kind.is_var() {
+                walk::walk_variable_declaration(self, declaration);
+            } else {
+                let mut lexical = Bindings::default();
+                walk::walk_variable_declaration(&mut lexical, declaration);
+                self.lexical.extend(lexical.names);
+                self.lexical.extend(lexical.lexical);
+                self.assignments.extend(lexical.assignments);
+            }
+        }
+        fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+            if let Some(parameter) = &clause.param {
+                let mut names = Bindings::default();
+                names.visit_binding_pattern(&parameter.pattern);
+                self.lexical.extend(names.names);
+                self.lexical.extend(names.lexical);
+            }
+            self.visit_block_statement(&clause.body);
+        }
+        fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+            let mut lexical = Bindings::default();
+            walk::walk_class(&mut lexical, class);
+            self.lexical.extend(lexical.names);
+            self.lexical.extend(lexical.lexical);
+            self.assignments.extend(lexical.assignments);
+        }
         fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
             self.names.insert(id.name.to_string());
         }
         fn visit_function(&mut self, f: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {
             if let Some(id) = &f.id {
-                self.names.insert(id.name.to_string());
+                self.lexical.insert(id.name.to_string());
             }
         }
         fn visit_update_expression(&mut self, u: &oxc_ast::ast::UpdateExpression<'a>) {
@@ -152,6 +183,10 @@ pub(crate) fn validate_import_bindings(
             }
             if let Some(body) = &f.body {
                 bindings.visit_function_body(body);
+            }
+            if !self.aliases.is_disjoint(&bindings.lexical) {
+                self.errors
+                    .push("lexical binding collides with captured module loader".into());
             }
             let mut next = self.aliases.clone();
             for name in &bindings.names {
