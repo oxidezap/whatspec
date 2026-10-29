@@ -25,6 +25,9 @@ jobs:
       - name: Verify conformance fixture integrity and capture rejection
         run: python3 tests/conformance/test_capture.py -v
 
+      - name: Official group unlink differential
+        run: node tests/conformance/groups/unlink.cjs
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20

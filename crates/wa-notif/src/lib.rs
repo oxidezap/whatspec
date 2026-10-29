@@ -32,6 +32,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 mod actions;
+pub mod group_normalization;
 
 use std::collections::HashMap;
 

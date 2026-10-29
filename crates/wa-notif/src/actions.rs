@@ -192,7 +192,7 @@ impl<'a> ConstResolver<'a> {
     }
 
     /// Resolve a `o("Mod").OBJECT.MEMBER` expression, or `None` for anything else.
-    fn resolve(&self, e: &Expression) -> Option<String> {
+    pub(crate) fn resolve(&self, e: &Expression) -> Option<String> {
         let (obj, member) = as_member(e)?;
         let (owner, object) = as_member(obj)?;
         let module = as_string_lit(arg_expr(as_call(owner)?.arguments.first()?)?)?;
