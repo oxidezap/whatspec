@@ -452,6 +452,9 @@ fn diagnostic(
         return Err("diagnostic template cache guard".into());
     }
     let cache = as_identifier(&lazy.left).ok_or("diagnostic cache binding")?;
+    if cache != crate::group_qualification::DIAGNOSTIC_CACHE {
+        return Err("diagnostic cache is not the qualified module binding".into());
+    }
     if locals.contains_key(cache) || cache == error {
         return Err("diagnostic mutates envelope local".into());
     }
@@ -946,6 +949,17 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn diagnostic_cache_must_resolve_to_the_qualified_module_binding() {
+        for name in ["missingCache", "v", "y", "undefined"] {
+            let changed = SOURCE.replace(
+                "m||(m=babelHelpers.taggedTemplateLiteralLoose",
+                &format!("{name}||({name}=babelHelpers.taggedTemplateLiteralLoose"),
+            );
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err(), "{name}");
+        }
     }
     #[test]
     fn opaque_module_effects_require_requalification() {

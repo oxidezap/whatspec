@@ -9,6 +9,10 @@ use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 use std::collections::BTreeSet;
 
+// The module-frame fingerprint fixes this factory-scoped lazy template cache.
+// Diagnostic lowering may omit its initialization only for this exact binding.
+pub(crate) const DIAGNOSTIC_CACHE: &str = "m";
+
 fn fingerprint(chunks: &[&str]) -> String {
     let mut bytes = Vec::new();
     for chunk in chunks {
