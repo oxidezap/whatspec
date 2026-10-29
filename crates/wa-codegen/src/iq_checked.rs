@@ -21,6 +21,17 @@ fn request_gaps(nodes: &[WapChildNode], reasons: &mut Vec<String>) {
             reasons.push(format!("request.{}.repeat_bounds_missing", node.tag));
         }
         for attr in &node.attrs {
+            if attr.value.is_some()
+                && !matches!(
+                    attr.kind,
+                    wa_ir::WapAttrKind::Const | wa_ir::WapAttrKind::GeneratedId
+                )
+            {
+                reasons.push(format!(
+                    "request.{}.{}.fixed_value_validation_unemitted",
+                    node.tag, attr.name
+                ));
+            }
             if attr.reads_argument() && attr.arg_path.as_ref().is_none_or(Vec::is_empty) {
                 reasons.push(format!(
                     "request.{}.{}.argument_missing",

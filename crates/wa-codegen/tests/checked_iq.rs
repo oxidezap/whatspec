@@ -40,7 +40,7 @@ fn selected() -> wa_ir::IqIr {
 fn checked_generation_rejects_lost_context_request_inputs_and_missing_outcomes() {
     let original = selected();
     assert!(wa_codegen::generate_iq_checked(&original).is_ok());
-    for mutation in 0..5 {
+    for mutation in 0..6 {
         let mut ir = original.clone();
         let op = ir
             .stanzas
@@ -59,7 +59,8 @@ fn checked_generation_rejects_lost_context_request_inputs_and_missing_outcomes()
                     .reference_path = Some(vec!["unknown".into()])
             }
             3 => op.request.children[0].repeats = true,
-            _ => op.request.target_arg_path = None,
+            4 => op.request.target_arg_path = None,
+            _ => op.request.children[0].attrs.push(serde_json::from_value(serde_json::json!({"name":"delete", "kind":"optional", "required":false, "value":"true", "argPath":[{"key":"deleteFlag"}]})).unwrap()),
         }
         let errors = wa_codegen::generate_iq_checked(&ir).unwrap_err();
         assert!(

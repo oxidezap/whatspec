@@ -19,6 +19,24 @@ fn sent_context_is_required_and_cannot_be_replaced_by_reply_attributes() {
 }
 
 #[test]
+fn accept_and_delete_parent_use_the_contextual_trait_for_success_and_rejection() {
+    fn check(spec: impl IqSpec) {
+        let request = sent("actual-id", "123@g.us");
+        for (kind, children) in [("result", vec![]), ("error", vec![Node::new("error", &[("code", "400"), ("text", "bad-request")], vec![])])] {
+            let reply = answer("actual-id", "123@g.us", kind, children);
+            assert!(spec.uses_contextual_response());
+            assert!(spec.handles_iq_errors());
+            assert!(spec.parse_response_with_context(&reply.as_ref(), &request.as_ref()).is_ok());
+            for wrong in [sent("wrong-id", "123@g.us"), sent("actual-id", "456@g.us")] {
+                assert!(spec.parse_response_with_context(&reply.as_ref(), &wrong.as_ref()).is_err());
+            }
+        }
+    }
+    check(MakeDeleteParentGroupRequestSpec::new(jid::Jid::new("123", jid::Server::Group)));
+    check(MakeAcceptGroupAddRequestSpec::new("invite", 12345, &jid::Jid::new("456", jid::Server::Pn), jid::Jid::new("123", jid::Server::Group)));
+}
+
+#[test]
 fn linked_join_keeps_approval_precedence_and_null_optional_argument() {
     let spec = MakeJoinLinkedGroupRequestSpec::new(None, &jid::Jid::new("456", jid::Server::Group), jid::Jid::new("123", jid::Server::Group));
     let request = sent("actual-id", "123@g.us");
