@@ -20,13 +20,19 @@ const cases=[
 ];
 function run(source,c,{failAt,cancelAt}={}) {
   const effects=[],completed=[];
-  const effect=(name,result,args)=>{effects.push({name,args});return {name,result};};
+  let constructedKey;
+  const effect=(name,result,args)=>{
+    if(name==='addonLookup')assert.equal(args.key,constructedKey);
+    if(name==='messageLookup')assert.equal(args.key,'synthetic-key');
+    if(name==='coexEligibility'){assert.equal(args.receiver,requester);assert.equal(args.id,'SYNTHETIC-AUTH');}
+    if(name==='identityEligibility')assert.equal(args.msgKey,constructedKey);
+    effects.push({name,args});return {name,result};};
   const sync=(name,result,args)=>{effects.push({name,args});return result;};
   const requester={name:'original',isCompanion:()=>true,isHosted:()=>false,toString:()=>'fictional-device'};
   const alternate={name:'alternate'};
   const row=c.missing?null:{rowId:c.noRow?undefined:101,type:c.revoked?'revoked':'regular',protocolMessageRowId:202};
   const chain={WARN(){return this},LOG(){return this},tags(){return this}};
-  class MsgKey{constructor(v){Object.assign(this,v)}toString(){return 'synthetic-key'}}
+  class MsgKey{constructor(v){assert.equal(v.id,'SYNTHETIC-AUTH');assert.equal(v.remote,chat);assert.equal(v.fromMe,true);assert.equal(v.participant,undefined);Object.assign(this,v);constructedKey=this}toString(){return 'synthetic-key'}}
   class Msg{constructor(v){Object.assign(this,v)}waitForPrep(){return effect('prepare')}}
   class Reject{constructor(v){this.values=v}commit(){sync('reject',undefined,this.values)}}
   const dependencies={
@@ -47,7 +53,8 @@ function run(source,c,{failAt,cancelAt}={}) {
   const lookup=name=>{assert.ok(name in dependencies,`unsupported authorization dependency ${name}`);return dependencies[name];};
   const context=vm.createContext({o:lookup,r:lookup,e:undefined,s:undefined,u:undefined,babelHelpers:{taggedTemplateLiteralLoose:x=>x}});
   const fn=new vm.Script(`(${source})`).runInContext(context,{timeout:1000});
-  const iterator=fn({chat:{isUser:()=>true},identity:{rowId:71,sentAddonRowId:72},originalMsgId:'SYNTHETIC-AUTH',requester,retryCount:3,sessionScope:'default'});
+  const chat={isUser:()=>true};
+  const iterator=fn({chat,identity:{rowId:71,sentAddonRowId:72},originalMsgId:'SYNTHETIC-AUTH',requester,retryCount:3,sessionScope:'default'});
   let input;
   try {
     for(;;){
@@ -91,13 +98,14 @@ export function authorizationOracle(audit){
       assert.deepEqual(cut.effects.map(e=>e.name),t.effects.slice(0,stop).map(e=>e.name));
     }
   }
+  const argumentMutations=[['id:i','id:"WRONG-MESSAGE"','message-id'],['fromMe:!0','fromMe:!1','sender-binding']];
   const mutations=[
     ['identityRowId:h','identityRowId:g','identity-binding'],
     ['R===o("WAWebApiMessageInfoStore").RetryEligibilityResult.INELIGIBLE_RECORD_MISSING','R===o("WAWebApiMessageInfoStore").RetryEligibilityResult.INELIGIBLE_CHANGED_IDENTITY','alternate-guard'],
     ['S!=null?S:yield','false?S:yield','coex-precedence'],
     ['case o("WAWebApiMessageInfoStore").RetryEligibilityResult.ELIGIBLE:','case o("WAWebApiMessageInfoStore").RetryEligibilityResult.INELIGIBLE_CHANGED_IDENTITY:','identity-must-not-authorize'],
   ];
-  for(const [from,to,name]of mutations){
+  for(const [from,to,name]of [...mutations,...argumentMutations]){
     assert.ok(source.includes(from),`missing semantic mutation ${name}`);
     let detected=false;for(const c of cases){try{assertCase(source.replace(from,to),c)}catch{detected=true;break;}}
     assert.ok(detected,`undetected authorization mutation ${name}`);

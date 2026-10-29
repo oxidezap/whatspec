@@ -1,7 +1,10 @@
 //! Capture a locked retry syntax inventory. This is not an executable policy IR.
 use anyhow::{Context, Result, ensure};
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Function, IfStatement, ReturnStatement, ThrowStatement, YieldExpression};
+use oxc_ast::ast::{
+    ArrowFunctionExpression, Function, IfStatement, ReturnStatement, ThrowStatement,
+    YieldExpression,
+};
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType, Span};
@@ -37,6 +40,11 @@ impl<'a> Visit<'a> for Inventory<'_> {
             self.functions.push(json!({"start":it.span.start,"end":it.span.end,"source":&self.source[it.span.start as usize..it.span.end as usize]}));
         }
         walk::walk_function(self, it, flags);
+        self.guards = old;
+    }
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        let old = std::mem::take(&mut self.guards);
+        walk::walk_arrow_function_expression(self, it);
         self.guards = old;
     }
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
@@ -134,6 +142,20 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn callbacks_do_not_inherit_caller_guards() {
+        let capture = inventory("if(ready){queue(()=>{return value;});queue(function(){return other;});if(local)return done;}").unwrap();
+        let returns: Vec<_> = capture["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|n| n["kind"] == "return")
+            .collect();
+        assert_eq!(returns.len(), 3);
+        assert_eq!(returns[0]["enclosingIfTests"], json!([]));
+        assert_eq!(returns[1]["enclosingIfTests"], json!([]));
+        assert_eq!(returns[2]["enclosingIfTests"].as_array().unwrap().len(), 2);
+    }
     #[test]
     fn malformed_policy_fails_closed() {
         assert!(inventory("function* f(){yield a; ").is_err());

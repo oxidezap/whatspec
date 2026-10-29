@@ -26,10 +26,21 @@ const cases = [
   {name:'status-same-base', count:3, same:true, kind:'status', scope:'status', expected:['forgetStatus','remoteRegId','processBundle','sameBaseKey','deleteSession']},
   {name:'broadcast', count:1, kind:'broadcast', expected:['forgetBroadcast','remoteRegId','processBundle']},
 ];
+function checkArgs(c,name,args,requester,bundle) {
+  const scope=c.scope??'default';
+  const expected={remoteRegId:[requester,scope],saveBaseKey:[requester,'SYNTHETIC-RETRY',scope],sameBaseKey:[requester,'SYNTHETIC-RETRY',scope],
+    deleteSession:c.name==='mismatch-continues-at-two'?[requester]:[requester,c.scope==='status'?'status':undefined],
+    forgetGroup:['group',[requester]],forgetStatus:[[requester]],forgetBroadcast:[requester,'fictional-chat']};
+  if(name==='processBundle') {
+    assert.equal(args.length,1);
+    assert.deepEqual({...args[0]},{is1on1:!c.kind&&!c.peer,keyBundle:bundle,offline:false,remoteRegId:7,requester,savedRegId:c.saved===undefined?7:c.saved,sessionScope:scope});
+  } else assert.deepEqual(args.map(a=>Array.isArray(a)?Array.from(a):a),expected[name],`${c.name}: ${name} arguments`);
+}
 function run(c, {failAt, cancelAt} = {}, body = source) {
   const effects = [], completions = [];
-  function effect(name, result, ...args) { effects.push({name,args}); return {effect:name,result}; }
+  function effect(name, result, ...args) { checkArgs(c,name,args,requester,bundle); effects.push({name,args}); return {effect:name,result}; }
   const requester = {id:'fictional-device'};
+  const bundle=c.handled?{}:undefined;
   const session = {
     getRemoteRegId: (...a) => effect('remoteRegId', c.saved === undefined ? 7 : c.saved, ...a),
     deleteRemoteSession: (...a) => effect('deleteSession', undefined, ...a),
@@ -39,9 +50,9 @@ function run(c, {failAt, cancelAt} = {}, body = source) {
   const dependencies = {
     WALogger: {LOG(){}}, WAWebSessionScope: {SessionScope:{DEFAULT:'default',STATUS:'status'}},
     WAWebChatCollection:{ChatCollection:{get:() => ({id:'group'})}},
-    WAWebApiParticipantStore:{markForgetSenderKey:(...a)=>{effects.push({name:'forgetGroup',args:a});}},
+    WAWebApiParticipantStore:{markForgetSenderKey:(...a)=>{checkArgs(c,'forgetGroup',a,requester,bundle);effects.push({name:'forgetGroup',args:a});}},
     WAWebUserPrefsStatus:{markForgetStatusSenderKey:(...a)=>effect('forgetStatus',undefined,...a)},
-    WAWebBroadcastSenderKeyManager:{markForgetBroadcastSenderKey:(...a)=>{effects.push({name:'forgetBroadcast',args:a});}},
+    WAWebBroadcastSenderKeyManager:{markForgetBroadcastSenderKey:(...a)=>{checkArgs(c,'forgetBroadcast',a,requester,bundle);effects.push({name:'forgetBroadcast',args:a});}},
     WAWebWidFactory:{asUserWidOrThrow:x=>x,createDeviceWidFromWidOrThrow:x=>x},
     WAWebSignal:{Session:session}, WAWebUserPrefsMeUser:{isMeAccount:()=>!!c.peer},
     WAWebProcessRetryKeyBundle:{processKeyBundle:x=>effect('processBundle',!!c.handled,x)},
@@ -51,7 +62,7 @@ function run(c, {failAt, cancelAt} = {}, body = source) {
   const context=vm.createContext({o:lookup,r:lookup,e:undefined,s:undefined,u:undefined,babelHelpers:{taggedTemplateLiteralLoose:x=>x}});
   const factory = new vm.Script(`(${body})`).runInContext(context,{timeout:1000});
   const chat={isGroup:()=>c.kind==='group',isStatus:()=>c.kind==='status',isBroadcastList:()=>c.kind==='broadcast',isUser:()=>!c.kind,toString:()=>'fictional-chat'};
-  const request={from:requester,offline:false,originalMsgId:'SYNTHETIC-RETRY',regId:7,retryCount:c.count,keyBundle:c.handled ? {} : undefined};
+  const request={from:requester,offline:false,originalMsgId:'SYNTHETIC-RETRY',regId:7,retryCount:c.count,keyBundle:bundle};
   const iterator=factory(chat,request,c.scope);
   let step, input;
   try {
@@ -84,10 +95,10 @@ for(const c of cases) {
   if(c.name==='same-base') assert.equal(trace.effects.at(-1).args[1],undefined);
 }
 // Mutation tests demonstrate that the reviewed scenarios detect policy drift.
-for(const [from,to,name] of [['_===S','_!==S','two-guard'],['_>S','_<S','collision-guard'],['if(R)','if(!R)','collision-result']]) {
+for(const [from,to,name] of [['_===S','_!==S','two-guard'],['_>S','_<S','collision-guard'],['if(R)','if(!R)','collision-result'],['getRemoteRegId(f,g)','getRemoteRegId(f)','registration-scope'],['saveSessionBaseKey(f,d,g)','saveSessionBaseKey(f,"WRONG",g)','base-message-id'],['remoteRegId:p','remoteRegId:99','bundle-registration']]) {
   assert.ok(source.includes(from),`mutation anchor ${name}`);
   const mutated=source.replace(from,to);
-  assert.ok(cases.some(c=>JSON.stringify(run(c).effects.map(e=>e.name))!==JSON.stringify(run(c,{},mutated).effects.map(e=>e.name))),`undetected mutation ${name}`);
+  assert.ok(cases.some(c=>JSON.stringify([run(c).terminal,run(c).effects.map(e=>e.name)])!==JSON.stringify([run(c,{},mutated).terminal,run(c,{},mutated).effects.map(e=>e.name)])),`undetected mutation ${name}`);
 }
 // Qualify the key inclusion gate at the first suspension of the receipt helper.
 // Calls after this boundary, PQ flags and eventual key upload are outside scope.
@@ -125,4 +136,4 @@ else {
   assert.equal(fixture.sourceSha256,record.sourceSha256);
   assert.equal(fixture.receiptSourceSha256,receipt.sourceSha256);
 }
-console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; 11 semantic mutations detected`);
+console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; 18 semantic mutations detected`);

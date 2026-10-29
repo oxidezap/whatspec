@@ -41,7 +41,7 @@ function assertCase(source,c){
  const t=run(source,c);assert.equal(t.terminal,'return',c.name);assert.equal(t.decision,c.expected,c.name);
  const expected=c.missing?['infoLookup','alternateMsgKey',...(c.alternate?['infoLookup']:[])]:['infoLookup'];
  assert.deepEqual(t.effects.map(e=>e.name),expected,c.name);
- for(const call of t.effects.filter(e=>e.name==='infoLookup'))assert.equal(call.query[1],'fictional-receiver',c.name);
+ for(const [index,call] of t.effects.filter(e=>e.name==='infoLookup').entries())assert.deepEqual(Array.from(call.query),[index===0?'synthetic-primary-key':'synthetic-alternate-key','fictional-receiver'],c.name);
  return t;
 }
 export function eligibilityOracle(audit){
@@ -57,6 +57,6 @@ export function eligibilityOracle(audit){
   assert.deepEqual(cut.effects.map(e=>e.name),t.effects.slice(0,length).map(e=>e.name));
  }}
  const mutations=[['n>=t','n>t','identity-row-boundary'],['n>=t','n<=t','identity-row-order'],['m.delivery!=null','m.delivery==null','primary-delivery-guard'],['if(!m)','if(m)','alternate-record-guard']];
- for(const[from,to,name]of mutations){assert.ok(source.includes(from),`missing eligibility mutation ${name}`);let caught=false;for(const c of cases)try{assertCase(source.replace(from,to),c)}catch{caught=true;break;}assert.ok(caught,`undetected eligibility mutation ${name}`);}
+ for(const[from,to,name]of [...mutations,['[r.toString(),i]','["WRONG-MESSAGE",i]','primary-message-key'],['[_.toString(),i]','["WRONG-MESSAGE",i]','alternate-message-key']]){assert.ok(source.includes(from),`missing eligibility mutation ${name}`);let caught=false;for(const c of cases)try{assertCase(source.replace(from,to),c)}catch{caught=true;break;}assert.ok(caught,`undetected eligibility mutation ${name}`);}
  return {formatVersion:1,sourceSha256:record.sourceSha256,cases:cases.map(c=>({...c,effects:assertCase(source,c).effects.map(e=>e.name)})),mutations:mutations.map(m=>m[2])};
 }

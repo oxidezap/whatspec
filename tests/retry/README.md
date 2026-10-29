@@ -28,21 +28,25 @@ not a claim about JavaScript Promise cancellation or Rust task cancellation.
 
 The 11 scenarios cover retry 1/2/>2, reg-id mismatch, peer mismatch, handled
 bundle, group/status/broadcast sender-key invalidation and scope on collision
-delete. Three session mutations change retry-2, retry->2 and collision guards and
-must be detected. No defaults are promoted to effective account configuration.
+delete. Six session mutations change retry-2, retry->2, collision guards, scope,
+message ID and bundle registration arguments and must be detected. All session
+effects assert their arguments, including failure/interruption prefixes. No defaults are promoted to effective account configuration.
 The receipt key gate also has 14 cases at its first suspension, covering
 retry counts 0 through 6 with stateless addressing on and off. The rest of
 HandleRetryRequest and SendRetryReceiptJob has syntax drift coverage only.
 The actual getMsgIfAuthorized generator has 12 scenarios covering identity
 row binding, changed identity, already-delivered rejection, alternate-device
 lookup restricted to missing records, coex precedence, addons and revoked-row
-binding. Four additional mutations alter identity binding and authorization
-guards and must fail the semantic oracle even without a hash check. Every
+binding. Six authorization mutations alter identity binding, message key fields and
+authorization guards and must fail the semantic oracle even without a hash check. Every
 yield is also resumed with rejection or generator interruption. Eligibility
 facts are synthetic. The actual isRetryEligible generator also has 12 cases
 for identity-row ordering/equality, companion versus primary identity changes,
-delivery presence and alternate message-info records. Four mutations change
-those guards. Its frozen enum is checked against captured source, including
+delivery presence and alternate message-info records. Six eligibility mutations change
+those guards and primary/alternate lookup keys. The oracles check constructed
+message-key fields and both lookup keys. The exported mutation lists retain
+their original four entries for fixture compatibility; the additional argument
+mutations run in the oracle without changing that metadata. Its frozen enum is checked against captured source, including
 upstream's ELGIBLE spelling. Record storage and coex eligibility providers remain
 stubbed; their internal behavior is not qualified. These cases live separately
 in eligibility-cases.json so the existing consumer fixture pin remains stable.
