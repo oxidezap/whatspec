@@ -421,13 +421,77 @@ impl Lower {
                 if let Some((object, "SyncdFatalErrorType")) = as_member(&m.object)
                     && self.module(object) == Some("WAWebSyncdMetricFatalError")
                 {
+                    if !matches!(
+                        m.property.name.as_str(),
+                        "MISSING_EXTERNAL_BLOB_REFERENCE_MEDIA_KEY"
+                            | "MISSING_EXTERNAL_BLOB_REFERENCE_DIRECT_PATH"
+                            | "MISSING_EXTERNAL_BLOB_REFERENCE_FILE_SHA256"
+                            | "MISSING_EXTERNAL_BLOB_REFERENCE_FILE_ENC_SHA256"
+                            | "MISSING_MUTATION_OPERATION"
+                            | "MISSING_MUTATION_RECORD"
+                            | "MISSING_PATCH_VERSION"
+                            | "PATCH_WITH_BOTH_INLINE_AND_EXTERNAL_MUTATIONS"
+                            | "MISSING_PATCH_SNAPSHOT_MAC"
+                            | "MISSING_PATCH_MAC"
+                            | "MISSING_PATCH_KEY_ID"
+                            | "MISSING_MUTATION_INDEX"
+                            | "MISSING_MUTATION_VALUE"
+                            | "MISSING_MUTATION_KEY_ID"
+                            | "MISSING_SNAPSHOT_VERSION"
+                            | "MISSING_SNAPSHOT_MAC"
+                            | "MISSING_SNAPSHOT_KEY_ID"
+                            | "MISSING_ACTION_VALUE"
+                            | "MISSING_ACTION_TIMESTAMP"
+                    ) {
+                        return Err("unqualified fatal metric identity".into());
+                    }
                     E::Metric {
                         name: m.property.name.to_string(),
                     }
                 } else {
+                    let object = self.expr(&m.object)?;
+                    let field = m.property.name.as_str();
+                    let own_literal = matches!(&object,E::Object { fields } if fields.iter().any(|(name,_)| name == field));
+                    if !own_literal
+                        && !matches!(
+                            field,
+                            "binarySyncData"
+                                | "blob"
+                                | "clientDebugData"
+                                | "collection"
+                                | "deviceIndex"
+                                | "directPath"
+                                | "exitCode"
+                                | "externalMutations"
+                                | "fileEncSha256"
+                                | "fileSha256"
+                                | "fileSizeBytes"
+                                | "handle"
+                                | "id"
+                                | "index"
+                                | "indexMac"
+                                | "keyId"
+                                | "length"
+                                | "byteLength"
+                                | "mac"
+                                | "mediaKey"
+                                | "mutations"
+                                | "operation"
+                                | "patchMac"
+                                | "record"
+                                | "records"
+                                | "snapshotMac"
+                                | "timestamp"
+                                | "value"
+                                | "valueMac"
+                                | "version"
+                        )
+                    {
+                        return Err(format!("unqualified native data property {field}"));
+                    }
                     E::Field {
-                        object: Box::new(self.expr(&m.object)?),
-                        field: m.property.name.to_string(),
+                        object: Box::new(object),
+                        field: field.into(),
                     }
                 }
             }
@@ -449,10 +513,21 @@ impl Lower {
                     negate: b.operator == B::Inequality,
                 }
             }
-            Expression::BinaryExpression(b) if b.operator == B::GreaterThan => E::Greater {
-                left: Box::new(self.expr(&b.left)?),
-                right: Box::new(self.expr(&b.right)?),
-            },
+            Expression::BinaryExpression(b) if b.operator == B::GreaterThan => {
+                let left = self.expr(&b.left)?;
+                let right = self.expr(&b.right)?;
+                let numeric = |value: &E| {
+                    matches!(value, E::Integer { .. })
+                        || matches!(value, E::Field { object, field } if field == "length" && self.ordinary_array(object))
+                };
+                if !numeric(&left) || !numeric(&right) {
+                    return Err("relational operands are not qualified numeric values".into());
+                }
+                E::Greater {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            }
             Expression::ConditionalExpression(c) => E::Choose {
                 condition: Box::new(self.expr(&c.test)?),
                 yes: Box::new(self.expr(&c.consequent)?),
@@ -493,8 +568,8 @@ impl Lower {
                         return Err("unsupported object property".into());
                     }
                     let key = p.key.static_name().ok_or("dynamic object key")?.to_string();
-                    if key == "__proto__" {
-                        return Err("prototype-setting object properties are not qualified".into());
+                    if matches!(key.as_str(), "__proto__" | "toString" | "valueOf") {
+                        return Err("prototype-setting or coercion-override object properties are not qualified".into());
                     }
                     if fields.iter().any(|(name, _)| name == &key) {
                         return Err("duplicate object property".into());

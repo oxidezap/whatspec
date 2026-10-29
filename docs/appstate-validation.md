@@ -26,7 +26,12 @@ borrow their input. String length counts UTF-16 units. Named function expression
 default parameters, loader-shadowing factory bindings, prototype-setting literals
 and lone-surrogate string literals fail extraction. Mapping requires a qualified
 ordinary-array origin through stable bindings; typed-array or unknown receivers
-and callback writes to captured slots are rejected.
+and callback writes to captured slots are rejected. Native data-property reads
+are closed to the qualified protocol fields, `length`, `byteLength` and explicit
+own literal fields. Other intrinsic reads and object coercion overrides fail
+extraction instead of assuming JavaScript prototype behavior. Relational guards
+are qualified only for integer literals and ordinary-array lengths; raw LongInt
+or object coercion needs a separately qualified extension.
 There is no JavaScript runtime or IR interpreter. `Transforms` supplies the
 protobuf decoder and representation conversions. `WASyncdKeyTypes.toSyncKeyId` is
 an identity operation in this snapshot. `WALongInt.numberOrThrowIfTooLarge` checks

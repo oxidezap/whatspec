@@ -404,3 +404,37 @@ fn relational_guards_coerce_nullish_and_string_values() {
     assert!(Value::Text("0x10".into()).greater_than(&Value::Number(8.0)));
     assert!(!Value::Text("😀".into()).greater_than(&Value::Text("\u{e000}".into())));
 }
+
+#[allow(dead_code, clippy::all)]
+mod bytes_regression {
+    include!("fixtures/appstate_bytes.rs.txt");
+}
+#[test]
+fn accepted_byte_length_guard_matches_official_execution() {
+    const SOURCE: &str = include_str!("../../wa-appstate/tests/fixtures/server_sync_protobuf.js");
+    let ir = wa_appstate::validation::extract(
+        &SOURCE.replace("if(!s)throw", "if(!s||!s.byteLength)throw"),
+        "test",
+    )
+    .unwrap();
+    assert_eq!(
+        wa_codegen::generate_appstate_validation(&ir).unwrap(),
+        include_str!("fixtures/appstate_bytes.rs.txt")
+    );
+    let cases: Vec<Json> =
+        serde_json::from_str(include_str!("fixtures/appstate_bytes_cases.json")).unwrap();
+    for case in cases {
+        let result = bytes_regression::validate_external_blob_reference(
+            &mut OracleTransforms,
+            Value::Text("test".into()),
+            read(&case["input"]),
+        );
+        if let Some(error) = case.get("error") {
+            let actual = result.unwrap_err();
+            assert_eq!(actual.metric.as_deref(), error["metric"].as_str());
+            assert_eq!(actual.class, error["class"].as_str().unwrap());
+        } else {
+            assert_eq!(write(result.unwrap()), case["result"]);
+        }
+    }
+}

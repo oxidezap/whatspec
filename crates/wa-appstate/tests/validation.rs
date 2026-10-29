@@ -199,3 +199,40 @@ fn map_callbacks_cannot_change_captured_receiver_types() {
             .contains("callback assignment to a captured slot")
     );
 }
+
+#[test]
+fn reject_unqualified_intrinsics_and_object_coercion_overrides() {
+    for projection in [
+        "({toString:0})>0",
+        "({valueOf:0})>0",
+        "s.byteOffset",
+        "s.buffer",
+        "s.constructor",
+        "s.toString",
+        "s.unknownProperty",
+    ] {
+        let changed = SOURCE.replace("fileSizeBytes:i", &format!("fileSizeBytes:{projection}"));
+        assert!(extract(&changed, "test").is_err(), "{projection}");
+    }
+    let changed = SOURCE.replace("if(!s)throw", "if(!s||!s.byteLength)throw");
+    assert_ne!(changed, SOURCE);
+    assert!(extract(&changed, "test").is_ok());
+}
+
+#[test]
+fn unknown_metric_properties_do_not_become_native_identities() {
+    let changed = SOURCE.replace("MISSING_PATCH_VERSION", "UNQUALIFIED_METRIC");
+    assert!(
+        extract(&changed, "test")
+            .unwrap_err()
+            .contains("unqualified fatal metric identity")
+    );
+}
+
+#[test]
+fn direct_object_and_long_relational_coercion_fail_closed() {
+    for projection in ["({size:i})>0", "i>0", "s>0", "({length:i}).length>0"] {
+        let changed = SOURCE.replace("fileSizeBytes:i", &format!("fileSizeBytes:{projection}"));
+        assert!(extract(&changed, "test").is_err(), "{projection}");
+    }
+}
