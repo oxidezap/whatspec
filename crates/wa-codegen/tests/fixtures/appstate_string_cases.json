@@ -1,0 +1,57 @@
+[
+  {
+    "method": "validateExternalBlobReference",
+    "input": {
+      "mediaKey": {
+        "$bytes": []
+      },
+      "directPath": "/test",
+      "fileSha256": {
+        "$bytes": []
+      },
+      "fileEncSha256": {
+        "$bytes": []
+      },
+      "handle": "",
+      "fileSizeBytes": 0
+    },
+    "metric": "TEST_METRIC",
+    "result": {
+      "mediaKey": {
+        "$bytes": []
+      },
+      "directPath": "/test",
+      "handle": "",
+      "fileSizeBytes": 0,
+      "fileSha256": {
+        "$bytes": []
+      },
+      "fileEncSha256": {
+        "$bytes": []
+      }
+    }
+  },
+  {
+    "method": "validateExternalBlobReference",
+    "input": {
+      "mediaKey": {
+        "$bytes": []
+      },
+      "directPath": "",
+      "fileSha256": {
+        "$undefined": true
+      },
+      "fileEncSha256": {
+        "$undefined": true
+      },
+      "handle": "",
+      "fileSizeBytes": 0
+    },
+    "metric": "TEST_METRIC",
+    "error": {
+      "class": "SyncdFatalError",
+      "metric": "MISSING_EXTERNAL_BLOB_REFERENCE_DIRECT_PATH",
+      "message": "missing external blob reference direct path"
+    }
+  }
+]

@@ -9,6 +9,13 @@ rust-version.workspace = true
 description = "Native tooling: extract WhatsApp AppState (syncd) action schemas from WA Web bundles. Not WASM-targeted."
 
 [dependencies]
+sha2 = "0.10"
+oxc_allocator = { workspace = true }
+oxc_ast = { workspace = true }
+oxc_ast_visit = { workspace = true }
+oxc_span = { workspace = true }
+oxc_syntax = { workspace = true }
+wa-oxc = { workspace = true }
 regex = "1"
 wa-ir = { workspace = true }
 wa-text = { workspace = true }

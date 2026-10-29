@@ -15,6 +15,7 @@
 
 pub mod abprops;
 pub mod appstate;
+pub mod appstate_validation;
 pub mod enums;
 pub mod incoming;
 pub mod iq;
@@ -29,6 +30,7 @@ pub mod wasm;
 
 pub use abprops::*;
 pub use appstate::*;
+pub use appstate_validation::*;
 pub use enums::*;
 pub use incoming::*;
 /// `true` — the serde default for a flag whose absence means "yes".

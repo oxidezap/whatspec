@@ -5,6 +5,7 @@
 
 mod abprops_export;
 mod appstate_export;
+mod appstate_validation;
 mod emit;
 mod enums_export;
 mod fields;
@@ -21,6 +22,8 @@ mod wam;
 
 pub use abprops_export::generate_abprops;
 pub use appstate_export::generate_appstate_schemas;
+pub use appstate_validation::{generate_appstate_batch_validation, generate_appstate_validation};
+pub const APPSTATE_VALIDATION_VALUE: &str = include_str!("appstate_validation_value.rs.txt");
 pub use enums_export::generate_enums;
 pub use iq_checked::{IqGenerationDiagnostic, diagnose_iq_generation, generate_iq_checked};
 pub use mex_export::generate_mex_operations;
