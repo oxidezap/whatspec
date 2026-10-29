@@ -20,4 +20,7 @@ pub struct GroupUnlinkRow {
     pub unlink_type: Option<String>,
     pub reason: Option<String>,
     pub action_type: Option<String>,
+    /// The official plain-object lookup returned an inherited non-string value.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unsupported_action: bool,
 }

@@ -1,0 +1,536 @@
+//! Source-backed qualification of the LINK branch. This intentionally accepts
+//! only the complete observed control/data-flow shape. Unsupported constructs
+//! reject the contract rather than publishing a partial normalized action.
+use std::collections::{BTreeMap, HashMap};
+
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{
+    BindingPattern, Expression, ObjectPropertyKind, Statement, SwitchCase, VariableDeclarationKind,
+};
+use oxc_ast_visit::{Visit, walk};
+use wa_ir::group_link::{GroupLinkContract, GroupLinkField, GroupLinkRow};
+use wa_oxc::{arg_expr, as_call, as_identifier, as_member, as_string_lit};
+
+use crate::actions::ConstResolver;
+
+/// Standard Object.prototype string properties. A plain `table[kind]` lookup
+/// exposes these inherited non-string values; they are unsupported normalized
+/// action identities, not members of the ordinary undefined fallback class.
+pub const OBJECT_PROTOTYPE_STRING_KEYS: &[&str] = &[
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+    "__proto__",
+    "constructor",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "toString",
+    "valueOf",
+];
+
+/// Slices must contain complete Metro definitions from one verified bundle set.
+/// Resolve the case's tag and all action values against their actual modules.
+pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, String> {
+    let source = slices
+        .get("WAWebHandleGroupNotification")
+        .ok_or("missing group handler")?;
+    let allocator = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&allocator, source);
+    if parsed.panicked || !parsed.errors.is_empty() {
+        return Err("invalid complete group module".into());
+    }
+    crate::group_scope::validate_import_bindings(
+        &parsed.program.body,
+        slices.keys().map(|name| name.to_string()),
+    )?;
+    struct Extract<'s> {
+        resolver: ConstResolver<'s>,
+        results: Vec<Result<GroupLinkContract, String>>,
+    }
+    impl<'a> Visit<'a> for Extract<'_> {
+        fn visit_switch_case(&mut self, case: &SwitchCase<'a>) {
+            if let Some(test) = &case.test
+                && is_link_case(test)
+            {
+                self.results.push(project_case(case, &self.resolver));
+            }
+            walk::walk_switch_case(self, case);
+        }
+    }
+    let mut visitor = Extract {
+        resolver: ConstResolver::new(slices),
+        results: vec![],
+    };
+    visitor.visit_program(&parsed.program);
+    if visitor.results.len() != 1 {
+        return Err(format!(
+            "expected one LINK case, found {}",
+            visitor.results.len()
+        ));
+    }
+    visitor.results.remove(0)
+}
+
+fn is_link_case(e: &Expression<'_>) -> bool {
+    let Some((object, "LINK")) = as_member(e) else {
+        return false;
+    };
+    let Some((owner, "GROUP_NOTIFICATION_TAG")) = as_member(object) else {
+        return false;
+    };
+    let Some(require) = as_call(owner) else {
+        return false;
+    };
+    require.arguments.len() == 1
+        && as_identifier(&require.callee).is_some()
+        && require
+            .arguments
+            .first()
+            .and_then(arg_expr)
+            .and_then(as_string_lit)
+            == Some("WAWebHandleGroupNotificationConst")
+}
+
+fn project_case(
+    case: &SwitchCase<'_>,
+    resolver: &ConstResolver<'_>,
+) -> Result<GroupLinkContract, String> {
+    let wire_tag = resolver
+        .resolve(case.test.as_ref().ok_or("missing LINK test")?)
+        .ok_or("unresolved LINK wire tag")?;
+    let [Statement::BlockStatement(block)] = case.consequent.as_slice() else {
+        return Err("unsupported LINK case statement sequence".into());
+    };
+    let [
+        Statement::VariableDeclaration(vars),
+        Statement::ReturnStatement(ret),
+    ] = block.body.as_slice()
+    else {
+        return Err("unsupported LINK block statement sequence".into());
+    };
+    if vars.kind != VariableDeclarationKind::Var {
+        return Err("lexical LINK declarations need scope qualification".into());
+    }
+    let [kind, table] = vars.declarations.as_slice() else {
+        return Err("changed LINK binding sequence".into());
+    };
+    let kind_name = kind
+        .id
+        .get_identifier_name()
+        .ok_or("destructured link type")?;
+    let table_name = table
+        .id
+        .get_identifier_name()
+        .ok_or("destructured action table")?;
+    let kind_read =
+        as_call(kind.init.as_ref().ok_or("missing link type read")?).ok_or("non-call link type")?;
+    let (node, method) = as_member(&kind_read.callee).ok_or("unsupported link type receiver")?;
+    let node_name = as_identifier(node).ok_or("non-local link node")?;
+    if method != "attrString" || kind_read.arguments.len() != 1 {
+        return Err("unsupported link type accessor".into());
+    }
+    let link_type_attribute = kind_read
+        .arguments
+        .first()
+        .and_then(arg_expr)
+        .and_then(as_string_lit)
+        .ok_or("dynamic link type attribute")?
+        .to_string();
+    let Expression::ObjectExpression(table_object) =
+        table.init.as_ref().ok_or("missing link table")?
+    else {
+        return Err("non-object link table".into());
+    };
+    let mut actions = BTreeMap::new();
+    for property in &table_object.properties {
+        let ObjectPropertyKind::ObjectProperty(p) = property else {
+            return Err("spread in link action table".into());
+        };
+        if p.computed {
+            return Err("computed action key".into());
+        }
+        let key = p
+            .key
+            .static_name()
+            .ok_or("dynamic action key")?
+            .into_owned();
+        let action = resolve_pure_constant(&p.value, resolver)?;
+        if actions.insert(key, action).is_some() {
+            return Err("duplicate action key".into());
+        }
+    }
+    // The projection is qualified for this complete three-way source branch.
+    // A changed family needs explicit qualification, never a thinner output.
+    if actions.keys().map(String::as_str).collect::<Vec<_>>()
+        != ["parent_group", "sibling_group", "sub_group"]
+    {
+        return Err("changed or incomplete LINK type family".into());
+    }
+    let Expression::ObjectExpression(output) = ret.argument.as_ref().ok_or("empty LINK return")?
+    else {
+        return Err("non-object LINK return".into());
+    };
+    let fields = object_fields(output)?;
+    if fields
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>()
+        != ["actionType", "groupDatas"]
+    {
+        return Err("changed LINK output sequence".into());
+    }
+    let Expression::ComputedMemberExpression(lookup) = fields[0].1 else {
+        return Err("non-table action lookup".into());
+    };
+    if as_identifier(&lookup.object) != Some(table_name.as_str())
+        || as_identifier(&lookup.expression) != Some(kind_name.as_str())
+    {
+        return Err("changed action lookup binding".into());
+    }
+    let groups = as_call(fields[1].1).ok_or("non-call group projection")?;
+    let Some((receiver, "mapChildrenWithTag")) = as_member(&groups.callee) else {
+        return Err("unsupported group projection".into());
+    };
+    if as_identifier(receiver) != Some(node_name) || groups.arguments.len() != 2 {
+        return Err("changed group projection receiver/arity".into());
+    }
+    let group_child_tag = groups
+        .arguments
+        .first()
+        .and_then(arg_expr)
+        .and_then(as_string_lit)
+        .ok_or("dynamic group tag")?
+        .to_string();
+    let Some(Expression::FunctionExpression(callback)) = groups.arguments.get(1).and_then(arg_expr)
+    else {
+        return Err("unsupported group callback".into());
+    };
+    if callback.r#async
+        || callback.generator
+        || callback.params.items.len() != 1
+        || callback.params.rest.is_some()
+        || callback.params.items[0].initializer.is_some()
+        || !matches!(
+            callback.params.items[0].pattern,
+            BindingPattern::BindingIdentifier(_)
+        )
+    {
+        return Err("changed callback kind/parameters".into());
+    }
+    let parameter = callback.params.items[0]
+        .pattern
+        .get_identifier_name()
+        .ok_or("destructured group parameter")?;
+    let body = callback.body.as_ref().ok_or("empty group callback")?;
+    let [Statement::ReturnStatement(group_return)] = body.statements.as_slice() else {
+        return Err("effects or statements in group projection".into());
+    };
+    let Some(Expression::ObjectExpression(group_output)) = &group_return.argument else {
+        return Err("non-object group projection".into());
+    };
+    let group_fields = object_fields(group_output)?;
+    if group_fields
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>()
+        != ["id", "subject", "subjectTime", "hiddenSubgroup"]
+    {
+        return Err("changed group output sequence".into());
+    }
+    let id = as_call(group_fields[0].1).ok_or("missing group ID conversion")?;
+    let Some((owner, "groupJidToWid")) = as_member(&id.callee) else {
+        return Err("changed group ID conversion".into());
+    };
+    let require = as_call(owner).ok_or("non-import group ID conversion")?;
+    if require.arguments.len() != 1
+        || as_identifier(&require.callee).is_none()
+        || require
+            .arguments
+            .first()
+            .and_then(arg_expr)
+            .and_then(as_string_lit)
+            != Some("WAWebJidToWid")
+        || id.arguments.len() != 1
+    {
+        return Err("effectful or changed group ID conversion".into());
+    }
+    let mut reads = vec![read_field(
+        "id",
+        id.arguments
+            .first()
+            .and_then(arg_expr)
+            .ok_or("missing jid argument")?,
+        parameter.as_str(),
+        "attrGroupJid",
+    )?];
+    reads.push(read_field(
+        "subject",
+        group_fields[1].1,
+        parameter.as_str(),
+        "attrString",
+    )?);
+    reads.push(read_field(
+        "subjectTime",
+        group_fields[2].1,
+        parameter.as_str(),
+        "attrInt",
+    )?);
+    let Expression::ConditionalExpression(hidden) = group_fields[3].1 else {
+        return Err("missing hidden-subgroup gate".into());
+    };
+    let Expression::BinaryExpression(guard) = &hidden.test else {
+        return Err("unsupported hidden-subgroup guard".into());
+    };
+    if guard.operator != oxc_syntax::operator::BinaryOperator::StrictInequality
+        || as_identifier(&guard.left) != Some(kind_name.as_str())
+    {
+        return Err("unsupported hidden-subgroup condition".into());
+    }
+    let excluded = as_string_lit(&guard.right).ok_or("dynamic hidden-subgroup exclusion")?;
+    if !actions.contains_key(excluded) {
+        return Err("hidden-subgroup exclusion outside qualified type family".into());
+    }
+    let hidden_read = read_field(
+        "hiddenSubgroup",
+        &hidden.consequent,
+        parameter.as_str(),
+        "hasChild",
+    )?;
+    let Expression::UnaryExpression(absent) = &hidden.alternate else {
+        return Err("non-absent hidden-subgroup alternate".into());
+    };
+    if absent.operator != oxc_syntax::operator::UnaryOperator::Void
+        || wa_oxc::as_int(&absent.argument) != Some(0)
+    {
+        return Err("effectful/non-void hidden-subgroup alternate".into());
+    }
+    let mut rows = vec![GroupLinkRow {
+        link_type: None,
+        action_type: None,
+        unsupported_action: false,
+        hidden_subgroup_child: Some(hidden_read.wire_name.clone()),
+    }];
+    for (kind, action) in actions {
+        let child = (kind != excluded).then(|| hidden_read.wire_name.clone());
+        rows.push(GroupLinkRow {
+            link_type: Some(kind),
+            action_type: Some(action),
+            unsupported_action: false,
+            hidden_subgroup_child: child,
+        });
+    }
+    for key in OBJECT_PROTOTYPE_STRING_KEYS {
+        rows.push(GroupLinkRow {
+            link_type: Some((*key).to_string()),
+            action_type: None,
+            unsupported_action: true,
+            hidden_subgroup_child: Some(hidden_read.wire_name.clone()),
+        });
+    }
+    rows.sort_by(|a, b| a.link_type.cmp(&b.link_type));
+    Ok(GroupLinkContract {
+        module_name: "WAWebHandleGroupNotification".into(),
+        start_byte: block.span.start as usize,
+        end_byte: block.span.end as usize,
+        wire_tag,
+        link_type_attribute,
+        group_child_tag,
+        group_fields: reads,
+        rows,
+    })
+}
+
+fn resolve_pure_constant(
+    expr: &Expression<'_>,
+    resolver: &ConstResolver<'_>,
+) -> Result<String, String> {
+    let (object, _) = as_member(expr).ok_or("non-member action constant")?;
+    let (owner, _) = as_member(object).ok_or("non-export action constant")?;
+    let require = as_call(owner).ok_or("non-import action constant")?;
+    if require.arguments.len() != 1 || as_identifier(&require.callee).is_none() {
+        return Err("effectful constant import".into());
+    }
+    resolver
+        .resolve(expr)
+        .ok_or_else(|| "unresolved action constant".into())
+}
+fn read_field(
+    name: &str,
+    expr: &Expression<'_>,
+    parameter: &str,
+    method: &str,
+) -> Result<GroupLinkField, String> {
+    let call = as_call(expr).ok_or("non-call group field")?;
+    let (receiver, actual) = as_member(&call.callee).ok_or("dynamic group accessor")?;
+    if as_identifier(receiver) != Some(parameter) || actual != method || call.arguments.len() != 1 {
+        return Err("changed group field receiver/method/arity".into());
+    }
+    let wire = call
+        .arguments
+        .first()
+        .and_then(arg_expr)
+        .and_then(as_string_lit)
+        .ok_or("nonliteral group field")?;
+    Ok(GroupLinkField {
+        name: name.into(),
+        wire_name: wire.into(),
+        method: method.into(),
+    })
+}
+fn object_fields<'b, 'a>(
+    object: &'b oxc_ast::ast::ObjectExpression<'a>,
+) -> Result<Vec<(String, &'b Expression<'a>)>, String> {
+    let mut fields = vec![];
+    for property in &object.properties {
+        let ObjectPropertyKind::ObjectProperty(p) = property else {
+            return Err("spread in output object".into());
+        };
+        if p.computed {
+            return Err("computed output key".into());
+        }
+        let key = p
+            .key
+            .static_name()
+            .ok_or("nonliteral output key")?
+            .into_owned();
+        if fields.iter().any(|(name, _)| name == &key) {
+            return Err("duplicate output key".into());
+        }
+        fields.push((key, &p.value));
+    }
+    Ok(fields)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const HANDLER: &str =
+        include_str!("../../../tests/conformance/groups/sources/WAWebHandleGroupNotification.js");
+    const TYPES: &str = include_str!("../../../tests/conformance/groups/sources/WAWebGroupType.js");
+    const TAGS: &str = include_str!(
+        "../../../tests/conformance/groups/sources/WAWebHandleGroupNotificationConst.js"
+    );
+    fn extract(handler: &str) -> Result<GroupLinkContract, String> {
+        extract_link(&HashMap::from([
+            ("WAWebHandleGroupNotification", handler),
+            ("WAWebGroupType", TYPES),
+            ("WAWebHandleGroupNotificationConst", TAGS),
+        ]))
+    }
+    #[test]
+    fn official_link_projection_preserves_absent_versus_false() {
+        let contract = extract(HANDLER).unwrap();
+        assert_eq!(contract.wire_tag, "link");
+        assert_eq!(contract.rows.len(), 16);
+        assert_eq!(
+            contract
+                .rows
+                .iter()
+                .filter(|r| r.unsupported_action)
+                .count(),
+            12
+        );
+        for key in ["toString", "__proto__"] {
+            let row = contract
+                .rows
+                .iter()
+                .find(|r| r.link_type.as_deref() == Some(key))
+                .unwrap();
+            assert!(row.unsupported_action);
+            assert!(row.action_type.is_none());
+        }
+        let parent = contract
+            .rows
+            .iter()
+            .find(|r| r.link_type.as_deref() == Some("parent_group"))
+            .unwrap();
+        assert_eq!(parent.action_type.as_deref(), Some("parent_group_link"));
+        assert!(parent.hidden_subgroup_child.is_none());
+        for row in contract
+            .rows
+            .iter()
+            .filter(|r| r.link_type.as_deref() != Some("parent_group"))
+        {
+            assert_eq!(row.hidden_subgroup_child.as_deref(), Some("hidden_group"));
+        }
+        assert_eq!(
+            contract
+                .group_fields
+                .iter()
+                .map(|f| (f.name.as_str(), f.method.as_str(), f.wire_name.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("id", "attrGroupJid", "jid"),
+                ("subject", "attrString", "subject"),
+                ("subjectTime", "attrInt", "s_t")
+            ]
+        );
+    }
+    #[test]
+    fn changing_the_guard_changes_the_projection() {
+        let changed = HANDLER.replace("i!==\"parent_group\"", "i!==\"sub_group\"");
+        assert_ne!(changed, HANDLER);
+        let actual = extract(&changed).unwrap();
+        assert!(
+            actual
+                .rows
+                .iter()
+                .find(|r| r.link_type.as_deref() == Some("sub_group"))
+                .unwrap()
+                .hidden_subgroup_child
+                .is_none()
+        );
+        assert_ne!(actual.rows, extract(HANDLER).unwrap().rows);
+    }
+    #[test]
+    fn unsupported_payload_effects_fields_and_guards_reject() {
+        for changed in [
+            HANDLER.replace(
+                "subjectTime:e.attrInt(\"s_t\"),hiddenSubgroup",
+                "subjectTime:e.maybeAttrInt(\"s_t\"),hiddenSubgroup",
+            ),
+            HANDLER.replace("i!==\"parent_group\"", "i===\"parent_group\""),
+            HANDLER.replace(
+                "subjectTime:e.attrInt(\"s_t\"),hiddenSubgroup",
+                "subject:e.attrInt(\"s_t\"),hiddenSubgroup",
+            ),
+            HANDLER.replace(
+                "i=t.attrString(\"link_type\")",
+                "i=t.attrString(\"link_type\",unknownEffect())",
+            ),
+            HANDLER.replace("groupDatas:t.mapChildrenWithTag(\"group\",function(e){return{id:","groupDatas:t.mapChildrenWithTag(\"group\",async function(e){return{id:"),
+            HANDLER.replace("groupDatas:t.mapChildrenWithTag(\"group\",function(e){return{id:","groupDatas:t.mapChildrenWithTag(\"group\",function*(e){return{id:"),
+            HANDLER.replace("groupDatas:t.mapChildrenWithTag(\"group\",function(e){return{id:","groupDatas:t.mapChildrenWithTag(\"group\",function(e,extra=unknownEffect()){return{id:"),
+            HANDLER.replace("groupDatas:t.mapChildrenWithTag(\"group\",function(e){return{id:","groupDatas:t.mapChildrenWithTag(\"group\",function(e,...extra){return{id:"),
+            HANDLER.replace("o(\"WAWebJidToWid\").groupJidToWid(e.attrGroupJid(\"jid\"))","o(\"WAWebJidToWid\",unknownEffect()).groupJidToWid(e.attrGroupJid(\"jid\"))"),
+        ] {
+            assert_ne!(changed, HANDLER);
+            assert!(extract(&changed).is_err());
+        }
+    }
+    #[test]
+    fn missing_case_and_unresolved_tag_reject() {
+        let changed = HANDLER.replace(
+            ".GROUP_NOTIFICATION_TAG.LINK:",
+            ".GROUP_NOTIFICATION_TAG.UNKNOWN:",
+        );
+        assert_ne!(changed, HANDLER);
+        assert!(extract(&changed).is_err());
+        assert!(
+            extract_link(&HashMap::from([
+                ("WAWebHandleGroupNotification", HANDLER),
+                ("WAWebGroupType", TYPES)
+            ]))
+            .is_err()
+        );
+    }
+    #[test]
+    fn enclosing_hoisted_loader_shadowing_rejects_the_projection() {
+        let changed = HANDLER.replace("var n,a=t.tag();", "var o,n,a=t.tag();");
+        assert_ne!(changed, HANDLER);
+        assert!(extract(&changed).is_err());
+    }
+}

@@ -1,25 +1,45 @@
-# Group normalization qualification
+# Group notification qualification
 
-`group-unlink.json` is an isolated experimental projection, not the complete
-normalized `w:gp2` parser. It does not replace the existing shape catalog and is
-not registered as a complete domain in the manifest. Its spans are relative to
-the complete `WAWebHandleGroupNotification` module recorded in `evidence.json`.
+These isolated contracts qualify WA Web 2.3000.1047483476 from the exact bundle
+set recorded in evidence.json. They supplement the existing notification shape
+catalog without changing its schema/pin or declaring a new complete manifest
+domain.
 
-Regenerate with `cargo run -p wa-notif --example unlink_contract -- <handler-bundle>
-<group-type-bundle>`. Inputs must be the exact restored bundle set. The extractor
-rejects conflicting module definitions, parse errors, unsupported helper
-statements and changed group-data projections. It evaluates every literal,
-object key and an unknown sentinel, then retains the input distinctions which
-change the normalized action. Null input keys represent unknown-value fallback;
-an absent and an unknown reason must have the same behavior or extraction fails.
-`unlink_type` itself remains required by the wire parser.
+- `group-envelope.json` preserves ordered root guards, lazy identity facts,
+  local PN diagnostic recovery, the external action boundary and final projection.
+- `group-link.json` preserves dynamic LINK actions and hidden-subgroup omission.
+- `group-unlink.json` preserves parent/subgroup/sibling and integrity decisions.
 
-`node tests/conformance/groups/unlink.cjs` simulates the isolated official helper
-with synthetic attributes and compares it with the IR. It checks the preserved
-module hashes first. The constant module is official too; unrelated services,
-transport, storage and the authenticated client are not run. Rust tests compare
-the committed projection with AST extraction and mutate guards/effects.
+The native examples `group_envelope_contract`, `group_link_contract` and
+`unlink_contract` accept complete Metro modules from the restored bundle set.
+The committed complete handler/type/tag-constant fixtures reproduce the same
+contracts. Rust tests mutate guards, read order, import bindings, callback
+modes/effects and object shapes; unsupported forms reject the projection.
 
-The envelope, participant/history gates, create/link normalization and the
-runtime adapter still require separate qualification. Raw create/link/unlink
-nodes in consumers are not proof of a complete normalized parser.
+Run all source comparisons with:
+
+```sh
+node tests/conformance/groups/unlink.cjs --mutations
+node tests/conformance/groups/link.cjs --mutations
+node tests/conformance/groups/create.cjs
+node tests/conformance/groups/envelope.cjs
+node tests/conformance/groups/actions.cjs
+```
+
+The scripts verify module/helper hashes and execute isolated original functions
+with preserved original decoders, JID classifiers, time conversion and enums.
+Evidence files enumerate the account, conversion, registry, telemetry and binary
+adapter mocks. `--json` emits immutable synthetic inputs and original outcomes
+for consumer tests. Extraction uses AST spans; source discovery never executes
+a bundle. Transport, authenticated client behavior, storage, cache/rotation and
+ACK effects remain outside these parsers.
+
+LINK/UNLINK plain-object lookups can return inherited non-string values.
+Contracts mark those outcomes explicitly unsupported; ordinary unknown strings
+still produce the separate undefined-action result. Qualification assumes the
+standard unmodified Object.prototype. See README-link.md for LINK details.
+
+Consumers keep public compatibility adapters separate from owned normalized
+outputs. Handwritten complex-action adapters are qualified by the independent
+CREATE/action fixtures; the envelope and dynamic link decisions are generated
+from the typed IR.

@@ -45,6 +45,16 @@ for (const kind of kinds) for (const reason of reasons) {
   oracleCases.push({kind, reason: reason ?? null, actionType: actual.actionType ?? null});
   cases++;
 }
+// A plain object also exposes inherited prototype properties. Those are
+// non-string action values, and the typed contract explicitly declines them.
+for (const kind of Object.getOwnPropertyNames(Object.prototype)) {
+  const actual=parse({attrString(name){return kind;},hasAttr(){return false;},mapChildrenWithTag(){return [];}});
+  assert.ok(actual.actionType!==undefined && typeof actual.actionType!=="string");
+  const row=contract.rows.find(row=>row.unlinkType===kind && row.reason===null);
+  assert.ok(row?.unsupportedAction===true, `missing unsupported inherited outcome ${kind}`);
+  oracleCases.push({kind,reason:null,actionType:null,unsupportedAction:true});
+  cases++;
+}
 if (process.argv.includes("--json")) console.log(JSON.stringify(oracleCases, null, 2));
 else console.log(`${cases} official JS → IR unlink cases passed`);
 
@@ -57,12 +67,14 @@ if (process.argv.includes('--mutations')) {
     removed.rows = removed.rows.filter(row => row.unlinkType !== 'sibling_group');
     const changed = structuredClone(contract);
     changed.rows.find(row => row.unlinkType === 'sub_group' && row.reason === 'integrity_delete_parent').actionType = 'integrity_parent_group_unlink';
-    for (const [i, mutation] of [removed, changed].entries()) {
+    const inherited=structuredClone(contract);
+    inherited.rows.find(row=>row.unlinkType==='toString' && row.reason===null).unsupportedAction=false;
+    for (const [i, mutation] of [removed, changed,inherited].entries()) {
       const target = path.join(dir, `${i}.json`);
       fs.writeFileSync(target, JSON.stringify(mutation));
       const result = spawnSync(process.execPath, [__filename, '--contract', target], {encoding:'utf8'});
       assert.notEqual(result.status, 0, 'official oracle accepted a coverage/normalization mutation');
     }
-    console.log('2 independent IR mutations rejected');
+    console.log('3 independent IR mutations rejected');
   } finally { fs.rmSync(dir, {recursive:true, force:true}); }
 }

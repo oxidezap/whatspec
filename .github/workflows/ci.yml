@@ -25,8 +25,13 @@ jobs:
       - name: Verify conformance fixture integrity and capture rejection
         run: python3 tests/conformance/test_capture.py -v
 
-      - name: Official group unlink differential
-        run: node tests/conformance/groups/unlink.cjs --mutations
+      - name: Official group notification differentials
+        run: |
+          node tests/conformance/groups/unlink.cjs --mutations
+          node tests/conformance/groups/link.cjs --mutations
+          node tests/conformance/groups/create.cjs
+          node tests/conformance/groups/envelope.cjs
+          node tests/conformance/groups/actions.cjs
 
   check:
     runs-on: ubuntu-latest

@@ -427,3 +427,7 @@ mod roundtrip_tests {
 }
 
 pub mod group_normalization;
+
+pub mod group_link;
+
+pub mod group_envelope;

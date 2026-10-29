@@ -1,8 +1,23 @@
 //! Bounded AST evaluation of the official unlink decision helper. Unsupported
 //! statements, effects or values reject the projection instead of losing guards.
 use crate::actions::ConstResolver;
+const OBJECT_PROTOTYPE_KEYS: &[&str] = &[
+    "constructor",
+    "__defineGetter__",
+    "__defineSetter__",
+    "hasOwnProperty",
+    "__lookupGetter__",
+    "__lookupSetter__",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toString",
+    "valueOf",
+    "__proto__",
+    "toLocaleString",
+];
+
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Expression, Function, ObjectPropertyKind, Statement};
+use oxc_ast::ast::{BindingPattern, Expression, Function, ObjectPropertyKind, Statement};
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 use std::collections::{BTreeSet, HashMap};
@@ -16,6 +31,7 @@ enum Value {
     Bool(bool),
     Object(HashMap<String, Value>),
     Groups,
+    Unsupported,
 }
 
 struct Eval<'a> {
@@ -54,7 +70,14 @@ impl Eval<'_> {
             Expression::BinaryExpression(b)
                 if b.operator == oxc_syntax::operator::BinaryOperator::StrictEquality =>
             {
-                Ok(Value::Bool(self.expr(&b.left)? == self.expr(&b.right)?))
+                let left = self.expr(&b.left)?;
+                let right = self.expr(&b.right)?;
+                if matches!(left, Value::Object(_) | Value::Groups | Value::Unsupported)
+                    || matches!(right, Value::Object(_) | Value::Groups | Value::Unsupported)
+                {
+                    return Err("reference equality requires identity modeling".into());
+                }
+                Ok(Value::Bool(left == right))
             }
             Expression::ObjectExpression(obj) => {
                 let mut values = HashMap::new();
@@ -62,11 +85,17 @@ impl Eval<'_> {
                     let ObjectPropertyKind::ObjectProperty(p) = property else {
                         return Err("spread in normalization".into());
                     };
+                    if p.computed {
+                        return Err("computed normalization key".into());
+                    }
                     let key = p
                         .key
                         .static_name()
                         .ok_or("computed normalization key")?
                         .into_owned();
+                    if key == "__proto__" {
+                        return Err("custom object prototype".into());
+                    }
                     if values.insert(key, self.expr(&p.value)?).is_some() {
                         return Err("duplicate key".into());
                     }
@@ -80,7 +109,13 @@ impl Eval<'_> {
                 let Value::Text(key) = self.expr(&m.expression)? else {
                     return Err("non-string lookup".into());
                 };
-                Ok(obj.get(&key).cloned().unwrap_or(Value::Null))
+                Ok(obj.get(&key).cloned().unwrap_or_else(|| {
+                    if OBJECT_PROTOTYPE_KEYS.contains(&key.as_str()) {
+                        Value::Unsupported
+                    } else {
+                        Value::Null
+                    }
+                }))
             }
             Expression::CallExpression(c) => {
                 let (object, method) = as_member(&c.callee).ok_or("unsupported call")?;
@@ -126,6 +161,9 @@ impl Eval<'_> {
     fn statement(&mut self, stmt: &Statement<'_>) -> Result<Option<Value>, String> {
         match stmt {
             Statement::VariableDeclaration(decl) => {
+                if !decl.kind.is_var() {
+                    return Err("lexical declaration requires scope lowering".into());
+                }
                 for binding in &decl.declarations {
                     let name = binding.id.get_identifier_name().ok_or("destructuring")?;
                     let value = self.expr(binding.init.as_ref().ok_or("uninitialized binding")?)?;
@@ -155,6 +193,18 @@ fn valid_groups(call: &oxc_ast::ast::CallExpression<'_>) -> bool {
     else {
         return false;
     };
+    if callback.r#async
+        || callback.generator
+        || callback.params.items.len() != 1
+        || callback.params.rest.is_some()
+        || callback.params.items[0].initializer.is_some()
+        || !matches!(
+            callback.params.items[0].pattern,
+            BindingPattern::BindingIdentifier(_)
+        )
+    {
+        return false;
+    }
     let Some(parameter) = callback
         .params
         .items
@@ -176,13 +226,19 @@ fn valid_groups(call: &oxc_ast::ast::CallExpression<'_>) -> bool {
         return false;
     }
     let mut keys = BTreeSet::new();
-    for property in &obj.properties {
+    for (index, property) in obj.properties.iter().enumerate() {
         let ObjectPropertyKind::ObjectProperty(p) = property else {
             return false;
         };
+        if p.computed {
+            return false;
+        }
         let Some(key) = p.key.static_name() else {
             return false;
         };
+        if key.as_ref() != ["id", "subject", "subjectTime"][index] {
+            return false;
+        }
         if !keys.insert(key.to_string()) {
             return false;
         }
@@ -195,6 +251,11 @@ fn valid_groups(call: &oxc_ast::ast::CallExpression<'_>) -> bool {
                 let Some((owner, "groupJidToWid")) = as_member(&convert.callee) else {
                     return false;
                 };
+                if as_call(owner)
+                    .is_none_or(|c| c.arguments.len() != 1 || as_identifier(&c.callee).is_none())
+                {
+                    return false;
+                }
                 if as_call(owner)
                     .and_then(|c| c.arguments.first())
                     .and_then(arg_expr)
@@ -248,6 +309,10 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
     if parsed.panicked || !parsed.errors.is_empty() {
         return Err("invalid group module".into());
     }
+    crate::group_scope::validate_import_bindings(
+        &parsed.program.body,
+        slices.keys().map(|name| name.to_string()),
+    )?;
     struct Extract<'s> {
         slices: &'s HashMap<&'s str, &'s str>,
         results: Vec<Result<GroupUnlinkContract, String>>,
@@ -296,6 +361,18 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
 }
 
 fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContract, String> {
+    if f.r#async
+        || f.generator
+        || f.params.items.len() != 1
+        || f.params.rest.is_some()
+        || f.params.items[0].initializer.is_some()
+        || !matches!(
+            f.params.items[0].pattern,
+            BindingPattern::BindingIdentifier(_)
+        )
+    {
+        return Err("changed helper kind/parameters".into());
+    }
     let resolver = ConstResolver::new(slices);
     let body = f.body.as_ref().ok_or("missing helper body")?;
     let param = f
@@ -341,6 +418,9 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
         return Err("sentinel collision".into());
     }
     let mut values: Vec<_> = literals.values.into_iter().collect();
+    values.extend(OBJECT_PROTOTYPE_KEYS.iter().map(|s| s.to_string()));
+    values.sort();
+    values.dedup();
     values.push(sentinel.into());
     let mut rows = vec![];
     for kind in &values {
@@ -362,26 +442,35 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
             if obj.remove("groupDatas") != Some(Value::Groups) || obj.len() != 1 {
                 return Err("changed normalized payload".into());
             }
-            let action_type = match obj.remove("actionType") {
-                Some(Value::Text(v)) => Some(v),
-                Some(Value::Null) => None,
+            let (action_type, unsupported_action) = match obj.remove("actionType") {
+                Some(Value::Text(v)) => (Some(v), false),
+                Some(Value::Null) => (None, false),
+                Some(Value::Unsupported) => (None, true),
                 _ => return Err("non-string action".into()),
             };
             rows.push(GroupUnlinkRow {
                 unlink_type: (kind != sentinel).then(|| kind.clone()),
                 reason: reason.filter(|v| v != sentinel),
                 action_type,
+                unsupported_action,
             });
         }
     }
     // Publish only distinctions which affect the decision. Duplicates include
     // unrelated literal strings and unknown/absent reasons with equal behavior.
     rows.sort_by(|a, b| {
-        (&a.unlink_type, &a.reason, &a.action_type).cmp(&(
-            &b.unlink_type,
-            &b.reason,
-            &b.action_type,
-        ))
+        (
+            &a.unlink_type,
+            &a.reason,
+            &a.action_type,
+            a.unsupported_action,
+        )
+            .cmp(&(
+                &b.unlink_type,
+                &b.reason,
+                &b.action_type,
+                b.unsupported_action,
+            ))
     });
     rows.dedup();
     for pair in rows.windows(2) {
@@ -391,7 +480,7 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
     }
     let kinds: BTreeSet<_> = rows
         .iter()
-        .filter(|r| r.action_type.is_some())
+        .filter(|r| r.action_type.is_some() || r.unsupported_action)
         .map(|r| r.unlink_type.clone())
         .collect();
     let reasons: BTreeSet<_> = rows
@@ -400,7 +489,9 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
         .filter(|r| {
             rows.iter()
                 .find(|d| d.unlink_type == r.unlink_type && d.reason.is_none())
-                .is_some_and(|d| d.action_type != r.action_type)
+                .is_some_and(|d| {
+                    d.action_type != r.action_type || d.unsupported_action != r.unsupported_action
+                })
         })
         .map(|r| r.reason.clone())
         .collect();
@@ -434,7 +525,7 @@ mod tests {
             serde_json::from_str(include_str!("../../../generated/notif/group-unlink.json"))
                 .unwrap();
         assert_eq!(extract(GROUP).unwrap(), expected);
-        assert_eq!(expected.rows.len(), 12);
+        assert_eq!(expected.rows.len(), 48);
         assert!(
             expected
                 .rows
@@ -478,6 +569,66 @@ mod tests {
                 "subjectTime:e.attrInt(\"s_t\")",
                 "subject:e.attrInt(\"s_t\")",
             ),
+        ] {
+            assert_ne!(changed, GROUP);
+            assert!(extract(&changed).is_err());
+        }
+    }
+    #[test]
+    fn prototype_values_and_effectful_callbacks_are_not_silently_undefined() {
+        let contract = extract(GROUP).unwrap();
+        assert!(
+            contract
+                .rows
+                .iter()
+                .any(|r| r.unlink_type.as_deref() == Some("toString") && r.unsupported_action)
+        );
+        for changed in [
+            GROUP.replace("function I(e){", "async function I(e){"),
+            GROUP.replace("function I(e){", "function* I(e){"),
+            GROUP.replace("function I(e){", "function I(e,extra=unknownEffect()){ "),
+            GROUP.replace(
+                "mapChildrenWithTag(\"group\",function(e){return{id:",
+                "mapChildrenWithTag(\"group\",async function(e){return{id:",
+            ),
+            GROUP.replace(
+                "mapChildrenWithTag(\"group\",function(e){return{id:",
+                "mapChildrenWithTag(\"group\",function(e,...extra){return{id:",
+            ),
+            GROUP.replace(
+                "o(\"WAWebJidToWid\").groupJidToWid(e.attrGroupJid(\"jid\"))",
+                "o(\"WAWebJidToWid\",unknownEffect()).groupJidToWid(e.attrGroupJid(\"jid\"))",
+            ),
+        ] {
+            assert_ne!(changed, GROUP);
+            assert!(extract(&changed).is_err());
+        }
+    }
+    #[test]
+    fn import_bindings_cannot_be_guessed_through_free_or_shadowed_loaders() {
+        for changed in [
+            GROUP.replace(
+                "o(\"WAWebGroupType\").DELETE_REASON",
+                "evil(\"WAWebGroupType\").DELETE_REASON",
+            ),
+            GROUP.replace("var n,a=t.tag();", "var o,n,a=t.tag();"),
+        ] {
+            assert_ne!(changed, GROUP);
+            assert!(extract(&changed).is_err());
+        }
+    }
+    #[test]
+    fn field_order_computed_keys_and_reference_equality_are_not_guessed() {
+        for changed in [
+            GROUP.replace(
+                "subject:e.attrString(\"subject\"),subjectTime:e.attrInt(\"s_t\")",
+                "subjectTime:e.attrInt(\"s_t\"),subject:e.attrString(\"subject\")",
+            ),
+            GROUP.replace(
+                "sub_group:o(\"WAWebGroupType\").GROUP_ACTIONS.SUB_GROUP_UNLINK",
+                "[t]:o(\"WAWebGroupType\").GROUP_ACTIONS.SUB_GROUP_UNLINK",
+            ),
+            GROUP.replace("t===\"parent_group\"", "({x:1})===({x:1})"),
         ] {
             assert_ne!(changed, GROUP);
             assert!(extract(&changed).is_err());
