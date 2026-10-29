@@ -74,3 +74,9 @@ node tests/retry/oracle.mjs /tmp/retry-audit/audit.json
 The output directory must not already exist. Updating a capture requires source
 review and rerunning the oracle. The existing global schema, manifests and
 consumer pin are unchanged.
+
+Command-level extraction gates run with `node tests/retry/capture-gates.mjs`
+after building the native example. Synthetic controls accept all five modules
+and identical duplicate definitions. Removing each selected module, changing a
+duplicate body, invalid syntax or modified locked bytes must fail before output
+is created. The retry CI workflow runs these gates as well as locked recapture.
