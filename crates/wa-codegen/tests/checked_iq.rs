@@ -74,7 +74,10 @@ fn checked_generation_rejects_lost_context_request_inputs_and_missing_outcomes()
     }
     let all: wa_ir::IqIr =
         serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
-    assert_eq!(wa_codegen::diagnose_iq_generation(&all).len(), 142);
+    assert_eq!(
+        wa_codegen::diagnose_iq_generation(&all).len(),
+        all.stanzas.len()
+    );
     assert!(wa_codegen::generate_iq_checked(&all).is_err());
 }
 
