@@ -28,6 +28,7 @@ use wa_oxc::{arg_expr, as_call, as_identifier, as_member, as_string_lit};
 enum Value {
     Text(String),
     Null,
+    Undefined,
     Bool(bool),
     Object(HashMap<String, Value>),
     Groups,
@@ -113,7 +114,7 @@ impl Eval<'_> {
                     if OBJECT_PROTOTYPE_KEYS.contains(&key.as_str()) {
                         Value::Unsupported
                     } else {
-                        Value::Null
+                        Value::Undefined
                     }
                 }))
             }
@@ -444,7 +445,7 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
             }
             let (action_type, unsupported_action) = match obj.remove("actionType") {
                 Some(Value::Text(v)) => (Some(v), false),
-                Some(Value::Null) => (None, false),
+                Some(Value::Null | Value::Undefined) => (None, false),
                 Some(Value::Unsupported) => (None, true),
                 _ => return Err("non-string action".into()),
             };
@@ -518,6 +519,21 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebGroupType", TYPES),
         ]))
+    }
+    #[test]
+    fn missing_lookup_is_undefined_during_strict_comparisons() {
+        let changed = GROUP.replace(
+            "actionType:a[t]",
+            "actionType:t===\"future_kind\"?a[t]===null?\"wrong_null_branch\":a[t]:a[t]",
+        );
+        assert_ne!(changed, GROUP);
+        let rows = extract(&changed).unwrap().rows;
+        assert!(
+            !rows
+                .iter()
+                .any(|r| r.action_type.as_deref() == Some("wrong_null_branch"))
+        );
+        assert_eq!(rows, extract(GROUP).unwrap().rows);
     }
     #[test]
     fn official_projection_is_reproducible() {

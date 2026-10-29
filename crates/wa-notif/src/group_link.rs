@@ -51,11 +51,52 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
         results: Vec<Result<GroupLinkContract, String>>,
     }
     impl<'a> Visit<'a> for Extract<'_> {
-        fn visit_switch_case(&mut self, case: &SwitchCase<'a>) {
-            if let Some(test) = &case.test
-                && is_link_case(test)
+        fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+            if let Some((_, "mapChildren")) = as_member(&call.callee)
+                && call.arguments.len() == 1
+                && let Some(Expression::FunctionExpression(callback)) =
+                    call.arguments.first().and_then(arg_expr)
+                && !callback.r#async
+                && !callback.generator
+                && callback.params.rest.is_none()
+                && callback.params.items.len() == 1
+                && callback.params.items[0].initializer.is_none()
+                && let BindingPattern::BindingIdentifier(child) = &callback.params.items[0].pattern
+                && let Some(body) = &callback.body
+                && let [
+                    Statement::VariableDeclaration(vars),
+                    Statement::SwitchStatement(switch),
+                ] = body.statements.as_slice()
+                && vars.kind.is_var()
+                && vars.declarations.len() == 2
+                && vars.declarations[0].init.is_none()
+                && let Some(tag_name) = vars.declarations[1].id.get_identifier_name()
+                && let Some(tag_read) = vars.declarations[1].init.as_ref().and_then(as_call)
+                && let Some((receiver, "tag")) = as_member(&tag_read.callee)
+                && as_identifier(receiver) == Some(child.name.as_str())
+                && tag_read.arguments.is_empty()
+                && as_identifier(&switch.discriminant) == Some(tag_name.as_str())
             {
-                self.results.push(project_case(case, &self.resolver));
+                for case in &switch.cases {
+                    if case.test.as_ref().is_some_and(is_link_case) {
+                        self.results
+                            .push(project_case(case, &self.resolver, child.name.as_str()));
+                    }
+                }
+                // Other nested syntax is still inspected for unqualified LINK cases.
+                for case in &switch.cases {
+                    for stmt in &case.consequent {
+                        self.visit_statement(stmt);
+                    }
+                }
+                return;
+            }
+            walk::walk_call_expression(self, call);
+        }
+        fn visit_switch_case(&mut self, case: &SwitchCase<'a>) {
+            if case.test.as_ref().is_some_and(is_link_case) {
+                self.results
+                    .push(Err("LINK case outside qualified child dispatch".into()));
             }
             walk::walk_switch_case(self, case);
         }
@@ -97,6 +138,7 @@ fn is_link_case(e: &Expression<'_>) -> bool {
 fn project_case(
     case: &SwitchCase<'_>,
     resolver: &ConstResolver<'_>,
+    dispatched_child: &str,
 ) -> Result<GroupLinkContract, String> {
     let wire_tag = resolver
         .resolve(case.test.as_ref().ok_or("missing LINK test")?)
@@ -129,7 +171,7 @@ fn project_case(
         as_call(kind.init.as_ref().ok_or("missing link type read")?).ok_or("non-call link type")?;
     let (node, method) = as_member(&kind_read.callee).ok_or("unsupported link type receiver")?;
     let node_name = as_identifier(node).ok_or("non-local link node")?;
-    if method != "attrString" || kind_read.arguments.len() != 1 {
+    if node_name != dispatched_child || method != "attrString" || kind_read.arguments.len() != 1 {
         return Err("unsupported link type accessor".into());
     }
     let link_type_attribute = kind_read
@@ -224,6 +266,9 @@ fn project_case(
         .pattern
         .get_identifier_name()
         .ok_or("destructured group parameter")?;
+    if parameter == kind_name || callback.id.as_ref().is_some_and(|id| id.name == kind_name) {
+        return Err("group callback shadows captured link type".into());
+    }
     let body = callback.body.as_ref().ok_or("empty group callback")?;
     let [Statement::ReturnStatement(group_return)] = body.statements.as_slice() else {
         return Err("effects or statements in group projection".into());
@@ -419,6 +464,37 @@ mod tests {
             ("WAWebGroupType", TYPES),
             ("WAWebHandleGroupNotificationConst", TAGS),
         ]))
+    }
+    #[test]
+    fn link_receivers_and_callback_binding_collisions_reject() {
+        let source = HANDLER;
+        for changed in [
+            source
+                .replace(
+                    "i=t.attrString(\"link_type\")",
+                    "i=e.attrString(\"link_type\")",
+                )
+                .replace(
+                    "groupDatas:t.mapChildrenWithTag",
+                    "groupDatas:e.mapChildrenWithTag",
+                ),
+            source
+                .replace(
+                    "mapChildrenWithTag(\"group\",function(e){return{id:",
+                    "mapChildrenWithTag(\"group\",function(i){return{id:",
+                )
+                .replace("e.attrGroupJid(\"jid\")", "i.attrGroupJid(\"jid\")")
+                .replace("e.attrString(\"subject\")", "i.attrString(\"subject\")")
+                .replace("e.attrInt(\"s_t\")", "i.attrInt(\"s_t\")")
+                .replace("e.hasChild(\"hidden\")", "i.hasChild(\"hidden\")"),
+            source.replace(
+                "mapChildrenWithTag(\"group\",function(e){return{id:",
+                "mapChildrenWithTag(\"group\",function i(e){return{id:",
+            ),
+        ] {
+            assert_ne!(changed, source);
+            assert!(extract(&changed).is_err());
+        }
     }
     #[test]
     fn official_link_projection_preserves_absent_versus_false() {

@@ -82,10 +82,7 @@ pub(crate) fn loader_aliases(statements: &[Statement<'_>]) -> Result<BTreeSet<St
     impl<'a> Visit<'a> for Writes<'_> {
         fn visit_function(&mut self, _: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
         fn visit_assignment_expression(&mut self, a: &oxc_ast::ast::AssignmentExpression<'a>) {
-            if a.left
-                .get_identifier_name()
-                .is_some_and(|n| self.loaders.contains(n))
-            {
+            if !crate::group_scope::assignment_names(&a.left).is_disjoint(self.loaders) {
                 self.changed = true;
             }
             walk::walk_assignment_expression(self, a);
@@ -871,6 +868,39 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn hidden_captured_writes_and_loader_patterns_reject() {
+        for injected in [
+            "{let c;}c=null;",
+            "if(false){let c;}c=null;",
+            "try{}catch(c){}c=null;",
+            "function nested(){if(false){let c;}c=null;}nested();",
+        ] {
+            for anchor in ["function v(e){", "var n,a=t.tag();"] {
+                let changed = SOURCE.replacen(anchor, &format!("{anchor}{injected}"), 1);
+                assert_ne!(changed, SOURCE);
+                assert!(extract(&changed).is_err(), "{anchor}: {injected}");
+            }
+        }
+        for params in ["e,extra=(c=null)", "{e}", "...e"] {
+            let changed = SOURCE.replace("function v(e){", &format!("function v({params}){{"));
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err(), "{params}");
+        }
+        for target in [
+            "({o}={o:function(){}});",
+            "[o]=[];",
+            "({x:{o=null}}={x:{}});",
+            "[...o]=[];",
+            "({...o}={});",
+        ] {
+            for anchor in ["function(t,n,r,o,a,i,l){", "function v(e){"] {
+                let changed = SOURCE.replacen(anchor, &format!("{anchor}{target}"), 1);
+                assert_ne!(changed, SOURCE, "factory anchor");
+                assert!(extract(&changed).is_err(), "{anchor}: {target}");
+            }
+        }
     }
     #[test]
     fn complete_prefix_and_final_projection_are_extracted() {

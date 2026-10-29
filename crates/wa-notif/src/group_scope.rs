@@ -6,6 +6,31 @@ use oxc_ast_visit::{Visit, walk};
 use std::collections::BTreeSet;
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit};
 
+/// Collect every identifier written by an assignment pattern, including nested,
+/// default and rest targets. Expressions used as keys/defaults are checked by
+/// the caller's normal expression traversal, not mistaken for target bindings.
+pub(crate) fn assignment_names(target: &oxc_ast::ast::AssignmentTarget<'_>) -> BTreeSet<String> {
+    #[derive(Default)]
+    struct Targets(BTreeSet<String>);
+    impl<'a> Visit<'a> for Targets {
+        fn visit_simple_assignment_target(&mut self, t: &oxc_ast::ast::SimpleAssignmentTarget<'a>) {
+            if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = t {
+                self.0.insert(id.name.to_string());
+            }
+        }
+        fn visit_assignment_target_property_identifier(
+            &mut self,
+            p: &oxc_ast::ast::AssignmentTargetPropertyIdentifier<'a>,
+        ) {
+            self.0.insert(p.binding.name.to_string());
+        }
+        fn visit_expression(&mut self, _: &Expression<'a>) {}
+    }
+    let mut targets = Targets::default();
+    targets.visit_assignment_target(target);
+    targets.0
+}
+
 pub(crate) fn validate_import_bindings(
     statements: &[Statement<'_>],
     known_modules: impl Iterator<Item = String>,
@@ -50,9 +75,7 @@ pub(crate) fn validate_import_bindings(
             }
         }
         fn visit_assignment_expression(&mut self, a: &oxc_ast::ast::AssignmentExpression<'a>) {
-            if let Some(name) = a.left.get_identifier_name() {
-                self.assignments.insert(name.to_owned());
-            }
+            self.assignments.extend(assignment_names(&a.left));
             walk::walk_assignment_expression(self, a);
         }
     }
@@ -120,21 +143,53 @@ pub(crate) fn validate_captured_writes(
     marker: Option<(&str, oxc_span::Span)>,
 ) -> Result<(), String> {
     #[derive(Default)]
-    struct Locals(BTreeSet<String>);
+    struct Locals(BTreeSet<String>, BTreeSet<String>);
     impl<'a> Visit<'a> for Locals {
         fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
             self.0.insert(id.name.to_string());
         }
-        fn visit_function(&mut self, f: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {
-            if let Some(id) = &f.id {
-                self.0.insert(id.name.to_string());
+        fn visit_variable_declaration(&mut self, d: &oxc_ast::ast::VariableDeclaration<'a>) {
+            if d.kind.is_var() {
+                walk::walk_variable_declaration(self, d);
+            } else {
+                let mut names = Locals::default();
+                walk::walk_variable_declaration(&mut names, d);
+                self.1.extend(names.0);
+                self.1.extend(names.1);
             }
         }
+        fn visit_catch_clause(&mut self, c: &oxc_ast::ast::CatchClause<'a>) {
+            if let Some(param) = &c.param {
+                let mut names = Locals::default();
+                names.visit_binding_pattern(&param.pattern);
+                self.1.extend(names.0);
+            }
+            self.visit_block_statement(&c.body);
+        }
+        fn visit_function(&mut self, f: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {
+            if let Some(id) = &f.id {
+                self.1.insert(id.name.to_string());
+            }
+        }
+    }
+    if function.params.rest.is_some()
+        || function.params.items.iter().any(|p| {
+            p.initializer.is_some()
+                || !matches!(
+                    p.pattern,
+                    oxc_ast::ast::BindingPattern::BindingIdentifier(_)
+                )
+        })
+    {
+        return Err("unsupported action/helper parameter pattern or initializer".into());
     }
     let mut locals = Locals::default();
     locals.visit_formal_parameters(&function.params);
     if let Some(body) = &function.body {
         locals.visit_function_body(body);
+    }
+    if !captured.is_disjoint(&locals.1) {
+        return Err("lexical/catch binding collides with captured envelope state".into());
     }
     if marker.is_some_and(|(name, _)| locals.0.contains(name)) {
         return Err("action marker is shadowed by a local".into());
