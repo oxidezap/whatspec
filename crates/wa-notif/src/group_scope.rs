@@ -6,6 +6,27 @@ use oxc_ast_visit::{Visit, walk};
 use std::collections::BTreeSet;
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit};
 
+/// A qualified switch must not contain dynamic or duplicate case values that
+/// can intercept an independently projected arm.
+pub(crate) fn validate_dispatch_cases(
+    switch: &oxc_ast::ast::SwitchStatement<'_>,
+    resolver: &crate::actions::ConstResolver<'_>,
+) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for case in &switch.cases {
+        if let Some(test) = &case.test {
+            let value = as_string_lit(test)
+                .map(str::to_owned)
+                .or_else(|| resolver.resolve(test))
+                .ok_or("unqualified dispatch case value")?;
+            if !seen.insert(value) {
+                return Err("duplicate dispatch case value".into());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Collect every identifier written by an assignment pattern, including nested,
 /// default and rest targets. Expressions used as keys/defaults are checked by
 /// the caller's normal expression traversal, not mistaken for target bindings.
@@ -91,6 +112,23 @@ pub(crate) fn validate_import_bindings(
         errors: Vec<String>,
     }
     impl<'a> Visit<'a> for Check<'_> {
+        fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
+            if id.name == "Boolean" {
+                self.errors.push("global Boolean is shadowed".into());
+            }
+        }
+        fn visit_assignment_expression(&mut self, a: &oxc_ast::ast::AssignmentExpression<'a>) {
+            if assignment_names(&a.left).contains("Boolean") {
+                self.errors.push("global Boolean is assigned".into());
+            }
+            walk::walk_assignment_expression(self, a);
+        }
+        fn visit_update_expression(&mut self, u: &oxc_ast::ast::UpdateExpression<'a>) {
+            if u.argument.get_identifier_name() == Some("Boolean") {
+                self.errors.push("global Boolean is updated".into());
+            }
+            walk::walk_update_expression(self, u);
+        }
         fn visit_for_of_statement(&mut self, _: &oxc_ast::ast::ForOfStatement<'a>) {
             self.errors
                 .push("iteration assignment scopes require qualification".into());

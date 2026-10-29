@@ -78,7 +78,10 @@ pub(crate) fn loader_aliases(statements: &[Statement<'_>]) -> Result<BTreeSet<St
         .iter()
         .filter_map(|p| p.pattern.get_identifier_name().map(|name| name.to_string()))
         .collect();
-    if loaders.len() != 3 || parameter_names.len() != factory.params.items.len() {
+    if loaders.len() != 3
+        || parameter_names.len() != factory.params.items.len()
+        || parameter_names.contains("Boolean")
+    {
         return Err("ambiguous module loaders".into());
     }
     struct Writes<'s> {
@@ -570,6 +573,20 @@ fn actions(
         .first()
         .and_then(|p| p.pattern.get_identifier_name())
         .ok_or("action child parameter")?;
+    let temporary = var.declarations[0]
+        .id
+        .get_identifier_name()
+        .ok_or("dispatch temporary binding")?;
+    if tag_binding == child_param
+        || child_param.as_str() == node
+        || temporary == tag_binding
+        || temporary == child_param
+        || temporary.as_str() == node
+        || tag_binding.as_str() == node
+    {
+        return Err("dispatch bindings shadow the child or root node".into());
+    }
+    crate::group_scope::validate_dispatch_cases(switch, resolver)?;
     if !tag_call.arguments.is_empty()
         || as_identifier(child) != Some(child_param.as_ref())
         || as_identifier(&switch.discriminant) != Some(tag_binding.as_ref())
@@ -908,6 +925,28 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn dispatch_collisions_duplicate_cases_and_shadowed_boolean_reject() {
+        for changed in [
+            SOURCE
+                .replace("var n,a=t.tag();switch(a)", "var n,t=t.tag();switch(t)")
+                .replace(
+                    "Unrecognized group action \"+a",
+                    "Unrecognized group action \"+t",
+                ),
+            SOURCE.replace(
+                "switch(a){",
+                "switch(a){case \"missing_participant_identification\":return;",
+            ),
+            SOURCE.replace("switch(a){", "switch(a){case \"link\":return null;"),
+            SOURCE.replace("function v(e){", "var Boolean=null;function v(e){"),
+            SOURCE.replace("function v(e){", "Boolean=null;function v(e){"),
+            SOURCE.replace("function(t,n,r,o,a,i,l){", "function(t,n,r,o,a,i,Boolean){"),
+        ] {
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err());
+        }
     }
     #[test]
     fn duplicate_factory_parameters_reject() {

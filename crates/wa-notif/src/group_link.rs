@@ -74,13 +74,24 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
                 && let Some(tag_read) = vars.declarations[1].init.as_ref().and_then(as_call)
                 && let Some((receiver, "tag")) = as_member(&tag_read.callee)
                 && as_identifier(receiver) == Some(child.name.as_str())
+                && tag_name.as_str() != child.name.as_str()
+                && vars.declarations[0]
+                    .id
+                    .get_identifier_name()
+                    .is_some_and(|temporary| {
+                        temporary != tag_name && temporary.as_str() != child.name.as_str()
+                    })
                 && tag_read.arguments.is_empty()
                 && as_identifier(&switch.discriminant) == Some(tag_name.as_str())
             {
                 for case in &switch.cases {
                     if case.test.as_ref().is_some_and(is_link_case) {
-                        self.results
-                            .push(project_case(case, &self.resolver, child.name.as_str()));
+                        self.results.push(
+                            crate::group_scope::validate_dispatch_cases(switch, &self.resolver)
+                                .and_then(|()| {
+                                    project_case(case, &self.resolver, child.name.as_str())
+                                }),
+                        );
                     }
                 }
                 // Other nested syntax is still inspected for unqualified LINK cases.
@@ -470,6 +481,21 @@ mod tests {
             ("WAWebGroupType", TYPES),
             ("WAWebHandleGroupNotificationConst", TAGS),
         ]))
+    }
+    #[test]
+    fn dispatch_tag_collisions_and_intercepting_cases_reject() {
+        for changed in [
+            HANDLER
+                .replace("var n,a=t.tag();switch(a)", "var n,t=t.tag();switch(t)")
+                .replace(
+                    "Unrecognized group action \"+a",
+                    "Unrecognized group action \"+t",
+                ),
+            HANDLER.replace("switch(a){", "switch(a){case \"link\":return null;"),
+        ] {
+            assert_ne!(changed, HANDLER);
+            assert!(extract(&changed).is_err());
+        }
     }
     #[test]
     fn link_type_table_and_child_bindings_must_be_distinct() {

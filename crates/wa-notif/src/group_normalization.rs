@@ -24,10 +24,14 @@ use std::collections::{BTreeSet, HashMap};
 use wa_ir::group_normalization::{GroupUnlinkContract, GroupUnlinkRow};
 use wa_oxc::{arg_expr, as_call, as_identifier, as_member, as_string_lit};
 
+const UNKNOWN_INPUT: &str = "__whatspec_unknown_value__";
+
 #[derive(Clone, PartialEq)]
 enum Value {
     Text(String),
     Node,
+    UnknownKind,
+    UnknownReason,
     Null,
     Undefined,
     Bool(bool),
@@ -75,6 +79,13 @@ impl Eval<'_> {
                 let left = self.expr(&b.left)?;
                 let right = self.expr(&b.right)?;
                 if matches!(
+                    (&left, &right),
+                    (Value::UnknownKind, Value::UnknownReason)
+                        | (Value::UnknownReason, Value::UnknownKind)
+                ) {
+                    return Err("independent unknown strings may be equal or unequal".into());
+                }
+                if matches!(
                     left,
                     Value::Object(_) | Value::Groups | Value::Unsupported | Value::Node
                 ) || matches!(
@@ -112,8 +123,10 @@ impl Eval<'_> {
                 let Value::Object(obj) = self.expr(&m.object)? else {
                     return Err("lookup on non-object".into());
                 };
-                let Value::Text(key) = self.expr(&m.expression)? else {
-                    return Err("non-string lookup".into());
+                let key = match self.expr(&m.expression)? {
+                    Value::Text(key) => key,
+                    Value::UnknownKind | Value::UnknownReason => return Ok(Value::Undefined),
+                    _ => return Err("non-string lookup".into()),
                 };
                 Ok(obj.get(&key).cloned().unwrap_or_else(|| {
                     if OBJECT_PROTOTYPE_KEYS.contains(&key.as_str()) {
@@ -138,12 +151,22 @@ impl Eval<'_> {
                     return Err("unsupported accessor arity".into());
                 }
                 match (method, attr) {
-                    ("attrString", "unlink_type") => Ok(Value::Text(self.kind.clone())),
+                    ("attrString", "unlink_type") => Ok(if self.kind == UNKNOWN_INPUT {
+                        Value::UnknownKind
+                    } else {
+                        Value::Text(self.kind.clone())
+                    }),
                     ("hasAttr", "unlink_reason") => Ok(Value::Bool(self.reason.is_some())),
                     ("attrString", "unlink_reason") => self
                         .reason
                         .clone()
-                        .map(Value::Text)
+                        .map(|reason| {
+                            if reason == UNKNOWN_INPUT {
+                                Value::UnknownReason
+                            } else {
+                                Value::Text(reason)
+                            }
+                        })
                         .ok_or_else(|| "required reason absent".into()),
                     // Group payload is projected separately; verify the callback's
                     // exact accessor sequence before discarding its data here.
@@ -417,7 +440,7 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
         values: BTreeSet::new(),
     };
     literals.visit_function_body(body);
-    let sentinel = "__whatspec_unknown_value__";
+    let sentinel = UNKNOWN_INPUT;
     if literals.values.contains(sentinel) {
         return Err("sentinel collision".into());
     }
@@ -532,6 +555,37 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebGroupType", TYPES),
         ]))
+    }
+    #[test]
+    fn equal_and_unequal_unknown_inputs_must_not_share_an_assumed_value() {
+        let mut keys: BTreeSet<&str> = OBJECT_PROTOTYPE_KEYS.iter().copied().collect();
+        keys.extend([
+            "unlink_type",
+            "unlink_reason",
+            "same",
+            "group",
+            "WAWebJidToWid",
+            "jid",
+            "subject",
+            "s_t",
+            "id",
+            "subjectTime",
+            "actionType",
+            "groupDatas",
+        ]);
+        keys.remove("__proto__");
+        let table = keys
+            .into_iter()
+            .map(|key| format!("\"{key}\":\"same\""))
+            .collect::<Vec<_>>()
+            .join(",");
+        let helper = format!(
+            r#"function I(e){{var t=e.attrString("unlink_type"),n=e.hasAttr("unlink_reason")?e.attrString("unlink_reason"):null,a={{{table}}};return{{actionType:t==="__proto__"?"same":n===null?"same":t===n?"same":a[t],groupDatas:e.mapChildrenWithTag("group",function(e){{return{{id:o("WAWebJidToWid").groupJidToWid(e.attrGroupJid("jid")),subject:e.attrString("subject"),subjectTime:e.attrInt("s_t")}}}})}}}}"#
+        );
+        let original = extract(GROUP).unwrap();
+        let mut changed = GROUP.to_string();
+        changed.replace_range(original.start_byte..original.end_byte, &helper);
+        assert!(extract(&changed).is_err());
     }
     #[test]
     fn unknown_input_strings_cannot_escape_as_constant_fallbacks() {
