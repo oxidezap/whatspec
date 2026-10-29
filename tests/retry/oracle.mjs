@@ -62,17 +62,19 @@ function run(c, {failAt, cancelAt} = {}, body = source) {
       if (failAt===yielded.effect) {iterator.throw(new Error('synthetic-failure'));throw new Error('failure unexpectedly swallowed');}
       completions.push(yielded.effect);input=yielded.result;
     }
-  } catch(e) {return {effects,completions,terminal:'throw'};}
+  } catch(e) {return {effects,completions,terminal:'throw',error:e.message};}
 }
 for(const c of cases) {
   const trace=run(c);
   assert.deepEqual(trace.effects.map(e=>e.name), c.expected, c.name);
   assert.equal(trace.terminal,c.terminal||'return',c.name);
+  if(c.peer)assert.equal(trace.error,'updateLocalSignalSession: detect registration Id change remote: 7, local: 8 for peer device');
   // Every yielded operation rejects or cancels without invoking later effects.
   for(const point of trace.completions) {
     for(const mode of ['failAt','cancelAt']) {
       const interrupted=run(c,{[mode]:point});
       assert.equal(interrupted.terminal,mode==='failAt'?'throw':'cancel');
+      if(mode==='failAt')assert.equal(interrupted.error,'synthetic-failure');
       assert.deepEqual(interrupted.effects.map(e=>e.name),c.expected.slice(0,c.expected.indexOf(point)+1));
     }
   }

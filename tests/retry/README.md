@@ -29,8 +29,9 @@ The 11 scenarios cover retry 1/2/>2, reg-id mismatch, peer mismatch, handled
 bundle, group/status/broadcast sender-key invalidation and scope on collision
 delete. Three mutations change retry-2, retry->2 and collision guards and must
 be detected. No defaults are promoted to effective account configuration.
-HandleRetryRequest and SendRetryReceiptJob currently have syntax drift coverage
-only. Identity authorization, PN/LID migration, peer/status routing, receipt key
+The receipt key gate also has 14 cases at its first suspension, covering
+retry counts 0 through 6 with stateless addressing on and off. The rest of
+HandleRetryRequest and SendRetryReceiptJob has syntax drift coverage only. Identity authorization, PN/LID migration, peer/status routing, receipt key
 upload, PQ gating and ACK behavior still need executable dependency-closure
 oracles before policy generation is justified.
 
