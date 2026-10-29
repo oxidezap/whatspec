@@ -2105,9 +2105,16 @@ name = "wa-appstate"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_span",
+ "oxc_syntax",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
  "wa-ir",
+ "wa-oxc",
  "wa-text",
  "wa-transform",
 ]
@@ -2120,6 +2127,7 @@ dependencies = [
  "regex",
  "serde_json",
  "syn 2.0.117",
+ "wa-appstate",
  "wa-ir",
  "wa-scan",
 ]

@@ -14,6 +14,7 @@ serde_json = { workspace = true }
 wa-ir = { workspace = true }
 
 [dev-dependencies]
+wa-appstate = { workspace = true }
 anyhow = { workspace = true }
 syn = { workspace = true }
 wa-scan = { workspace = true }

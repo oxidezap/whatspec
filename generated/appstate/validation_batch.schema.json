@@ -1,0 +1,628 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AppstateBatchValidationIr",
+  "description": "Qualified batch algorithm. Unlike the expression compiler, this recognizer\nrequires an alpha-equivalent full module and rejects any new control flow.",
+  "type": "object",
+  "properties": {
+    "formatVersion": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "moduleSha256": {
+      "type": "string"
+    },
+    "operationEnumSha256": {
+      "type": "string"
+    },
+    "recipe": {
+      "$ref": "#/$defs/BatchValidationRecipe"
+    },
+    "removeOperation": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "setOperation": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "typeSet": {
+      "$ref": "#/$defs/ValidationFunction"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "formatVersion",
+    "waVersion",
+    "moduleSha256",
+    "recipe",
+    "setOperation",
+    "removeOperation",
+    "operationEnumSha256",
+    "typeSet"
+  ],
+  "$defs": {
+    "BatchValidationRecipe": {
+      "type": "string",
+      "enum": [
+        "separateSetRemoveV1"
+      ]
+    },
+    "ValidationExpression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "index": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "op": {
+              "type": "string",
+              "const": "argument"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "index"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "index": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "op": {
+              "type": "string",
+              "const": "slot"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "index"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "undefined"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "null"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "object": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "op": {
+              "type": "string",
+              "const": "field"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "object",
+            "field"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "not"
+            },
+            "value": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "left": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "op": {
+              "type": "string",
+              "const": "and"
+            },
+            "right": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "left",
+            "right"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "left": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "op": {
+              "type": "string",
+              "const": "or"
+            },
+            "right": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "left",
+            "right"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "negate": {
+              "type": "boolean"
+            },
+            "op": {
+              "type": "string",
+              "const": "nullish"
+            },
+            "value": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value",
+            "negate"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "left": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "op": {
+              "type": "string",
+              "const": "greater"
+            },
+            "right": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "left",
+            "right"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "condition": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "no": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "op": {
+              "type": "string",
+              "const": "choose"
+            },
+            "yes": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "yes",
+            "no"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "assign"
+            },
+            "slot": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "value": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "slot",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "sequence"
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ValidationExpression"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "values"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/ValidationExpression"
+                  }
+                ]
+              }
+            },
+            "op": {
+              "type": "string",
+              "const": "object"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "fields"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ValidationStatement"
+              }
+            },
+            "input": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "op": {
+              "type": "string",
+              "const": "map"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "input",
+            "body"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ValidationExpression"
+              }
+            },
+            "op": {
+              "type": "string",
+              "const": "validate"
+            },
+            "validator": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "validator",
+            "arguments"
+          ]
+        },
+        {
+          "description": "Closed dependency vocabulary, qualified separately against the bundle.",
+          "type": "object",
+          "properties": {
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ValidationExpression"
+              }
+            },
+            "op": {
+              "type": "string",
+              "const": "transform"
+            },
+            "transform": {
+              "$ref": "#/$defs/ValidationTransform"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "transform",
+            "arguments"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "metric"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name"
+          ]
+        }
+      ]
+    },
+    "ValidationFunction": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ValidationStatement"
+          }
+        },
+        "endByte": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "module": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "startByte": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "startByte",
+        "endByte",
+        "parameters",
+        "body"
+      ]
+    },
+    "ValidationStatement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "bind"
+            },
+            "slot": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "value": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "slot",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "condition": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "no": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ValidationStatement"
+              }
+            },
+            "op": {
+              "type": "string",
+              "const": "if"
+            },
+            "yes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ValidationStatement"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "yes",
+            "no"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "evaluate"
+            },
+            "value": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "metric": {
+              "$ref": "#/$defs/ValidationExpression"
+            },
+            "op": {
+              "type": "string",
+              "const": "fatal"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "metric",
+            "message"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "return"
+            },
+            "value": {
+              "$ref": "#/$defs/ValidationExpression"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ]
+        }
+      ]
+    },
+    "ValidationTransform": {
+      "type": "string",
+      "enum": [
+        "safeInteger",
+        "syncKeyId",
+        "decodePatchDebugData",
+        "decodeSyncActionData",
+        "maybeNumber"
+      ]
+    }
+  }
+}

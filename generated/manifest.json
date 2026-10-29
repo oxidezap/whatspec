@@ -114,9 +114,19 @@
       "sha256": "13210f6948d3c394472e10656863972d1ac322c21253f48d5c06f376928d5d46"
     },
     "appstate": {
+      "batchValidation": {
+        "file": "appstate/validation_batch.json",
+        "schema": "appstate/validation_batch.schema.json",
+        "sha256": "99d30f6ae93a48d37a10184583f0f59570adf4a16add849272f5a928e336cada"
+      },
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "67f7c0befad6db13c34b92354387b2204842806f9bca208796c5fc2dd6981f72"
+      "sha256": "67f7c0befad6db13c34b92354387b2204842806f9bca208796c5fc2dd6981f72",
+      "validation": {
+        "file": "appstate/validation.json",
+        "schema": "appstate/validation.schema.json",
+        "sha256": "6215f75d908578f550af11be008339b34cd63d893eeb659f060f8dc84d6e2505"
+      }
     },
     "enums": {
       "file": "enums/index.json",

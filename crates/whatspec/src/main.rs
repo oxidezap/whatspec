@@ -2229,6 +2229,15 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                     if !schema.is_empty() {
                         entry["schema"] = serde_json::Value::String((*schema).to_string());
                     }
+                    if *name == "appstate" {
+                        for (key, file, schema) in [
+                            ("validation", "appstate/validation.json", "appstate/validation.schema.json"),
+                            ("batchValidation", "appstate/validation_batch.json", "appstate/validation_batch.schema.json"),
+                        ] {
+                            let content = artifacts.iter().find(|a| a.rel_path.to_str() == Some(file)).context("missing appstate validation artifact")?;
+                            entry[key] = serde_json::json!({"file":file,"schema":schema,"sha256":wa_text::sha256_hex(content.content.as_bytes())});
+                        }
+                    }
                     Ok((name.to_string(), entry))
                 },
             )
@@ -2994,6 +3003,38 @@ fn push_appstate(
     artifacts.push(Artifact {
         rel_path: PathBuf::from("appstate/index.json"),
         content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
+    });
+    let validation =
+        wa_appstate::validation::extract(source, wa_version).map_err(anyhow::Error::msg)?;
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("appstate/validation.json"),
+        content: serde_json::to_string_pretty(&validation)? + "\n",
+    });
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("appstate/validation.rs"),
+        content: wa_codegen::generate_appstate_validation(&validation)
+            .map_err(anyhow::Error::msg)?,
+    });
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("appstate/validation_value.rs"),
+        content: wa_codegen::APPSTATE_VALIDATION_VALUE.into(),
+    });
+    for (path, content) in wa_ir::appstate_validation_schemas() {
+        artifacts.push(Artifact {
+            rel_path: PathBuf::from(path),
+            content,
+        });
+    }
+    let batch =
+        wa_appstate::validation_batch::extract(source, wa_version).map_err(anyhow::Error::msg)?;
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("appstate/validation_batch.json"),
+        content: serde_json::to_string_pretty(&batch)? + "\n",
+    });
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("appstate/validation_batch.rs"),
+        content: wa_codegen::generate_appstate_batch_validation(&batch)
+            .map_err(anyhow::Error::msg)?,
     });
     // Typed, self-contained Rust registry of the action schemas.
     artifacts.push(Artifact {
