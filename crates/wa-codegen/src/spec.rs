@@ -222,7 +222,7 @@ fn assertion_conditions(
     let mut conditions = Vec::new();
     for a in assertions {
         let condition = match a.kind {
-            AssertionKind::Tag => a.name.as_ref().map(|tag| format!("{node}.tag() == {}", rust_lit(tag))),
+            AssertionKind::Tag => a.name.as_ref().map(|tag| format!("{node}.tag.as_ref() == {}", rust_lit(tag))),
             AssertionKind::Attr => a.name.as_ref().map(|name| match &a.value {
                 Some(value) => format!("{node}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})", rust_lit(name), rust_lit(value)),
                 None => format!("{node}.get_attr({}).is_some()", rust_lit(name)),
@@ -606,7 +606,7 @@ fn error_selection(v: &ResponseVariant, node: &str) -> Option<String> {
     direct_error_payload(v)?;
     let arms: Vec<_> = v.error_arms.iter().map(error_arm_condition).collect();
     Some(format!(
-        "({node}.get_attr(\"type\").map(|v| v.as_str()).as_deref() == Some(\"error\") && {node}.content_bytes().is_none() && {node}.get_children_by_tag(\"error\").count() == 1 && {node}.get_optional_child(\"error\").is_some_and(|error| error.get_attr(\"text\").is_some() && error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str())).is_some_and(|code| {})))",
+        "({node}.get_attr(\"type\").map(|v| v.as_str()).as_deref() == Some(\"error\") && {node}.content_bytes().is_none() && {node}.get_children_by_tag(\"error\").count() == 1 && {node}.get_optional_child(\"error\").is_some_and(|error| error.get_attr(\"text\").is_some() && error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str().as_ref())).is_some_and(|code| {})))",
         arms.join(" || ")
     ))
 }
@@ -634,7 +634,7 @@ fn emit_direct_error_parser(
             "{indent}let error = response.get_optional_child(\"error\").ok_or_else(|| anyhow::anyhow!(\"missing error\"))?;"
         ),
         format!(
-            "{indent}let code = error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str())).ok_or_else(|| anyhow::anyhow!(\"invalid error code\"))?;"
+            "{indent}let code = error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str().as_ref())).ok_or_else(|| anyhow::anyhow!(\"invalid error code\"))?;"
         ),
         format!("{indent}let payload = (|| -> Result<{ename}, anyhow::Error> {{"),
     ];
@@ -1168,6 +1168,16 @@ pub(crate) fn spec_base_name(op: &IqStanzaDef) -> String {
 /// Generate one `IqSpec` impl. `spec_name` is the (possibly disambiguated) struct
 /// name chosen by the caller, so two ops in the same namespace never collide.
 pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -> String {
+    generate_spec_diagnosed(op, ns_const, spec_name).0
+}
+
+/// Keep admission and emission on the same path: callers must not infer parser
+/// completeness from a successfully emitted struct or a catalog entry count.
+pub(crate) fn generate_spec_diagnosed(
+    op: &IqStanzaDef,
+    ns_const: &str,
+    spec_name: &str,
+) -> (String, Option<String>) {
     let mut lines: Vec<String> = Vec::new();
 
     let is_confirmation = op.response.fields.is_empty();
@@ -1393,9 +1403,35 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
             ))
         ));
         lines.push("    }".into());
+        // The runtime must hand over the immutable stanza it actually sent,
+        // after assigning its ID. The legacy helper stays available to callers
+        // that already retain those two exact wire attributes.
+        lines.push("    fn uses_contextual_response(&self) -> bool { true }".into());
+        if op
+            .response
+            .variants
+            .iter()
+            .any(|v| v.kind != ResponseVariantKind::Success)
+        {
+            lines.push("    fn handles_iq_errors(&self) -> bool { true }".into());
+        }
+        lines.push("    fn parse_response_with_context(&self, response: &wacore_binary::NodeRef<'_>, request: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".into());
+        lines.push("        Self::parse_sent_response(response, request)".into());
+        lines.push("    }".into());
         lines.push("}".into());
         lines.push(format!("impl {spec_name} {{"));
+        lines.push(format!("    pub fn parse_sent_response(response: &wacore_binary::NodeRef<'_>, request: &wacore_binary::NodeRef<'_>) -> Result<{response_type_name}, anyhow::Error> {{"));
+        lines.push("        anyhow::ensure!(request.tag.as_ref() == \"iq\", \"request context is not an IQ\");".into());
+        lines.push("        let request_id = request.get_attr(\"id\").ok_or_else(|| anyhow::anyhow!(\"request context has no id\"))?;".into());
+        lines.push("        let request_to = request.get_attr(\"to\").ok_or_else(|| anyhow::anyhow!(\"request context has no to\"))?;".into());
+        lines.push("        Self::parse_correlated_response(response, request_id.as_str().as_ref(), request_to.as_str().as_ref())".into());
+        lines.push("    }".into());
         lines.push(format!("    pub fn parse_response_with_request(&self, response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, anyhow::Error> {{"));
+        lines.push(
+            "        Self::parse_correlated_response(response, request_id, request_to)".into(),
+        );
+        lines.push("    }".into());
+        lines.push(format!("    fn parse_correlated_response(response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, anyhow::Error> {{"));
         for (wire, value) in correlation.as_ref().unwrap() {
             lines.push(format!("        if response.get_attr({}).map(|v| v.as_str()).as_deref() != Some({value}) {{ anyhow::bail!({}); }}", rust_lit(wire), rust_lit(&format!("{}: response.{wire} does not match {value}", op.module_name))));
         }
@@ -1467,7 +1503,10 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         lines.push("}".to_string());
     }
 
-    fix_unused_vars(lines.join("\n"))
+    (
+        fix_unused_vars(lines.join("\n")),
+        rejection.map(str::to_owned),
+    )
 }
 
 /// Emit the `fn build_iq` method (request builder), threading a [`VariantCtx`] so a
@@ -3067,7 +3106,7 @@ mod tests {
                     .retain(|a| a.kind != AssertionKind::Reference);
             }
             let code = generate_spec(&op, "PINGS_NAMESPACE", "PingSpec");
-            assert!(code.contains("response.tag() == \"iq\""), "{code}");
+            assert!(code.contains("response.tag.as_ref() == \"iq\""), "{code}");
         }
     }
 
@@ -3139,8 +3178,8 @@ mod tests {
         op.response.variants = vec![variant("iq"), variant("message")];
         let code = generate_spec(&op, "TEST_NAMESPACE", "DisjointTagsSpec");
         assert!(!code.contains("RESPONSE_GENERATION_ERROR"), "{code}");
-        assert!(code.contains("response.tag() == \"iq\""));
-        assert!(code.contains("response.tag() == \"message\""));
+        assert!(code.contains("response.tag.as_ref() == \"iq\""));
+        assert!(code.contains("response.tag.as_ref() == \"message\""));
     }
 
     #[test]

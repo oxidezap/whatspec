@@ -1,0 +1,1547 @@
+{
+  "sigiloRev": "4eae4ecc0a4a9f32ded32fa7b52ba60bf1232b15",
+  "command": "node experiments/smax-schema/extract.mjs --corpus <verified-bundles> --rpc <name> --json <output>",
+  "limitations": [
+    "Recording helpers report success; not a wire validator or a concrete differential behavior oracle.",
+    "WASmaxChildren records bounds instead of enforcing them.",
+    "WASmaxParseReference returns recording proxies, not values read from a concrete sent request."
+  ],
+  "active": {
+    "schema": [
+      {
+        "rpc": "WASmaxPassiveModeActiveIQRPC",
+        "name": "PassiveModeActiveIQ",
+        "request": {
+          "module": "WASmaxOutPassiveModeActiveIQRequest",
+          "stanza": {
+            "tag": "iq",
+            "exhausted": true,
+            "attrs": {
+              "id": {
+                "__wire": "generateId",
+                "from": null
+              },
+              "type": {
+                "literal": "set"
+              },
+              "xmlns": {
+                "literal": "passive"
+              },
+              "to": {
+                "__wire": "S_WHATSAPP_NET",
+                "constant": true
+              }
+            },
+            "children": [
+              {
+                "tag": "active"
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "module": "WASmaxInPassiveModeActiveIQResponseSuccess",
+            "variant": "Success",
+            "tag": "ActiveIQResponseSuccess",
+            "parsed": [
+              {
+                "export": "parseActiveIQResponseSuccess",
+                "main": true,
+                "tree": {
+                  "tag": "iq",
+                  "fields": [],
+                  "children": [
+                    {
+                      "tag": "active",
+                      "fields": [],
+                      "children": [],
+                      "cardinality": "required"
+                    }
+                  ],
+                  "references": [
+                    {
+                      "path": [
+                        "id"
+                      ]
+                    }
+                  ],
+                  "pins": [
+                    {
+                      "name": "id",
+                      "value": "<request.id>"
+                    },
+                    {
+                      "name": "type",
+                      "value": "result"
+                    },
+                    {
+                      "name": "from",
+                      "value": "s.whatsapp.net"
+                    }
+                  ],
+                  "result": {
+                    "type": {
+                      "literal": "result"
+                    },
+                    "from": {
+                      "literal": "s.whatsapp.net"
+                    }
+                  },
+                  "resultAll": {
+                    "type": {
+                      "literal": "result"
+                    },
+                    "from": {
+                      "literal": "s.whatsapp.net"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "failures": []
+  },
+  "joinLinkedGroup": {
+    "schema": [
+      {
+        "rpc": "WASmaxGroupsJoinLinkedGroupRPC",
+        "name": "GroupsJoinLinkedGroup",
+        "request": {
+          "module": "WASmaxOutGroupsJoinLinkedGroupRequest",
+          "stanza": {
+            "tag": "iq",
+            "exhausted": true,
+            "attrs": {
+              "to": {
+                "__wire": "GROUP_JID",
+                "from": "args.iqTo"
+              },
+              "xmlns": {
+                "literal": "w:g2"
+              },
+              "id": {
+                "__wire": "generateId",
+                "from": null
+              },
+              "type": {
+                "literal": "set"
+              }
+            },
+            "children": [
+              {
+                "tag": "join_linked_group",
+                "attrs": {
+                  "type": {
+                    "__optional": true,
+                    "__wire": "CUSTOM_STRING",
+                    "from": "args.joinLinkedGroupType"
+                  },
+                  "jid": {
+                    "__wire": "GROUP_JID",
+                    "from": "args.joinLinkedGroupJid"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "module": "WASmaxInGroupsJoinLinkedGroupResponseClientError",
+            "variant": "ClientError",
+            "tag": "JoinLinkedGroupResponseClientError",
+            "parsed": [
+              {
+                "export": "parseJoinLinkedGroupResponseClientError",
+                "main": true,
+                "tree": {
+                  "tag": "iq",
+                  "fields": [],
+                  "children": [
+                    {
+                      "tag": "error",
+                      "fields": [],
+                      "children": [],
+                      "cardinality": "required",
+                      "pins": [
+                        {
+                          "name": "text",
+                          "value": "bad-request"
+                        },
+                        {
+                          "name": "code",
+                          "value": 400
+                        }
+                      ]
+                    }
+                  ],
+                  "references": [
+                    {
+                      "path": [
+                        "id"
+                      ]
+                    },
+                    {
+                      "path": [
+                        "to"
+                      ]
+                    }
+                  ],
+                  "pins": [
+                    {
+                      "name": "id",
+                      "value": "<request.id>"
+                    },
+                    {
+                      "name": "from",
+                      "value": "<request.to>"
+                    },
+                    {
+                      "name": "type",
+                      "value": "error"
+                    }
+                  ],
+                  "result": {
+                    "type": {
+                      "literal": "error"
+                    },
+                    "errorJoinLinkedGroupClientErrors": {
+                      "nested": {
+                        "name": {
+                          "literal": "IQErrorBadRequest"
+                        },
+                        "value": {
+                          "nested": {
+                            "text": {
+                              "literal": "bad-request"
+                            },
+                            "code": {
+                              "literal": 400
+                            }
+                          }
+                        }
+                      },
+                      "arms": [
+                        "IQErrorBadRequest",
+                        "IQErrorForbidden",
+                        "IQErrorItemNotFound",
+                        "IQErrorNotAllowed",
+                        "IQErrorNotAcceptable",
+                        "IQErrorConflict",
+                        "IQErrorResourceLimit",
+                        "IQErrorNotAuthorized",
+                        "IQErrorUpgradeRequired",
+                        "IQErrorAlreadyExists",
+                        "IQErrorFallbackClient"
+                      ],
+                      "armTags": {
+                        "IQErrorBadRequest": "IQErrorBadRequest",
+                        "IQErrorForbidden": "IQErrorForbidden",
+                        "IQErrorItemNotFound": "IQErrorItemNotFound",
+                        "IQErrorNotAllowed": "IQErrorNotAllowed",
+                        "IQErrorNotAcceptable": "IQErrorNotAcceptable",
+                        "IQErrorConflict": "IQErrorConflict",
+                        "IQErrorResourceLimit": "IQErrorResourceLimit",
+                        "IQErrorNotAuthorized": "IQErrorNotAuthorized",
+                        "IQErrorUpgradeRequired": "IQErrorUpgradeRequired",
+                        "IQErrorAlreadyExists": "IQErrorAlreadyExists",
+                        "IQErrorFallbackClient": "IQErrorFallbackClient"
+                      },
+                      "armShapes": {
+                        "IQErrorBadRequest": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "bad-request"
+                            },
+                            {
+                              "name": "code",
+                              "value": 400
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "bad-request"
+                            },
+                            "code": {
+                              "literal": 400
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "bad-request"
+                            },
+                            "code": {
+                              "literal": 400
+                            }
+                          }
+                        },
+                        "IQErrorForbidden": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "forbidden"
+                            },
+                            {
+                              "name": "code",
+                              "value": 403
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "forbidden"
+                            },
+                            "code": {
+                              "literal": 403
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "forbidden"
+                            },
+                            "code": {
+                              "literal": 403
+                            }
+                          }
+                        },
+                        "IQErrorItemNotFound": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "item-not-found"
+                            },
+                            {
+                              "name": "code",
+                              "value": 404
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "item-not-found"
+                            },
+                            "code": {
+                              "literal": 404
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "item-not-found"
+                            },
+                            "code": {
+                              "literal": 404
+                            }
+                          }
+                        },
+                        "IQErrorNotAllowed": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "not-allowed"
+                            },
+                            {
+                              "name": "code",
+                              "value": 405
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "not-allowed"
+                            },
+                            "code": {
+                              "literal": 405
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "not-allowed"
+                            },
+                            "code": {
+                              "literal": 405
+                            }
+                          }
+                        },
+                        "IQErrorNotAcceptable": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [
+                            {
+                              "tag": "field",
+                              "fields": [
+                                {
+                                  "name": "name",
+                                  "type": "string"
+                                },
+                                {
+                                  "name": "reason",
+                                  "type": "string"
+                                }
+                              ],
+                              "children": [],
+                              "cardinality": "optional",
+                              "result": {
+                                "name": {
+                                  "field": "name",
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "field": "reason",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ],
+                          "references": [],
+                          "result": {
+                            "text": {
+                              "literal": "not-acceptable"
+                            },
+                            "code": {
+                              "literal": 406
+                            },
+                            "field": {
+                              "nested": {
+                                "name": {
+                                  "field": "name",
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "field": "reason",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "resultAll": {
+                            "name": {
+                              "field": "name",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "field": "reason",
+                              "type": "string"
+                            },
+                            "text": {
+                              "literal": "not-acceptable"
+                            },
+                            "code": {
+                              "literal": 406
+                            },
+                            "field": {
+                              "nested": {
+                                "name": {
+                                  "field": "name",
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "field": "reason",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "not-acceptable"
+                            },
+                            {
+                              "name": "code",
+                              "value": 406
+                            }
+                          ]
+                        },
+                        "IQErrorConflict": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "conflict"
+                            },
+                            {
+                              "name": "code",
+                              "value": 409
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "conflict"
+                            },
+                            "code": {
+                              "literal": 409
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "conflict"
+                            },
+                            "code": {
+                              "literal": 409
+                            }
+                          }
+                        },
+                        "IQErrorResourceLimit": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "resource-limit"
+                            },
+                            {
+                              "name": "code",
+                              "value": 419
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "resource-limit"
+                            },
+                            "code": {
+                              "literal": 419
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "resource-limit"
+                            },
+                            "code": {
+                              "literal": 419
+                            }
+                          }
+                        },
+                        "IQErrorNotAuthorized": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "not-authorized"
+                            },
+                            {
+                              "name": "code",
+                              "value": 401
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "not-authorized"
+                            },
+                            "code": {
+                              "literal": 401
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "not-authorized"
+                            },
+                            "code": {
+                              "literal": 401
+                            }
+                          }
+                        },
+                        "IQErrorUpgradeRequired": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "upgrade-required"
+                            },
+                            {
+                              "name": "code",
+                              "value": 426
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "upgrade-required"
+                            },
+                            "code": {
+                              "literal": 426
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "upgrade-required"
+                            },
+                            "code": {
+                              "literal": 426
+                            }
+                          }
+                        },
+                        "IQErrorAlreadyExists": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "already-exists"
+                            },
+                            {
+                              "name": "code",
+                              "value": 304
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "already-exists"
+                            },
+                            "code": {
+                              "literal": 304
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "already-exists"
+                            },
+                            "code": {
+                              "literal": 304
+                            }
+                          }
+                        },
+                        "IQErrorFallbackClient": {
+                          "tag": "error",
+                          "fields": [
+                            {
+                              "name": "text",
+                              "type": "string"
+                            },
+                            {
+                              "name": "code",
+                              "type": "int",
+                              "min": 400,
+                              "max": 499
+                            }
+                          ],
+                          "children": [],
+                          "references": [],
+                          "result": {
+                            "text": {
+                              "field": "text",
+                              "type": "string"
+                            },
+                            "code": {
+                              "field": "code",
+                              "type": "int"
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "field": "text",
+                              "type": "string"
+                            },
+                            "code": {
+                              "field": "code",
+                              "type": "int"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "resultAll": {
+                    "type": {
+                      "literal": "error"
+                    },
+                    "text": {
+                      "literal": "bad-request"
+                    },
+                    "code": {
+                      "literal": 400
+                    },
+                    "name": {
+                      "literal": "IQErrorBadRequest"
+                    },
+                    "value": {
+                      "nested": {
+                        "text": {
+                          "literal": "bad-request"
+                        },
+                        "code": {
+                          "literal": 400
+                        }
+                      }
+                    },
+                    "errorJoinLinkedGroupClientErrors": {
+                      "nested": {
+                        "name": {
+                          "literal": "IQErrorBadRequest"
+                        },
+                        "value": {
+                          "nested": {
+                            "text": {
+                              "literal": "bad-request"
+                            },
+                            "code": {
+                              "literal": 400
+                            }
+                          }
+                        }
+                      },
+                      "arms": [
+                        "IQErrorBadRequest",
+                        "IQErrorForbidden",
+                        "IQErrorItemNotFound",
+                        "IQErrorNotAllowed",
+                        "IQErrorNotAcceptable",
+                        "IQErrorConflict",
+                        "IQErrorResourceLimit",
+                        "IQErrorNotAuthorized",
+                        "IQErrorUpgradeRequired",
+                        "IQErrorAlreadyExists",
+                        "IQErrorFallbackClient"
+                      ],
+                      "armTags": {
+                        "IQErrorBadRequest": "IQErrorBadRequest",
+                        "IQErrorForbidden": "IQErrorForbidden",
+                        "IQErrorItemNotFound": "IQErrorItemNotFound",
+                        "IQErrorNotAllowed": "IQErrorNotAllowed",
+                        "IQErrorNotAcceptable": "IQErrorNotAcceptable",
+                        "IQErrorConflict": "IQErrorConflict",
+                        "IQErrorResourceLimit": "IQErrorResourceLimit",
+                        "IQErrorNotAuthorized": "IQErrorNotAuthorized",
+                        "IQErrorUpgradeRequired": "IQErrorUpgradeRequired",
+                        "IQErrorAlreadyExists": "IQErrorAlreadyExists",
+                        "IQErrorFallbackClient": "IQErrorFallbackClient"
+                      },
+                      "armShapes": {
+                        "IQErrorBadRequest": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "bad-request"
+                            },
+                            {
+                              "name": "code",
+                              "value": 400
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "bad-request"
+                            },
+                            "code": {
+                              "literal": 400
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "bad-request"
+                            },
+                            "code": {
+                              "literal": 400
+                            }
+                          }
+                        },
+                        "IQErrorForbidden": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "forbidden"
+                            },
+                            {
+                              "name": "code",
+                              "value": 403
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "forbidden"
+                            },
+                            "code": {
+                              "literal": 403
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "forbidden"
+                            },
+                            "code": {
+                              "literal": 403
+                            }
+                          }
+                        },
+                        "IQErrorItemNotFound": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "item-not-found"
+                            },
+                            {
+                              "name": "code",
+                              "value": 404
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "item-not-found"
+                            },
+                            "code": {
+                              "literal": 404
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "item-not-found"
+                            },
+                            "code": {
+                              "literal": 404
+                            }
+                          }
+                        },
+                        "IQErrorNotAllowed": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "not-allowed"
+                            },
+                            {
+                              "name": "code",
+                              "value": 405
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "not-allowed"
+                            },
+                            "code": {
+                              "literal": 405
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "not-allowed"
+                            },
+                            "code": {
+                              "literal": 405
+                            }
+                          }
+                        },
+                        "IQErrorNotAcceptable": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [
+                            {
+                              "tag": "field",
+                              "fields": [
+                                {
+                                  "name": "name",
+                                  "type": "string"
+                                },
+                                {
+                                  "name": "reason",
+                                  "type": "string"
+                                }
+                              ],
+                              "children": [],
+                              "cardinality": "optional",
+                              "result": {
+                                "name": {
+                                  "field": "name",
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "field": "reason",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ],
+                          "references": [],
+                          "result": {
+                            "text": {
+                              "literal": "not-acceptable"
+                            },
+                            "code": {
+                              "literal": 406
+                            },
+                            "field": {
+                              "nested": {
+                                "name": {
+                                  "field": "name",
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "field": "reason",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "resultAll": {
+                            "name": {
+                              "field": "name",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "field": "reason",
+                              "type": "string"
+                            },
+                            "text": {
+                              "literal": "not-acceptable"
+                            },
+                            "code": {
+                              "literal": 406
+                            },
+                            "field": {
+                              "nested": {
+                                "name": {
+                                  "field": "name",
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "field": "reason",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "not-acceptable"
+                            },
+                            {
+                              "name": "code",
+                              "value": 406
+                            }
+                          ]
+                        },
+                        "IQErrorConflict": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "conflict"
+                            },
+                            {
+                              "name": "code",
+                              "value": 409
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "conflict"
+                            },
+                            "code": {
+                              "literal": 409
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "conflict"
+                            },
+                            "code": {
+                              "literal": 409
+                            }
+                          }
+                        },
+                        "IQErrorResourceLimit": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "resource-limit"
+                            },
+                            {
+                              "name": "code",
+                              "value": 419
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "resource-limit"
+                            },
+                            "code": {
+                              "literal": 419
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "resource-limit"
+                            },
+                            "code": {
+                              "literal": 419
+                            }
+                          }
+                        },
+                        "IQErrorNotAuthorized": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "not-authorized"
+                            },
+                            {
+                              "name": "code",
+                              "value": 401
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "not-authorized"
+                            },
+                            "code": {
+                              "literal": 401
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "not-authorized"
+                            },
+                            "code": {
+                              "literal": 401
+                            }
+                          }
+                        },
+                        "IQErrorUpgradeRequired": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "upgrade-required"
+                            },
+                            {
+                              "name": "code",
+                              "value": 426
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "upgrade-required"
+                            },
+                            "code": {
+                              "literal": 426
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "upgrade-required"
+                            },
+                            "code": {
+                              "literal": 426
+                            }
+                          }
+                        },
+                        "IQErrorAlreadyExists": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "already-exists"
+                            },
+                            {
+                              "name": "code",
+                              "value": 304
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "already-exists"
+                            },
+                            "code": {
+                              "literal": 304
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "already-exists"
+                            },
+                            "code": {
+                              "literal": 304
+                            }
+                          }
+                        },
+                        "IQErrorFallbackClient": {
+                          "tag": "error",
+                          "fields": [
+                            {
+                              "name": "text",
+                              "type": "string"
+                            },
+                            {
+                              "name": "code",
+                              "type": "int",
+                              "min": 400,
+                              "max": 499
+                            }
+                          ],
+                          "children": [],
+                          "references": [],
+                          "result": {
+                            "text": {
+                              "field": "text",
+                              "type": "string"
+                            },
+                            "code": {
+                              "field": "code",
+                              "type": "int"
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "field": "text",
+                              "type": "string"
+                            },
+                            "code": {
+                              "field": "code",
+                              "type": "int"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "module": "WASmaxInGroupsJoinLinkedGroupResponseGroupJoinRequestSuccess",
+            "variant": "GroupJoinRequestSuccess",
+            "tag": "JoinLinkedGroupResponseGroupJoinRequestSuccess",
+            "parsed": [
+              {
+                "export": "parseJoinLinkedGroupResponseGroupJoinRequestSuccess",
+                "main": true,
+                "tree": {
+                  "tag": "iq",
+                  "fields": [],
+                  "children": [
+                    {
+                      "tag": "membership_approval_request",
+                      "fields": [],
+                      "children": [],
+                      "cardinality": "required"
+                    }
+                  ],
+                  "references": [
+                    {
+                      "path": [
+                        "id"
+                      ]
+                    },
+                    {
+                      "path": [
+                        "to"
+                      ]
+                    }
+                  ],
+                  "pins": [
+                    {
+                      "name": "id",
+                      "value": "<request.id>"
+                    },
+                    {
+                      "name": "from",
+                      "value": "<request.to>"
+                    },
+                    {
+                      "name": "type",
+                      "value": "result"
+                    }
+                  ],
+                  "result": {
+                    "type": {
+                      "literal": "result"
+                    }
+                  },
+                  "resultAll": {
+                    "type": {
+                      "literal": "result"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "module": "WASmaxInGroupsJoinLinkedGroupResponseServerError",
+            "variant": "ServerError",
+            "tag": "JoinLinkedGroupResponseServerError",
+            "parsed": [
+              {
+                "export": "parseJoinLinkedGroupResponseServerError",
+                "main": true,
+                "tree": {
+                  "tag": "iq",
+                  "fields": [],
+                  "children": [
+                    {
+                      "tag": "error",
+                      "fields": [],
+                      "children": [],
+                      "cardinality": "required",
+                      "pins": [
+                        {
+                          "name": "text",
+                          "value": "internal-server-error"
+                        },
+                        {
+                          "name": "code",
+                          "value": 500
+                        }
+                      ]
+                    }
+                  ],
+                  "references": [
+                    {
+                      "path": [
+                        "id"
+                      ]
+                    },
+                    {
+                      "path": [
+                        "to"
+                      ]
+                    }
+                  ],
+                  "pins": [
+                    {
+                      "name": "id",
+                      "value": "<request.id>"
+                    },
+                    {
+                      "name": "from",
+                      "value": "<request.to>"
+                    },
+                    {
+                      "name": "type",
+                      "value": "error"
+                    }
+                  ],
+                  "result": {
+                    "type": {
+                      "literal": "error"
+                    },
+                    "errorServerErrors": {
+                      "nested": {
+                        "name": {
+                          "literal": "IQErrorInternalServerError"
+                        },
+                        "value": {
+                          "nested": {
+                            "text": {
+                              "literal": "internal-server-error"
+                            },
+                            "code": {
+                              "literal": 500
+                            }
+                          }
+                        }
+                      },
+                      "arms": [
+                        "IQErrorFeatureNotImplemented",
+                        "IQErrorInternalServerError"
+                      ],
+                      "armTags": {
+                        "IQErrorFeatureNotImplemented": "IQErrorFeatureNotImplemented",
+                        "IQErrorInternalServerError": "IQErrorInternalServerError"
+                      },
+                      "armShapes": {
+                        "IQErrorFeatureNotImplemented": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "feature-not-implemented"
+                            },
+                            {
+                              "name": "code",
+                              "value": 501
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "feature-not-implemented"
+                            },
+                            "code": {
+                              "literal": 501
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "feature-not-implemented"
+                            },
+                            "code": {
+                              "literal": 501
+                            }
+                          }
+                        },
+                        "IQErrorInternalServerError": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "internal-server-error"
+                            },
+                            {
+                              "name": "code",
+                              "value": 500
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "internal-server-error"
+                            },
+                            "code": {
+                              "literal": 500
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "internal-server-error"
+                            },
+                            "code": {
+                              "literal": 500
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "resultAll": {
+                    "type": {
+                      "literal": "error"
+                    },
+                    "text": {
+                      "literal": "internal-server-error"
+                    },
+                    "code": {
+                      "literal": 500
+                    },
+                    "name": {
+                      "literal": "IQErrorInternalServerError"
+                    },
+                    "value": {
+                      "nested": {
+                        "text": {
+                          "literal": "internal-server-error"
+                        },
+                        "code": {
+                          "literal": 500
+                        }
+                      }
+                    },
+                    "errorServerErrors": {
+                      "nested": {
+                        "name": {
+                          "literal": "IQErrorInternalServerError"
+                        },
+                        "value": {
+                          "nested": {
+                            "text": {
+                              "literal": "internal-server-error"
+                            },
+                            "code": {
+                              "literal": 500
+                            }
+                          }
+                        }
+                      },
+                      "arms": [
+                        "IQErrorFeatureNotImplemented",
+                        "IQErrorInternalServerError"
+                      ],
+                      "armTags": {
+                        "IQErrorFeatureNotImplemented": "IQErrorFeatureNotImplemented",
+                        "IQErrorInternalServerError": "IQErrorInternalServerError"
+                      },
+                      "armShapes": {
+                        "IQErrorFeatureNotImplemented": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "feature-not-implemented"
+                            },
+                            {
+                              "name": "code",
+                              "value": 501
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "feature-not-implemented"
+                            },
+                            "code": {
+                              "literal": 501
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "feature-not-implemented"
+                            },
+                            "code": {
+                              "literal": 501
+                            }
+                          }
+                        },
+                        "IQErrorInternalServerError": {
+                          "tag": "error",
+                          "fields": [],
+                          "children": [],
+                          "references": [],
+                          "pins": [
+                            {
+                              "name": "text",
+                              "value": "internal-server-error"
+                            },
+                            {
+                              "name": "code",
+                              "value": 500
+                            }
+                          ],
+                          "result": {
+                            "text": {
+                              "literal": "internal-server-error"
+                            },
+                            "code": {
+                              "literal": 500
+                            }
+                          },
+                          "resultAll": {
+                            "text": {
+                              "literal": "internal-server-error"
+                            },
+                            "code": {
+                              "literal": 500
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "module": "WASmaxInGroupsJoinLinkedGroupResponseSuccess",
+            "variant": "Success",
+            "tag": "JoinLinkedGroupResponseSuccess",
+            "parsed": [
+              {
+                "export": "parseJoinLinkedGroupResponseSuccess",
+                "main": true,
+                "tree": {
+                  "tag": "iq",
+                  "fields": [],
+                  "children": [],
+                  "references": [
+                    {
+                      "path": [
+                        "id"
+                      ]
+                    },
+                    {
+                      "path": [
+                        "to"
+                      ]
+                    }
+                  ],
+                  "pins": [
+                    {
+                      "name": "id",
+                      "value": "<request.id>"
+                    },
+                    {
+                      "name": "from",
+                      "value": "<request.to>"
+                    },
+                    {
+                      "name": "type",
+                      "value": "result"
+                    }
+                  ],
+                  "result": {
+                    "type": {
+                      "literal": "result"
+                    }
+                  },
+                  "resultAll": {
+                    "type": {
+                      "literal": "result"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "failures": []
+  }
+}

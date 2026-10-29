@@ -359,7 +359,7 @@ fn jid_literal_pin(
         return Vec::new();
     };
     let pin = rust_lit(lit);
-    let raw = format!("{node_var}.get_attr({flit}).map(|v| v.as_str())");
+    let raw = format!("{node_var}.get_attr({flit}).map(|v| v.as_str()).as_deref()");
     // An ABSENT attribute is not a pin violation where the read admits absence: the field holds
     // the absence, exactly as the optional string pin reads it.
     let test = if optional {
@@ -2546,7 +2546,7 @@ mod tests {
         let required = src("attrUserJid", true);
         assert!(
             required.contains(
-                r#"anyhow::ensure!(n.get_attr("from").map(|v| v.as_str()) == Some("s.whatsapp.net")"#
+                r#"anyhow::ensure!(n.get_attr("from").map(|v| v.as_str()).as_deref() == Some("s.whatsapp.net")"#
             ),
             "the required read is pinned: {required}"
         );
@@ -2554,7 +2554,7 @@ mod tests {
         let optional = src("maybeAttrUserJid", false);
         assert!(
             optional.contains(
-                r#"matches!(n.get_attr("from").map(|v| v.as_str()), None | Some("s.whatsapp.net"))"#
+                r#"matches!(n.get_attr("from").map(|v| v.as_str()).as_deref(), None | Some("s.whatsapp.net"))"#
             ),
             "and the optional read admits absence: {optional}"
         );

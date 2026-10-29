@@ -26,7 +26,7 @@
         "errorArms": 645,
         "errorTexts": 577,
         "fieldEnumRefs": 234,
-        "fieldLiterals": 1784,
+        "fieldLiterals": 1792,
         "referenceConstraints": 584,
         "typedErrorVariants": 104
       },
@@ -131,7 +131,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "fc7aa8849031d7b970f5a6bf03e4ae34e4543eff114ef4d022d08ccb37795225"
+      "sha256": "8b2f9e3f55b3ec314f57a6ed948ec3da1c3da6ac33a3d9ddf007c0c28b1ddd07"
     },
     "mex": {
       "file": "mex/index.json",
@@ -141,7 +141,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "aca3b102b610e35c3062eb96cfca36a887aa257c98ea94e9df3c9e68b54881be"
+      "sha256": "2fae5328502ad9b8a2ecdeabdd17ad786ee92c419ce29ddf42ec7f5679e6331b"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -150,7 +150,7 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "ac217bf5038d61e37fce76bd6fb463a2813273acdc35e294d3cdf09e4ff5a5e3"
+      "sha256": "c769b479d7d721c9fe443acadde248e869d6902c7a2b27934ba244b8764e25e6"
     },
     "stanza": {
       "file": "stanza/index.json",

@@ -646,7 +646,7 @@ fn classify_call(
         // `{type: s.value}`) it is a real output field whose type comes from the
         // wrapped accessor; when it's only an assertion (unreferenced) it emits
         // nothing. `literalContent` pins a constant string (no makeResult value).
-        "literal" => {
+        "literal" | "literalJid" => {
             // The pinned value is one of three things:
             //  - a compile-time literal (`"result"`, `429`) → a hard discriminator, and
             //    the value the field carries;
@@ -2669,6 +2669,22 @@ mod tests {
             !ty.parser_required,
             "optionalLiteral → the attr may be absent"
         );
+    }
+
+    #[test]
+    fn literal_jid_retains_accessor_type_constant_and_root_guard() {
+        let body = r#"function e(node){
+            var from = o("WASmaxParseJid").literalJid(o("WASmaxParseJid").attrDomainJid, node, "from", "s.whatsapp.net");
+            return from.success ? o("WAResultOrError").makeResult({from: from.value}) : from;
+        }"#;
+        let (assertions, fields) = analyze_one(body).unwrap();
+        assert!(assertions.iter().any(|a| a.kind == AssertionKind::Attr
+            && a.name.as_deref() == Some("from")
+            && a.value.as_deref() == Some("s.whatsapp.net")));
+        let from = fields.iter().find(|f| f.name == "from").unwrap();
+        assert_eq!(from.method, "attrDomainJid");
+        assert_eq!(from.field_type, ParsedFieldType::Jid);
+        assert_eq!(from.literal_value.as_deref(), Some("s.whatsapp.net"));
     }
 
     #[test]

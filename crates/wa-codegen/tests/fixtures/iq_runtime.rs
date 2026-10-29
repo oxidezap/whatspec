@@ -14,6 +14,19 @@ pub struct Node {
 #[derive(Clone, Copy)]
 pub struct NodeRef<'a> {
     node: &'a Node,
+    pub tag: FixtureTag<'a>,
+}
+#[derive(Clone, Copy)]
+pub struct FixtureTag<'a>(&'a str);
+impl AsRef<str> for FixtureTag<'_> { fn as_ref(&self) -> &str { self.0 } }
+#[derive(Clone, Copy)]
+pub struct FixtureValue<'a>(&'a str);
+impl<'a> FixtureValue<'a> {
+    pub fn as_str(&self) -> std::borrow::Cow<'a, str> { std::borrow::Cow::Borrowed(self.0) }
+    pub fn to_jid(&self) -> Option<jid::Jid> {
+        self.0.contains('@').then(|| jid::Jid(self.0.into()))
+            .or_else(|| (self.0 == "s.whatsapp.net" || self.0 == "g.us").then(|| jid::Jid(self.0.into())))
+    }
 }
 impl Node {
     fn new(tag: &str, attrs: &[(&str, &str)], children: Vec<Node>) -> Self {
@@ -29,15 +42,15 @@ impl Node {
         }
     }
     fn as_ref(&self) -> NodeRef<'_> {
-        NodeRef { node: self }
+        NodeRef { node: self, tag: FixtureTag(&self.tag) }
     }
 }
 impl<'a> NodeRef<'a> {
     pub fn tag(&self) -> &'a str {
         &self.node.tag
     }
-    pub fn get_attr(&self, name: &str) -> Option<&'a String> {
-        self.node.attrs.get(name)
+    pub fn get_attr(&self, name: &str) -> Option<FixtureValue<'a>> {
+        self.node.attrs.get(name).map(|s| FixtureValue(s.as_str()))
     }
     pub fn get_optional_child(&self, tag: &str) -> Option<NodeRef<'a>> {
         self.node
@@ -69,7 +82,7 @@ pub mod jid {
         Pn,
         Group,
     }
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Default)]
     pub struct Jid(pub String);
     impl Jid {
         pub fn new(user: &str, server: Server) -> Self {
@@ -171,6 +184,13 @@ pub mod iq {
                 &self,
                 response: &crate::NodeRef<'_>,
             ) -> Result<Self::Response, anyhow::Error>;
+            fn uses_contextual_response(&self) -> bool { false }
+            fn handles_iq_errors(&self) -> bool { false }
+            fn parse_response_with_context(
+                &self,
+                response: &crate::NodeRef<'_>,
+                _request: &crate::NodeRef<'_>,
+            ) -> Result<Self::Response, anyhow::Error> { self.parse_response(response) }
         }
     }
 }
