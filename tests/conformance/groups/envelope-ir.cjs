@@ -60,7 +60,7 @@ function evaluateEnvelope(contract, node, facts) {
         case 'evaluate': expr(op.value); break;
         case 'if': ops(expr(op.condition) ? op.thenOps : op.elseOps); break;
         case 'tryDiagnostic':
-          try { ops(op.body); } catch(error) { facts.WALogger.ERROR(op.messageParts, error).sendLogs(); }
+          try { ops(op.body); } catch(error) { facts.WALogger.ERROR(op.messageParts, facts.getErrorSafe(error).toString()); }
           break;
         default: throw Error('unsupported op '+op.op);
       }

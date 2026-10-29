@@ -18,6 +18,16 @@ pub(crate) fn validate_dispatch_cases(
 ) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     for case in &switch.cases {
+        // Case consequents share the switch's lexical environment. A binding
+        // in an unrelated case can put a qualified arm's inputs in the TDZ.
+        // Explicit nested blocks keep their own scope and are not rejected here.
+        if case.consequent.iter().any(|statement| match statement {
+            Statement::VariableDeclaration(v) => !v.kind.is_var(),
+            Statement::ClassDeclaration(_) | Statement::FunctionDeclaration(_) => true,
+            _ => false,
+        }) {
+            return Err("unqualified switch-wide lexical declaration".into());
+        }
         if let Some(test) = &case.test {
             let value = as_string_lit(test)
                 .map(str::to_owned)

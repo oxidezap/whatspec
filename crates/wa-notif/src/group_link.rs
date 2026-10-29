@@ -84,11 +84,19 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
                 && tag_read.arguments.is_empty()
                 && as_identifier(&switch.discriminant) == Some(tag_name.as_str())
             {
-                for case in &switch.cases {
+                for (index, case) in switch.cases.iter().enumerate() {
                     if case.test.as_ref().is_some_and(is_link_case) {
                         self.results.push(
                             crate::group_scope::validate_dispatch_cases(switch, &self.resolver)
                                 .and_then(|()| {
+                                    if index > 0
+                                        && !terminates_case(&switch.cases[index - 1].consequent)
+                                    {
+                                        return Err(
+                                            "other dispatch cases can fall through into LINK"
+                                                .into(),
+                                        );
+                                    }
                                     project_case(case, &self.resolver, child.name.as_str())
                                 }),
                         );
@@ -124,6 +132,16 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
         ));
     }
     visitor.results.remove(0)
+}
+
+// Only unconditional exits prove that an earlier tag cannot enter LINK.
+fn terminates_case(statements: &[Statement<'_>]) -> bool {
+    match statements.last() {
+        Some(Statement::ReturnStatement(_) | Statement::ThrowStatement(_)) => true,
+        Some(Statement::BreakStatement(b)) => b.label.is_none(),
+        Some(Statement::BlockStatement(b)) => terminates_case(&b.body),
+        _ => false,
+    }
 }
 
 fn is_link_case(e: &Expression<'_>) -> bool {
@@ -481,6 +499,43 @@ mod tests {
             ("WAWebGroupType", TYPES),
             ("WAWebHandleGroupNotificationConst", TAGS),
         ]))
+    }
+    #[test]
+    fn switch_wide_lexical_bindings_cannot_shadow_dispatch_inputs() {
+        for declaration in [
+            "let t;",
+            "const t=null;",
+            "let {t}={};",
+            "class t{}",
+            "function t(){}",
+        ] {
+            let changed = HANDLER.replacen(
+                "switch(a){",
+                &format!("switch(a){{case \"extra\":{declaration}return null;"),
+                1,
+            );
+            assert_ne!(changed, HANDLER);
+            assert!(extract(&changed).is_err(), "{declaration}");
+        }
+    }
+    #[test]
+    fn switch_fallthrough_into_link_requires_termination() {
+        let anchor = "case o(\"WAWebHandleGroupNotificationConst\").GROUP_NOTIFICATION_TAG.LINK:";
+        for body in ["", "void 0;", "if(false)return null;"] {
+            let changed = HANDLER.replace(anchor, &format!("case \"extra\":{body}{anchor}"));
+            assert_ne!(changed, HANDLER);
+            assert!(extract(&changed).is_err(), "{body}");
+        }
+        // A terminating block owns its lexical child binding; it neither
+        // shadows the switch nor falls into LINK.
+        let changed = HANDLER.replace(
+            anchor,
+            &format!("case \"extra\":{{let t;return null;}}{anchor}"),
+        );
+        let original = extract(HANDLER).unwrap();
+        let accepted = extract(&changed).unwrap();
+        assert_eq!(accepted.rows, original.rows);
+        assert_eq!(accepted.group_fields, original.group_fields);
     }
     #[test]
     fn dispatch_tag_collisions_and_intercepting_cases_reject() {

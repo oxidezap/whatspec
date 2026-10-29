@@ -3,7 +3,7 @@
 // verified by harness.cjs; no parser behavior is reimplemented here.
 const assert=require('node:assert/strict');
 const {createHarness}=require('./harness.cjs');
-const harness=createHarness('envelope-evidence.json');
+const harness=createHarness('envelope-evidence.json',{strictDiagnosticLogger:true});
 const evidence=harness.evidence;
 let flags;
 const marker = () => ({tag: 'missing_participant_identification', attrs: {}});
@@ -67,10 +67,12 @@ for (const test of cases) {
   flags = {username: false, history: false, opus: false, meLid: '100001:2@lid', mePn: '200002:2@s.whatsapp.net', ...test.flags};
   const result = {name: test.name, flags, input: encodeNode(test.node)};
   const original = run(test);
+  const originalTelemetry = JSON.stringify([harness.stats.telemetryCalls,harness.stats.telemetrySends]);
   const interpreted = run(test, contract);
   // Cross-realm objects are compared by their observable JSON values; undefined
   // properties are separately retained by the existing explicit assertions.
   assert.equal(JSON.stringify(interpreted), JSON.stringify(original), test.name);
+  assert.equal(JSON.stringify([harness.stats.telemetryCalls,harness.stats.telemetrySends]),originalTelemetry,test.name+' exact logger calls');
   Object.assign(result, original);
   outcomes.push(result);
 }
@@ -133,14 +135,16 @@ const mutations = [
   ['destination guard', ir => { ir.prefix[0].thenOps.at(-1).value.left.left.value.local = 5; }],
   ['projection', ir => { ir.projection.fields.find(f => f.name === 'author').value.local = 8; }],
   ['marker', ir => { ir.actions.missingIdentificationTag = 'wrong_marker'; }],
+  ['diagnostic template', ir => { ir.prefix.find(op=>op.op==='tryDiagnostic').messageParts[0]='wrong template'; }],
   ['catch', ir => { const index = ir.prefix.findIndex(op => op.op === 'tryDiagnostic'); ir.prefix.splice(index, 1, ...ir.prefix[index].body); }],
   ['read order', ir => { [ir.prefix[1], ir.prefix[2]] = [ir.prefix[2], ir.prefix[1]]; }],
 ];
+function observed(test,ir){const result=run(test,ir);return JSON.stringify([result,harness.stats.telemetryCalls,harness.stats.telemetrySends]);}
 for(const [name, mutate] of mutations) {
   const changed = structuredClone(contract); mutate(changed);
   assert.ok(cases.some(test => {
     flags = {username: false, history: false, opus: false, meLid: '100001:2@lid', mePn: '200002:2@s.whatsapp.net', ...test.flags};
-    return JSON.stringify(run(test, changed)) !== JSON.stringify(run(test));
+    return observed(test,changed) !== observed(test);
   }), name+' mutation escaped differential comparison');
 }
 if (process.argv.includes('--json')) console.log(JSON.stringify({waVersion: evidence.waVersion, setHash: evidence.setHash, callback: evidence.callback, cases: outcomes}, null, 2));

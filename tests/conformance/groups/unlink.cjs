@@ -42,7 +42,8 @@ for (const kind of kinds) for (const reason of reasons) {
   const row = contract.rows.find(row => row.unlinkType === k && row.reason === r);
   assert.ok(row, `missing row ${kind}/${reason}`);
   assert.equal(actual.actionType ?? null, row.actionType, `${kind}/${reason}`);
-  oracleCases.push({kind, reason: reason ?? null, actionType: actual.actionType ?? null});
+  assert.notEqual(row.unsupportedAction,true,`unexpected unsupported action ${kind}/${reason}`);
+  oracleCases.push({kind, reason: reason ?? null, actionType: actual.actionType ?? null, unsupportedAction:false});
   cases++;
 }
 // A plain object also exposes inherited prototype properties. Those are
@@ -69,12 +70,14 @@ if (process.argv.includes('--mutations')) {
     changed.rows.find(row => row.unlinkType === 'sub_group' && row.reason === 'integrity_delete_parent').actionType = 'integrity_parent_group_unlink';
     const inherited=structuredClone(contract);
     inherited.rows.find(row=>row.unlinkType==='toString' && row.reason===null).unsupportedAction=false;
-    for (const [i, mutation] of [removed, changed,inherited].entries()) {
+    const supported=structuredClone(contract);
+    supported.rows.find(row=>row.unlinkType==='sibling_group' && row.reason===null).unsupportedAction=true;
+    for (const [i, mutation] of [removed, changed,inherited,supported].entries()) {
       const target = path.join(dir, `${i}.json`);
       fs.writeFileSync(target, JSON.stringify(mutation));
       const result = spawnSync(process.execPath, [__filename, '--contract', target], {encoding:'utf8'});
       assert.notEqual(result.status, 0, 'official oracle accepted a coverage/normalization mutation');
     }
-    console.log('3 independent IR mutations rejected');
+    console.log('4 independent IR mutations rejected');
   } finally { fs.rmSync(dir, {recursive:true, force:true}); }
 }

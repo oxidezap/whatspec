@@ -25,6 +25,14 @@ vm.runInNewContext(sources.WAWebGroupType.toString(), {__d(name, deps, factory) 
   const load = name => { assert.equal(name, '$InternalEnum'); return internalEnum; };
   factory(null, load, load, load, null, null, types);
 }});
+let tags;
+vm.runInNewContext(sources.WAWebHandleGroupNotificationConst.toString(), {__d(name,deps,factory) {
+  assert.equal(name,'WAWebHandleGroupNotificationConst');
+  tags={};
+  const load=name=>{throw Error('unexpected constant initialization dependency '+name);};
+  factory(null,load,load,load,{exports:tags},tags,tags);
+}});
+assert.equal(contract.wireTag,tags.GROUP_NOTIFICATION_TAG.LINK,'official LINK wire tag');
 const block = sources.WAWebHandleGroupNotification.subarray(contract.startByte, contract.endByte).toString();
 assert.ok(block.startsWith('{') && block.endsWith('}'), 'contract must span the complete case block');
 // This parameter is the actual source binding in the qualified module. Extraction
@@ -47,8 +55,8 @@ for (const kind of kinds) for (const hidden of [false, true]) {
     hasChild(name) { reads.push(name); assert.equal(name, 'hidden_group'); return hidden; }
   };
   const actual = parse({
-    attrString(name) { assert.equal(name, 'link_type'); return kind; },
-    mapChildrenWithTag(tag, callback) { assert.equal(tag, 'group'); return [callback(group)]; }
+    attrString(name) { assert.equal(name, contract.linkTypeAttribute); return kind; },
+    mapChildrenWithTag(tag, callback) { assert.equal(tag, contract.groupChildTag); return [callback(group)]; }
   });
   const normalized = JSON.parse(JSON.stringify({actionType:actual.actionType ?? null, groupDatas:actual.groupDatas}));
   const row = contract.rows.find(row => row.linkType === (kinds.slice(0,3).includes(kind) ? kind : null));
@@ -73,9 +81,9 @@ const prototypeKeys = Object.getOwnPropertyNames(Object.prototype).sort();
 assert.deepEqual(contract.rows.filter(row => row.unsupportedAction).map(row => row.linkType).sort(), prototypeKeys);
 for (const kind of prototypeKeys) for (const hidden of [false,true]) {
   const actual=parse({
-    attrString(name) {assert.equal(name,'link_type');return kind;},
+    attrString(name) {assert.equal(name,contract.linkTypeAttribute);return kind;},
     mapChildrenWithTag(tag,callback) {
-      assert.equal(tag,'group');
+      assert.equal(tag,contract.groupChildTag);
       return [callback({
         attrGroupJid(name) {assert.equal(name,'jid');return '123456@g.us';},
         attrString(name) {assert.equal(name,'subject');return 'synthetic group';},
@@ -108,12 +116,15 @@ if (process.argv.includes('--mutations')) {
     changed.rows.find(row => row.linkType === 'parent_group').hiddenSubgroupChild = 'hidden_group';
     const prototype = structuredClone(contract);
     prototype.rows.find(row => row.linkType === 'toString').unsupportedAction = false;
-    for (const [i,mutation] of [removed,changed,prototype].entries()) {
+    const wireTag=structuredClone(contract);wireTag.wireTag='wrong';
+    const attribute=structuredClone(contract);attribute.linkTypeAttribute='wrong';
+    const childTag=structuredClone(contract);childTag.groupChildTag='wrong';
+    for (const [i,mutation] of [removed,changed,prototype,wireTag,attribute,childTag].entries()) {
       const target = path.join(dir,`${i}.json`);
       fs.writeFileSync(target,JSON.stringify(mutation));
       const result = spawnSync(process.execPath,[__filename,'--contract',target],{encoding:'utf8'});
       assert.notEqual(result.status,0,'oracle accepted missing coverage or wrong absent/false semantics');
     }
-    console.log('3 independent LINK IR mutations rejected');
+    console.log('6 independent LINK IR mutations rejected');
   } finally { fs.rmSync(dir,{recursive:true,force:true}); }
 }

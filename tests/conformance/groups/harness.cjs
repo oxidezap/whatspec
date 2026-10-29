@@ -17,7 +17,7 @@ function encodeNode(node){
   return result;
 }
 function plain(value){return JSON.parse(JSON.stringify(value));}
-function createHarness(evidenceName='envelope-evidence.json'){
+function createHarness(evidenceName='envelope-evidence.json',{strictDiagnosticLogger=false}={}){
   const evidence=JSON.parse(fs.readFileSync(path.join(__dirname,evidenceName)));
   const sources={};
   for(const module of evidence.modules){
@@ -30,9 +30,13 @@ function createHarness(evidenceName='envelope-evidence.json'){
   const callbackBytes=Buffer.from(sources.WAWebHandleGroupNotification).subarray(evidence.callback.startByte,evidence.callback.endByte);
   assert.equal(hash(callbackBytes),evidence.callback.sha256,'original callback span');
   const cache={};let flags;let parser;
-  const stats={telemetryErrors:0,localLidReads:0,reads:[]};
-  const logger=()=>({sendLogs(){}});
-  const logError=()=>{stats.telemetryErrors++;return logger();};
+  const stats={telemetryErrors:0,telemetryCalls:[],telemetrySends:0,localLidReads:0,reads:[]};
+  const logger=()=>({sendLogs(){stats.telemetrySends++;}});
+  const logError=(...args)=>{
+    stats.telemetryErrors++;
+    stats.telemetryCalls.push(args.map(value=>Array.isArray(value)?Array.from(value):typeof value==='string'?value:{type:typeof value}));
+    return strictDiagnosticLogger?undefined:logger();
+  };
   const facts={
     Promise,
     WAHasProperty:(object,key)=>Object.prototype.hasOwnProperty.call(object,key),
@@ -98,7 +102,7 @@ function createHarness(evidenceName='envelope-evidence.json'){
     evidence,
     stats,
     parse(input,overrides={},contract){
-      stats.telemetryErrors=0;stats.localLidReads=0;stats.reads=[];
+      stats.telemetryErrors=0;stats.telemetryCalls=[];stats.telemetrySends=0;stats.localLidReads=0;stats.reads=[];
       flags={history:false,username:false,opus:false,me:'200002@s.whatsapp.net',meLid:'100001:2@lid',mePn:'200002:2@s.whatsapp.net',...overrides};
       const node = new Klass('synthetic',input);
       return contract ? require('./envelope-ir.cjs').evaluateEnvelope(contract,node,facts) : parser(node);

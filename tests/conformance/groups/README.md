@@ -30,7 +30,11 @@ mutating calls and changes in transitive factory helpers therefore cannot pass
 merely because they lack an identifier assignment.
 
 The envelope suite interprets the committed IR against the same 29 source inputs
-and compares results, errors, telemetry and ordered accessor reads. Independent
+and compares results, errors, telemetry and ordered accessor reads. Logger
+argument types, formatted error strings and send calls are compared separately;
+the qualified envelope logger may return undefined because the source ignores
+its result. LINK qualification rejects switch-wide lexical bindings and
+fall-through into its arm. Independent
 IR mutations cover destination guards, projection, markers, local catch recovery
 and read order. Complex child payloads stay at the external adapter boundary.
 
