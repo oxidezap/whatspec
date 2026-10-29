@@ -121,3 +121,37 @@ fn guard_changes_change_the_program() {
         b.functions["validateSnapshotProtobuf"].body
     );
 }
+
+#[test]
+fn reject_factory_shadowing_and_non_native_object_strings() {
+    for loader in ["n", "r", "o", "l"] {
+        let changed = SOURCE
+            .replace("var e=(function()", &format!("var {loader}=(function()"))
+            .replace("l.default=e", &format!("l.default={loader}"));
+        assert_ne!(changed, SOURCE);
+        assert!(
+            extract(&changed, "test").is_err(),
+            "factory binding {loader}"
+        );
+    }
+    let changed = SOURCE
+        .replace("function e()", "function o()")
+        .replace("e.validate", "o.validate")
+        .replace(",e})()", ",o})()");
+    assert_ne!(changed, SOURCE);
+    assert!(
+        extract(&changed, "test")
+            .unwrap_err()
+            .contains("constructor shadows a dependency loader")
+    );
+    for projection in [
+        r#"({__proto__:{size:i}}).size"#,
+        r#"({"__proto__":{size:i}}).size"#,
+        r#""\uD800".length"#,
+        r#""\uDC00".length"#,
+    ] {
+        let changed = SOURCE.replace("fileSizeBytes:i", &format!("fileSizeBytes:{projection}"));
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed, "test").is_err(), "{projection}");
+    }
+}

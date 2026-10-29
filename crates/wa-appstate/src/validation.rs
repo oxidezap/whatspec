@@ -40,6 +40,20 @@ pub fn extract(source: &str, version: &str) -> Result<AppstateValidationIr, Stri
     if !parsed.errors.is_empty() || parsed.panicked {
         return Err("validation module parse error".into());
     }
+    #[derive(Default)]
+    struct Strings {
+        unsupported: bool,
+    }
+    impl<'a> Visit<'a> for Strings {
+        fn visit_string_literal(&mut self, literal: &StringLiteral<'a>) {
+            self.unsupported |= literal.lone_surrogates;
+        }
+    }
+    let mut strings = Strings::default();
+    strings.visit_program(&parsed.program);
+    if strings.unsupported {
+        return Err("lone-surrogate string literals are not qualified".into());
+    }
     let (class_return, receiver) = exported_class(&parsed.program)?;
     let mut finder = Finder {
         functions: BTreeMap::new(),
@@ -424,6 +438,9 @@ impl Lower {
                         return Err("unsupported object property".into());
                     }
                     let key = p.key.static_name().ok_or("dynamic object key")?.to_string();
+                    if key == "__proto__" {
+                        return Err("prototype-setting object properties are not qualified".into());
+                    }
                     if fields.iter().any(|(name, _)| name == &key) {
                         return Err("duplicate object property".into());
                     }
@@ -641,6 +658,11 @@ fn exported_class<'a, 'b>(
                     let BindingPattern::BindingIdentifier(id) = &binding.id else {
                         return Err("unsupported module binding".into());
                     };
+                    if factory.params.items.iter().any(|param| matches!(
+                        &param.pattern, BindingPattern::BindingIdentifier(parameter) if parameter.name == id.name
+                    )) {
+                        return Err("module declarations overwrite factory parameters".into());
+                    }
                     initializers.insert(
                         id.name.as_str(),
                         binding
@@ -713,6 +735,9 @@ fn exported_class<'a, 'b>(
         .ok_or("unresolved returned constructor")?
         .to_string();
     if sequence.expressions.len()!=7 || sequence.expressions[..6].iter().any(|e|!matches!(e,Expression::AssignmentExpression(a) if a.operator==AssignmentOperator::Assign && matches!(&a.left,AssignmentTarget::StaticMemberExpression(m) if as_identifier(&m.object)==Some(receiver.as_str())) && matches!(&a.right,Expression::FunctionExpression(_)))) {return Err("unsupported class initialization effects".into());}
+    if require_bindings(program).contains(&receiver) {
+        return Err("constructor shadows a dependency loader".into());
+    }
     if constructor.id.as_ref().map(|id| id.name.as_str()) != Some(receiver.as_str()) {
         return Err("returned constructor is not declared in class factory".into());
     }
