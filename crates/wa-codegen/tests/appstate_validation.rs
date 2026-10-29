@@ -32,21 +32,21 @@ impl<'a> Transforms<'a> for OracleTransforms {
             _ => 255,
         };
         let value = match code {
-            0 => return Ok(Value::Object(vec![])),
+            0 => return Ok(Value::object(vec![])),
             1 => Value::Null,
-            2 => Value::Object(vec![]),
-            3 => Value::Object(vec![("timestamp", Value::Null)]),
-            4 => Value::Object(vec![("timestamp", Value::Number(0.0))]),
-            5 => Value::Object(vec![("timestamp", Value::Number(1.0))]),
+            2 => Value::object(vec![]),
+            3 => Value::object(vec![("timestamp", Value::Null)]),
+            4 => Value::object(vec![("timestamp", Value::Number(0.0))]),
+            5 => Value::object(vec![("timestamp", Value::Number(1.0))]),
             255 => {
                 return Err(ValidationError::dependency(
                     "Error",
                     "test decoder rejected",
                 ));
             }
-            _ => Value::Object(vec![("timestamp", Value::Long(9007199254740992))]),
+            _ => Value::object(vec![("timestamp", Value::Long(9007199254740992))]),
         };
-        Ok(Value::Object(vec![("value", value)]))
+        Ok(Value::object(vec![("value", value)]))
     }
     fn decode_patch_debug_data(&mut self, v: Value<'a>) -> Result<Value<'a>, ValidationError> {
         match v {
@@ -54,7 +54,7 @@ impl<'a> Transforms<'a> for OracleTransforms {
                 "Error",
                 "test decoder rejected",
             )),
-            _ => Ok(Value::Object(vec![("decoded", Value::Bool(true))])),
+            _ => Ok(Value::object(vec![("decoded", Value::Bool(true))])),
         }
     }
 }
@@ -80,9 +80,9 @@ fn read(v: &Json) -> Value<'static> {
         Json::Null => Value::Null,
         Json::Bool(b) => Value::Bool(*b),
         Json::Number(n) => Value::Number(n.as_f64().unwrap()),
-        Json::String(s) => Value::Text(s.clone()),
-        Json::Array(a) => Value::Array(a.iter().map(read).collect()),
-        Json::Object(o) => Value::Object(
+        Json::String(s) => Value::Text(s.clone().into()),
+        Json::Array(a) => Value::list(a.iter().map(read).collect()),
+        Json::Object(o) => Value::object(
             o.iter()
                 .map(|(k, v)| (&*Box::leak(k.clone().into_boxed_str()), read(v)))
                 .collect(),
@@ -104,10 +104,12 @@ fn write(v: Value<'_>) -> Json {
         Value::Long(n) => json!({"$long":n.to_string()}),
         Value::Text(s) => json!(s),
         Value::Bytes(b) => json!({"$bytes":b}),
-        Value::Array(a) => Json::Array(a.into_iter().map(write).collect()),
-        Value::Object(o) => {
-            Json::Object(o.into_iter().map(|(k, v)| (k.into(), write(v))).collect())
-        }
+        Value::Array(a) => Json::Array(a.iter().cloned().map(write).collect()),
+        Value::Object(o) => Json::Object(
+            o.iter()
+                .map(|(k, v)| ((*k).into(), write(v.clone())))
+                .collect(),
+        ),
     }
 }
 #[test]
@@ -339,4 +341,66 @@ fn callbacks_capture_outer_slots_and_restore_shadowed_names() {
     )
     .unwrap();
     assert_eq!(write(output), case["result"]);
+}
+
+#[test]
+fn string_length_counts_utf16_units_and_view_clones_share_storage() {
+    let text = Value::Text("a😀".into());
+    assert_eq!(text.field("length").unwrap(), Value::Number(3.0));
+    let array = Value::list(vec![Value::Null]);
+    let cloned = array.clone();
+    let (Value::Array(a), Value::Array(b)) = (array, cloned) else {
+        unreachable!()
+    };
+    assert!(std::sync::Arc::ptr_eq(&a, &b));
+    let object = Value::object(vec![("records", Value::list(vec![Value::Null]))]);
+    let cloned = object.clone();
+    let (Value::Object(a), Value::Object(b)) = (object, cloned) else {
+        unreachable!()
+    };
+    assert!(std::sync::Arc::ptr_eq(&a, &b));
+}
+
+#[allow(dead_code, clippy::all)]
+mod string_regression {
+    include!("fixtures/appstate_string.rs.txt");
+}
+#[test]
+fn accepted_string_length_guard_matches_official_execution() {
+    const SOURCE: &str = include_str!("../../wa-appstate/tests/fixtures/server_sync_protobuf.js");
+    let ir = wa_appstate::validation::extract(
+        &SOURCE.replace("if(e==null)throw", "if(e==null||!e.length)throw"),
+        "test",
+    )
+    .unwrap();
+    assert_eq!(
+        wa_codegen::generate_appstate_validation(&ir).unwrap(),
+        include_str!("fixtures/appstate_string.rs.txt")
+    );
+    let cases: Vec<Json> =
+        serde_json::from_str(include_str!("fixtures/appstate_string_cases.json")).unwrap();
+    for case in cases {
+        let result = string_regression::validate_external_blob_reference(
+            &mut OracleTransforms,
+            Value::Text("test".into()),
+            read(&case["input"]),
+        );
+        if let Some(error) = case.get("error") {
+            assert_eq!(
+                result.unwrap_err().metric.as_deref(),
+                error["metric"].as_str()
+            );
+        } else {
+            assert_eq!(write(result.unwrap()), case["result"]);
+        }
+    }
+}
+
+#[test]
+fn relational_guards_coerce_nullish_and_string_values() {
+    assert!(!Value::Undefined.greater_than(&Value::Number(-1.0)));
+    assert!(!Value::Null.greater_than(&Value::Number(0.0)));
+    assert!(Value::Bool(true).greater_than(&Value::Number(0.0)));
+    assert!(Value::Text("0x10".into()).greater_than(&Value::Number(8.0)));
+    assert!(!Value::Text("😀".into()).greater_than(&Value::Text("\u{e000}".into())));
 }

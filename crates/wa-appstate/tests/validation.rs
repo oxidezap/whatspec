@@ -29,6 +29,28 @@ fn complete_protobuf_methods_and_alpha_renaming() {
 }
 #[test]
 fn reject_incomplete_or_unsupported_method() {
+    for name in ["e", "o", "callback"] {
+        assert!(
+            extract(
+                &SOURCE.replace(
+                    "function(t){return e.validateRecordProtobuf",
+                    &format!("function {name}(t){{return e.validateRecordProtobuf")
+                ),
+                "test"
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        extract(
+            &SOURCE.replace(
+                "validateRecordProtobuf=function(",
+                "validateRecordProtobuf=function self("
+            ),
+            "test"
+        )
+        .is_err()
+    );
     assert!(
         extract(
             &SOURCE.replace(

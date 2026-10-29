@@ -21,7 +21,10 @@ Diagnostic dependencies are explicit `BatchEffects` hooks; crypto, persistence,
 downloads, logging policy and recovery remain host responsibilities.
 
 The Rust emitter produces ordinary functions and control flow over a borrowed byte
-view. There is no JavaScript runtime or IR interpreter. `Transforms` supplies the
+view. Objects and arrays share immutable storage across slots; native text views
+borrow their input. String length counts UTF-16 units. Named function expressions,
+default parameters and other unqualified lexical forms fail extraction.
+There is no JavaScript runtime or IR interpreter. `Transforms` supplies the
 protobuf decoder and representation conversions. `WASyncdKeyTypes.toSyncKeyId` is
 an identity operation in this snapshot. `WALongInt.numberOrThrowIfTooLarge` checks
 that the decoder returned a JS number, not `Number.isSafeInteger`; native adapters

@@ -80,6 +80,9 @@ impl<'a> Visit<'a> for Finder {
             let name = member.property.name.as_str();
             if name.starts_with("validate") {
                 let result = (|| {
+                    if function.id.is_some() {
+                        return Err("named validator expressions are not qualified".into());
+                    }
                     if as_identifier(&member.object) != Some(self.receiver.as_str()) {
                         return Err("validator is not on the exported class".into());
                     }
@@ -450,6 +453,9 @@ impl Lower {
                     {
                         return Err("callback parameter initializers are not qualified".into());
                     }
+                    if callback.id.is_some() {
+                        return Err("named callback expressions are not qualified".into());
+                    }
                     if callback.params.items.len() != 1 {
                         return Err("map parameters".into());
                     }
@@ -612,7 +618,8 @@ fn exported_class<'a, 'b>(
     else {
         return Err("unsupported exports binding".into());
     };
-    if factory.r#async
+    if factory.id.is_some()
+        || factory.r#async
         || factory.generator
         || factory.params.rest.is_some()
         || factory.params.items.iter().any(|p| p.initializer.is_some())
@@ -677,7 +684,7 @@ fn exported_class<'a, 'b>(
     let Expression::FunctionExpression(class_factory) = unparen(&call.callee) else {
         return Err("unsupported class factory".into());
     };
-    if class_factory.r#async || class_factory.generator {
+    if class_factory.id.is_some() || class_factory.r#async || class_factory.generator {
         return Err("asynchronous class factory".into());
     }
     if !class_factory.params.items.is_empty() || class_factory.params.rest.is_some() {
