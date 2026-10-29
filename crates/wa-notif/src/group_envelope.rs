@@ -80,7 +80,9 @@ pub(crate) fn loader_aliases(statements: &[Statement<'_>]) -> Result<BTreeSet<St
         .collect();
     if loaders.len() != 3
         || parameter_names.len() != factory.params.items.len()
-        || parameter_names.contains("Boolean")
+        || parameter_names
+            .iter()
+            .any(|name| crate::group_scope::is_preserved_global(name) || name == "arguments")
     {
         return Err("ambiguous module loaders".into());
     }
@@ -928,6 +930,46 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn mapped_arguments_and_parameter_initializers_cannot_poison_loaders() {
+        for effect in [
+            "arguments[3]=null;",
+            "var mapped=arguments;mapped[3]=null;",
+            "function poison(x=(o=null)){var o;}poison();",
+            "function poison({x}=(o=null)){var o;}poison();",
+        ] {
+            let anchor = "function(t,n,r,o,a,i,l){";
+            let changed = SOURCE.replace(anchor, &format!("{anchor}{effect}"));
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err(), "{effect}");
+        }
+    }
+    #[test]
+    fn diagnostic_helpers_must_remain_unshadowed_and_unassigned() {
+        for changed in [
+            SOURCE.replace("function v(e){", "var babelHelpers=null;function v(e){"),
+            SOURCE.replace(
+                "function(t,n,r,o,a,i,l){",
+                "function(t,n,r,o,a,i,l){babelHelpers=null;",
+            ),
+            SOURCE.replace(
+                "function(t,n,r,o,a,i,l){",
+                "function(t,n,r,o,a,i,babelHelpers){",
+            ),
+        ] {
+            assert_ne!(changed, SOURCE);
+            assert!(extract(&changed).is_err());
+        }
+    }
+    #[test]
+    fn omitted_action_cannot_delete_data_read_by_final_projection() {
+        let changed = SOURCE.replace(
+            "GROUP_NOTIFICATION_TAG.SUSPENDED:return",
+            "GROUP_NOTIFICATION_TAG.SUSPENDED:delete e.$2.attrs.id;return",
+        );
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed).is_err());
     }
     #[test]
     fn catch_parameter_initializers_cannot_write_module_loaders() {

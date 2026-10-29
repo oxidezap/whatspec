@@ -6,6 +6,10 @@ use oxc_ast_visit::{Visit, walk};
 use std::collections::BTreeSet;
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit};
 
+pub(crate) fn is_preserved_global(name: &str) -> bool {
+    matches!(name, "Boolean" | "babelHelpers")
+}
+
 /// A qualified switch must not contain dynamic or duplicate case values that
 /// can intercept an independently projected arm.
 pub(crate) fn validate_dispatch_cases(
@@ -144,20 +148,39 @@ pub(crate) fn validate_import_bindings(
         errors: Vec<String>,
     }
     impl<'a> Visit<'a> for Check<'_> {
+        fn visit_identifier_reference(&mut self, id: &oxc_ast::ast::IdentifierReference<'a>) {
+            if id.name == "arguments" {
+                self.errors
+                    .push("arguments mappings and escapes require qualification".into());
+            }
+        }
+        fn visit_unary_expression(&mut self, unary: &oxc_ast::ast::UnaryExpression<'a>) {
+            if unary.operator == oxc_syntax::operator::UnaryOperator::Delete {
+                self.errors
+                    .push("property deletion requires effect qualification".into());
+            }
+            walk::walk_unary_expression(self, unary);
+        }
         fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
-            if id.name == "Boolean" {
-                self.errors.push("global Boolean is shadowed".into());
+            if is_preserved_global(id.name.as_str()) {
+                self.errors.push(format!("global {} is shadowed", id.name));
             }
         }
         fn visit_assignment_expression(&mut self, a: &oxc_ast::ast::AssignmentExpression<'a>) {
-            if assignment_names(&a.left).contains("Boolean") {
-                self.errors.push("global Boolean is assigned".into());
+            if assignment_names(&a.left)
+                .iter()
+                .any(|name| is_preserved_global(name))
+            {
+                self.errors.push("preserved global is assigned".into());
             }
             walk::walk_assignment_expression(self, a);
         }
         fn visit_update_expression(&mut self, u: &oxc_ast::ast::UpdateExpression<'a>) {
-            if u.argument.get_identifier_name() == Some("Boolean") {
-                self.errors.push("global Boolean is updated".into());
+            if u.argument
+                .get_identifier_name()
+                .is_some_and(is_preserved_global)
+            {
+                self.errors.push("preserved global is updated".into());
             }
             walk::walk_update_expression(self, u);
         }
@@ -177,6 +200,19 @@ pub(crate) fn validate_import_bindings(
                 .push("arrow-function scope requires explicit qualification".into());
         }
         fn visit_function(&mut self, f: &Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
+            if f.params.rest.is_some()
+                || f.params.items.iter().any(|parameter| {
+                    parameter.initializer.is_some()
+                        || !matches!(
+                            parameter.pattern,
+                            oxc_ast::ast::BindingPattern::BindingIdentifier(_)
+                        )
+                })
+            {
+                self.errors
+                    .push("non-simple parameter scopes require qualification".into());
+                return;
+            }
             let mut bindings = Bindings::default();
             bindings.visit_formal_parameters(&f.params);
             if let Some(id) = &f.id {
@@ -310,6 +346,12 @@ pub(crate) fn validate_captured_writes(
         invalid: bool,
     }
     impl<'a> Visit<'a> for Writes<'_> {
+        fn visit_unary_expression(&mut self, unary: &oxc_ast::ast::UnaryExpression<'a>) {
+            if unary.operator == oxc_syntax::operator::UnaryOperator::Delete {
+                self.invalid = true;
+            }
+            walk::walk_unary_expression(self, unary);
+        }
         fn visit_for_of_statement(&mut self, _: &oxc_ast::ast::ForOfStatement<'a>) {
             self.invalid = true;
         }
