@@ -62,6 +62,32 @@ fn request_gaps(nodes: &[WapChildNode], reasons: &mut Vec<String>) {
     }
 }
 
+fn field_reference_gaps(fields: &[wa_ir::ParsedField], reasons: &mut Vec<String>) {
+    for field in fields {
+        if field.reference_path.is_some() {
+            reasons.push(format!("response.{}.field_reference_unemitted", field.name));
+        }
+        if let Some(children) = &field.children {
+            field_reference_gaps(children, reasons);
+        }
+        if let Some(variants) = &field.union_variants {
+            for variant in variants {
+                if variant
+                    .assertions
+                    .iter()
+                    .any(|a| a.kind == wa_ir::AssertionKind::Reference)
+                {
+                    reasons.push(format!(
+                        "response.{}.{}.union_reference_unemitted",
+                        field.name, variant.name
+                    ));
+                }
+                field_reference_gaps(&variant.fields, reasons);
+            }
+        }
+    }
+}
+
 /// Diagnose each catalog entry without treating 142 recovered stanzas as 142
 /// complete contracts. Consumers can select a bounded set before checking it.
 pub fn diagnose_iq_generation(ir: &IqIr) -> Vec<IqGenerationDiagnostic> {
@@ -92,6 +118,10 @@ fn diagnose(op: &IqStanzaDef) -> IqGenerationDiagnostic {
         reasons.push("request.target_argument_missing".into());
     }
     request_gaps(&op.request.children, &mut reasons);
+    field_reference_gaps(&op.response.fields, &mut reasons);
+    for variant in &op.response.variants {
+        field_reference_gaps(&variant.fields, &mut reasons);
+    }
     let (_, response) = crate::spec::generate_spec_diagnosed(op, "CHECK_NAMESPACE", "CheckSpec");
     if let Some(reason) = response {
         reasons.push(reason);

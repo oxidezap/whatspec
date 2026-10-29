@@ -79,6 +79,59 @@ fn checked_generation_rejects_lost_context_request_inputs_and_missing_outcomes()
 }
 
 #[test]
+fn checked_generation_refuses_the_real_optout_echo_and_nested_echo_mutations() {
+    let mut all: wa_ir::IqIr =
+        serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
+    all.stanzas
+        .retain(|s| s.module_name == "WASmaxOutBlocklistsUpdateOptOutListRequest");
+    let diagnostics = wa_codegen::generate_iq_checked(&all).unwrap_err();
+    assert!(
+        diagnostics
+            .iter()
+            .flat_map(|d| &d.reasons)
+            .any(|r| r == "response.hasListCDhash.field_reference_unemitted")
+    );
+    let echo = all.stanzas[0].response.variants[1]
+        .fields
+        .iter()
+        .find(|f| f.name == "hasListCDhash")
+        .unwrap()
+        .clone();
+    for nested in [false, true] {
+        let mut ir = selected();
+        let payload = if nested {
+            wa_ir::ParsedField {
+                name: "container".into(),
+                field_type: wa_ir::ParsedFieldType::Union,
+                parser_required: true,
+                union_variants: Some(vec![wa_ir::UnionVariant {
+                    name: "Echo".into(),
+                    fields: vec![echo.clone()],
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }
+        } else {
+            wa_ir::ParsedField {
+                name: "container".into(),
+                field_type: wa_ir::ParsedFieldType::Node,
+                same_node: true,
+                children: Some(vec![echo.clone()]),
+                ..Default::default()
+            }
+        };
+        ir.stanzas[0].response.variants[0].fields.push(payload);
+        let diagnostics = wa_codegen::generate_iq_checked(&ir).unwrap_err();
+        assert!(
+            diagnostics
+                .iter()
+                .flat_map(|d| &d.reasons)
+                .any(|r| r == "response.hasListCDhash.field_reference_unemitted")
+        );
+    }
+}
+
+#[test]
 fn contextual_trait_compiles_and_executes_representative_families() {
     let dir = std::env::temp_dir().join(format!("whatspec-contextual-iq-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
