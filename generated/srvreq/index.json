@@ -14,17 +14,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "business"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrUserJid",
@@ -475,17 +481,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "business"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrUserJid",
@@ -549,17 +561,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "business"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrUserJid",
@@ -663,17 +681,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "hosted"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -817,17 +841,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "hosted"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -1003,6 +1033,11 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "hosted"
           },
@@ -1013,11 +1048,12 @@
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -1067,6 +1103,11 @@
             "kind": "attr",
             "name": "type",
             "value": "w:gp2"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "g.us"
           }
         ],
         "fields": [
@@ -1079,11 +1120,12 @@
             "literalValue": "w:gp2"
           },
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "g.us"
           },
           {
             "method": "attrInt",
@@ -1145,6 +1187,11 @@
             "kind": "attr",
             "name": "type",
             "value": "passkey_prologue_request"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
           }
         ],
         "fields": [
@@ -1157,11 +1204,12 @@
             "literalValue": "passkey_prologue_request"
           },
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrInt",
@@ -1238,6 +1286,11 @@
             "kind": "attr",
             "name": "type",
             "value": "link_code_companion_reg"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
           }
         ],
         "fields": [
@@ -1250,11 +1303,12 @@
             "literalValue": "link_code_companion_reg"
           },
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -1337,6 +1391,11 @@
             "kind": "attr",
             "name": "type",
             "value": "link_code_companion_reg"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
           }
         ],
         "fields": [
@@ -1349,11 +1408,12 @@
             "literalValue": "link_code_companion_reg"
           },
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -1441,6 +1501,11 @@
             "kind": "attr",
             "name": "type",
             "value": "crsc_continuation"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
           }
         ],
         "fields": [
@@ -1453,11 +1518,12 @@
             "literalValue": "crsc_continuation"
           },
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "contentBytes",
@@ -5078,17 +5144,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "business"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrUserJid",
@@ -5198,17 +5270,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "waffle"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -5385,6 +5463,11 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "xmlns",
             "value": "md"
           },
@@ -5396,11 +5479,12 @@
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -5664,6 +5748,11 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "xmlns",
             "value": "md"
           },
@@ -5675,11 +5764,12 @@
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -5735,15 +5825,21 @@
           {
             "kind": "tag",
             "name": "ib"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "maybeAttrInt",
@@ -8911,11 +9007,12 @@
                 "name": "FromBroadcast",
                 "fields": [
                   {
-                    "method": "literalJid",
+                    "method": "attrStatusJid",
                     "name": "from",
                     "wireName": "from",
-                    "type": "jid",
-                    "parserRequired": true
+                    "type": "status_jid",
+                    "parserRequired": true,
+                    "literalValue": "status@broadcast"
                   },
                   {
                     "method": "attrDeviceJid",
@@ -11217,6 +11314,11 @@
                   {
                     "kind": "tag",
                     "name": "status"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "from",
+                    "value": "status@broadcast"
                   }
                 ]
               },

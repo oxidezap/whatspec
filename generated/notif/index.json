@@ -597,6 +597,11 @@
             "kind": "attr",
             "name": "type",
             "value": "crsc_continuation"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
           }
         ],
         "fields": [
@@ -609,11 +614,12 @@
             "literalValue": "crsc_continuation"
           },
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "contentBytes",
@@ -1003,6 +1009,11 @@
             "kind": "attr",
             "name": "type",
             "value": "passkey_prologue_request"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
           }
         ],
         "fields": [
@@ -1015,11 +1026,12 @@
             "literalValue": "passkey_prologue_request"
           },
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrInt",
@@ -3471,17 +3483,23 @@
           },
           {
             "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
             "name": "type",
             "value": "waffle"
           }
         ],
         "fields": [
           {
-            "method": "literalJid",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
-            "parserRequired": true
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",

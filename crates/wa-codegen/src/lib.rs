@@ -8,6 +8,7 @@ mod appstate_export;
 mod emit;
 mod enums_export;
 mod fields;
+mod iq_checked;
 mod mex_export;
 mod mex_ids;
 mod naming;
@@ -21,6 +22,7 @@ mod wam;
 pub use abprops_export::generate_abprops;
 pub use appstate_export::generate_appstate_schemas;
 pub use enums_export::generate_enums;
+pub use iq_checked::{IqGenerationDiagnostic, diagnose_iq_generation, generate_iq_checked};
 pub use mex_export::generate_mex_operations;
 pub use mex_ids::{MexIdRefresh, refresh_mex_ids};
 pub use notif_export::generate_notif;
@@ -62,7 +64,7 @@ pub fn generate_iq(ir: &IqIr) -> String {
          //! types, and one `IqSpec` impl per stanza. Regenerated from the IQ IR by wa-codegen.\n\n\
          // A generated catalog: a consumer uses a subset (so unused specs/types are\n\
          // expected), and nested wrapper vars use a `base__path_wrap` convention.\n\
-         #![allow(clippy::all, dead_code, non_snake_case)]\n\n",
+         #![allow(clippy::all, dead_code, non_snake_case, unused_parens, unused_variables, unused_imports)]\n\n",
         ir.wa_version
     ));
 

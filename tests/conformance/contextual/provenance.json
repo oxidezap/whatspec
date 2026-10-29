@@ -1,0 +1,64 @@
+{
+  "waVersion": "2.3000.1047483476",
+  "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+  "archiveSha256": "22243b9c2ff18a66cea8fd66551821fe0f9f09786d107e2be8284637db86c349",
+  "bundleCount": 579,
+  "modules": [
+    {
+      "module": "WASmaxOutGroupsJoinLinkedGroupRequest",
+      "bundleSha256": "7c7be0378ce2e7ff49b9f5909cf8a7d283000af82cc43bc071c2df3541ec5d56",
+      "start": 80360,
+      "end": 80837,
+      "sha256": "9596ca55b4209e2c6c620017150c5058931d85faed8f491d1fbb3a4432fbf409"
+    },
+    {
+      "module": "WASmaxGroupsJoinLinkedGroupRPC",
+      "bundleSha256": "7c7be0378ce2e7ff49b9f5909cf8a7d283000af82cc43bc071c2df3541ec5d56",
+      "start": 80839,
+      "end": 82472,
+      "sha256": "bf34404f714dead6488f96c5a10c046536a2378552cd99b7483ce6a3688c69b1"
+    },
+    {
+      "module": "WASmaxInGroupsIQResultResponseMixin",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 107120,
+      "end": 107921,
+      "sha256": "5bb1d7b81b3b9658b04c755236384c73e1e8d4f7bffecd2718d473738b3f387d"
+    },
+    {
+      "module": "WASmaxInPassiveModeActiveIQResponseSuccess",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 1099167,
+      "end": 1100014,
+      "sha256": "6e7bd4554e51d937e475c4395fd6c0694ae31f5f2218398c4602bb63f9c181b8"
+    },
+    {
+      "module": "WASmaxOutPassiveModeActiveIQRequest",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 1100016,
+      "end": 1100308,
+      "sha256": "79f154032905e109f5b374805ddff8027423d8b060a6e967db4815f4689cdf1b"
+    },
+    {
+      "module": "WASmaxInGroupsRevokeRequestCodeResponseSuccess",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 1136808,
+      "end": 1138340,
+      "sha256": "ea07a4ad3b6c09f225acca3b04b8fcb16780ec8bef1195514e8f9d76552068c9"
+    },
+    {
+      "module": "WASmaxOutGroupsRevokeRequestCodeRequest",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 1139066,
+      "end": 1139636,
+      "sha256": "44b3fa78a715a3d37ec2156bd42040564dbc00d973c51b2d2bad46d69504f0ab"
+    },
+    {
+      "module": "WASmaxGroupsRevokeRequestCodeRPC",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "start": 1139638,
+      "end": 1141000,
+      "sha256": "7f814b8a1d22551396d68d04ef1e29b698b790210933cf2eb993eb3eaee2032b"
+    }
+  ]
+}
