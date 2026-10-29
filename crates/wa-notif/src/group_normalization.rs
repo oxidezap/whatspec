@@ -165,6 +165,7 @@ fn valid_groups(call: &oxc_ast::ast::CallExpression<'_>) -> bool {
     if obj.properties.len() != 3 {
         return false;
     }
+    let mut keys = BTreeSet::new();
     for property in &obj.properties {
         let ObjectPropertyKind::ObjectProperty(p) = property else {
             return false;
@@ -172,6 +173,9 @@ fn valid_groups(call: &oxc_ast::ast::CallExpression<'_>) -> bool {
         let Some(key) = p.key.static_name() else {
             return false;
         };
+        if !keys.insert(key.to_string()) {
+            return false;
+        }
         let mut value = &p.value;
         let (method, attribute) = match key.as_ref() {
             "id" => {
@@ -234,18 +238,32 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
     if parsed.panicked || !parsed.errors.is_empty() {
         return Err("invalid group module".into());
     }
-    // Function lookup by source spans avoids borrowing visitor references beyond
-    // their callback; evaluation happens inside the visitor.
     struct Extract<'s> {
-        source: &'s str,
         slices: &'s HashMap<&'s str, &'s str>,
         results: Vec<Result<GroupUnlinkContract, String>>,
     }
     impl<'a> Visit<'a> for Extract<'_> {
         fn visit_function(&mut self, f: &Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
+            struct Reads(usize);
+            impl<'a> Visit<'a> for Reads {
+                fn visit_function(&mut self, _: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
+                fn visit_call_expression(&mut self, c: &oxc_ast::ast::CallExpression<'a>) {
+                    if wa_oxc::callee_method(c) == Some("attrString")
+                        && c.arguments
+                            .first()
+                            .and_then(arg_expr)
+                            .and_then(as_string_lit)
+                            == Some("unlink_type")
+                    {
+                        self.0 += 1;
+                    }
+                    walk::walk_call_expression(self, c);
+                }
+            }
             if let Some(body) = &f.body {
-                let text = &self.source[body.span.start as usize..body.span.end as usize];
-                if text.contains("\"unlink_type\"") && !text.contains("groupNotificationParser") {
+                let mut reads = Reads(0);
+                reads.visit_function_body(body);
+                if reads.0 > 0 {
                     self.results.push(evaluate(f, self.slices));
                     return;
                 }
@@ -254,7 +272,6 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
         }
     }
     let mut visitor = Extract {
-        source,
         slices,
         results: vec![],
     };

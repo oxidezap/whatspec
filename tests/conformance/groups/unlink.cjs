@@ -25,6 +25,7 @@ vm.runInNewContext(sources.WAWebGroupType.toString(), {__d(name, deps, factory) 
 const helper = sources.WAWebHandleGroupNotification.subarray(contract.startByte, contract.endByte).toString();
 const parse = vm.runInNewContext(`(${helper})`, {o(name) { assert.equal(name, 'WAWebGroupType'); return types; }});
 let cases = 0;
+const oracleCases = [];
 const kinds = [...new Set(contract.rows.map(r => r.unlinkType).filter(v => v !== null)), '', 'future_kind'];
 const reasons = [undefined, ...new Set(contract.rows.map(r => r.reason).filter(v => v !== null)), '', 'future_reason'];
 for (const kind of kinds) for (const reason of reasons) {
@@ -38,6 +39,8 @@ for (const kind of kinds) for (const reason of reasons) {
   const row = contract.rows.find(row => row.unlinkType === k && row.reason === r);
   assert.ok(row, `missing row ${kind}/${reason}`);
   assert.equal(actual.actionType ?? null, row.actionType, `${kind}/${reason}`);
+  oracleCases.push({kind, reason: reason ?? null, actionType: actual.actionType ?? null});
   cases++;
 }
-console.log(`${cases} official JS → IR unlink cases passed`);
+if (process.argv.includes("--json")) console.log(JSON.stringify(oracleCases, null, 2));
+else console.log(`${cases} official JS → IR unlink cases passed`);
