@@ -144,6 +144,7 @@ struct Lower {
     node: String,
     loaders: BTreeSet<String>,
     locals: BTreeMap<String, u32>,
+    diagnostic_seen: bool,
 }
 impl Lower {
     fn local(&self, name: &str) -> Result<u32, String> {
@@ -391,6 +392,14 @@ impl Lower {
                     });
                 }
                 Statement::TryStatement(t) => {
+                    // The qualified factory owns one lazy template cache across
+                    // invocations. Independent IR operations cannot represent
+                    // competing initializations from multiple catches.
+                    if std::mem::replace(&mut self.diagnostic_seen, true) {
+                        return Err(
+                            "multiple diagnostics require shared template-cache state".into()
+                        );
+                    }
                     if t.finalizer.is_some() {
                         return Err("envelope finally effects unsupported".into());
                     }
@@ -726,6 +735,7 @@ fn lower_callback(
         node: node.clone(),
         loaders: loaders.clone(),
         locals: BTreeMap::new(),
+        diagnostic_seen: false,
     };
     let (last, before) = body.statements.split_last().ok_or("empty parser")?;
     let Statement::ReturnStatement(ret) = last else {
@@ -949,6 +959,16 @@ mod tests {
             ("WAWebHandleGroupNotification", source),
             ("WAWebHandleGroupNotificationConst", CONSTANTS),
         ]))
+    }
+    #[test]
+    fn repeated_diagnostics_cannot_discard_shared_template_cache_state() {
+        let first = "try{e.throw(\"first\")}catch(e){o(\"WALogger\").ERROR(m||(m=babelHelpers.taggedTemplateLiteralLoose([\"first diagnostic: \",\"\"])),r(\"getErrorSafe\")(e).toString())}";
+        let changed = SOURCE.replace(
+            "try{var p=e.maybeAttrPhoneUserJid",
+            &format!("{first}try{{var p=e.maybeAttrPhoneUserJid"),
+        );
+        assert_ne!(changed, SOURCE);
+        assert!(extract(&changed).is_err());
     }
     #[test]
     fn diagnostic_cache_must_resolve_to_the_qualified_module_binding() {

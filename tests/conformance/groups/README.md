@@ -19,7 +19,9 @@ modes/effects and object shapes; unsupported forms reject the projection.
 Envelope extraction fingerprints the opaque module frame, action callback and
 local action helpers with SHA-256, using AST spans. The root prefix and final
 projection are still lowered independently; they are not part of these opaque
-fingerprints. Prefix bindings cannot shadow an opaque dependency or remove an
+fingerprints. Only one diagnostic catch is supported: multiple catches would
+share the factory template cache, whose competing initialization is not modeled.
+Its cache identifier must resolve to the qualified module binding. Prefix bindings cannot shadow an opaque dependency or remove an
 opaque root capture. This is snapshot qualification, not a proof that arbitrary
 JavaScript calls are pure: any opaque source change (including whitespace)
 rejects extraction until its source effects and adapters are independently
