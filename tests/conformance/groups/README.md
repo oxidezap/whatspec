@@ -57,6 +57,21 @@ for consumer tests. Extraction uses AST spans; source discovery never executes
 a bundle. Transport, authenticated client behavior, storage, cache/rotation and
 ACK effects remain outside these parsers.
 
+Qualification is structural before it is path-sensitive. UNLINK checks every
+statement and expression against its supported grammar before finite evaluation,
+including statements after return and both arms of every conditional. Function
+and class declarations, lexical/destructuring declarations, labels, loops, try,
+mutations and unknown expressions cannot hide in unreachable code. Its nested
+payload callback must match the complete single-return shape; directives and
+optional access are outside the qualified grammar.
+
+LINK matches the complete case block and payload callback, so extra statements
+or declarations cannot be ignored after return. Envelope requires the final
+projection return, lowers the complete prefix and pins opaque action helpers and
+callback code. Regression mutations cover tails in all three interpreted regions,
+contradictory UNLINK branches and the original helper's hoisting failure. The
+existing binding, scope, constant-effect and supplier matrices remain active.
+
 All three group entry points validate complete supplied dependency modules
 against the preserved supplier hashes, including initialization, helper code and
 export wiring. The group-specific constant resolver refuses unknown suppliers;

@@ -215,6 +215,127 @@ impl Eval<'_> {
     }
 }
 
+// Evaluation may stop at a return or skip an untaken branch; qualification
+// must not. Check the complete grammar first, including declaration hoisting.
+fn validate_structure(
+    statement: &Statement<'_>,
+    node: &str,
+    resolver: &ConstResolver<'_>,
+) -> Result<(), String> {
+    match statement {
+        Statement::VariableDeclaration(declaration) if declaration.kind.is_var() => {
+            for binding in &declaration.declarations {
+                if !matches!(binding.id, BindingPattern::BindingIdentifier(_)) {
+                    return Err("unqualified declaration pattern".into());
+                }
+                validate_expression(
+                    binding.init.as_ref().ok_or("uninitialized declaration")?,
+                    node,
+                    resolver,
+                )?;
+            }
+        }
+        Statement::ReturnStatement(ret) => {
+            validate_expression(ret.argument.as_ref().ok_or("empty return")?, node, resolver)?
+        }
+        Statement::BlockStatement(block) => {
+            for statement in &block.body {
+                validate_structure(statement, node, resolver)?;
+            }
+        }
+        Statement::IfStatement(branch) => {
+            validate_expression(&branch.test, node, resolver)?;
+            validate_structure(&branch.consequent, node, resolver)?;
+            if let Some(alternate) = &branch.alternate {
+                validate_structure(alternate, node, resolver)?;
+            }
+        }
+        _ => return Err("unqualified statement anywhere in unlink helper".into()),
+    }
+    Ok(())
+}
+
+fn validate_expression(
+    expression: &Expression<'_>,
+    node: &str,
+    resolver: &ConstResolver<'_>,
+) -> Result<(), String> {
+    if resolver.resolve(expression).is_some() {
+        let call = as_member(expression)
+            .and_then(|(object, _)| as_member(object))
+            .and_then(|(owner, _)| as_call(owner))
+            .ok_or("constant reference")?;
+        if call.arguments.len() != 1 || as_identifier(&call.callee).is_none() {
+            return Err("effectful constant reference".into());
+        }
+        return Ok(());
+    }
+    match expression {
+        Expression::StringLiteral(_) | Expression::NullLiteral(_) | Expression::Identifier(_) => {}
+        Expression::ConditionalExpression(condition) => {
+            validate_expression(&condition.test, node, resolver)?;
+            validate_expression(&condition.consequent, node, resolver)?;
+            validate_expression(&condition.alternate, node, resolver)?;
+        }
+        Expression::BinaryExpression(binary)
+            if binary.operator == oxc_syntax::operator::BinaryOperator::StrictEquality =>
+        {
+            validate_expression(&binary.left, node, resolver)?;
+            validate_expression(&binary.right, node, resolver)?;
+        }
+        Expression::ComputedMemberExpression(member) => {
+            validate_expression(&member.object, node, resolver)?;
+            validate_expression(&member.expression, node, resolver)?;
+        }
+        Expression::ObjectExpression(object) => {
+            let mut keys = BTreeSet::new();
+            for property in &object.properties {
+                let ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return Err("spread in unlink grammar".into());
+                };
+                let key = property.key.static_name().ok_or("nonliteral object key")?;
+                if property.computed
+                    || property.method
+                    || key == "__proto__"
+                    || !keys.insert(key.to_string())
+                {
+                    return Err("unqualified object property".into());
+                }
+                validate_expression(&property.value, node, resolver)?;
+            }
+        }
+        Expression::CallExpression(call) => {
+            let (receiver, method) = as_member(&call.callee).ok_or("unqualified call")?;
+            if as_identifier(receiver) != Some(node) {
+                return Err("unqualified node receiver".into());
+            }
+            let attribute = call
+                .arguments
+                .first()
+                .and_then(arg_expr)
+                .and_then(as_string_lit)
+                .ok_or("nonliteral node attribute")?;
+            if method == "mapChildrenWithTag"
+                && attribute == "group"
+                && call.arguments.len() == 2
+                && valid_groups(call)
+            {
+                return Ok(());
+            }
+            if call.arguments.len() != 1
+                || !matches!(
+                    (method, attribute),
+                    ("attrString", "unlink_type" | "unlink_reason") | ("hasAttr", "unlink_reason")
+                )
+            {
+                return Err("unqualified accessor".into());
+            }
+        }
+        _ => return Err("unqualified expression anywhere in unlink helper".into()),
+    }
+    Ok(())
+}
+
 fn valid_groups(call: &oxc_ast::ast::CallExpression<'_>) -> bool {
     let Some(Expression::FunctionExpression(callback)) = call.arguments.get(1).and_then(arg_expr)
     else {
@@ -243,6 +364,9 @@ fn valid_groups(call: &oxc_ast::ast::CallExpression<'_>) -> bool {
     let Some(body) = &callback.body else {
         return false;
     };
+    if !body.directives.is_empty() {
+        return false;
+    }
     let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
         return false;
     };
@@ -418,6 +542,13 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
         .first()
         .and_then(|p| p.pattern.get_identifier_name())
         .ok_or("missing node parameter")?;
+    if !body.directives.is_empty() {
+        return Err("unqualified helper directives".into());
+    }
+    crate::group_qualification::reject_optional_access(body)?;
+    for statement in &body.statements {
+        validate_structure(statement, param.as_str(), &resolver)?;
+    }
     // Reject calls on any receiver except the actual helper parameter. Alias it
     // through an AST-independent binding in the expression evaluator.
     struct Literals<'r, 's> {
@@ -566,6 +697,56 @@ mod tests {
             ("WAWebGroupType", TYPES),
         ]))
     }
+    #[test]
+    fn all_statements_are_qualified_before_reachability_evaluation() {
+        let original = extract(GROUP).unwrap();
+        let at = original.end_byte - 1;
+        let mut accepted = vec![];
+        for suffix in [
+            ";function e(){}",
+            ";function t(){}",
+            ";function o(){}",
+            ";label: function e(){}",
+            ";outer: inner: function e(){}",
+            ";{function e(){}}",
+            ";if(false){function e(){}}",
+            ";class C{}",
+            ";let x=1;",
+            ";var {x}={};",
+            ";while(false){}",
+            ";try{}catch(x){}",
+            ";label: {}",
+            ";o(\"WAWebGroupType\").GROUP_ACTIONS={};",
+            ";Object.assign(o(\"WAWebGroupType\"),{});",
+        ] {
+            let changed = format!("{}{suffix}{}", &GROUP[..at], &GROUP[at..]);
+            if extract(&changed).is_ok() {
+                accepted.push(suffix);
+            }
+        }
+        assert!(
+            accepted.is_empty(),
+            "accepted unqualified tails: {accepted:?}"
+        );
+    }
+
+    #[test]
+    fn untaken_branches_are_structurally_qualified() {
+        for statement in [
+            "function e(){}",
+            "label: function e(){}",
+            "let x=1;",
+            "var {x}={};",
+            "Object.assign(o(\"WAWebGroupType\"),{});",
+            "while(false){}",
+            "try{}catch(x){}",
+        ] {
+            let changed = GROUP.replace("function I(e){", &format!("function I(e){{if(e.attrString(\"unlink_type\")===\"a\"){{if(e.attrString(\"unlink_type\")===\"b\"){{{statement}}}}}"));
+            assert_ne!(changed, GROUP);
+            assert!(extract(&changed).is_err(), "{statement}");
+        }
+    }
+
     #[test]
     fn equal_and_unequal_unknown_inputs_must_not_share_an_assumed_value() {
         let mut keys: BTreeSet<&str> = OBJECT_PROTOTYPE_KEYS.iter().copied().collect();

@@ -314,6 +314,10 @@ fn project_case(
         return Err("group callback shadows captured link type".into());
     }
     let body = callback.body.as_ref().ok_or("empty group callback")?;
+    if !body.directives.is_empty() {
+        return Err("unqualified group callback directives".into());
+    }
+    crate::group_qualification::reject_optional_access(body)?;
     let [Statement::ReturnStatement(group_return)] = body.statements.as_slice() else {
         return Err("effects or statements in group projection".into());
     };

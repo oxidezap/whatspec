@@ -14,7 +14,7 @@ function source(name) {
 const typesSource = source('WAWebGroupType');
 const contract = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../generated/notif/group-unlink.json')));
 const helper = source('WAWebHandleGroupNotification').slice(contract.startByte, contract.endByte);
-function action(moduleSource) {
+function action(moduleSource, helperSource = helper) {
   let types;
   vm.runInNewContext(moduleSource, {__d(name, deps, factory) {
     assert.equal(name, 'WAWebGroupType');
@@ -24,7 +24,7 @@ function action(moduleSource) {
     const load = name => { assert.equal(name, '$InternalEnum'); return internalEnum; };
     factory(null, load, load, load, null, null, types);
   }});
-  const parse = vm.runInNewContext(`(${helper})`, {o(name) { assert.equal(name, 'WAWebGroupType'); return types; }});
+  const parse = vm.runInNewContext(`(${helperSource})`, {o(name) { assert.equal(name, 'WAWebGroupType'); return types; }});
   return parse({attrString(name) { assert.equal(name, 'unlink_type'); return 'parent_group'; }, hasAttr() { return false; }, mapChildrenWithTag() { return []; }}).actionType;
 }
 assert.equal(action(typesSource), 'parent_group_unlink');
@@ -40,3 +40,8 @@ for (const replacement of replacements) {
   assert.equal(action(changed), 'changed');
 }
 console.log('4 complete constant-provider mutations change original UNLINK actions');
+
+// Statements after return can still change execution through declaration hoisting.
+const hoisted = helper.slice(0, -1) + ';function e(){}' + helper.slice(-1);
+assert.throws(() => action(typesSource, hoisted), /e\.attrString is not a function/);
+console.log('Unreachable function declaration changes original UNLINK execution through hoisting');

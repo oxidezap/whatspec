@@ -721,6 +721,7 @@ fn lower_callback(
 ) -> Result<GroupEnvelopeContract, String> {
     crate::group_qualification::module_frame(source, f)?;
     let body = f.body.as_ref().ok_or("missing group parser body")?;
+    crate::group_qualification::reject_optional_access(body)?;
     let node = f
         .params
         .items

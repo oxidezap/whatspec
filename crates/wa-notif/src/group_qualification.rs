@@ -115,6 +115,31 @@ pub(crate) fn validate_providers(
     Ok(())
 }
 
+/// Optional access is a separate control-flow operation, not an ordinary read.
+/// Check it before any matcher/resolver can discard that distinction.
+pub(crate) fn reject_optional_access(body: &oxc_ast::ast::FunctionBody<'_>) -> Result<(), String> {
+    struct Check(bool);
+    impl<'a> Visit<'a> for Check {
+        fn visit_expression(&mut self, expression: &oxc_ast::ast::Expression<'a>) {
+            use oxc_ast::ast::Expression;
+            if matches!(expression, Expression::ChainExpression(_))
+                || matches!(expression, Expression::CallExpression(call) if call.optional)
+                || matches!(expression, Expression::ComputedMemberExpression(member) if member.optional)
+                || matches!(expression, Expression::StaticMemberExpression(member) if member.optional)
+            {
+                self.0 = true;
+            }
+            walk::walk_expression(self, expression);
+        }
+    }
+    let mut check = Check(false);
+    check.visit_function_body(body);
+    if check.0 {
+        return Err("unqualified optional access".into());
+    }
+    Ok(())
+}
+
 /// Qualify every byte outside the region independently interpreted by an action
 /// extractor. This includes factory setup, transitive helpers, the envelope
 /// prefix, dispatch siblings and projection. Unknown effects anywhere in that
@@ -342,6 +367,44 @@ mod context_tests {
             include_str!("../../../tests/conformance/groups/sources/nullthrows.js"),
         ),
     ];
+
+    #[test]
+    fn all_interpreted_regions_reject_unmodeled_tails() {
+        let slices: HashMap<_, _> = PROVIDERS
+            .iter()
+            .copied()
+            .chain([("WAWebHandleGroupNotification", SOURCE)])
+            .collect();
+        let link = crate::group_link::extract_link(&slices).unwrap();
+        let unlink = crate::group_normalization::extract_unlink(&slices).unwrap();
+        let envelope_end = SOURCE.find("});function x(e)").unwrap();
+        for tail in [
+            ";function e(){}",
+            ";label: function e(){}",
+            ";{function e(){}}",
+            ";let shadow;",
+            ";var {x}={};",
+            ";try{}finally{}",
+            ";while(false){}",
+            ";Object.assign(o(\"WAWebGroupType\"),{});",
+        ] {
+            for (entry, at) in [
+                ("LINK", link.end_byte - 1),
+                ("UNLINK", unlink.end_byte - 1),
+                ("envelope", envelope_end),
+            ] {
+                let changed = format!("{}{tail}{}", &SOURCE[..at], &SOURCE[at..]);
+                let mut mutated = slices.clone();
+                mutated.insert("WAWebHandleGroupNotification", &changed);
+                let rejected = match entry {
+                    "LINK" => crate::group_link::extract_link(&mutated).is_err(),
+                    "UNLINK" => crate::group_normalization::extract_unlink(&mutated).is_err(),
+                    _ => crate::group_envelope::extract_group_envelope(&mutated).is_err(),
+                };
+                assert!(rejected, "{entry}: {tail}");
+            }
+        }
+    }
 
     #[test]
     fn unknown_constant_providers_cannot_enter_through_a_modeled_region() {
