@@ -336,6 +336,7 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
     if parsed.panicked || !parsed.errors.is_empty() {
         return Err("invalid group module".into());
     }
+    crate::group_qualification::validate_providers(slices)?;
     crate::group_scope::validate_import_bindings(
         &parsed.program.body,
         slices.keys().map(|name| name.to_string()),
@@ -409,7 +410,7 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
     {
         return Err("changed helper kind/parameters".into());
     }
-    let resolver = ConstResolver::new(slices);
+    let resolver = ConstResolver::for_groups(slices);
     let body = f.body.as_ref().ok_or("missing helper body")?;
     let param = f
         .params

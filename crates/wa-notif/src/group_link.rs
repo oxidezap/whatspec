@@ -43,6 +43,7 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
     if parsed.panicked || !parsed.errors.is_empty() {
         return Err("invalid complete group module".into());
     }
+    crate::group_qualification::validate_providers(slices)?;
     crate::group_scope::validate_import_bindings(
         &parsed.program.body,
         slices.keys().map(|name| name.to_string()),
@@ -129,7 +130,7 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
     }
     let mut visitor = Extract {
         source,
-        resolver: ConstResolver::new(slices),
+        resolver: ConstResolver::for_groups(slices),
         results: vec![],
     };
     visitor.visit_program(&parsed.program);

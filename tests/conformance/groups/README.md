@@ -41,6 +41,7 @@ and read order. Complex child payloads stay at the external adapter boundary.
 Run all source comparisons with:
 
 ```sh
+node tests/conformance/groups/provider-effects.cjs
 node tests/conformance/groups/unlink.cjs --mutations
 node tests/conformance/groups/link.cjs --mutations
 node tests/conformance/groups/create.cjs
@@ -55,6 +56,16 @@ adapter mocks. `--json` emits immutable synthetic inputs and original outcomes
 for consumer tests. Extraction uses AST spans; source discovery never executes
 a bundle. Transport, authenticated client behavior, storage, cache/rotation and
 ACK effects remain outside these parsers.
+
+All three group entry points validate complete supplied dependency modules
+against the preserved supplier hashes, including initialization, helper code and
+export wiring. The group-specific constant resolver refuses unknown suppliers;
+the generic notification catalogue resolver retains its existing behavior.
+A changed supplier requires requalification even if its literal table is intact.
+The regression matrix mutates all 16 preserved suppliers (aliases, getters,
+closures, Object.assign and intrinsic replacement) across all three entry points.
+The independent provider-effects suite executes four changed complete constant
+factories and confirms that the original UNLINK helper returns changed actions.
 
 Independent LINK and UNLINK extraction also fingerprints the complete handler
 outside the region each extractor interprets: respectively the LINK case and

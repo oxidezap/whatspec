@@ -830,7 +830,7 @@ fn lower_callback(
         .ok_or("actions local")?;
     let marker_local = lower.bind(marker_name.as_ref());
     let result_local = lower.bind(result_name.as_ref());
-    let resolver = ConstResolver::new(slices);
+    let resolver = ConstResolver::for_groups(slices);
     let (missing_identification_tag, unknown_action_error_prefix, action_references) = actions(
         source,
         action_vars.declarations[1]
@@ -888,6 +888,7 @@ pub fn extract_group_envelope(
     if parsed.panicked || !parsed.errors.is_empty() {
         return Err("invalid group module".into());
     }
+    crate::group_qualification::validate_providers(slices)?;
     crate::group_scope::validate_import_bindings(
         &parsed.program.body,
         slices.keys().map(|name| name.to_string()),

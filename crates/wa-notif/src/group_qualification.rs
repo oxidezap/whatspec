@@ -22,6 +22,99 @@ fn fingerprint(chunks: &[&str]) -> String {
     wa_text::sha256_hex(&bytes)
 }
 
+// Complete supplier modules from the same qualified bundle set as the handler.
+// Pin initialization and helper dependencies as well as literal export tables.
+const PROVIDER_HASHES: &[(&str, &str)] = &[
+    (
+        "$InternalEnum",
+        "82b7b18d50af52e7f59e70338c869994bbfe707f85df522835b9c4d4b95cddb0",
+    ),
+    (
+        "WAJids",
+        "8b8655512bfc775d31954e5101970d1774e2c0800e4608698be13105cc23fb0c",
+    ),
+    (
+        "WAParsableWapNode",
+        "1c2e9ba9fabf92a027b2e8ced39a2cc7cc89cc107e6add73d90834a0bef868f3",
+    ),
+    (
+        "WAParsableXmlNode",
+        "5d238b9f2e2ecde2141c039a19811f665104b3ab03a149578004a402f492681a",
+    ),
+    (
+        "WATimeUtils",
+        "e7db2185c131de2170fbc36e206306066db2406fe1b60537ecd6ccc1c41bbacc",
+    ),
+    (
+        "WAWebEphemeralityTypes",
+        "b3df456a1c650a866935c3caea9561edb55bb3baa8383a0bf8b38002729bbf29",
+    ),
+    (
+        "WAWebEphemeralityUtils",
+        "3f6f783ec1f2044d44cb52693893c84bbc14b5708ea63eb64458aeec3f025986",
+    ),
+    (
+        "WAWebGroupApiConst",
+        "2150ec07a7cf11888d83fedd1eeeb8e0a6418e357f4e90ebca909bee654a524e",
+    ),
+    (
+        "WAWebGroupHistoryPostJoinTypes",
+        "793a8a262c5a6fc2b85d0dca45b5357b9bf16255224bd74512faf919b11a5f00",
+    ),
+    (
+        "WAWebGroupMemberLinkMode",
+        "002a12217ac7efb7863198fd7f3682c96dc148669b228a94db06710ac3a5821d",
+    ),
+    (
+        "WAWebGroupType",
+        "d63035154901e9677bc08acd8ab3994845087875ca5ce84636ec765b72553519",
+    ),
+    (
+        "WAWebGroupsQueryApi",
+        "0db1b65d79a6a1ad9648528c31359696af86feb8ea070edf476f1a9c4a02cf39",
+    ),
+    (
+        "WAWebHandleGroupNotificationConst",
+        "176daa1a4d66aee3b907bc26ba2e40da1fde706e142f44bf1bdb8cfb9fd3581e",
+    ),
+    (
+        "WAWebRequestMethodType",
+        "8a192131c0e7fb54652fd29cdfee7934fff4a4118f1d7b2a1ed3b7f9cf2302c1",
+    ),
+    (
+        "WAWebSchemaGroupMetadata",
+        "7fa15b1681882906c7cdef2fea492ba9c3cb82c0799414b64add593f92c3cb66",
+    ),
+    (
+        "nullthrows",
+        "dc6eb8c1da357368b7ab18fbb02faf3a0d1c098671c2f6df9f0c438d84a65569",
+    ),
+];
+
+pub(crate) fn provider_is_qualified(module: &str, source: &str) -> bool {
+    PROVIDER_HASHES
+        .iter()
+        .any(|(name, hash)| *name == module && wa_text::sha256_hex(source.as_bytes()) == *hash)
+}
+
+/// Check supplied dependencies even when their initialization only affects a
+/// different module. Unknown slices may coexist in a complete bundle, but the
+/// group-specific resolver must never consume an unqualified provider.
+pub(crate) fn validate_providers(
+    slices: &std::collections::HashMap<&str, &str>,
+) -> Result<(), String> {
+    for &(module, _) in PROVIDER_HASHES {
+        if let Some(source) = slices.get(module)
+            && !provider_is_qualified(module, source)
+        {
+            return Err(format!(
+                "unqualified group provider initialization: {module}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Qualify every byte outside the region independently interpreted by an action
 /// extractor. This includes factory setup, transitive helpers, the envelope
 /// prefix, dispatch siblings and projection. Unknown effects anywhere in that
@@ -178,6 +271,156 @@ mod context_tests {
     const TAGS: &str = include_str!(
         "../../../tests/conformance/groups/sources/WAWebHandleGroupNotificationConst.js"
     );
+
+    const PROVIDERS: &[(&str, &str)] = &[
+        (
+            "$InternalEnum",
+            include_str!("../../../tests/conformance/groups/sources/$InternalEnum.js"),
+        ),
+        (
+            "WAJids",
+            include_str!("../../../tests/conformance/groups/sources/WAJids.js"),
+        ),
+        (
+            "WAParsableWapNode",
+            include_str!("../../../tests/conformance/groups/sources/WAParsableWapNode.js"),
+        ),
+        (
+            "WAParsableXmlNode",
+            include_str!("../../../tests/conformance/groups/sources/WAParsableXmlNode.js"),
+        ),
+        (
+            "WATimeUtils",
+            include_str!("../../../tests/conformance/groups/sources/WATimeUtils.js"),
+        ),
+        (
+            "WAWebEphemeralityTypes",
+            include_str!("../../../tests/conformance/groups/sources/WAWebEphemeralityTypes.js"),
+        ),
+        (
+            "WAWebEphemeralityUtils",
+            include_str!("../../../tests/conformance/groups/sources/WAWebEphemeralityUtils.js"),
+        ),
+        (
+            "WAWebGroupApiConst",
+            include_str!("../../../tests/conformance/groups/sources/WAWebGroupApiConst.js"),
+        ),
+        (
+            "WAWebGroupHistoryPostJoinTypes",
+            include_str!(
+                "../../../tests/conformance/groups/sources/WAWebGroupHistoryPostJoinTypes.js"
+            ),
+        ),
+        (
+            "WAWebGroupMemberLinkMode",
+            include_str!("../../../tests/conformance/groups/sources/WAWebGroupMemberLinkMode.js"),
+        ),
+        (
+            "WAWebGroupType",
+            include_str!("../../../tests/conformance/groups/sources/WAWebGroupType.js"),
+        ),
+        (
+            "WAWebGroupsQueryApi",
+            include_str!("../../../tests/conformance/groups/sources/WAWebGroupsQueryApi.js"),
+        ),
+        (
+            "WAWebHandleGroupNotificationConst",
+            include_str!(
+                "../../../tests/conformance/groups/sources/WAWebHandleGroupNotificationConst.js"
+            ),
+        ),
+        (
+            "WAWebRequestMethodType",
+            include_str!("../../../tests/conformance/groups/sources/WAWebRequestMethodType.js"),
+        ),
+        (
+            "WAWebSchemaGroupMetadata",
+            include_str!("../../../tests/conformance/groups/sources/WAWebSchemaGroupMetadata.js"),
+        ),
+        (
+            "nullthrows",
+            include_str!("../../../tests/conformance/groups/sources/nullthrows.js"),
+        ),
+    ];
+
+    #[test]
+    fn unknown_constant_providers_cannot_enter_through_a_modeled_region() {
+        let original = HashMap::from([
+            ("WAWebHandleGroupNotification", SOURCE),
+            ("WAWebGroupType", TYPES),
+        ]);
+        let contract = crate::group_normalization::extract_unlink(&original).unwrap();
+        let helper = &SOURCE[contract.start_byte..contract.end_byte];
+        let changed_helper = helper.replace("WAWebGroupType", "UnqualifiedProvider");
+        assert_ne!(changed_helper, helper);
+        let mut changed = SOURCE.to_string();
+        changed.replace_range(contract.start_byte..contract.end_byte, &changed_helper);
+        let provider = TYPES.replace("WAWebGroupType", "UnqualifiedProvider");
+        let slices = HashMap::from([
+            ("WAWebHandleGroupNotification", changed.as_str()),
+            ("WAWebGroupType", TYPES),
+            ("UnqualifiedProvider", provider.as_str()),
+        ]);
+        assert!(crate::group_normalization::extract_unlink(&slices).is_err());
+    }
+
+    #[test]
+    fn defining_module_effects_cannot_publish_stale_actions() {
+        let changed = TYPES.replace("l.GROUP_ACTIONS=d", "l.GROUP_ACTIONS=d,Object.assign(l,{GROUP_ACTIONS:{...d,PARENT_GROUP_UNLINK:\"changed\"}})");
+        assert_ne!(changed, TYPES);
+        let slices = HashMap::from([
+            ("WAWebHandleGroupNotification", SOURCE),
+            ("WAWebGroupType", changed.as_str()),
+            ("WAWebHandleGroupNotificationConst", TAGS),
+        ]);
+        assert!(crate::group_normalization::extract_unlink(&slices).is_err());
+        assert!(crate::group_link::extract_link(&slices).is_err());
+    }
+
+    #[test]
+    fn supplied_provider_initialization_is_qualified_for_every_entry_point() {
+        let mut slices: HashMap<_, _> = PROVIDERS.iter().copied().collect();
+        slices.insert("WAWebHandleGroupNotification", SOURCE);
+        assert!(crate::group_link::extract_link(&slices).is_ok());
+        assert!(crate::group_normalization::extract_unlink(&slices).is_ok());
+        assert!(crate::group_envelope::extract_group_envelope(&slices).is_ok());
+        let mut accepted = vec![];
+        for &(module, source) in PROVIDERS {
+            // Alter the complete initialization, including definitions that the
+            // static resolver does not visit (aliases, getters and closures).
+            let at = source.find("){").unwrap() + 2;
+            for effect in [
+                "Object.assign(l,{GROUP_ACTIONS:{PARENT_GROUP_UNLINK:\"changed\"}});",
+                "var alias=l;alias.GROUP_ACTIONS={};",
+                "Object.defineProperty(l,\"GROUP_ACTIONS\",{get(){return {}}});",
+                "(function(){l.GROUP_ACTIONS={}})();",
+                "Object.freeze=function(x){return {}};",
+            ] {
+                let changed = format!("{}{effect}{}", &source[..at], &source[at..]);
+                let mut mutated = slices.clone();
+                mutated.insert(module, &changed);
+                for (entry, rejected) in [
+                    ("LINK", crate::group_link::extract_link(&mutated).is_err()),
+                    (
+                        "UNLINK",
+                        crate::group_normalization::extract_unlink(&mutated).is_err(),
+                    ),
+                    (
+                        "envelope",
+                        crate::group_envelope::extract_group_envelope(&mutated).is_err(),
+                    ),
+                ] {
+                    if !rejected {
+                        accepted.push(format!("{entry}: {module}: {effect}"));
+                    }
+                }
+            }
+        }
+        assert!(
+            accepted.is_empty(),
+            "accepted provider effects: {accepted:#?}"
+        );
+    }
 
     #[test]
     fn all_group_entry_points_reject_unmodeled_constant_effects() {

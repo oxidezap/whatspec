@@ -27,6 +27,7 @@ jobs:
 
       - name: Official group notification differentials
         run: |
+          node tests/conformance/groups/provider-effects.cjs
           node tests/conformance/groups/unlink.cjs --mutations
           node tests/conformance/groups/link.cjs --mutations
           node tests/conformance/groups/create.cjs

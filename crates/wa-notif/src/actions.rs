@@ -75,6 +75,7 @@ type ConstMap = HashMap<String, String>;
 /// Resolves `o("Module").CONST_OBJECT.MEMBER` references to their wire string, against
 /// the bundle's module slices. Memoized per `(module, object)`.
 pub(crate) struct ConstResolver<'a> {
+    qualified_group: bool,
     slices: &'a HashMap<&'a str, &'a str>,
     cache: std::cell::RefCell<HashMap<(String, String), Option<ConstMap>>>,
     /// `(module, enum)` → its resolved variants. Memoized for the same reason `cache` is:
@@ -96,6 +97,7 @@ pub(crate) struct ConstResolver<'a> {
 impl<'a> ConstResolver<'a> {
     pub(crate) fn new(slices: &'a HashMap<&'a str, &'a str>) -> Self {
         Self {
+            qualified_group: false,
             slices,
             cache: std::cell::RefCell::new(HashMap::new()),
             enums: std::cell::RefCell::new(HashMap::new()),
@@ -103,13 +105,24 @@ impl<'a> ConstResolver<'a> {
         }
     }
 
+    pub(crate) fn for_groups(slices: &'a HashMap<&'a str, &'a str>) -> Self {
+        let mut resolver = Self::new(slices);
+        resolver.qualified_group = true;
+        resolver
+    }
+
+    fn provider(&self, module: &str) -> Option<&'a str> {
+        let source = *self.slices.get(module)?;
+        (!self.qualified_group || crate::group_qualification::provider_is_qualified(module, source))
+            .then_some(source)
+    }
+
     /// `o("Mod").OBJECT.MEMBER` → the member's string value.
     fn member(&self, module: &str, object: &str, member: &str) -> Option<String> {
         let key = (module.to_string(), object.to_string());
         if !self.cache.borrow().contains_key(&key) {
             let resolved = self
-                .slices
-                .get(module)
+                .provider(module)
                 .and_then(|slice| const_string_map(slice, object));
             self.cache.borrow_mut().insert(key.clone(), resolved);
         }
@@ -172,7 +185,7 @@ impl<'a> ConstResolver<'a> {
     }
 
     fn resolve_enum_uncached(&self, module: &str, name: &str) -> Option<wa_ir::AttrEnumRef> {
-        let def = wa_enums::resolve_named_enum(self.slices.get(module)?, module, name)?;
+        let def = wa_enums::resolve_named_enum(self.provider(module)?, module, name)?;
         let variants: Vec<wa_ir::AttrEnumVariant> = def
             .variants
             .into_iter()
