@@ -21,10 +21,16 @@ pub(crate) fn validate_dispatch_cases(
         // Case consequents share the switch's lexical environment. A binding
         // in an unrelated case can put a qualified arm's inputs in the TDZ.
         // Explicit nested blocks keep their own scope and are not rejected here.
-        if case.consequent.iter().any(|statement| match statement {
-            Statement::VariableDeclaration(v) => !v.kind.is_var(),
-            Statement::ClassDeclaration(_) | Statement::FunctionDeclaration(_) => true,
-            _ => false,
+        if case.consequent.iter().any(|statement| {
+            let mut statement = statement;
+            while let Statement::LabeledStatement(label) = statement {
+                statement = &label.body;
+            }
+            match statement {
+                Statement::VariableDeclaration(v) => !v.kind.is_var(),
+                Statement::ClassDeclaration(_) | Statement::FunctionDeclaration(_) => true,
+                _ => false,
+            }
         }) {
             return Err("unqualified switch-wide lexical declaration".into());
         }

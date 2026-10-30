@@ -27,7 +27,12 @@ Regenerate with `cargo run -p wa-notif --example group_link_contract --
 preserved set. The extractor rejects changed control-flow forms, an incomplete
 three-way family, unresolved constants, effects/defaults/rest parameters in the
 group callback, async/generator callbacks, changed output/read order and unknown
-payload fields. The generated output still carries named wire readers for a
+payload fields. Before resolving imported action constants, independent LINK
+extraction also verifies the qualified module-frame fingerprint used by the
+envelope extractor. Changed factory initialization and export wiring therefore
+require requalification. Switch-wide declarations are rejected through any
+number of statement labels; explicit nested blocks retain their own scope.
+The generated output still carries named wire readers for a
 consumer's manual decoder and API adapter.
 
 `node tests/conformance/groups/link.cjs --mutations` executes only the previously

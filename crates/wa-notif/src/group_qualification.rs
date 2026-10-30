@@ -22,6 +22,50 @@ fn fingerprint(chunks: &[&str]) -> String {
     wa_text::sha256_hex(&bytes)
 }
 
+/// Independent action extractors must qualify initialization before reading
+/// imported constants, just as envelope lowering does. The parser body remains
+/// available for each extractor's own AST qualification.
+pub(crate) fn complete_module_frame(
+    source: &str,
+    program: &oxc_ast::ast::Program<'_>,
+) -> Result<(), String> {
+    struct Find<'s> {
+        source: &'s str,
+        results: Vec<Result<(), String>>,
+    }
+    impl<'a> Visit<'a> for Find<'_> {
+        fn visit_new_expression(&mut self, expression: &oxc_ast::ast::NewExpression<'a>) {
+            if expression
+                .arguments
+                .first()
+                .and_then(wa_oxc::arg_expr)
+                .and_then(wa_oxc::as_string_lit)
+                == Some("groupNotificationParser")
+            {
+                self.results.push(
+                    match expression.arguments.get(1).and_then(wa_oxc::arg_expr) {
+                        Some(oxc_ast::ast::Expression::FunctionExpression(parser)) => {
+                            module_frame(self.source, parser)
+                        }
+                        _ => Err("unqualified group parser callback".into()),
+                    },
+                );
+                return;
+            }
+            walk::walk_new_expression(self, expression);
+        }
+    }
+    let mut finder = Find {
+        source,
+        results: vec![],
+    };
+    finder.visit_program(program);
+    if finder.results.len() != 1 {
+        return Err("expected one complete group parser module frame".into());
+    }
+    finder.results.remove(0)
+}
+
 pub(crate) fn module_frame(source: &str, parser: &Function<'_>) -> Result<(), String> {
     let body = parser.body.as_ref().ok_or("missing parser body")?;
     // Preserve the parser header and its entire enclosing module, including

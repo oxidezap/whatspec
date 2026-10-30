@@ -42,6 +42,7 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
     if parsed.panicked || !parsed.errors.is_empty() {
         return Err("invalid complete group module".into());
     }
+    crate::group_qualification::complete_module_frame(source, &parsed.program)?;
     crate::group_scope::validate_import_bindings(
         &parsed.program.body,
         slices.keys().map(|name| name.to_string()),
@@ -501,6 +502,21 @@ mod tests {
         ]))
     }
     #[test]
+    fn module_initialization_cannot_replace_imported_link_constants() {
+        for mutation in [
+            "o(\"WAWebGroupType\").GROUP_ACTIONS={PARENT_GROUP_LINK:\"changed\",SUB_GROUP_LINK:\"changed\",SIBLING_GROUP_LINK:\"changed\"};",
+            "o(\"WAWebGroupType\").GROUP_ACTIONS.PARENT_GROUP_LINK=\"changed\";",
+        ] {
+            let changed = HANDLER.replacen(
+                "var e,s,u,c,d,m,p,_,f;",
+                &format!("{mutation}var e,s,u,c,d,m,p,_,f;"),
+                1,
+            );
+            assert_ne!(changed, HANDLER);
+            assert!(extract(&changed).is_err(), "{mutation}");
+        }
+    }
+    #[test]
     fn switch_wide_lexical_bindings_cannot_shadow_dispatch_inputs() {
         for declaration in [
             "let t;",
@@ -508,6 +524,8 @@ mod tests {
             "let {t}={};",
             "class t{}",
             "function t(){}",
+            "label: function t(){}",
+            "outer: inner: function t(){}",
         ] {
             let changed = HANDLER.replacen(
                 "switch(a){",
