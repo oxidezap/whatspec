@@ -41,11 +41,11 @@ and read order. Complex child payloads stay at the external adapter boundary.
 Run all source comparisons with:
 
 ```sh
-node tests/conformance/groups/provider-effects.cjs
-node tests/conformance/groups/unlink.cjs --mutations
-node tests/conformance/groups/link.cjs --mutations
-node tests/conformance/groups/create.cjs
-node tests/conformance/groups/envelope.cjs
+node tests/conformance/groups/provider-effects.cjs &&
+node tests/conformance/groups/unlink.cjs --mutations &&
+node tests/conformance/groups/link.cjs --mutations &&
+node tests/conformance/groups/create.cjs &&
+node tests/conformance/groups/envelope.cjs &&
 node tests/conformance/groups/actions.cjs
 ```
 
