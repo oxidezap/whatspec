@@ -341,6 +341,7 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
         slices.keys().map(|name| name.to_string()),
     )?;
     struct Extract<'s> {
+        source: &'s str,
         slices: &'s HashMap<&'s str, &'s str>,
         results: Vec<Result<GroupUnlinkContract, String>>,
     }
@@ -366,7 +367,14 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
                 let mut reads = Reads(0);
                 reads.visit_function_body(body);
                 if reads.0 > 0 {
-                    self.results.push(evaluate(f, self.slices));
+                    self.results.push(
+                        crate::group_qualification::action_context(
+                            self.source,
+                            body.span(),
+                            "UNLINK",
+                        )
+                        .and_then(|()| evaluate(f, self.slices)),
+                    );
                     return;
                 }
             }
@@ -374,6 +382,7 @@ pub fn extract_unlink(slices: &HashMap<&str, &str>) -> Result<GroupUnlinkContrac
         }
     }
     let mut visitor = Extract {
+        source,
         slices,
         results: vec![],
     };

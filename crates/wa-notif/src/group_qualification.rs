@@ -22,48 +22,27 @@ fn fingerprint(chunks: &[&str]) -> String {
     wa_text::sha256_hex(&bytes)
 }
 
-/// Independent action extractors must qualify initialization before reading
-/// imported constants, just as envelope lowering does. The parser body remains
-/// available for each extractor's own AST qualification.
-pub(crate) fn complete_module_frame(
+/// Qualify every byte outside the region independently interpreted by an action
+/// extractor. This includes factory setup, transitive helpers, the envelope
+/// prefix, dispatch siblings and projection. Unknown effects anywhere in that
+/// execution context require requalification, even without identifier writes.
+pub(crate) fn action_context(
     source: &str,
-    program: &oxc_ast::ast::Program<'_>,
+    region: oxc_span::Span,
+    kind: &str,
 ) -> Result<(), String> {
-    struct Find<'s> {
-        source: &'s str,
-        results: Vec<Result<(), String>>,
-    }
-    impl<'a> Visit<'a> for Find<'_> {
-        fn visit_new_expression(&mut self, expression: &oxc_ast::ast::NewExpression<'a>) {
-            if expression
-                .arguments
-                .first()
-                .and_then(wa_oxc::arg_expr)
-                .and_then(wa_oxc::as_string_lit)
-                == Some("groupNotificationParser")
-            {
-                self.results.push(
-                    match expression.arguments.get(1).and_then(wa_oxc::arg_expr) {
-                        Some(oxc_ast::ast::Expression::FunctionExpression(parser)) => {
-                            module_frame(self.source, parser)
-                        }
-                        _ => Err("unqualified group parser callback".into()),
-                    },
-                );
-                return;
-            }
-            walk::walk_new_expression(self, expression);
-        }
-    }
-    let mut finder = Find {
-        source,
-        results: vec![],
+    let before = source.get(..region.start as usize).ok_or("action span")?;
+    let after = source.get(region.end as usize..).ok_or("action span")?;
+    let expected = match kind {
+        "LINK" => "84d5edb013196745b038c30fd8efa2fec2ce4b6faac0feaf6a97390e7e656c08",
+        "UNLINK" => "f3c64ae496e0e8da4d0ffc79486a11cc3c18eac5533a0a2576c29e938aa92fe8",
+        _ => return Err("unknown group action context".into()),
     };
-    finder.visit_program(program);
-    if finder.results.len() != 1 {
-        return Err("expected one complete group parser module frame".into());
+    let actual = fingerprint(&[before, after]);
+    if actual != expected {
+        return Err(format!("unqualified {kind} execution context: {actual}"));
     }
-    finder.results.remove(0)
+    Ok(())
 }
 
 pub(crate) fn module_frame(source: &str, parser: &Function<'_>) -> Result<(), String> {
@@ -188,4 +167,63 @@ pub(crate) fn validate_prefix_bindings<'a>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod context_tests {
+    use std::collections::HashMap;
+    const SOURCE: &str =
+        include_str!("../../../tests/conformance/groups/sources/WAWebHandleGroupNotification.js");
+    const TYPES: &str = include_str!("../../../tests/conformance/groups/sources/WAWebGroupType.js");
+    const TAGS: &str = include_str!(
+        "../../../tests/conformance/groups/sources/WAWebHandleGroupNotificationConst.js"
+    );
+
+    #[test]
+    fn all_group_entry_points_reject_unmodeled_constant_effects() {
+        let mut accepted = vec![];
+        for anchor in [
+            "var e,s,u,c,d,m,p,_,f;",
+            "function g(e){",
+            "\"groupNotificationParser\",function(e){",
+            "var n,a=t.tag();switch(a){",
+        ] {
+            for effect in [
+                "o(\"WAWebGroupType\").GROUP_ACTIONS={PARENT_GROUP_LINK:\"changed\",PARENT_GROUP_UNLINK:\"changed\"};",
+                "o(\"WAWebGroupType\").GROUP_ACTIONS.PARENT_GROUP_LINK=\"changed\";",
+                "var alias=o(\"WAWebGroupType\").GROUP_ACTIONS;alias.PARENT_GROUP_UNLINK=\"changed\";",
+                "Object.assign(o(\"WAWebGroupType\").GROUP_ACTIONS,{PARENT_GROUP_LINK:\"changed\"});",
+                "(function(){o(\"WAWebGroupType\").GROUP_ACTIONS.PARENT_GROUP_UNLINK=\"changed\";})();",
+            ] {
+                let replacement = if anchor.ends_with('{') && !anchor.starts_with("var n,") {
+                    format!("{anchor}{effect}")
+                } else {
+                    format!("{effect}{anchor}")
+                };
+                let changed = SOURCE.replacen(anchor, &replacement, 1);
+                assert_ne!(changed, SOURCE);
+                let slices = HashMap::from([
+                    ("WAWebHandleGroupNotification", changed.as_str()),
+                    ("WAWebGroupType", TYPES),
+                    ("WAWebHandleGroupNotificationConst", TAGS),
+                ]);
+                for (name, rejected) in [
+                    ("LINK", crate::group_link::extract_link(&slices).is_err()),
+                    (
+                        "UNLINK",
+                        crate::group_normalization::extract_unlink(&slices).is_err(),
+                    ),
+                    (
+                        "envelope",
+                        crate::group_envelope::extract_group_envelope(&slices).is_err(),
+                    ),
+                ] {
+                    if !rejected {
+                        accepted.push(format!("{name}: {anchor}: {effect}"));
+                    }
+                }
+            }
+        }
+        assert!(accepted.is_empty(), "accepted effects: {accepted:#?}");
+    }
 }

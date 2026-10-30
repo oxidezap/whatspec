@@ -56,6 +56,15 @@ for consumer tests. Extraction uses AST spans; source discovery never executes
 a bundle. Transport, authenticated client behavior, storage, cache/rotation and
 ACK effects remain outside these parsers.
 
+Independent LINK and UNLINK extraction also fingerprints the complete handler
+outside the region each extractor interprets: respectively the LINK case and
+UNLINK helper body. This covers factory initialization, transitive helpers,
+envelope prefix, sibling dispatch and final projection. Every unmodeled change
+requires requalification, including structurally safe scope changes. The
+constant-effect matrix exercises all three entry points with replacement,
+property writes, aliases, Object.assign and mutating calls across initialization,
+helper, prefix and dispatch locations. Modeled guard mutations remain supported.
+
 LINK/UNLINK plain-object lookups can return inherited non-string values.
 Contracts mark those outcomes explicitly unsupported; ordinary unknown strings
 still produce the separate undefined-action result. Qualification assumes the

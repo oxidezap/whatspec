@@ -8,6 +8,7 @@ use oxc_ast::ast::{
     BindingPattern, Expression, ObjectPropertyKind, Statement, SwitchCase, VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 use wa_ir::group_link::{GroupLinkContract, GroupLinkField, GroupLinkRow};
 use wa_oxc::{arg_expr, as_call, as_identifier, as_member, as_string_lit};
 
@@ -42,12 +43,12 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
     if parsed.panicked || !parsed.errors.is_empty() {
         return Err("invalid complete group module".into());
     }
-    crate::group_qualification::complete_module_frame(source, &parsed.program)?;
     crate::group_scope::validate_import_bindings(
         &parsed.program.body,
         slices.keys().map(|name| name.to_string()),
     )?;
     struct Extract<'s> {
+        source: &'s str,
         resolver: ConstResolver<'s>,
         results: Vec<Result<GroupLinkContract, String>>,
     }
@@ -98,6 +99,11 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
                                                 .into(),
                                         );
                                     }
+                                    crate::group_qualification::action_context(
+                                        self.source,
+                                        case.span(),
+                                        "LINK",
+                                    )?;
                                     project_case(case, &self.resolver, child.name.as_str())
                                 }),
                         );
@@ -122,6 +128,7 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
         }
     }
     let mut visitor = Extract {
+        source,
         resolver: ConstResolver::new(slices),
         results: vec![],
     };
@@ -550,10 +557,9 @@ mod tests {
             anchor,
             &format!("case \"extra\":{{let t;return null;}}{anchor}"),
         );
-        let original = extract(HANDLER).unwrap();
-        let accepted = extract(&changed).unwrap();
-        assert_eq!(accepted.rows, original.rows);
-        assert_eq!(accepted.group_fields, original.group_fields);
+        // Structurally safe scope changes still alter the opaque execution
+        // context and require snapshot requalification.
+        assert!(extract(&changed).is_err());
     }
     #[test]
     fn dispatch_tag_collisions_and_intercepting_cases_reject() {
