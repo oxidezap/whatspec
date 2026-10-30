@@ -32,6 +32,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 mod actions;
+pub mod group_normalization;
 
 use std::collections::HashMap;
 
@@ -815,3 +816,10 @@ fn first_try_block<'b, 'a>(stmts: &'b [Statement<'a>]) -> Option<&'b [Statement<
 
 #[cfg(test)]
 mod tests;
+
+pub mod group_link;
+
+pub mod group_envelope;
+
+mod group_qualification;
+mod group_scope;

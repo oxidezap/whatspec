@@ -1,0 +1,145 @@
+{
+  "waVersion": "2.3000.1047483476",
+  "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+  "extractor": {
+    "name": "acorn",
+    "version": "8.19.0",
+    "offsetUnit": "UTF-8 bytes"
+  },
+  "callback": {
+    "name": "groupNotificationParser",
+    "startByte": 10592,
+    "endByte": 22915,
+    "sha256": "c795544e7e6f20cf484cbac4c40ccfe731b4460f31b7ae4863e6ab3bab1bb4d9"
+  },
+  "modules": [
+    {
+      "name": "WAWebHandleGroupNotification",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 1693402,
+      "endByte": 1716842,
+      "moduleSha256": "a65d861ba0dacdcec52d2df48712a80677ecf10021d7df63c84183f195db13a1"
+    },
+    {
+      "name": "WAWebGroupType",
+      "bundleSha256": "082e0ef2faaa6247e6e17a225bb1685b7e583e946f7b0dc17ee58c431c1a07a8",
+      "startByte": 959207,
+      "endByte": 963377,
+      "moduleSha256": "d63035154901e9677bc08acd8ab3994845087875ca5ce84636ec765b72553519"
+    },
+    {
+      "name": "WAParsableXmlNode",
+      "bundleSha256": "082e0ef2faaa6247e6e17a225bb1685b7e583e946f7b0dc17ee58c431c1a07a8",
+      "startByte": 1112662,
+      "endByte": 1117469,
+      "moduleSha256": "5d238b9f2e2ecde2141c039a19811f665104b3ab03a149578004a402f492681a"
+    },
+    {
+      "name": "WAParsableWapNode",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 2232374,
+      "endByte": 2241375,
+      "moduleSha256": "1c2e9ba9fabf92a027b2e8ced39a2cc7cc89cc107e6add73d90834a0bef868f3"
+    },
+    {
+      "name": "WAJids",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 2184438,
+      "endByte": 2196682,
+      "moduleSha256": "8b8655512bfc775d31954e5101970d1774e2c0800e4608698be13105cc23fb0c"
+    },
+    {
+      "name": "WAWebGroupsQueryApi",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 524523,
+      "endByte": 532908,
+      "moduleSha256": "0db1b65d79a6a1ad9648528c31359696af86feb8ea070edf476f1a9c4a02cf39"
+    },
+    {
+      "name": "WAWebEphemeralityUtils",
+      "bundleSha256": "430cb8979511aada95178605faa35a8483446f677ce6d1fe0fd66333c7879eee",
+      "startByte": 792136,
+      "endByte": 794820,
+      "moduleSha256": "3f6f783ec1f2044d44cb52693893c84bbc14b5708ea63eb64458aeec3f025986"
+    },
+    {
+      "name": "WAWebEphemeralityTypes",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 3792895,
+      "endByte": 3793374,
+      "moduleSha256": "b3df456a1c650a866935c3caea9561edb55bb3baa8383a0bf8b38002729bbf29"
+    },
+    {
+      "name": "WAWebGroupMemberLinkMode",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 266723,
+      "endByte": 267084,
+      "moduleSha256": "002a12217ac7efb7863198fd7f3682c96dc148669b228a94db06710ac3a5821d"
+    },
+    {
+      "name": "WAWebSchemaGroupMetadata",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 3384676,
+      "endByte": 3387600,
+      "moduleSha256": "7fa15b1681882906c7cdef2fea492ba9c3cb82c0799414b64add593f92c3cb66"
+    },
+    {
+      "name": "WAWebGroupHistoryPostJoinTypes",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 523393,
+      "endByte": 523897,
+      "moduleSha256": "793a8a262c5a6fc2b85d0dca45b5357b9bf16255224bd74512faf919b11a5f00"
+    },
+    {
+      "name": "$InternalEnum",
+      "bundleSha256": "6589eb30703a6186e0c12165733c638944894b8c349e64addc3a2181bec18bee",
+      "startByte": 79969,
+      "endByte": 81165,
+      "moduleSha256": "82b7b18d50af52e7f59e70338c869994bbfe707f85df522835b9c4d4b95cddb0"
+    },
+    {
+      "name": "WAWebGroupApiConst",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 1648297,
+      "endByte": 1648453,
+      "moduleSha256": "2150ec07a7cf11888d83fedd1eeeb8e0a6418e357f4e90ebca909bee654a524e"
+    },
+    {
+      "name": "WAWebHandleGroupNotificationConst",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 268451,
+      "endByte": 276687,
+      "moduleSha256": "176daa1a4d66aee3b907bc26ba2e40da1fde706e142f44bf1bdb8cfb9fd3581e"
+    },
+    {
+      "name": "WATimeUtils",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 2198607,
+      "endByte": 2202055,
+      "moduleSha256": "e7db2185c131de2170fbc36e206306066db2406fe1b60537ecd6ccc1c41bbacc"
+    },
+    {
+      "name": "WAWebRequestMethodType",
+      "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+      "startByte": 277240,
+      "endByte": 277415,
+      "moduleSha256": "8a192131c0e7fb54652fd29cdfee7934fff4a4118f1d7b2a1ed3b7f9cf2302c1"
+    },
+    {
+      "name": "nullthrows",
+      "bundleSha256": "6589eb30703a6186e0c12165733c638944894b8c349e64addc3a2181bec18bee",
+      "startByte": 76272,
+      "endByte": 76470,
+      "moduleSha256": "dc6eb8c1da357368b7ab18fbb02faf3a0d1c098671c2f6df9f0c438d84a65569"
+    }
+  ],
+  "mocks": [
+    "WADeprecatedWapParser constructor captures the original callback; its behavior is not reimplemented",
+    "Effective username/history/opus flags, local device PN/LID facts, country registry and account identity predicate",
+    "Wid conversion to string-valued objects and binary UTF-8 adapter",
+    "Object.hasOwn/err and Babel inheritance/native-Error/tagged-template bridges",
+    "Telemetry logging and getErrorSafe; no runtime auth/cache/storage/ACK",
+    "CurrentUser employee flag=false, notifications diagnostic counter, Object.assign bridges; opaque requestMethod results are recorded explicitly, not normalized to null"
+  ],
+  "scope": "Complete original groupNotificationParser callback with all remaining nonraw action branches, strict child/identity/integer readers, account/history gates and source field/read-order edge cases; CREATE/LINK/UNLINK/suggestions have separate payload oracles; nullthrows fallback uses its original preserved dependency and ordinary Error class"
+}

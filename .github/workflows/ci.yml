@@ -25,6 +25,19 @@ jobs:
       - name: Verify conformance fixture integrity and capture rejection
         run: python3 tests/conformance/test_capture.py -v
 
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '24'
+
+      - name: Official group notification differentials
+        run: |
+          node tests/conformance/groups/provider-effects.cjs
+          node tests/conformance/groups/unlink.cjs --mutations
+          node tests/conformance/groups/link.cjs --mutations
+          node tests/conformance/groups/create.cjs
+          node tests/conformance/groups/envelope.cjs
+          node tests/conformance/groups/actions.cjs
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
