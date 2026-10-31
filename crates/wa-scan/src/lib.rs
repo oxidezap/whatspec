@@ -872,3 +872,36 @@ mod bundled_rpc_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod bundled_diagnostic_tests {
+    #[test]
+    fn bundled_rpc_counts_its_recovered_external_mixin_fields() {
+        let source = r#"
+        __d("WASmaxOutProbeExtraMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function payload(args) { var value=args.value;return o("WASmaxJsx").smax("query",{value:o("WAWap").CUSTOM_STRING(value)}); }
+            function merge(dst,args) { var extra=payload(args);return o("WASmaxMixins").mergeStanzas(dst,extra); }
+            l.mergeExtraMixin=merge;
+        });
+        __d("WASmaxProbeRPC",["WASmaxJsx","WASmaxOutProbeExtraMixin","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutProbeExtraMixin").mergeExtraMixin(o("WASmaxJsx").smax("query",null),args.extra)); }
+            l.makeProbeRequest=make;
+        });"#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let (ir, statistics) =
+            super::extract_iq_from_modules_with_diagnostics(source, &definitions, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(statistics.cross_module.requests_enriched, 1);
+        assert_eq!(statistics.cross_module.fields_recovered, 1);
+        let path = ir.stanzas[0].request.children[0].attrs[0]
+            .arg_path
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            path.iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "value"]
+        );
+    }
+}

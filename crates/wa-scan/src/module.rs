@@ -122,6 +122,26 @@ pub fn scan_module_outcome(
         Vec::new()
     };
     let bundled = !bundled_requests.is_empty();
+    let bundled_recovery: std::collections::HashMap<String, usize> = if bundled {
+        let local = crate::request::bundled_rpc_requests(source, helpers, &Default::default());
+        bundled_requests
+            .iter()
+            .map(|(name, complete)| {
+                let local_children = local
+                    .iter()
+                    .find(|(export, _)| export == name)
+                    .map(|(_, root)| root.children.as_slice())
+                    .unwrap_or_default();
+                (
+                    name.clone(),
+                    crate::mixin_index::count_recovered_fields(local_children, &complete.children),
+                )
+            })
+            .collect()
+    } else {
+        Default::default()
+    };
+
     let qualified_create = module_name == "WASmaxOutGroupsCreateRequest";
     let scope = if qualified_create || bundled {
         build_scoped_var_scope(&ret.program)
@@ -269,6 +289,13 @@ pub fn scan_module_outcome(
                 (Some(namespace), Some(iq_type)) => {
                     let recovered =
                         crate::mixin_index::count_recovered_fields(&iq.children, &frag_children);
+                    let recovered = recovered.max(
+                        iq.export
+                            .as_ref()
+                            .and_then(|export| bundled_recovery.get(export))
+                            .copied()
+                            .unwrap_or(0),
+                    );
                     fields_recovered = fields_recovered.max(recovered);
                     crate::mixin_index::merge_children(&mut iq.children, &frag_children);
                     // A contribution can arrive holding the empty path — a mixin whose
