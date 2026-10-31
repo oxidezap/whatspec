@@ -2093,7 +2093,7 @@ pub(crate) fn exported_wap_helpers(
 ) -> Vec<(String, Vec<WapChildNode>)> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
-    let scope = build_var_scope(&ret.program);
+    let scope = build_scoped_var_scope(&ret.program);
     let aliases = build_alias_map(&ret.program);
     let mut finder = ExportFnFinder {
         scope: &scope,

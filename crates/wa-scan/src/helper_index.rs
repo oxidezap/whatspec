@@ -89,3 +89,36 @@ fn resolve_all(defs: &[ModuleDefinition], source: &str, context: &HelperIndex) -
     }
     index
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exported_helper_does_not_resolve_a_sibling_functions_local() {
+        let source = r#"
+            __d("Helpers", ["WASmaxJsx"], function(g,r,d,o,e,i,l) {
+                function sibling() {
+                    var t = o("WASmaxJsx").smax("foreign", null);
+                    return t;
+                }
+                function empty() {
+                    var t = null;
+                    return t;
+                }
+                function child() {
+                    var t = o("WASmaxJsx").smax("child", null);
+                    return t;
+                }
+                l.empty = empty;
+                l.child = child;
+            });
+        "#;
+        let defs = wa_transform::extract_module_definitions(source);
+        let index = build_pass(&defs, source);
+        assert!(index.get("Helpers", "empty").is_none());
+        let child = index.get("Helpers", "child").unwrap();
+        assert_eq!(child.len(), 1);
+        assert_eq!(child[0].tag, "child");
+    }
+}
