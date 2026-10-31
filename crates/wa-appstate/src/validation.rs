@@ -673,7 +673,9 @@ impl Lower {
                         let transform = match (self.module(object), method) {
                             (Some("WALongInt"), "numberOrThrowIfTooLarge") => T::SafeInteger,
                             (Some("WALongInt"), "maybeNumberOrThrowIfTooLarge") => T::MaybeNumber,
-                            (Some("WASyncdKeyTypes"), "toSyncKeyId") => T::SyncKeyId,
+                            (Some("WASyncdKeyTypes" | "WAWebSyncdKeyTypes"), "toSyncKeyId") => {
+                                T::SyncKeyId
+                            }
                             (Some("decodeProtobuf"), "decodeProtobuf") => {
                                 if c.arguments.len() != 2
                                     || !matches!(arg(&c.arguments[0])?,Expression::StaticMemberExpression(m) if m.property.name=="PatchDebugDataSpec" && self.module(&m.object)==Some("WAWebProtobufSyncAction.pb"))
