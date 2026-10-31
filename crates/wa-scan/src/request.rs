@@ -1956,7 +1956,7 @@ fn resolve_function_returns_each(
     // the merge in `resolve_function_return`.
     let alloc = Allocator::default();
     let parsed = wa_oxc::parse_cjs(&alloc, body);
-    let mut merged = build_var_scope(&parsed.program);
+    let mut merged = build_scoped_var_scope(&parsed.program);
     for inits in merged.vars.values_mut() {
         for vi in inits {
             vi.init_start += body_start;

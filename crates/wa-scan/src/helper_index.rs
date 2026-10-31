@@ -121,4 +121,26 @@ mod tests {
         assert_eq!(child.len(), 1);
         assert_eq!(child[0].tag, "child");
     }
+    #[test]
+    fn reparsed_helper_body_does_not_inherit_nested_functions_initializer() {
+        let source = r#"
+            __d("NestedHelpers", ["WASmaxJsx"], function(g,r,d,o,e,i,l) {
+                function child() {
+                    function nested() {
+                        var t = o("WASmaxJsx").smax("nested", null);
+                        return t;
+                    }
+                    var t = o("WASmaxJsx").smax("outer", null);
+                    return t;
+                }
+                l.child = child;
+            });
+        "#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let index = build_pass(&definitions, source);
+        let child = index.get("NestedHelpers", "child").unwrap();
+        assert_eq!(child.len(), 1);
+        assert_eq!(child[0].tag, "outer");
+    }
+
 }
