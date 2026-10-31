@@ -123,6 +123,9 @@ pub fn scan_incoming_with_diagnostics(
 /// assert `iq`, so the `ack` tag gate in [`scan_incoming_smax_acks`] drops them; `…Mixin`
 /// fragments are folded into a root, never catalogued standalone.
 fn is_smax_ack_response_module(name: &str) -> bool {
+    if name.starts_with("WASmax") && name.ends_with("RPC") {
+        return true;
+    }
     name.starts_with("WASmaxIn")
         && (name.ends_with("ResponseSuccess") || name.ends_with("ResponseNegative"))
         && !name.contains("Mixin")
@@ -165,6 +168,9 @@ fn scan_incoming_smax_acks(
         let exports = analyze_module_exports(&source[m.start..m.end], &resolver);
         let mut kept_any = false;
         for (name, shape) in &exports {
+            if m.name.ends_with("RPC") && name.contains("Mixin") {
+                continue;
+            }
             // Skip inner child parsers: their export name extends another export's at a
             // word boundary (`<root><ChildSuffix>`), and their fields already nest in the
             // root's tree (mirrors the srvreq root selection).
@@ -309,5 +315,26 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].tag, IncomingTag::Call);
         assert_eq!(got[0].shape.parser_name, "callParser");
+    }
+}
+
+#[cfg(test)]
+mod bundled_ack_tests {
+    #[test]
+    fn rpc_local_ack_parser_is_kept_without_cataloguing_its_mixin() {
+        let source = r#"
+        __d("WASmaxPublishRPC",["WASmaxParseUtils","WAResultOrError"],function(g,r,d,o,e,i,l){
+            function envelope(node) {
+                var tag=o("WASmaxParseUtils").assertTag(node,"ack");if(!tag.success)return tag;
+                var id=o("WASmaxParseUtils").attrString(node,"id");return id.success?o("WAResultOrError").makeResult({id:id.value}):id;
+            }
+            function parse(node) { var result=envelope(node);return result.success?o("WAResultOrError").makeResult(result.value):result; }
+            l.parseAckEnvelopeMixin=envelope,l.parsePublishResponseSuccess=parse;
+        });"#;
+        let definitions=wa_transform::extract_module_definitions(source);
+        let result=super::scan_incoming_from_modules(source,&definitions);
+        assert_eq!(result.len(),1);
+        assert_eq!(result[0].shape.parser_name,"parsePublishResponseSuccess");
+        assert_eq!(result[0].shape.fields[0].name,"id");
     }
 }

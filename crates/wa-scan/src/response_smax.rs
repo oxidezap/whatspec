@@ -58,7 +58,36 @@ const BYTES_DROP: &str = "contentLiteralBytes sequence not statically resolvable
 
 /// A module's local parser functions, keyed by name → re-parsable source. Child
 /// accessors reference these by identifier (`optionalChildWithTag(n, "x", parseX)`).
-type LocalFns = HashMap<String, String>;
+#[derive(Default)]
+struct LocalFns {
+    functions: HashMap<String, String>,
+    module: Option<String>,
+    exports: HashMap<String, String>,
+}
+impl LocalFns {
+    #[cfg(test)]
+    fn new() -> Self {
+        Self::default()
+    }
+    fn target(&self, local: &str) -> Option<(String, String)> {
+        if !self.functions.contains_key(local) {
+            return None;
+        }
+        Some((
+            self.module.clone()?,
+            self.exports
+                .get(local)
+                .cloned()
+                .unwrap_or_else(|| local.to_string()),
+        ))
+    }
+}
+impl std::ops::Deref for LocalFns {
+    type Target = HashMap<String, String>;
+    fn deref(&self) -> &Self::Target {
+        &self.functions
+    }
+}
 
 /// What a cross-module `o("WASmaxIn<M>").parse<Fn>(…)` call resolves to.
 #[derive(Clone)]
@@ -231,7 +260,7 @@ impl<'a> Resolver<'a> {
             .or_else(|| locals.contains_key(func).then(|| func.to_string()))?;
         let src = locals.get(&local)?;
         if src.contains("errorMixinDisjunction") {
-            Some(Resolved::Union(analyze_disjunction(src, self)))
+            Some(Resolved::Union(analyze_disjunction(src, self, module)))
         } else {
             let mut visited = HashSet::new();
             visited.insert(local.clone());
@@ -568,7 +597,9 @@ fn classify_call(
     let Some(method) = smax_helper_name(call) else {
         // Not a parse-helper: could be a cross-module parser `o(mod).parse<Fn>(…)`
         // — a payload mixin, a same-node sub-parser, or a `…MixinGroup` disjunction.
-        if let Some((module, func)) = cross_module_parse_call(call) {
+        if let Some((module, func)) = cross_module_parse_call(call)
+            .or_else(|| as_identifier(&call.callee).and_then(|name| ctx.locals.target(name)))
+        {
             // Does it parse a child node? `parseMixin(r.value)` where r descended via
             // `flattenedChildWithTag(e, "tag")` → the mixin reads off `<tag>` (and any
             // wrappers above it), so model it as a tagged child, not a same-node mixin.
@@ -851,8 +882,14 @@ fn classify_call(
                 Some((m, ft, bl)) => {
                     let (field_type, int_range) = int_range_and_type(inner, args, ft);
                     let (cbl, byte_range) = content_byte_length(inner, args, resolver, site);
-                    let enum_ref =
-                        enum_arg_ref(inner, args, resolver, site, source_path.as_deref());
+                    let enum_ref = enum_arg_ref(
+                        inner,
+                        args,
+                        resolver,
+                        site,
+                        source_path.as_deref(),
+                        ctx.locals,
+                    );
                     Binding::Field {
                         method: optional_variant(&m),
                         field_type,
@@ -884,8 +921,14 @@ fn classify_call(
             Some((m, ft, bl)) => {
                 let (field_type, int_range) = int_range_and_type(Some(other), args, ft);
                 let (cbl, byte_range) = content_byte_length(Some(other), args, resolver, site);
-                let enum_ref =
-                    enum_arg_ref(Some(other), args, resolver, site, source_path.as_deref());
+                let enum_ref = enum_arg_ref(
+                    Some(other),
+                    args,
+                    resolver,
+                    site,
+                    source_path.as_deref(),
+                    ctx.locals,
+                );
                 Binding::Field {
                     method: m,
                     field_type,
@@ -1038,6 +1081,7 @@ fn enum_arg_ref(
     resolver: &Resolver,
     site: &str,
     source_path: Option<&[String]>,
+    locals: &LocalFns,
 ) -> Option<AttrEnumRef> {
     // Gated on the CLASSIFIER, not a local list of spellings. Whitelisting
     // `attrStringEnum`/`contentStringEnum` left `attrEnum`, `maybeAttrEnum`, `contentEnum`
@@ -1062,7 +1106,12 @@ fn enum_arg_ref(
             .find_map(as_string_lit)
             .unwrap_or("<content>")
     );
-    let Some((module, name)) = args.iter().filter_map(arg_expr).find_map(module_member_ref) else {
+    let Some((module, name)) = args.iter().filter_map(arg_expr).rev().find_map(|expr| {
+        module_member_ref(expr).or_else(|| {
+            let local = as_identifier(expr)?;
+            Some((locals.module.clone()?, locals.exports.get(local)?.clone()))
+        })
+    }) else {
         // An inline enum object, a local alias, or a `WASmaxParse*`-owned reference: the
         // accessor validates against SOMETHING we could not name. That is the exact
         // "a constraint existed and we lost it" case the counter exists for.
@@ -1360,7 +1409,7 @@ fn require_owner_of_call<'a>(call: &'a CallExpression<'a>) -> Option<&'a str> {
 /// `WASmaxIn*` module — a cross-module payload mixin, sub-parser, or `…MixinGroup`.
 fn cross_module_parse_call(call: &CallExpression) -> Option<(String, String)> {
     let owner = require_owner_of_call(call)?;
-    if !owner.starts_with("WASmaxIn") {
+    if !(owner.starts_with("WASmaxIn") || owner.starts_with("WASmax") && owner.ends_with("RPC")) {
         return None;
     }
     let method = callee_method(call)?;
@@ -1375,7 +1424,9 @@ fn cross_module_parse_ref(e: &Expression) -> Option<(String, String)> {
     let (obj, prop) = wa_oxc::as_member(e)?;
     let inner = as_call(obj)?;
     let owner = as_string_lit(arg_expr(inner.arguments.first()?)?)?;
-    if !owner.starts_with("WASmaxIn") || !prop.starts_with("parse") {
+    if !(owner.starts_with("WASmaxIn") || owner.starts_with("WASmax") && owner.ends_with("RPC"))
+        || !prop.starts_with("parse")
+    {
         return None;
     }
     Some((owner.to_string(), prop.to_string()))
@@ -1385,9 +1436,17 @@ fn cross_module_parse_ref(e: &Expression) -> Option<(String, String)> {
 /// in `errorMixinDisjunction`) into ordered union variants. Each cascade arm
 /// `var V=o(mod).parseW(node); if(V.success) return {name:"W", value:V.value}` becomes
 /// a [`UnionVariant`] whose fields are `parseW`'s resolved fields.
-fn analyze_disjunction(fn_src: &str, resolver: &Resolver) -> Vec<UnionVariant> {
-    scan_cascade_variants(fn_src)
-        .into_iter()
+fn analyze_disjunction(fn_src: &str, resolver: &Resolver, module: &str) -> Vec<UnionVariant> {
+    let refs = if module.ends_with("RPC") {
+        scan_local_cascade(
+            fn_src,
+            module,
+            resolver.slices.get(module).copied().unwrap_or(""),
+        )
+    } else {
+        scan_cascade_variants(fn_src)
+    };
+    refs.into_iter()
         .map(|(name, module, func)| {
             let fields = match resolver.resolve(&module, &func) {
                 Some(Resolved::Fields(f)) => f,
@@ -1435,6 +1494,111 @@ pub(crate) fn scan_cascade_variants(slice: &str) -> Vec<(String, String, String)
         from = name_start + q;
     }
     out
+}
+
+/// Recover local RPC cascade arms by the result variable they wrap, rather than
+/// assigning an arm to whichever parser call happened to precede it in the text.
+pub(crate) fn scan_rpc_variants(slice: &str, module: &str) -> Vec<(String, String, String)> {
+    let locals = collect_local_fn_sources(slice);
+    if !locals
+        .exports
+        .values()
+        .any(|name| name.starts_with("parse"))
+    {
+        return scan_cascade_variants(slice);
+    }
+    let mut sources: Vec<_> = locals.functions.iter().collect();
+    sources.sort_by_key(|(name, _)| *name);
+    sources
+        .into_iter()
+        .filter(|(_, src)| src.contains("sendSmaxStanza"))
+        .flat_map(|(_, src)| scan_local_cascade(src, module, slice))
+        .collect()
+}
+
+fn scan_local_cascade(
+    source: &str,
+    module: &str,
+    module_source: &str,
+) -> Vec<(String, String, String)> {
+    struct Cascade<'s> {
+        module: &'s str,
+        locals: LocalFns,
+        bindings: HashMap<String, (String, String)>,
+        arms: Vec<(String, String, String)>,
+    }
+    impl<'a> Visit<'a> for Cascade<'_> {
+        fn visit_function(
+            &mut self,
+            function: &Function<'a>,
+            flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+            let outer = std::mem::take(&mut self.bindings);
+            walk::walk_function(self, function, flags);
+            self.bindings = outer;
+        }
+        fn visit_variable_declarator(
+            &mut self,
+            declaration: &oxc_ast::ast::VariableDeclarator<'a>,
+        ) {
+            if let Some(name) = declaration.id.get_identifier_name() {
+                self.bindings.remove(name.as_str());
+                if let Some(call) = declaration.init.as_ref().and_then(as_call) {
+                    let target = cross_module_parse_call(call).or_else(|| {
+                        let local = as_identifier(&call.callee)?;
+                        self.locals.functions.contains_key(local).then(|| {
+                            (
+                                self.module.to_string(),
+                                self.locals
+                                    .exports
+                                    .get(local)
+                                    .cloned()
+                                    .unwrap_or_else(|| local.to_string()),
+                            )
+                        })
+                    });
+                    if let Some(target) = target {
+                        self.bindings.insert(name.to_string(), target);
+                    }
+                }
+            }
+            walk::walk_variable_declarator(self, declaration);
+        }
+        fn visit_object_expression(&mut self, object: &oxc_ast::ast::ObjectExpression<'a>) {
+            let mut tag = None;
+            let mut result = None;
+            for property in &object.properties {
+                if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(property) = property {
+                    match property.key.static_name().as_deref() {
+                        Some("name") => tag = as_string_lit(&property.value),
+                        Some("value") => {
+                            result = value_member(&property.value)
+                                .filter(|(_, property)| *property == "value")
+                                .map(|(name, _)| name)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if let (Some(tag), Some(result)) = (tag, result)
+                && let Some((module, function)) = self.bindings.get(result)
+            {
+                self.arms
+                    .push((tag.to_string(), module.clone(), function.clone()));
+            }
+            walk::walk_object_expression(self, object);
+        }
+    }
+    let allocator = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&allocator, source);
+    let mut cascade = Cascade {
+        module,
+        locals: collect_local_fn_sources(module_source),
+        bindings: HashMap::new(),
+        arms: Vec::new(),
+    };
+    cascade.visit_program(&parsed.program);
+    cascade.arms
 }
 
 /// The `(module, func)` of the nearest `o("WASmaxIn<M>").<func>(` call ending before
@@ -1525,6 +1689,16 @@ fn resolve_result_arg(
     match arg {
         Expression::ObjectExpression(_) => {
             collect_object_fields(arg, bindings, &mut fields);
+        }
+        Expression::StaticMemberExpression(_) => {
+            let (name, property) = value_member(arg)?;
+            if property != "value" { return None; }
+            return match bindings.get(name) {
+                Some(Binding::Fields(fields)) => Some(fields.clone()),
+                Some(Binding::ChildGroup { tag, fields, repeats: false, source_path, .. }) => Some(lift_child_fields(tag, source_path, fields)),
+                Some(Binding::ChildGroup { fields, .. }) => Some(fields.clone()),
+                _ => None,
+            };
         }
         Expression::CallExpression(c) if callee_method(c) == Some("extends") => {
             // babelHelpers.extends(objLiteral, M1.value, M2.value, …)
@@ -2102,10 +2276,23 @@ fn collect_local_fn_sources(slice: &str) -> LocalFns {
         }
         None
     });
-    spans
+    let functions = spans
         .into_iter()
         .map(|(n, (a, b))| (n, slice[a..b].to_string()))
-        .collect()
+        .collect();
+    LocalFns {
+        functions,
+        module: ret
+            .program
+            .body
+            .iter()
+            .find_map(wa_oxc::define_module_name)
+            .map(str::to_string),
+        exports: collect_exports(slice)
+            .into_iter()
+            .map(|(export, local)| (local, export))
+            .collect(),
+    }
 }
 
 /// Module exports `l.<export> = <localIdent>` (handling the `l.a=e,l.b=s` comma

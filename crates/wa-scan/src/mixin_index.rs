@@ -99,6 +99,7 @@ pub(crate) struct MixinIqFragment {
 pub struct MixinIndex {
     by_module: BTreeMap<String, MixinIqFragment>,
     pub(crate) contributions: MixinContributions,
+    pub(crate) rpc_contributions: MixinContributions,
 }
 
 impl MixinIndex {
@@ -171,9 +172,22 @@ pub(crate) fn build_pass(
         helpers,
         true,
     );
+    let mut rpc_contributions = MixinContributions::new();
+    for name in slices.keys() {
+        resolve_contribution_rec(
+            name,
+            &slices,
+            &deps,
+            &mut rpc_contributions,
+            &mut HashSet::new(),
+            helpers,
+            true,
+        );
+    }
     MixinIndex {
         by_module,
         contributions: qualified,
+        rpc_contributions,
     }
 }
 

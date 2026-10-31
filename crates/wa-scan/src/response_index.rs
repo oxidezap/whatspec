@@ -16,9 +16,7 @@ use wa_ir::{
     ErrorArm, ParsedField, ParsedFieldType, ParsedResponse, ResponseVariant, ResponseVariantKind,
 };
 
-use crate::response_smax::{
-    Drops, Resolved, Resolver, analyze_module_exports, scan_cascade_variants,
-};
+use crate::response_smax::{Drops, Resolved, Resolver, analyze_module_exports, scan_rpc_variants};
 use wa_transform::ModuleDefinition;
 
 /// Index of smax response parsers, keyed for request→response linkage.
@@ -150,7 +148,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
             continue;
         }
         let slice = &source[m.start..m.end];
-        let variant_refs = scan_cascade_variants(slice);
+        let variant_refs = scan_rpc_variants(slice, &m.name);
         if variant_refs.is_empty() {
             continue;
         }

@@ -142,5 +142,4 @@ mod tests {
         assert_eq!(child.len(), 1);
         assert_eq!(child[0].tag, "outer");
     }
-
 }

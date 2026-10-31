@@ -288,8 +288,9 @@ enum RootRule {
 }
 
 /// Variable/function name → all initializers seen (offset-based, lifetime-free).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct VarScope {
+    local_merges: std::collections::HashSet<(usize, usize)>,
     vars: HashMap<String, Vec<VarInit>>,
     /// Every function as `(body_start, body_end, parameter_names)` — all of them, not
     /// only the ones shaped like a builder.
@@ -309,6 +310,11 @@ pub(crate) struct VarScope {
 }
 
 impl VarScope {
+    fn max_fn_depth(&self) -> u32 {
+        // Bundled RPCs inline the chains that previously crossed module boundaries.
+        if self.local_merges.is_empty() { MAX_FN_DEPTH } else { 32 }
+    }
+
     fn push(&mut self, name: &str, init: VarInit) {
         self.vars.entry(name.to_string()).or_default().push(init);
     }
@@ -1389,6 +1395,28 @@ pub(crate) fn resolve_child_node(
                 .as_deref()
                 .is_some_and(|m| m.starts_with("WASmaxOut"));
         let is_optional_merge = owner == Some("WASmaxMixins") && method == "optionalMerge";
+        if is_optional_merge
+            && let Some(name) = call
+                .arguments
+                .first()
+                .and_then(arg_expr)
+                .and_then(as_identifier)
+            && let Some(span) = local_merge_span(scope, name)
+        {
+            return resolve_local_merge(
+                span,
+                &call.arguments[1..],
+                node_source,
+                scope,
+                module_source,
+                aliases,
+                contributions,
+                helpers,
+                depth,
+                ref_off,
+                true,
+            );
+        }
         // `WASmaxMixins.mergeStanzas(dst, frag)` fuses two stanzas — resolve both.
         let is_merge_stanzas = owner == Some("WASmaxMixins") && method == "mergeStanzas";
         let is_concat = method == "concat";
@@ -1413,7 +1441,7 @@ pub(crate) fn resolve_child_node(
             }
             for a in &call.arguments {
                 if let Some(e) = arg_expr(a) {
-                    out.extend(resolve_child_node(
+                    let resolved = resolve_child_node(
                         e,
                         node_source,
                         scope,
@@ -1423,7 +1451,12 @@ pub(crate) fn resolve_child_node(
                         helpers,
                         depth,
                         ref_off,
-                    ));
+                    );
+                    if is_merge_stanzas && !scope.local_merges.is_empty() {
+                        apply_contribution(&mut out, &resolved, false);
+                    } else {
+                        out.extend(resolved);
+                    }
                 }
             }
             // Phase 3: fold the called mixin's own contribution into the resolved
@@ -1504,6 +1537,25 @@ pub(crate) fn resolve_child_node(
                 return out;
             }
         }
+    }
+
+    if let Some(call) = as_call(node)
+        && let Some(name) = as_identifier(&call.callee)
+        && let Some(span) = local_merge_span(scope, name)
+    {
+        return resolve_local_merge(
+            span,
+            &call.arguments,
+            node_source,
+            scope,
+            module_source,
+            aliases,
+            contributions,
+            helpers,
+            depth,
+            ref_off,
+            false,
+        );
     }
 
     // Case 5: `helper(args)` — trace the helper's return value.
@@ -1945,7 +1997,7 @@ fn resolve_function_returns_each(
     helpers: &HelperIndex,
     depth: u32,
 ) -> Vec<Vec<WapChildNode>> {
-    if depth > MAX_FN_DEPTH {
+    if depth > scope.max_fn_depth() {
         return Vec::new();
     }
     let body = &module_source[body_start..body_end];
@@ -1957,6 +2009,7 @@ fn resolve_function_returns_each(
     let alloc = Allocator::default();
     let parsed = wa_oxc::parse_cjs(&alloc, body);
     let mut merged = build_scoped_var_scope(&parsed.program);
+    merged.local_merges = scope.local_merges.clone();
     for inits in merged.vars.values_mut() {
         for vi in inits {
             vi.init_start += body_start;
@@ -2049,7 +2102,7 @@ fn resolve_function_return(
     if !flat.is_empty() {
         return flat;
     }
-    if depth > MAX_FN_DEPTH {
+    if depth > scope.max_fn_depth() {
         return Vec::new();
     }
     // No resolvable returns: fall back to a flat scan, then `return helper(...)` chains.
@@ -2080,6 +2133,172 @@ fn resolve_function_return(
         }
     }
     Vec::new()
+}
+
+/// Resolve complete exported request builders in a bundled RPC. Local merge
+/// exports are evaluated as contributions, with their destination excluded from
+/// the argument-object frame and rebased at the actual call site.
+pub(crate) fn bundled_rpc_requests(
+    source: &str,
+    helpers: &HelperIndex,
+    contributions: &MixinContributions,
+) -> Vec<(String, WapChildNode)> {
+    let allocator = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&allocator, source);
+    let mut scope = build_scoped_var_scope(&parsed.program);
+    let aliases = build_alias_map(&parsed.program);
+    let mut finder = ExportFnFinder {
+        scope: &scope,
+        out: Vec::new(),
+    };
+    finder.visit_program(&parsed.program);
+    let exports = finder.out;
+    scope.local_merges = exports
+        .iter()
+        .filter(|(name, _)| name.starts_with("merge") && name.contains("Mixin"))
+        .map(|(_, span)| *span)
+        .collect();
+    exports
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("make") && name.ends_with("Request"))
+        .flat_map(|(name, (start, end))| {
+            resolve_function_return(
+                start,
+                end,
+                &scope,
+                source,
+                &aliases,
+                Some(contributions),
+                helpers,
+                0,
+            )
+            .into_iter()
+            .filter(|node| node.tag == "iq")
+            .map(move |node| (name.clone(), node))
+        })
+        .collect()
+}
+
+fn local_merge_span(scope: &VarScope, name: &str) -> Option<(usize, usize)> {
+    scope
+        .vars
+        .get(name)?
+        .iter()
+        .filter_map(|init| init.fn_body)
+        .find(|span| scope.local_merges.contains(span))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_local_merge(
+    span: (usize, usize),
+    args: &[Argument],
+    node_source: &str,
+    scope: &VarScope,
+    source: &str,
+    aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
+    helpers: &HelperIndex,
+    depth: u32,
+    ref_off: Option<usize>,
+    optional: bool,
+) -> Vec<WapChildNode> {
+    if depth > scope.max_fn_depth() {
+        return Vec::new();
+    }
+    let mut destination = args
+        .first()
+        .and_then(arg_expr)
+        .map(|expr| {
+            resolve_child_node(
+                expr,
+                node_source,
+                scope,
+                source,
+                aliases,
+                contributions,
+                helpers,
+                depth + 1,
+                ref_off,
+            )
+        })
+        .unwrap_or_default();
+    let mut frame = scope.clone();
+    for (start, end, params) in &mut frame.fn_params {
+        if (*start, *end) == span && !params.is_empty() {
+            params.remove(0);
+        }
+    }
+    let mut fragment = if source[span.0..span.1].contains("MixinGroupExhaustiveError") {
+        let branches = resolve_function_returns_each(
+            span.0,
+            span.1,
+            &frame,
+            source,
+            aliases,
+            contributions,
+            helpers,
+            depth + 1,
+        );
+        let variants = branches
+            .iter()
+            .filter_map(|branch| branch.first())
+            .map(|root| wa_ir::WapVariant {
+                attrs: root.attrs.clone(),
+                children: root.children.clone(),
+            })
+            .collect::<Vec<_>>();
+        if variants.len() >= 2 {
+            vec![WapChildNode {
+                tag: branches
+                    .iter()
+                    .find_map(|branch| branch.first())
+                    .map(|root| root.tag.clone())
+                    .unwrap_or_default(),
+                variant_groups: vec![wa_ir::WapVariantGroup {
+                    optional: false,
+                    variants,
+                }],
+                ..Default::default()
+            }]
+        } else {
+            branches.into_iter().flatten().collect()
+        }
+    } else {
+        resolve_function_return(
+            span.0,
+            span.1,
+            &frame,
+            source,
+            aliases,
+            contributions,
+            helpers,
+            depth + 1,
+        )
+    };
+    let guard = rebase_template(
+        &mut fragment,
+        args.get(1).and_then(arg_expr),
+        false,
+        scope,
+        source,
+        ref_off,
+    );
+    if optional {
+        for root in &mut fragment {
+            for attr in &mut root.attrs {
+                attr.required = false;
+                attr.presence_arg_path = guard.clone();
+            }
+            if root.tag == WILDCARD_TAG {
+                for child in &mut root.children {
+                    child.presence = WapChildPresence::Optional;
+                    child.arg_path = guard.clone();
+                }
+            }
+        }
+    }
+    apply_contribution(&mut destination, &fragment, optional);
+    destination
 }
 
 /// Every exported function in a module that returns a non-`<iq>` `wap()` subtree,
@@ -3825,5 +4044,84 @@ mod tests {
             dst.repeats,
             "repeatable contribution must promote the child"
         );
+    }
+}
+
+#[cfg(test)]
+mod bundled_merge_tests {
+    use super::*;
+
+    #[test]
+    fn local_optional_merge_rebases_value_and_presence_paths() {
+        let source = r#"
+        __d("WASmaxOptionalRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) {
+                var extra=args.extra;
+                return o("WASmaxMixins").optionalMerge(merge,o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get"}),extra);
+            }
+            function payload(args) { var marker=args.marker;return o("WASmaxJsx").smax("smax$any",{marker:o("WAWap").CUSTOM_STRING(marker)}); }
+            function merge(dst,args) { var fragment=payload(args);return o("WASmaxMixins").mergeStanzas(dst,fragment); }
+            l.makeOptionalRequest=make,l.mergeExtraMixin=merge;
+        });"#;
+        let requests =
+            bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        assert_eq!(requests.len(), 1);
+        let marker = requests[0]
+            .1
+            .attrs
+            .iter()
+            .find(|attr| attr.name == "marker")
+            .unwrap();
+        assert!(!marker.required);
+        assert_eq!(
+            marker
+                .arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "marker"]
+        );
+        assert_eq!(marker.presence_arg_path.as_ref().unwrap()[0].key, "extra");
+    }
+
+    #[test]
+    fn local_mixin_union_keeps_arms_and_their_argument_paths_separate() {
+        let source = r#"
+        __d("WASmaxUnionRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return choose(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get"}),args.choice); }
+            function left(args) { var value=args.value;return o("WASmaxJsx").smax("smax$any",{left:o("WAWap").CUSTOM_STRING(value)}); }
+            function right(args) { var value=args.value;return o("WASmaxJsx").smax("smax$any",{right:o("WAWap").CUSTOM_STRING(value)}); }
+            function mergeLeft(dst,args) { var fragment=left(args);return o("WASmaxMixins").mergeStanzas(dst,fragment); }
+            function mergeRight(dst,args) { var fragment=right(args);return o("WASmaxMixins").mergeStanzas(dst,fragment); }
+            function choose(dst,args) { if(args.left)return mergeLeft(dst,args.left);if(args.right)return mergeRight(dst,args.right);throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError; }
+            l.makeUnionRequest=make,l.mergeLeftMixin=mergeLeft,l.mergeRightMixin=mergeRight,l.mergeChoiceMixinGroup=choose;
+        });"#;
+        let requests =
+            bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        let root = &requests[0].1;
+        assert!(
+            !root
+                .attrs
+                .iter()
+                .any(|attr| attr.name == "left" || attr.name == "right")
+        );
+        let arms = &root.variant_groups[0].variants;
+        assert_eq!(arms.len(), 2);
+        for (arm, name) in arms.iter().zip(["left", "right"]) {
+            assert_eq!(arm.attrs.len(), 1);
+            assert_eq!(arm.attrs[0].name, name);
+            assert_eq!(
+                arm.attrs[0]
+                    .arg_path
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|part| part.key.as_str())
+                    .collect::<Vec<_>>(),
+                ["choice", name, "value"]
+            );
+        }
     }
 }

@@ -10,7 +10,7 @@ use wa_ir::{AttrEnumRef, WapAttrDef, WapAttrKind};
 
 use crate::alias::{AliasMap, resolve_owner};
 use crate::module::require_module_name;
-use wa_oxc::{arg_expr, as_call, as_member, as_string_lit, callee_method, callee_object};
+use wa_oxc::{arg_expr, as_call, as_int, as_member, as_string_lit, callee_method, callee_object};
 
 /// The wire value of a `WAWap` bare-server JID constant, or `None` for any other
 /// property. Only the two servers an `<iq>` is ever addressed to; the JID *flavour*
@@ -279,6 +279,13 @@ fn classify_attr_node<'a>(
         {
             return owned(WapAttrKind::Const, Some(literal.to_string()), true);
         }
+        if method == "INT"
+            && callee_object(call).and_then(|owner| resolve_owner(owner, aliases)) == Some("WAWap")
+            && let Some(literal) = call.arguments.first().and_then(arg_expr).and_then(as_int)
+            && literal.unsigned_abs() <= 9_007_199_254_740_991
+        {
+            return owned(WapAttrKind::Const, Some(literal.to_string()), true);
+        }
         let kind = match method {
             "CUSTOM_STRING" | "STANZA_ID" => Some(WapAttrKind::String),
             "INT" => Some(WapAttrKind::Integer),
@@ -359,6 +366,18 @@ mod tests {
         let call = first_call(&ret.program);
         let wap = parse_wap_call(call, &no_aliases()).expect("wap");
         extract_attrs_from_obj(wap.attrs_node.expect("attrs"), code, &no_aliases())
+    }
+
+    #[test]
+    fn wrapped_integer_literals_are_fixed_wire_values() {
+        let attrs = attrs_of(
+            r#"o("WAWap").wap("x", {version: o("WAWap").INT(3), offset: o("WAWap").INT(-2), runtime: o("WAWap").INT(args.count)})"#,
+        );
+        assert_eq!(attrs[0].kind, WapAttrKind::Const);
+        assert_eq!(attrs[0].value.as_deref(), Some("3"));
+        assert_eq!(attrs[1].value.as_deref(), Some("-2"));
+        assert_eq!(attrs[2].kind, WapAttrKind::Integer);
+        assert!(attrs[2].value.is_none());
     }
 
     #[test]

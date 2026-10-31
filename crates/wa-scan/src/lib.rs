@@ -772,3 +772,103 @@ mod tests {
         assert!(s.request.children[0].children.is_empty());
     }
 }
+
+#[cfg(test)]
+mod bundled_rpc_tests {
+    const BUNDLED: &str = r#"
+    __d("WASmaxProbeGetRPC",["WAComms","WAResultOrError","WASmaxJsx","WASmaxMixins","WASmaxParseUtils","WASmaxParseReference","WAWap"],function(t,n,r,o,a,i,l){
+        function send(args, options) { return execute.apply(this,arguments); }
+        function execute() { return execute=o("runtime").asyncToGenerator(function*(args,options){
+            var request=build(args), response=yield o("WAComms").sendSmaxStanza(request,options), accepted=success(response,request);
+            if(accepted.success)return {name:"ProbeGetResponseSuccess",value:accepted.value};
+            var rejected=error(response,request);
+            if(rejected.success)return {name:"ProbeGetResponseError",value:rejected.value};
+            throw Error("unparseable");
+        }),execute.apply(this,arguments); }
+        function build(args) {
+            var subject=args.subject;
+            var node=namespace(o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("query",{jid:o("WAWap").JID(subject)})),args);
+            return node;
+        }
+        function namespace(dst,args) {
+            var target=args.target;
+            var fragment=base(o("WASmaxJsx").smax("iq",{to:o("WAWap").JID(target),xmlns:"w:probe"}));
+            return o("WASmaxMixins").mergeStanzas(dst,fragment);
+        }
+        function base(dst) {
+            var fragment=o("WASmaxJsx").smax("iq",{type:"get"});
+            return o("WASmaxMixins").mergeStanzas(dst,fragment);
+        }
+        function success(node,request) {
+            var tag=o("WASmaxParseUtils").assertTag(node,"iq");if(!tag.success)return tag;
+            var type=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,node,"type","result");if(!type.success)return type;
+            var reference=o("WASmaxParseReference").attrStringFromReference(request,["id"]);if(!reference.success)return reference;
+            var id=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,node,"id",reference.value);if(!id.success)return id;
+            var state=o("WASmaxParseUtils").attrStringEnum(node,"state",states);if(!state.success)return state;
+            return o("WAResultOrError").makeResult({state:state.value});
+        }
+        function error(node,request) {
+            var child=o("WASmaxParseUtils").flattenedChildWithTag(node,"error");if(!child.success)return child;
+            var parsed=errors(child.value);if(!parsed.success)return parsed;
+            return o("WAResultOrError").makeResult({error:parsed.value});
+        }
+        function errors(node) {
+            var parsed=badRequest(node);
+            return parsed.success?o("WAResultOrError").makeResult({name:"BadRequest",value:parsed.value}):o("WASmaxParseUtils").errorMixinDisjunction(node,["BadRequest"],[parsed]);
+        }
+        function badRequest(node) {
+            var code=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrInt,node,"code",400);if(!code.success)return code;
+            var text=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,node,"text","bad-request");
+            return text.success?o("WAResultOrError").makeResult({code:code.value,text:text.value}):text;
+        }
+        var states={on:"on",off:"off"};
+        l.sendProbeGetRPC=send,l.makeProbeGetRequest=build,l.mergeNamespaceMixin=namespace,l.mergeBaseMixin=base,
+        l.parseProbeGetResponseSuccess=success,l.parseProbeGetResponseError=error,l.parseProbeErrors=errors,l.parseBadRequest=badRequest,l.ENUM_ON_OFF=states;
+    });
+    "#;
+
+    #[test]
+    fn bundled_rpc_keeps_complete_request_and_ordered_response_contracts() {
+        let ir = super::extract_iq(BUNDLED, "test");
+        assert_eq!(ir.stanzas.len(), 1, "{:?}", ir.unparseable);
+        let stanza = &ir.stanzas[0];
+        assert_eq!(stanza.namespace, "w:probe");
+        assert_eq!(
+            stanza.exported_function.as_deref(),
+            Some("makeProbeGetRequest")
+        );
+        assert_eq!(stanza.request.children.len(), 1);
+        assert_eq!(stanza.request.children[0].tag, "query");
+        assert_eq!(
+            stanza.request.children[0].attrs[0]
+                .arg_path
+                .as_ref()
+                .unwrap()[0]
+                .key,
+            "subject"
+        );
+        assert_eq!(
+            stanza.request.target_arg_path.as_ref().unwrap()[0].key,
+            "target"
+        );
+        assert_eq!(stanza.response.variants.len(), 2);
+        assert_eq!(stanza.response.variants[0].tag, "ProbeGetResponseSuccess");
+        assert_eq!(stanza.response.variants[1].tag, "ProbeGetResponseError");
+        assert!(
+            stanza.response.variants[0]
+                .assertions
+                .iter()
+                .any(|assertion| assertion.kind == wa_ir::AssertionKind::Reference)
+        );
+        let state = &stanza.response.fields[0];
+        assert_eq!(state.enum_ref.as_ref().unwrap().module, "WASmaxProbeGetRPC");
+        assert_eq!(state.enum_ref.as_ref().unwrap().variants.len(), 2);
+        assert!(!stanza.response.variants[1].error_arms.is_empty());
+        let renamed = BUNDLED.replace("node", "send");
+        let renamed = super::extract_iq(&renamed, "test");
+        assert_eq!(
+            renamed.stanzas[0].response.fields[0].enum_ref,
+            state.enum_ref
+        );
+    }
+}

@@ -116,8 +116,14 @@ pub fn scan_module_outcome(
     // Pass 1: variable/function scope (offset-based, lifetime-free) + smax aliases.
     // Admit the traced Create contract first. Other requests still use the
     // fragment boundary until their nested argument shapes are qualified.
+    let bundled_requests = if module_name.starts_with("WASmax") && module_name.ends_with("RPC") {
+        crate::request::bundled_rpc_requests(source, helpers, &mixins.rpc_contributions)
+    } else {
+        Vec::new()
+    };
+    let bundled = !bundled_requests.is_empty();
     let qualified_create = module_name == "WASmaxOutGroupsCreateRequest";
-    let scope = if qualified_create {
+    let scope = if qualified_create || bundled {
         build_scoped_var_scope(&ret.program)
     } else {
         build_var_scope(&ret.program)
@@ -140,6 +146,28 @@ pub fn scan_module_outcome(
         current_export: None,
     };
     scanner.visit_program(&ret.program);
+    if bundled {
+        scanner.iq_calls = bundled_requests
+            .into_iter()
+            .map(|(export, root)| IqCall {
+                namespace: const_value(&root.attrs, "xmlns").map(str::to_string),
+                iq_type: match const_value(&root.attrs, "type") {
+                    Some("get") => Some(IqType::Get),
+                    Some("set") => Some(IqType::Set),
+                    _ => None,
+                },
+                target: iq_target_from_to(&root.attrs),
+                target_arg_path: root
+                    .attrs
+                    .iter()
+                    .find(|attr| attr.name == "to")
+                    .and_then(|attr| attr.arg_path.clone()),
+                wrote_to: root.attrs.iter().any(|attr| attr.name == "to"),
+                children: root.children,
+                export: Some(export),
+            })
+            .collect();
+    }
 
     if scanner.iq_calls.is_empty() {
         return Err(DropReason::NoIqCall);
@@ -192,7 +220,7 @@ pub fn scan_module_outcome(
     // is here so the shape cannot start leaking silently. Attributing each merge call to
     // the builder that encloses it is the real answer, and a larger change than this.
     let referenced_mixins = !scanner.mixin_callees.is_empty();
-    let frag_children = if scanner.mixin_callees.is_empty() || !one_builder {
+    let frag_children = if bundled || scanner.mixin_callees.is_empty() || !one_builder {
         Vec::new()
     } else {
         crate::mixin_index::resolve_fragment_children(mixins, &scanner.mixin_callees)
@@ -325,7 +353,7 @@ pub fn scan_module_outcome(
     let is_fragment = function_exports
         .iter()
         .any(|e| e.starts_with("merge") && e.contains("Mixin"));
-    if is_fragment {
+    if is_fragment && !bundled {
         return Err(DropReason::MixinFragment);
     }
     if resolved.is_empty() {
@@ -590,6 +618,11 @@ fn smax_request_op_name(module: &str) -> Option<&str> {
     module
         .strip_prefix("WASmaxOut")
         .and_then(|s| s.strip_suffix("Request"))
+        .or_else(|| {
+            module
+                .strip_prefix("WASmax")
+                .and_then(|s| s.strip_suffix("RPC"))
+        })
 }
 
 /// The iq type implied by a `merge…(Get|Set)…Mixin` function name, or `None` if

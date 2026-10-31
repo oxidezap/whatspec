@@ -2386,3 +2386,45 @@ fn a_child_only_one_branch_carries_is_optional() {
         .expect("the child survives");
     assert!(!child.required, "a branch without it makes it optional");
 }
+
+#[test]
+fn nested_helper_names_do_not_hide_factory_helpers() {
+    let bundle = GROUP_ACTIONS_BUNDLE.replace(
+        "  function w(e){",
+        "  function unrelated(){ function w(e){ return {wrong:e.attrString(\"wrong\")}; } }\n  function w(e){",
+    );
+    let ir = extract_notif(&bundle, "test");
+    let action = group_actions(&ir)
+        .into_iter()
+        .find(|action| action.wire_tag == "ephemeral")
+        .unwrap();
+    let fields = action
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(fields.contains(&"alpha"));
+    assert!(fields.contains(&"beta"));
+    assert!(!fields.contains(&"wrong"));
+}
+
+#[test]
+fn parser_local_helper_shadows_the_factory_helper_with_the_same_name() {
+    let bundle = GROUP_ACTIONS_BUNDLE.replace(
+        "  function h(e){",
+        "  function h(e){ function w(node){ return {local:node.attrGroupJid(\"jid\")}; }",
+    );
+    let ir = extract_notif(&bundle, "test");
+    let action = group_actions(&ir)
+        .into_iter()
+        .find(|action| action.wire_tag == "ephemeral")
+        .unwrap();
+    let fields = action
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(fields.contains(&"local"));
+    assert!(!fields.contains(&"alpha"));
+    assert!(!fields.contains(&"beta"));
+}
