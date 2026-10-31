@@ -2601,12 +2601,12 @@
     "threads": {
       "4433545504": {
         "fix": "Preserve existing optional/presence-flag child guards under outer optional mixins.",
-        "test": "review_regression_optional_mixin_keeps_inner_presence_path"
+        "test": "review_regression_optional_children_keep_their_own_combinator_paths"
       },
       "4433545507": {
         "fix": "Resolve closest visible function binding before merge classification and helper evaluation; use exclusive function span ends.",
         "tests": [
-          "review_regression_shadowed_helper_is_not_an_outer_merge",
+          "review_regression_nested_helper_shadows_the_indexed_outer_merge",
           "visible_export_and_nested_helper_keep_their_own_argument_frames"
         ]
       },
