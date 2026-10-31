@@ -2694,5 +2694,165 @@
       "schemas": "12/12",
       "candidateInternalInvariants": "12 documents passed source-reviewed candidate pins; committed pins unchanged"
     }
+  },
+  "latestOfficialCheckpoint": {
+    "inputs": {
+      "waVersion": "2.3000.1052559453",
+      "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf",
+      "bundleCount": 676
+    },
+    "source": "https://web.whatsapp.com/ and static.whatsapp.net",
+    "all676FilesParsed": true,
+    "uniqueStaticModules": 21318,
+    "diagnosticsIdenticalToPostReviewCandidate": true,
+    "diagnostics": {
+      "builder": {
+        "argPathAttrs": 615,
+        "argPathAttrsMissing": 48,
+        "argPathChildren": 171,
+        "argPathChildrenMissing": 11,
+        "argPathContents": 135,
+        "argPathContentsMissing": 23,
+        "elementValues": 164,
+        "optionalChildren": 75,
+        "presenceFlagChildren": 37,
+        "repeatBounds": 49
+      },
+      "candidateModules": 176,
+      "constraints": {
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
+      },
+      "crossModule": {
+        "fieldsRecovered": 853,
+        "requestsEnriched": 20,
+        "requestsWithMixins": 78
+      },
+      "degradedResponses": 3,
+      "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
+        "iq builder substring present but no AST iq call": 5,
+        "mixin fragment (folded into requests, not a standalone stanza)": 36,
+        "shadowedCallbackRead": 5
+      },
+      "excludedFragments": 36,
+      "stanzas": 141,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 135,
+        "server": 103,
+        "unknown": 6,
+        "unset": 0
+      },
+      "typedResponses": 138,
+      "unparseable": 5
+    },
+    "sourceEvidence": [
+      {
+        "module": "WASmaxOutBizLinkingGetLinkedAccountsRequest",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "WASmaxBizLinkingGetLinkedAccountsRPC",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "WAWebSetReadReceiptJob",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "ls_voprf_utils_v2",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "LSVoprfWasm",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "WAWebBusinessProfileJob",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "b0f3f96e1ad0029c89fe87b4031e76d5138a4bf136405ed4c2a2a64a5d008d85",
+            "moduleSha256": "01f61434abc10e23c6631b33af1792f4dfd9d688b847dccb02df5a035dae1977",
+            "start": 5538,
+            "end": 10568
+          }
+        ]
+      },
+      {
+        "module": "WAWebLinkedAccountsGQL",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "c91c872f682ffbc6d0fe57dc1dbb95c693eed935961de62e7c5b618a3c6ae8b2",
+            "moduleSha256": "4a9387f62cf9a94cbb9d6b1388cb2ef4490ee32c3eeabc4b1527b5f09719ee44",
+            "start": 174414,
+            "end": 178835
+          },
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "moduleSha256": "4a9387f62cf9a94cbb9d6b1388cb2ef4490ee32c3eeabc4b1527b5f09719ee44",
+            "start": 1532358,
+            "end": 1536779
+          }
+        ]
+      },
+      {
+        "module": "WAWebTheiaVoprfJsEd25519",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "d524f9f0fb3efd03e51c782009fccb3e12519fe7db134b4bf5c648e0eb561516",
+            "moduleSha256": "2c4cb39d261ce1044317b88d1bf0581dbbf2c7fa487053ed4b545a70dddab798",
+            "start": 579215,
+            "end": 587154
+          }
+        ]
+      },
+      {
+        "module": "WAWebTosJob",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+            "moduleSha256": "2d3f9e2ba83bc4564dcd125a1ed180c4613a8cf23c5b2a84c4b31bb09572f6d5",
+            "start": 3206952,
+            "end": 3209097
+          }
+        ]
+      },
+      {
+        "module": "WAWebUsync",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "33f068d88cd48d1bc584bc03a3f68aa9a2332fa698616c0975d4aa84d69f04d8",
+            "moduleSha256": "cff726b93bed929cf56eb5b38b74e171b4c1f50858d9afbcbf56efac8ae7a639",
+            "start": 800219,
+            "end": 806113
+          }
+        ]
+      }
+    ],
+    "businessProfileFinding": "Current updateCartEnabled keeps GraphQL only; three business_profile IQ builders remain; commerce_settings/cart IQ fallback absent.",
+    "newFormatFix": "Parenthesized legacy parser callbacks previously degraded three WAWebTosJob requests and WAWebUsync; callback unwrapping restores all four. Regression latest_callback_tests::parenthesized_legacy_callback_retains_response_fields.",
+    "fiveGuardReductionsUnchanged": true,
+    "wasmSetHash": "905d7c6b0b4769fd8bbd3d8860d9ef4e415873c65a00b85573461549695a2375",
+    "validation": {
+      "workspaceTests": 1812,
+      "schemas": "12/12",
+      "internalConsistency": "12 documents pass same locally reviewed pins; official pins unchanged"
+    }
   }
 }

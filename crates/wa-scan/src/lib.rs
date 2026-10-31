@@ -1076,3 +1076,18 @@ mod paired_return_review_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod latest_callback_tests {
+    #[test]
+    fn parenthesized_legacy_callback_retains_response_fields() {
+        let source = r#"__d("WAWebCallbackJob",["WADeprecatedWapParser","WAWap"],function(g,r,d,o,e,i,l){
+            var parser=new(r("WADeprecatedWapParser"))("probe",((function(node){node.assertTag("iq");return {value:node.attrString("value")};})));
+            function send(){return o("WAWap").wap("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET});}
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(ir.stanzas[0].response.parser_name, "probe");
+        assert_eq!(ir.stanzas[0].response.fields.len(), 1);
+    }
+}
