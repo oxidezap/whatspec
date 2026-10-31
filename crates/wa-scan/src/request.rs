@@ -291,6 +291,7 @@ enum RootRule {
 #[derive(Default, Clone)]
 pub(crate) struct VarScope {
     bundled_rpc: bool,
+    guard_optional_descendants: bool,
     local_merges: std::collections::HashSet<(usize, usize)>,
     vars: HashMap<String, Vec<VarInit>>,
     /// Every function as `(body_start, body_end, parameter_names)` — all of them, not
@@ -1505,7 +1506,7 @@ pub(crate) fn resolve_child_node(
                             .get(args_idx)
                             .and_then(arg_expr)
                             .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0));
-                        if scope.bundled_rpc {
+                        if scope.guard_optional_descendants {
                             guard_optional_attributes(&mut contrib, guard.as_deref());
                         }
                         for node in &mut contrib {
@@ -2015,6 +2016,7 @@ fn resolve_function_returns_each(
     let mut merged = build_scoped_var_scope(&parsed.program);
     merged.local_merges = scope.local_merges.clone();
     merged.bundled_rpc = scope.bundled_rpc;
+    merged.guard_optional_descendants = scope.guard_optional_descendants;
     for inits in merged.vars.values_mut() {
         for vi in inits {
             vi.init_start += body_start;
@@ -2152,6 +2154,7 @@ pub(crate) fn bundled_rpc_requests(
     let parsed = wa_oxc::parse_cjs(&allocator, source);
     let mut scope = build_scoped_var_scope(&parsed.program);
     scope.bundled_rpc = true;
+    scope.guard_optional_descendants = true;
     let aliases = build_alias_map(&parsed.program);
     let mut finder = ExportFnFinder {
         scope: &scope,
@@ -2397,19 +2400,27 @@ impl<'a> Visit<'a> for ExportFnFinder<'_> {
 /// dependency order). Same-tag roots are collapsed so a MixinGroup union's variants
 /// (`before`/`after`) fold into one node. Returns empty for a module with no
 /// `merge…` export (e.g. a Request module). See [`crate::mixin_index`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContributionMode {
+    Legacy,
+    Qualified,
+    BundledRpc,
+}
+
 pub(crate) fn resolve_contribution(
     slice: &str,
     contributions: &MixinContributions,
     helpers: &HelperIndex,
-    qualified_create: bool,
+    mode: ContributionMode,
 ) -> Vec<WapChildNode> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
-    let mut scope = if qualified_create {
+    let mut scope = if mode != ContributionMode::Legacy {
         build_scoped_var_scope(&ret.program)
     } else {
         build_var_scope(&ret.program)
     };
+    scope.guard_optional_descendants = mode == ContributionMode::BundledRpc;
     let aliases = build_alias_map(&ret.program);
     let Some((bs, be)) = find_merge_fn_body(&ret.program, &scope) else {
         return Vec::new();
@@ -2418,7 +2429,7 @@ pub(crate) fn resolve_contribution(
     // Only this known merge export has the (destination, arguments) contract.
     // Make its second formal the root while resolving its branch calls.
     for (start, end, params) in &mut scope.fn_params {
-        if qualified_create && (*start, *end) == (bs, be) && params.len() == 2 {
+        if mode != ContributionMode::Legacy && (*start, *end) == (bs, be) && params.len() == 2 {
             params.remove(0);
         }
     }

@@ -905,3 +905,39 @@ mod bundled_diagnostic_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod optional_external_mixin_tests {
+    #[test]
+    fn precomputed_rpc_mixins_keep_optional_descendant_guards() {
+        let source = r#"
+        __d("WASmaxOutExtraMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function payload(args) { return o("WASmaxJsx").smax("query",null,o("WASmaxJsx").smax("raw",{v:o("WAWap").INT(3)})); }
+            function merge(dst,args) { var part=payload(args);return o("WASmaxMixins").mergeStanzas(dst,part); }
+            l.mergeExtraMixin=merge;
+        });
+        __d("WASmaxOutWrapperMixin",["WASmaxJsx","WASmaxMixins","WASmaxOutExtraMixin"],function(g,r,d,o,e,i,l){
+            function payload(args) { return o("WASmaxMixins").optionalMerge(o("WASmaxOutExtraMixin").mergeExtraMixin,o("WASmaxJsx").smax("query",null),args.extra); }
+            function merge(dst,args) { var part=payload(args);return o("WASmaxMixins").mergeStanzas(dst,part); }
+            l.mergeWrapperMixin=merge;
+        });
+        __d("WASmaxProbeRPC",["WASmaxJsx","WASmaxOutWrapperMixin","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutWrapperMixin").mergeWrapperMixin(o("WASmaxJsx").smax("query",null,o("WASmaxJsx").smax("raw",null)),args.details)); }
+            l.makeProbeRequest=make;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let attribute = &ir.stanzas[0].request.children[0].children[0].attrs[0];
+        assert_eq!(attribute.value.as_deref(), Some("3"));
+        assert!(!attribute.required);
+        assert_eq!(
+            attribute
+                .presence_arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["details", "extra"]
+        );
+    }
+}
