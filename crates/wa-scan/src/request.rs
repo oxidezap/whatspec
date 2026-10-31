@@ -290,6 +290,7 @@ enum RootRule {
 /// Variable/function name → all initializers seen (offset-based, lifetime-free).
 #[derive(Default, Clone)]
 pub(crate) struct VarScope {
+    bundled_rpc: bool,
     local_merges: std::collections::HashSet<(usize, usize)>,
     vars: HashMap<String, Vec<VarInit>>,
     /// Every function as `(body_start, body_end, parameter_names)` — all of them, not
@@ -312,11 +313,7 @@ pub(crate) struct VarScope {
 impl VarScope {
     fn max_fn_depth(&self) -> u32 {
         // Bundled RPCs inline the chains that previously crossed module boundaries.
-        if self.local_merges.is_empty() {
-            MAX_FN_DEPTH
-        } else {
-            32
-        }
+        if self.bundled_rpc { 32 } else { MAX_FN_DEPTH }
     }
 
     fn push(&mut self, name: &str, init: VarInit) {
@@ -1456,7 +1453,7 @@ pub(crate) fn resolve_child_node(
                         depth,
                         ref_off,
                     );
-                    if is_merge_stanzas && !scope.local_merges.is_empty() {
+                    if is_merge_stanzas && scope.bundled_rpc {
                         apply_contribution(&mut out, &resolved, false);
                     } else {
                         out.extend(resolved);
@@ -1508,6 +1505,9 @@ pub(crate) fn resolve_child_node(
                             .get(args_idx)
                             .and_then(arg_expr)
                             .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0));
+                        if scope.bundled_rpc {
+                            guard_optional_attributes(&mut contrib, guard.as_deref());
+                        }
                         for node in &mut contrib {
                             for attr in &mut node.attrs {
                                 attr.required = false;
@@ -2014,6 +2014,7 @@ fn resolve_function_returns_each(
     let parsed = wa_oxc::parse_cjs(&alloc, body);
     let mut merged = build_scoped_var_scope(&parsed.program);
     merged.local_merges = scope.local_merges.clone();
+    merged.bundled_rpc = scope.bundled_rpc;
     for inits in merged.vars.values_mut() {
         for vi in inits {
             vi.init_start += body_start;
@@ -2150,6 +2151,7 @@ pub(crate) fn bundled_rpc_requests(
     let allocator = Allocator::default();
     let parsed = wa_oxc::parse_cjs(&allocator, source);
     let mut scope = build_scoped_var_scope(&parsed.program);
+    scope.bundled_rpc = true;
     let aliases = build_alias_map(&parsed.program);
     let mut finder = ExportFnFinder {
         scope: &scope,
@@ -2181,6 +2183,31 @@ pub(crate) fn bundled_rpc_requests(
             .map(move |node| (name.clone(), node))
         })
         .collect()
+}
+
+/// A folded fragment can amend an already-present descendant. Its attributes
+/// still depend on the optional merge's argument, even when the destination
+/// node was built unconditionally by another part of the request.
+fn guard_optional_attributes(nodes: &mut [WapChildNode], guard: Option<&[WapArgSegment]>) {
+    for node in nodes {
+        let guard = if node.presence.is_required() {
+            guard
+        } else {
+            node.arg_path.as_deref().or(guard)
+        };
+        for attr in &mut node.attrs {
+            attr.required = false;
+            attr.presence_arg_path = match attr.presence_arg_path.take() {
+                Some(inner) if guard.is_some_and(|outer| inner.starts_with(outer)) => Some(inner),
+                None => guard.filter(|path| !path.is_empty()).map(<[_]>::to_vec),
+                Some(_) => None,
+            };
+        }
+        guard_optional_attributes(&mut node.children, guard);
+        for group in &mut node.variant_groups {
+            group.optional = true;
+        }
+    }
 }
 
 fn local_merge_span(scope: &VarScope, name: &str) -> Option<(usize, usize)> {
@@ -2288,11 +2315,8 @@ fn resolve_local_merge(
         ref_off,
     );
     if optional {
+        guard_optional_attributes(&mut fragment, guard.as_deref());
         for root in &mut fragment {
-            for attr in &mut root.attrs {
-                attr.required = false;
-                attr.presence_arg_path = guard.clone();
-            }
             if root.tag == WILDCARD_TAG {
                 for child in &mut root.children {
                     child.presence = WapChildPresence::Optional;
@@ -4127,5 +4151,38 @@ mod bundled_merge_tests {
                 ["choice", name, "value"]
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod optional_descendant_tests {
+    use super::*;
+    #[test]
+    fn optional_local_mixin_does_not_pin_an_existing_descendant_unconditionally() {
+        let source = r#"
+        __d("WASmaxOptionalRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return o("WASmaxMixins").optionalMerge(extra,o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get"},o("WASmaxJsx").smax("raw",null)),args.extra); }
+            function payload(args) { var version=args.protocol;return o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("raw",{v:o("WAWap").INT(3),protocol_v:o("WAWap").INT(version)})); }
+            function extra(dst,args) { var fragment=payload(args);return o("WASmaxMixins").mergeStanzas(dst,fragment); }
+            l.makeOptionalRequest=make,l.mergeExtraMixin=extra;
+        });"#;
+        let requests =
+            bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        let raw = &requests[0].1.children[0];
+        for attr in &raw.attrs {
+            assert!(!attr.required);
+            assert_eq!(attr.presence_arg_path.as_ref().unwrap()[0].key, "extra");
+        }
+        assert_eq!(raw.attrs[0].value.as_deref(), Some("3"));
+        assert_eq!(
+            raw.attrs[1]
+                .arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "protocol"]
+        );
     }
 }
