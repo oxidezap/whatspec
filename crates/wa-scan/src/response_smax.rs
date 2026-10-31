@@ -1692,10 +1692,18 @@ fn resolve_result_arg(
         }
         Expression::StaticMemberExpression(_) => {
             let (name, property) = value_member(arg)?;
-            if property != "value" { return None; }
+            if property != "value" {
+                return None;
+            }
             return match bindings.get(name) {
                 Some(Binding::Fields(fields)) => Some(fields.clone()),
-                Some(Binding::ChildGroup { tag, fields, repeats: false, source_path, .. }) => Some(lift_child_fields(tag, source_path, fields)),
+                Some(Binding::ChildGroup {
+                    tag,
+                    fields,
+                    repeats: false,
+                    source_path,
+                    ..
+                }) => Some(lift_child_fields(tag, source_path, fields)),
                 Some(Binding::ChildGroup { fields, .. }) => Some(fields.clone()),
                 _ => None,
             };

@@ -331,10 +331,10 @@ mod bundled_ack_tests {
             function parse(node) { var result=envelope(node);return result.success?o("WAResultOrError").makeResult(result.value):result; }
             l.parseAckEnvelopeMixin=envelope,l.parsePublishResponseSuccess=parse;
         });"#;
-        let definitions=wa_transform::extract_module_definitions(source);
-        let result=super::scan_incoming_from_modules(source,&definitions);
-        assert_eq!(result.len(),1);
-        assert_eq!(result[0].shape.parser_name,"parsePublishResponseSuccess");
-        assert_eq!(result[0].shape.fields[0].name,"id");
+        let definitions = wa_transform::extract_module_definitions(source);
+        let result = super::scan_incoming_from_modules(source, &definitions);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].shape.parser_name, "parsePublishResponseSuccess");
+        assert_eq!(result[0].shape.fields[0].name, "id");
     }
 }

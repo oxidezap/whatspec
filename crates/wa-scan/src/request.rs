@@ -312,7 +312,11 @@ pub(crate) struct VarScope {
 impl VarScope {
     fn max_fn_depth(&self) -> u32 {
         // Bundled RPCs inline the chains that previously crossed module boundaries.
-        if self.local_merges.is_empty() { MAX_FN_DEPTH } else { 32 }
+        if self.local_merges.is_empty() {
+            MAX_FN_DEPTH
+        } else {
+            32
+        }
     }
 
     fn push(&mut self, name: &str, init: VarInit) {

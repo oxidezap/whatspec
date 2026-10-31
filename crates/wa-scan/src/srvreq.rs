@@ -283,7 +283,7 @@ mod tests {
 mod bundled_request_tests {
     #[test]
     fn rpc_request_and_response_are_not_confused() {
-        let source=r#"
+        let source = r#"
         __d("WASmaxServerUpdateRPC",["WASmaxParseUtils","WAResultOrError"],function(g,r,d,o,e,i,l){
             function incoming(node) {
                 var tag=o("WASmaxParseUtils").assertTag(node,"iq");if(!tag.success)return tag;
@@ -295,10 +295,10 @@ mod bundled_request_tests {
             }
             l.parseServerUpdateRequest=incoming,l.parseServerUpdateResponseSuccess=response;
         });"#;
-        let definitions=wa_transform::extract_module_definitions(source);
-        let result=super::scan_server_requests_from_modules(source,&definitions);
-        assert_eq!(result.len(),1);
-        assert_eq!(result[0].shape.parser_name,"parseServerUpdateRequest");
-        assert_eq!(result[0].shape.fields[0].name,"id");
+        let definitions = wa_transform::extract_module_definitions(source);
+        let result = super::scan_server_requests_from_modules(source, &definitions);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].shape.parser_name, "parseServerUpdateRequest");
+        assert_eq!(result[0].shape.fields[0].name, "id");
     }
 }
