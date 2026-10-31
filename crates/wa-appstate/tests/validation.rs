@@ -236,3 +236,23 @@ fn direct_object_and_long_relational_coercion_fail_closed() {
         assert!(extract(&changed, "test").is_err(), "{projection}");
     }
 }
+
+#[test]
+fn renamed_sync_key_types_preserves_validator_contract() {
+    let original = extract(SOURCE, "test").unwrap();
+    let renamed = extract(
+        &SOURCE.replace("WASyncdKeyTypes", "WAWebSyncdKeyTypes"),
+        "test",
+    )
+    .unwrap();
+    for (name, function) in original.functions {
+        assert_eq!(function.body, renamed.functions[&name].body, "{name}");
+    }
+    assert!(
+        extract(
+            &SOURCE.replace("WASyncdKeyTypes", "UnrelatedKeyTypes"),
+            "test"
+        )
+        .is_err()
+    );
+}
