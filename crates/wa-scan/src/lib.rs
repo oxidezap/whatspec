@@ -941,3 +941,138 @@ mod optional_external_mixin_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod review_regression_tests {
+    use wa_ir::WapChildPresence;
+
+    #[test]
+    fn review_regression_optional_children_keep_their_own_combinator_paths() {
+        let source = r#"
+        __d("WASmaxOptionalChildrenRPC",["WASmaxJsx","WASmaxMixins","WASmaxChildren","WAWap"],function(g,r,d,o,e,i,l){
+            function marker(){ return o("WASmaxJsx").smax("locked",null); }
+            function user(args){ return o("WASmaxJsx").smax("user",{jid:o("WAWap").JID(args.jid)}); }
+            function payload(args){ return o("WASmaxJsx").smax("smax$any",null,o("WASmaxChildren").HAS_OPTIONAL_CHILD(marker,args.locked),o("WASmaxChildren").OPTIONAL_CHILD(user,args.user),o("WASmaxJsx").smax("required",null)); }
+            function merge(dst,args){ var part=payload(args);return o("WASmaxMixins").mergeStanzas(dst,part); }
+            function make(args){ return o("WASmaxMixins").optionalMerge(merge,o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET}),args.extra); }
+            l.makeOptionalChildrenRequest=make,l.mergeExtraMixin=merge;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let children = &ir.stanzas[0].request.children;
+        let marker = children.iter().find(|child| child.tag == "locked").unwrap();
+        assert_eq!(marker.presence, WapChildPresence::PresenceFlag);
+        assert_eq!(
+            marker
+                .arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "locked"]
+        );
+        let user = children.iter().find(|child| child.tag == "user").unwrap();
+        assert_eq!(user.presence, WapChildPresence::Optional);
+        assert_eq!(
+            user.arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "user"]
+        );
+        let required = children
+            .iter()
+            .find(|child| child.tag == "required")
+            .unwrap();
+        assert_eq!(required.presence, WapChildPresence::Optional);
+        assert_eq!(required.arg_path.as_ref().unwrap()[0].key, "extra");
+    }
+
+    #[test]
+    fn review_regression_nested_helper_shadows_the_indexed_outer_merge() {
+        let source = r#"
+        __d("WASmaxShadowRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function helper(dst,args){ return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("wrong",null))); }
+            function make(args){
+                function helper(){ return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("right",null)); }
+                return helper();
+            }
+            l.makeShadowRequest=make,l.mergeOuterMixin=helper;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(ir.stanzas[0].request.children[0].tag, "right");
+    }
+
+    #[test]
+    fn review_regression_unrelated_returns_do_not_count_as_mixin_recovery() {
+        let source = r#"
+        __d("WASmaxBranchesRPC",["WASmaxJsx","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args){
+                if(args.left)return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("left",null));
+                return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("right",null));
+            }
+            l.makeBranchesRequest=make;
+        });"#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let (ir, statistics) =
+            super::extract_iq_from_modules_with_diagnostics(source, &definitions, "test");
+        assert_eq!(ir.stanzas.len(), 2);
+        assert_eq!(statistics.cross_module.fields_recovered, 0);
+        assert_eq!(statistics.cross_module.requests_enriched, 0);
+    }
+}
+
+#[cfg(test)]
+mod paired_return_review_tests {
+    #[test]
+    fn recovery_uses_the_largest_corresponding_return_pair() {
+        let source = r#"
+        __d("WASmaxOutLargeMixin",["WASmaxJsx","WASmaxMixins"],function(g,r,d,o,e,i,l){
+            function merge(dst){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("large",{one:"1",two:"2"}));}l.mergeLargeMixin=merge;
+        });
+        __d("WASmaxOutSmallMixin",["WASmaxJsx","WASmaxMixins"],function(g,r,d,o,e,i,l){
+            function merge(dst){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("small",{one:"1"}));}l.mergeSmallMixin=merge;
+        });
+        __d("WASmaxBranchesRPC",["WASmaxJsx","WAWap","WASmaxOutLargeMixin","WASmaxOutSmallMixin"],function(g,r,d,o,e,i,l){
+            function make(args){
+                if(args.large)return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutLargeMixin").mergeLargeMixin(o("WASmaxJsx").smax("large",null)));
+                return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutSmallMixin").mergeSmallMixin(o("WASmaxJsx").smax("small",null)));
+            }l.makeBranchesRequest=make;
+        });"#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let (ir, statistics) =
+            super::extract_iq_from_modules_with_diagnostics(source, &definitions, "test");
+        assert_eq!(ir.stanzas.len(), 2);
+        assert_eq!(statistics.cross_module.fields_recovered, 2);
+        assert_eq!(statistics.cross_module.requests_enriched, 1);
+    }
+
+    #[test]
+    fn visible_export_and_nested_helper_keep_their_own_argument_frames() {
+        let source = r#"
+        __d("WASmaxShadowRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args){
+                function helper(value){return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("query",{jid:o("WAWap").JID(value.jid)}));}
+                return helper(args);
+            }
+            function helper(dst,args){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{xmlns:"wrong",type:"get"}));}
+            l.makeShadowRequest=make,l.mergeOuterMixin=helper;
+        });"#;
+        // Adjacent minified declarations share an exclusive boundary, not an owner.
+        let source = source.replace("}\n            function helper", "}function helper");
+        let ir = super::extract_iq(&source, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(ir.stanzas[0].namespace, "probe");
+        assert_eq!(
+            ir.stanzas[0].request.children[0].attrs[0]
+                .arg_path
+                .as_ref()
+                .unwrap()[0]
+                .key,
+            "jid"
+        );
+    }
+}

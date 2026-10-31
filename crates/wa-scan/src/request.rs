@@ -309,12 +309,60 @@ pub(crate) struct VarScope {
     /// in its scope, and a span list that skipped those functions could not tell the two
     /// apart.
     fn_params: Vec<(usize, usize, Vec<String>)>,
+    // Original formals are separate from the argument roots adjusted for mixins.
+    lexical_params: Vec<(usize, usize, Vec<String>)>,
 }
 
 impl VarScope {
     fn max_fn_depth(&self) -> u32 {
         // Bundled RPCs inline the chains that previously crossed module boundaries.
         if self.bundled_rpc { 32 } else { MAX_FN_DEPTH }
+    }
+
+    /// Resolve the closest visible binding before asking whether it is a function.
+    /// A nearer variable or formal shadows an outer helper too.
+    fn visible_function(&self, name: &str, ref_off: Option<usize>) -> Option<(usize, usize)> {
+        let offset = ref_off?;
+        let initializers = self.vars.get(name)?;
+        let visible = |init: &&VarInit| {
+            init.owner_fn
+                .is_none_or(|(start, end)| start <= offset && offset < end)
+        };
+        let width = |owner: Option<(usize, usize)>| {
+            owner.map(|(start, end)| end - start).unwrap_or(usize::MAX)
+        };
+        let closest = initializers
+            .iter()
+            .filter(visible)
+            .min_by_key(|init| width(init.owner_fn))?;
+        let owner = closest.owner_fn;
+        if self.lexical_params.iter().any(|(start, end, params)| {
+            *start <= offset
+                && offset < *end
+                && params.iter().any(|parameter| parameter == name)
+                && end - start < width(owner)
+        }) {
+            return None;
+        }
+        let mut functions = initializers
+            .iter()
+            .filter(|init| init.owner_fn == owner)
+            .filter_map(|init| init.fn_body);
+        let function = functions.next()?;
+        functions.all(|other| other == function).then_some(function)
+    }
+
+    fn callable_spans(&self, name: &str, ref_off: Option<usize>) -> Vec<(usize, usize)> {
+        if self.bundled_rpc || self.guard_optional_descendants {
+            self.visible_function(name, ref_off).into_iter().collect()
+        } else {
+            self.vars
+                .get(name)
+                .into_iter()
+                .flatten()
+                .filter_map(|init| init.fn_body)
+                .collect()
+        }
     }
 
     fn push(&mut self, name: &str, init: VarInit) {
@@ -328,7 +376,7 @@ impl VarScope {
     fn innermost_fn(&self, off: usize) -> Option<(usize, usize, &Vec<String>)> {
         self.fn_params
             .iter()
-            .filter(|(s, e, _)| *s <= off && off <= *e)
+            .filter(|(s, e, _)| *s <= off && off < *e)
             .min_by_key(|(s, e, _)| e.saturating_sub(*s))
             .map(|(s, e, params)| (*s, *e, params))
     }
@@ -372,6 +420,7 @@ pub(crate) fn build_var_scope(program: &Program) -> VarScope {
         fn_stack: Vec::new(),
     };
     b.visit_program(program);
+    b.scope.lexical_params = b.scope.fn_params.clone();
     b.scope
 }
 
@@ -387,13 +436,7 @@ pub(crate) fn build_scoped_var_scope(program: &Program) -> VarScope {
                 name.clone(),
                 inits
                     .iter()
-                    .map(|init| {
-                        if init.fn_body.is_none() {
-                            scope.innermost_fn(init.init_start).map(|(s, e, _)| (s, e))
-                        } else {
-                            init.owner_fn
-                        }
-                    })
+                    .map(|init| scope.innermost_fn(init.init_start).map(|(s, e, _)| (s, e)))
                     .collect::<Vec<_>>(),
             )
         })
@@ -1403,7 +1446,7 @@ pub(crate) fn resolve_child_node(
                 .first()
                 .and_then(arg_expr)
                 .and_then(as_identifier)
-            && let Some(span) = local_merge_span(scope, name)
+            && let Some(span) = local_merge_span(scope, name, ref_off)
         {
             return resolve_local_merge(
                 span,
@@ -1546,7 +1589,7 @@ pub(crate) fn resolve_child_node(
 
     if let Some(call) = as_call(node)
         && let Some(name) = as_identifier(&call.callee)
-        && let Some(span) = local_merge_span(scope, name)
+        && let Some(span) = local_merge_span(scope, name, ref_off)
     {
         return resolve_local_merge(
             span,
@@ -1579,26 +1622,23 @@ pub(crate) fn resolve_child_node(
     // paths. The cross-module branch below is the opposite case and does clear.
     if let Some(call) = as_call(node)
         && let Some(callee_name) = as_identifier(&call.callee)
-        && let Some(inits) = scope.vars.get(callee_name)
     {
-        for vi in inits {
-            if let Some((bs, be)) = vi.fn_body {
-                let mut r = resolve_function_return(
-                    bs,
-                    be,
-                    scope,
-                    module_source,
-                    aliases,
-                    contributions,
-                    helpers,
-                    depth + 1,
-                );
-                if !r.is_empty() {
-                    if let Some(prefix) = helper_prefix(call, scope, module_source, ref_off) {
-                        prefix_arg_paths(&mut r, &prefix);
-                    }
-                    return r;
+        for (bs, be) in scope.callable_spans(callee_name, ref_off) {
+            let mut r = resolve_function_return(
+                bs,
+                be,
+                scope,
+                module_source,
+                aliases,
+                contributions,
+                helpers,
+                depth + 1,
+            );
+            if !r.is_empty() {
+                if let Some(prefix) = helper_prefix(call, scope, module_source, ref_off) {
+                    prefix_arg_paths(&mut r, &prefix);
                 }
+                return r;
             }
         }
     }
@@ -1836,24 +1876,20 @@ fn resolve_template_arg(
     // function initializer over any same-named non-function var — the flat scope
     // conflates a template fn `e` with an unrelated `var e = smax(…)` in a sibling
     // helper, and the function is the one passed as the template.
-    if let Some(name) = as_identifier(arg)
-        && let Some(inits) = scope.vars.get(name)
-    {
-        for vi in inits {
-            if let Some((bs, be)) = vi.fn_body {
-                let r = resolve_function_return(
-                    bs,
-                    be,
-                    scope,
-                    module_source,
-                    aliases,
-                    contributions,
-                    helpers,
-                    depth + 1,
-                );
-                if !r.is_empty() {
-                    return r;
-                }
+    if let Some(name) = as_identifier(arg) {
+        for (bs, be) in scope.callable_spans(name, ref_off) {
+            let r = resolve_function_return(
+                bs,
+                be,
+                scope,
+                module_source,
+                aliases,
+                contributions,
+                helpers,
+                depth + 1,
+            );
+            if !r.is_empty() {
+                return r;
             }
         }
     }
@@ -1914,6 +1950,7 @@ fn resolve_map_call(
         // Reference mapper — a cross-module helper or a local function.
         _ => resolve_mapper_ref(
             mapper,
+            ref_off,
             scope,
             module_source,
             aliases,
@@ -1950,6 +1987,7 @@ fn resolve_map_call(
 /// module scope's function body.
 fn resolve_mapper_ref(
     mapper: &Expression,
+    ref_off: Option<usize>,
     scope: &VarScope,
     module_source: &str,
     aliases: &AliasMap,
@@ -1964,24 +2002,20 @@ fn resolve_mapper_ref(
         return tree.clone();
     }
     // Local function name.
-    if let Some(name) = as_identifier(mapper)
-        && let Some(inits) = scope.vars.get(name)
-    {
-        for vi in inits {
-            if let Some((bs, be)) = vi.fn_body {
-                let r = resolve_function_return(
-                    bs,
-                    be,
-                    scope,
-                    module_source,
-                    aliases,
-                    contributions,
-                    helpers,
-                    depth + 1,
-                );
-                if !r.is_empty() {
-                    return r;
-                }
+    if let Some(name) = as_identifier(mapper) {
+        for (bs, be) in scope.callable_spans(name, ref_off) {
+            let r = resolve_function_return(
+                bs,
+                be,
+                scope,
+                module_source,
+                aliases,
+                contributions,
+                helpers,
+                depth + 1,
+            );
+            if !r.is_empty() {
+                return r;
             }
         }
     }
@@ -2051,6 +2085,13 @@ fn resolve_function_returns_each(
         let _ = name;
     }
     merged.fn_params.extend(scope.fn_params.iter().cloned());
+    for (start, end, _) in &mut merged.lexical_params {
+        *start += body_start;
+        *end += body_start;
+    }
+    merged
+        .lexical_params
+        .extend(scope.lexical_params.iter().cloned());
     let mut per_return = Vec::new();
     for arg_src in collect_return_arg_sources(body) {
         let alloc2 = Allocator::default();
@@ -2072,9 +2113,9 @@ fn resolve_function_returns_each(
                 depth,
                 Some(body_start),
             );
-            if !r.is_empty() {
-                per_return.push(r);
-            }
+            // Preserve empty arms so return identity does not shift when an
+            // external contribution supplies a node absent from the local pass.
+            per_return.push(r);
         }
     }
     per_return
@@ -2119,23 +2160,19 @@ fn resolve_function_return(
         return direct;
     }
     for name in collect_returned_call_names(body) {
-        if let Some(inits) = scope.vars.get(&name) {
-            for vi in inits {
-                if let Some((nbs, nbe)) = vi.fn_body {
-                    let r = resolve_function_return(
-                        nbs,
-                        nbe,
-                        scope,
-                        module_source,
-                        aliases,
-                        contributions,
-                        helpers,
-                        depth + 1,
-                    );
-                    if !r.is_empty() {
-                        return r;
-                    }
-                }
+        for (nbs, nbe) in scope.callable_spans(&name, Some(body_start)) {
+            let r = resolve_function_return(
+                nbs,
+                nbe,
+                scope,
+                module_source,
+                aliases,
+                contributions,
+                helpers,
+                depth + 1,
+            );
+            if !r.is_empty() {
+                return r;
             }
         }
     }
@@ -2149,7 +2186,7 @@ pub(crate) fn bundled_rpc_requests(
     source: &str,
     helpers: &HelperIndex,
     contributions: &MixinContributions,
-) -> Vec<(String, WapChildNode)> {
+) -> Vec<(String, usize, WapChildNode)> {
     let allocator = Allocator::default();
     let parsed = wa_oxc::parse_cjs(&allocator, source);
     let mut scope = build_scoped_var_scope(&parsed.program);
@@ -2171,7 +2208,7 @@ pub(crate) fn bundled_rpc_requests(
         .into_iter()
         .filter(|(name, _)| name.starts_with("make") && name.ends_with("Request"))
         .flat_map(|(name, (start, end))| {
-            resolve_function_return(
+            resolve_function_returns_each(
                 start,
                 end,
                 &scope,
@@ -2182,8 +2219,14 @@ pub(crate) fn bundled_rpc_requests(
                 0,
             )
             .into_iter()
-            .filter(|node| node.tag == "iq")
-            .map(move |node| (name.clone(), node))
+            .enumerate()
+            .flat_map(move |(return_index, nodes)| {
+                let export = name.clone();
+                nodes
+                    .into_iter()
+                    .filter(|node| node.tag == "iq")
+                    .map(move |node| (export.clone(), return_index, node))
+            })
         })
         .collect()
 }
@@ -2213,13 +2256,13 @@ fn guard_optional_attributes(nodes: &mut [WapChildNode], guard: Option<&[WapArgS
     }
 }
 
-fn local_merge_span(scope: &VarScope, name: &str) -> Option<(usize, usize)> {
-    scope
-        .vars
-        .get(name)?
-        .iter()
-        .filter_map(|init| init.fn_body)
-        .find(|span| scope.local_merges.contains(span))
+fn local_merge_span(
+    scope: &VarScope,
+    name: &str,
+    ref_off: Option<usize>,
+) -> Option<(usize, usize)> {
+    let span = scope.visible_function(name, ref_off)?;
+    scope.local_merges.contains(&span).then_some(span)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2322,8 +2365,10 @@ fn resolve_local_merge(
         for root in &mut fragment {
             if root.tag == WILDCARD_TAG {
                 for child in &mut root.children {
-                    child.presence = WapChildPresence::Optional;
-                    child.arg_path = guard.clone();
+                    if child.presence.is_required() {
+                        child.presence = WapChildPresence::Optional;
+                        child.arg_path = guard.clone();
+                    }
                 }
             }
         }
@@ -2380,9 +2425,7 @@ impl<'a> Visit<'a> for ExportFnFinder<'_> {
                 Expression::FunctionExpression(func) => fn_body_span(func),
                 Expression::Identifier(id) => self
                     .scope
-                    .vars
-                    .get(id.name.as_str())
-                    .and_then(|inits| inits.iter().find_map(|vi| vi.fn_body)),
+                    .visible_function(id.name.as_str(), Some(assign.span.start as usize)),
                 _ => None,
             };
             if let Some(b) = body {
@@ -4106,7 +4149,7 @@ mod bundled_merge_tests {
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
         assert_eq!(requests.len(), 1);
         let marker = requests[0]
-            .1
+            .2
             .attrs
             .iter()
             .find(|attr| attr.name == "marker")
@@ -4139,7 +4182,7 @@ mod bundled_merge_tests {
         });"#;
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
-        let root = &requests[0].1;
+        let root = &requests[0].2;
         assert!(
             !root
                 .attrs
@@ -4179,7 +4222,7 @@ mod optional_descendant_tests {
         });"#;
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
-        let raw = &requests[0].1.children[0];
+        let raw = &requests[0].2.children[0];
         for attr in &raw.attrs {
             assert!(!attr.required);
             assert_eq!(attr.presence_arg_path.as_ref().unwrap()[0].key, "extra");

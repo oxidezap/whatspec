@@ -2595,5 +2595,104 @@
         ]
       }
     }
-  ]
+  ],
+  "reviewReconciliation": {
+    "candidate": "2.3000.1052556849",
+    "threads": {
+      "4433545504": {
+        "fix": "Preserve existing optional/presence-flag child guards under outer optional mixins.",
+        "test": "review_regression_optional_mixin_keeps_inner_presence_path"
+      },
+      "4433545507": {
+        "fix": "Resolve closest visible function binding before merge classification and helper evaluation; use exclusive function span ends.",
+        "tests": [
+          "review_regression_shadowed_helper_is_not_an_outer_merge",
+          "visible_export_and_nested_helper_keep_their_own_argument_frames"
+        ]
+      },
+      "4433554377": {
+        "fix": "Pair recovery by export and return index; count the maximum surviving matched pair; ambiguous multiple roots conservatively contribute zero.",
+        "tests": [
+          "review_regression_unrelated_returns_do_not_count_as_mixin_recovery",
+          "recovery_uses_the_largest_corresponding_return_pair"
+        ]
+      }
+    },
+    "diagnosticsAfterFixes": {
+      "builder": {
+        "argPathAttrs": 615,
+        "argPathAttrsMissing": 48,
+        "argPathChildren": 171,
+        "argPathChildrenMissing": 11,
+        "argPathContents": 135,
+        "argPathContentsMissing": 23,
+        "elementValues": 164,
+        "optionalChildren": 75,
+        "presenceFlagChildren": 37,
+        "repeatBounds": 49
+      },
+      "candidateModules": 176,
+      "constraints": {
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
+      },
+      "crossModule": {
+        "fieldsRecovered": 853,
+        "requestsEnriched": 20,
+        "requestsWithMixins": 78
+      },
+      "degradedResponses": 3,
+      "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
+        "iq builder substring present but no AST iq call": 5,
+        "mixin fragment (folded into requests, not a standalone stanza)": 36,
+        "shadowedCallbackRead": 5
+      },
+      "excludedFragments": 36,
+      "stanzas": 141,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 135,
+        "server": 103,
+        "unknown": 6,
+        "unset": 0
+      },
+      "typedResponses": 138,
+      "unparseable": 5
+    },
+    "previousInflatedFieldsRecovered": 1483,
+    "explanation": "Recovered fields are a maximum per module, summed across modules; 853 replaces the inflated 1483. These diagnostics do not remove an extracted request or response.",
+    "guardReductions": {
+      "wasmBinaries": [
+        7,
+        6
+      ],
+      "iq.stanzas": [
+        142,
+        141
+      ],
+      "iq.typedResponses": [
+        139,
+        138
+      ],
+      "iq.targets.resolved": [
+        137,
+        135
+      ],
+      "iq.targets.server": [
+        105,
+        103
+      ]
+    },
+    "interpretation": "Absent client builders/static wasm declarations in these preserved bundles do not prove removal of server APIs.",
+    "validation": {
+      "schemas": "12/12",
+      "candidateInternalInvariants": "12 documents passed source-reviewed candidate pins; committed pins unchanged"
+    }
+  }
 }

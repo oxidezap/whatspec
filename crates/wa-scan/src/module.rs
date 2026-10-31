@@ -122,20 +122,32 @@ pub fn scan_module_outcome(
         Vec::new()
     };
     let bundled = !bundled_requests.is_empty();
-    let bundled_recovery: std::collections::HashMap<String, usize> = if bundled {
+    let bundled_recovery: std::collections::HashMap<(String, usize), usize> = if bundled {
         let local = crate::request::bundled_rpc_requests(source, helpers, &Default::default());
         bundled_requests
             .iter()
-            .map(|(name, complete)| {
-                let local_children = local
+            .map(|(name, return_index, complete)| {
+                let local_arms = local
                     .iter()
-                    .find(|(export, _)| export == name)
-                    .map(|(_, root)| root.children.as_slice())
-                    .unwrap_or_default();
-                (
-                    name.clone(),
-                    crate::mixin_index::count_recovered_fields(local_children, &complete.children),
-                )
+                    .filter(|(export, index, _)| export == name && index == return_index)
+                    .collect::<Vec<_>>();
+                let complete_count = bundled_requests
+                    .iter()
+                    .filter(|(export, index, _)| export == name && index == return_index)
+                    .count();
+                // Multiple roots inside one returned helper are not attributable by
+                // position. Keep that diagnostic conservative rather than pairing
+                // unrelated roots from different branches.
+                let recovered = if local_arms.len() <= 1 && complete_count == 1 {
+                    let children = local_arms
+                        .first()
+                        .map(|(_, _, root)| root.children.as_slice())
+                        .unwrap_or_default();
+                    crate::mixin_index::count_recovered_fields(children, &complete.children)
+                } else {
+                    0
+                };
+                ((name.clone(), *return_index), recovered)
             })
             .collect()
     } else {
@@ -169,7 +181,11 @@ pub fn scan_module_outcome(
     if bundled {
         scanner.iq_calls = bundled_requests
             .into_iter()
-            .map(|(export, root)| IqCall {
+            .map(|(export, return_index, root)| IqCall {
+                recovered_fields: bundled_recovery
+                    .get(&(export.clone(), return_index))
+                    .copied()
+                    .unwrap_or(0),
                 namespace: const_value(&root.attrs, "xmlns").map(str::to_string),
                 iq_type: match const_value(&root.attrs, "type") {
                     Some("get") => Some(IqType::Get),
@@ -289,13 +305,7 @@ pub fn scan_module_outcome(
                 (Some(namespace), Some(iq_type)) => {
                     let recovered =
                         crate::mixin_index::count_recovered_fields(&iq.children, &frag_children);
-                    let recovered = recovered.max(
-                        iq.export
-                            .as_ref()
-                            .and_then(|export| bundled_recovery.get(export))
-                            .copied()
-                            .unwrap_or(0),
-                    );
+                    let recovered = recovered.max(iq.recovered_fields);
                     fields_recovered = fields_recovered.max(recovered);
                     crate::mixin_index::merge_children(&mut iq.children, &frag_children);
                     // A contribution can arrive holding the empty path — a mixin whose
@@ -475,6 +485,7 @@ fn ends_ci(s: &str, suffix: &str) -> bool {
 /// unresolved locally (e.g. a `smax("iq", null, …)` whose xmlns/type come from
 /// mixins) and get filled in afterwards from the [`MixinIndex`].
 struct IqCall {
+    recovered_fields: usize,
     namespace: Option<String>,
     iq_type: Option<IqType>,
     /// The argument path of the root `to`, when the builder reads its addressee from an
@@ -751,6 +762,7 @@ impl ModuleScanner<'_> {
         enforce_argument_boundary(&mut children, self.scope, call.span().start as usize);
 
         Some(IqCall {
+            recovered_fields: 0,
             namespace,
             iq_type,
             target,
