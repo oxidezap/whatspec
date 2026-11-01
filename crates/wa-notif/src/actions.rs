@@ -688,6 +688,18 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             best: None,
             tag_locals: self.tag_locals.clone(),
         };
+        for statement in &block.body {
+            if let Statement::VariableDeclaration(declaration) = statement {
+                for binding in &declaration.declarations {
+                    if let (Some(name), Some(init)) =
+                        (binding.id.get_identifier_name(), binding.init.as_ref())
+                        && is_tag_read(init)
+                    {
+                        nested.tag_locals.insert(name.to_string());
+                    }
+                }
+            }
+        }
         walk::walk_block_statement(&mut nested, block);
         if let Some(best) = nested.best
             && self

@@ -22,16 +22,19 @@ fn main() {
         (MakeRootRequestIqPayloadVariant::Variant1 { config: MakeRootRequestIqPayloadVariantVariant1Config {} }, "config"),
         (MakeRootRequestIqPayloadVariant::Variant2 { clear: MakeRootRequestIqPayloadVariantVariant2Clear {} }, "clear"),
     ];
+    let mut checked = 0;
     for (choice, expected) in cases {
         let query = MakeRootRequestSpec::new(choice).build_iq();
         let node::NodeContent::Nodes(children) = query.content.unwrap();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].tag, expected);
+        checked += 1;
     }
+    println!("root-choice cases: {checked}");
 }
 "#)).unwrap();
     let compiler = support::FixtureCompiler::build(&dir);
-    let compile = compiler.command(&dir, true).output().unwrap();
+    let compile = compiler.command(&dir, false).output().unwrap();
     assert!(
         compile.status.success(),
         "{}",
@@ -42,6 +45,10 @@ fn main() {
         run.status.success(),
         "{}",
         String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(run.stdout).unwrap(),
+        "root-choice cases: 2\n"
     );
     fs::remove_dir_all(dir).unwrap();
 }

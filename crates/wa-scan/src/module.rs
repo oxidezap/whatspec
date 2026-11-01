@@ -355,7 +355,7 @@ pub fn scan_module_outcome(
         .collect();
 
     // Modules often build the same `<iq>` in several code paths; emit each distinct
-    // stanza once (identity = namespace/type/target/children, ignoring which export
+    // stanza once (identity = namespace/type/target/children/root variants, ignoring which export
     // built it). Order-preserving so the first occurrence's export wins. n is tiny.
     let mut deduped: Vec<ResolvedIqCall> = Vec::new();
     for r in resolved {
@@ -368,6 +368,7 @@ pub fn scan_module_outcome(
                 // the other's callers.
                 && d.target_arg_path == r.target_arg_path
                 && d.children == r.children
+                && d.variant_groups == r.variant_groups
         }) {
             deduped.push(r);
         }

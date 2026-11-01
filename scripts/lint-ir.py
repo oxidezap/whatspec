@@ -394,7 +394,8 @@ def stable_identity_path(document, path):
     """Name array entries by their IR identity, so a reorder cannot move a pin."""
     current = document
     result = []
-    for part in path.strip("/").split("/") if path else []:
+    for encoded_part in path.strip("/").split("/") if path else []:
+        part = encoded_part.replace("~1", "/").replace("~0", "~")
         if isinstance(current, list):
             current = current[int(part)]
             identity = None
@@ -405,7 +406,7 @@ def stable_identity_path(document, path):
             result.append((identity or f"#{part}").replace("~", "~0").replace("/", "~1"))
         else:
             current = current[part]
-            result.append(part)
+            result.append(encoded_part)
     return "/" + "/".join(result) if result else ""
 
 
@@ -414,7 +415,8 @@ def walk(node, visit, path=""):
     if isinstance(node, dict):
         visit(node, path)
         for k, v in node.items():
-            walk(v, visit, f"{path}/{k}")
+            escaped = str(k).replace("~", "~0").replace("/", "~1")
+            walk(v, visit, f"{path}/{escaped}")
     elif isinstance(node, list):
         for i, v in enumerate(node):
             walk(v, visit, f"{path}/{i}")

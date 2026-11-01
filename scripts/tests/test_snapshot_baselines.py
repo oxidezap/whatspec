@@ -120,3 +120,10 @@ class StableShapeIdentity(unittest.TestCase):
         changed = copy.deepcopy(first)
         changed['type'] = 'replacement'
         self.assertNotEqual(path, lint.stable_identity_path({'notifications': [changed]}, '/notifications/0/content'))
+
+    def test_slash_and_tilde_object_keys_are_safe_json_pointer_segments(self):
+        document = {'container/key~value': {'fields': [{'name': 'x'}, {'name': 'x'}]}}
+        from collections import defaultdict
+        errors, flattened = [], defaultdict(int)
+        lint.walk(document, lambda node, path: lint.check_action_keys(node, lint.stable_identity_path(document, path), errors, flattened))
+        self.assertEqual(flattened, {'/container~1key~0value/fields|x': 1})

@@ -66,6 +66,10 @@ pub fn as_int(e: &Expression) -> Option<i64> {
         Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => {
             if let Expression::NumericLiteral(number) = &u.argument
                 && number.value == -(i64::MIN as f64)
+                && number
+                    .raw
+                    .as_ref()
+                    .is_some_and(|raw| raw.as_str() == "9223372036854775808")
             {
                 Some(i64::MIN)
             } else {
@@ -202,7 +206,7 @@ mod tests {
         let alloc = Allocator::default();
         let ret = Parser::new(
             &alloc,
-            "[7, 1.5, 9e30, -3, 9223372036854775808, -9223372036854775808];",
+            "[7, 1.5, 9e30, -3, 9223372036854775808, -9223372036854775808, -9223372036854775809, -9223372036854775808.1, -9.223372036854776e18];",
             SourceType::cjs(),
         )
         .parse();
@@ -218,6 +222,9 @@ mod tests {
         assert_eq!(el(2), None); // 9e30 is out of i64 range
         assert_eq!(el(4), None); // the rounded f64 i64::MAX bound is exclusive
         assert_eq!(el(5), Some(i64::MIN));
+        assert_eq!(el(6), None);
+        assert_eq!(el(7), None);
+        assert_eq!(el(8), None);
         assert_eq!(el(3), Some(-3)); // unary minus is folded (proto enum negatives)
     }
 }

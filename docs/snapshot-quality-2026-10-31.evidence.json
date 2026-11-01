@@ -3284,14 +3284,64 @@
         "status": "fixed",
         "resolution": "Assert retry count, sender/message type, revoke state, session scope and PQ metadata; add revoked-denied case and five metric mutations.",
         "evidence": "authorization-latest.mjs 19 scenarios / 27 total semantic mutations"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOC",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993183",
+        "status": "fixed",
+        "resolution": "Require the ephemeral action with expect before checking absence of module-helper fields.",
+        "evidence": "action_parameter_shadows_module_helper"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOD",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993184",
+        "status": "fixed",
+        "resolution": "Rewrite the long fixture replacement with concat and verify rustfmt compliance.",
+        "evidence": "cargo fmt --all --check"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOF",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993187",
+        "status": "fixed",
+        "resolution": "Compile the fixture without --test, execute main, and require the count of two checked payload cases. Reintroducing --test is an observed failing mutation.",
+        "evidence": "root_choice_emits_exactly_one_payload_child / root-choice-harness-mutation.log"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOI",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993191",
+        "status": "fixed",
+        "resolution": "The i64::MIN exception requires the exact canonical raw decimal literal; rounded out-of-range and fractional spellings are rejected.",
+        "evidence": "as_int_rejects_fractional_and_out_of_range"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOL",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993194",
+        "status": "fixed",
+        "resolution": "Include root variant groups in stanza deduplication identity; preserve root arms in constant/content/enum enrichment.",
+        "evidence": "distinct_root_choices_are_not_deduplicated"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTON",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993196",
+        "status": "fixed",
+        "resolution": "walk encodes JSON Pointer segments and stable_identity_path decodes them safely, including slash and tilde keys.",
+        "evidence": "StableShapeIdentity.test_slash_and_tilde_object_keys_are_safe_json_pointer_segments"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOP",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993198",
+        "status": "fixed",
+        "resolution": "Collect block-local tag bindings before visiting block switches.",
+        "evidence": "block_local_tag_alias_still_selects_actions"
       }
     ],
     "validation": {
-      "workspaceTests": 1824,
-      "pythonTests": 16,
+      "workspaceTests": 1827,
+      "pythonTests": 17,
       "schemas": "12/12",
       "lint": "12 internally consistent documents",
-      "determinism": "31 artifacts restored and checked byte-for-byte"
+      "determinism": "31 artifacts restored and checked byte-for-byte",
+      "rootChoiceMainExecution": "Both payload assertions execute in main; the wrong --test compilation flag is rejected by the integration test."
     },
     "countsUnchangedFromApprovedBundle": true,
     "frozenInputsUnchanged": true,

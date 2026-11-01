@@ -60,6 +60,14 @@ fn single_namespace_content_tags(stanzas: &[IqStanzaDef]) -> HashSet<String> {
     let mut tag_ns: HashMap<String, HashSet<String>> = HashMap::new();
     for s in stanzas {
         walk(&s.request.children, &s.namespace, &mut tag_ns);
+        for variant in s
+            .request
+            .variant_groups
+            .iter()
+            .flat_map(|group| &group.variants)
+        {
+            walk(&variant.children, &s.namespace, &mut tag_ns);
+        }
     }
     tag_ns
         .into_iter()
@@ -259,6 +267,21 @@ pub fn scan_iq_with_diagnostics(
             &content_lengths,
             &tag_fallback,
         );
+        if !s.request.variant_groups.is_empty() {
+            let mut root = WapChildNode {
+                tag: "iq".into(),
+                variant_groups: std::mem::take(&mut s.request.variant_groups),
+                ..Default::default()
+            };
+            const_value_index::enrich(std::slice::from_mut(&mut root), &const_values);
+            content_length_index::enrich(
+                std::slice::from_mut(&mut root),
+                "",
+                &content_lengths,
+                &tag_fallback,
+            );
+            s.request.variant_groups = root.variant_groups;
+        }
     }
 
     // Resolve request-attribute enum links: the builder references
@@ -269,6 +292,14 @@ pub fn scan_iq_with_diagnostics(
     let mut enum_linker = ResponseEnumLinker::new(module_defs, source);
     for s in &mut stanzas {
         enum_resolver.resolve_tree(&mut s.request.children);
+        if !s.request.variant_groups.is_empty() {
+            let mut root = WapChildNode {
+                variant_groups: std::mem::take(&mut s.request.variant_groups),
+                ..Default::default()
+            };
+            enum_resolver.resolve_tree(std::slice::from_mut(&mut root));
+            s.request.variant_groups = root.variant_groups;
+        }
         // The response side needs the same pass, and gets it from the shared linker so
         // the fields/variants traversal is not re-derived here. The parser, not the enum,
         // is the unit of loss: two parsers that both fail to resolve `ENUM_OFF_ON` on
@@ -1164,5 +1195,29 @@ mod invalid_bundled_type_tests {
     fn invalid_literal_type_cannot_borrow_a_mixins_get_type() {
         let source = r#"__d("WASmaxInvalidRPC",["WASmaxJsx","WAWap"],function(g,r,d,o,e,i,l){function make(args){return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"result",to:o("WAWap").S_WHATSAPP_NET})}l.makeInvalidRequest=make;});"#;
         assert!(super::extract_iq(source, "test").stanzas.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod root_choice_identity_tests {
+    #[test]
+    fn distinct_root_choices_are_not_deduplicated() {
+        let source = r#"__d("WASmaxChoicesRPC",["WASmaxJsx","WASmaxMixins","WAWap","WASmaxMixinGroupExhaustiveError"],function(g,r,d,o,e,i,l){
+            function makeOne(args){return first(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET}),args)}
+            function makeTwo(args){return second(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET}),args)}
+            function first(dst,args){if(args.one)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("first",null)));if(args.two)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("second",null)));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            function second(dst,args){if(args.one)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("third",null)));if(args.two)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("fourth",null)));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            l.makeOneRequest=makeOne,l.makeTwoRequest=makeTwo,l.mergeFirstGroup=first,l.mergeSecondGroup=second;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas.len(), 2);
+        assert_eq!(
+            ir.stanzas[0].request.variant_groups[0].variants[0].children[0].tag,
+            "first"
+        );
+        assert_eq!(
+            ir.stanzas[1].request.variant_groups[0].variants[0].children[0].tag,
+            "third"
+        );
     }
 }

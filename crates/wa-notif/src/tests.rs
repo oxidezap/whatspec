@@ -2437,21 +2437,27 @@ fn action_parameter_shadows_module_helper() {
     );
     let ir = extract_notif(&bundle, "test");
     let actions = group_actions(&ir);
-    if let Some(action) = actions
+    let action = actions
         .into_iter()
         .find(|action| action.wire_tag == "ephemeral")
-    {
-        assert!(
-            !action
-                .fields
-                .iter()
-                .any(|field| field.name == "alpha" || field.name == "beta")
-        );
-    }
+        .expect("the known ephemeral action remains present");
+    assert!(
+        !action
+            .fields
+            .iter()
+            .any(|field| field.name == "alpha" || field.name == "beta")
+    );
 }
 #[test]
 fn block_helper_does_not_shadow_switch_outside_block() {
-    let bundle=GROUP_ACTIONS_BUNDLE.replace("function h(e){\n    var x = e.mapChildren", "function h(e){ {function w(node){return {wrong:node.attrString(\"wrong\")}}}\n    var x = e.mapChildren");
+    let bundle = GROUP_ACTIONS_BUNDLE.replace(
+        "function h(e){\n    var x = e.mapChildren",
+        concat!(
+            "function h(e){ ",
+            "{function w(node){return {wrong:node.attrString(\"wrong\")}}}",
+            "\n    var x = e.mapChildren"
+        ),
+    );
     let ir = extract_notif(&bundle, "test");
     let action = group_actions(&ir)
         .into_iter()
@@ -2459,4 +2465,25 @@ fn block_helper_does_not_shadow_switch_outside_block() {
         .unwrap();
     assert!(action.fields.iter().any(|field| field.name == "alpha"));
     assert!(!action.fields.iter().any(|field| field.name == "wrong"));
+}
+
+#[test]
+fn block_local_tag_alias_still_selects_actions() {
+    for kind in ["let", "var"] {
+        let bundle = GROUP_ACTIONS_BUNDLE
+            .replace(
+                "      var a = t.tag();",
+                &format!("      {{ {kind} a = t.tag();"),
+            )
+            .replace(
+                "      }\n    });\n    return {actions:x};",
+                "      } }\n    });\n    return {actions:x};",
+            );
+        let ir = extract_notif(&bundle, "test");
+        let action = group_actions(&ir)
+            .into_iter()
+            .find(|action| action.wire_tag == "ephemeral")
+            .expect("block tag alias dispatch remains present");
+        assert!(action.fields.iter().any(|field| field.name == "alpha"));
+    }
 }
