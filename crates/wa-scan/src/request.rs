@@ -2065,6 +2065,10 @@ fn resolve_function_returns_each(
             if let Some((s, e)) = vi.owner_fn.as_mut() {
                 *s += body_start;
                 *e += body_start;
+            } else {
+                // Top-level declarations in this re-parsed slice belong to this
+                // function, not the module or another helper invoked from it.
+                vi.owner_fn = Some((body_start, body_end));
             }
         }
     }
@@ -2201,7 +2205,7 @@ pub(crate) fn bundled_rpc_requests(
     let exports = finder.out;
     scope.local_merges = exports
         .iter()
-        .filter(|(name, _)| name.starts_with("merge") && name.contains("Mixin"))
+        .filter(|(name, _)| name.starts_with("merge"))
         .map(|(_, span)| *span)
         .collect();
     exports
@@ -2316,29 +2320,59 @@ fn resolve_local_merge(
             helpers,
             depth + 1,
         );
-        let variants = branches
+        // Request roots have no variant-group slot in the request IR. Keep
+        // their concrete child alternatives (including each child's own groups)
+        // instead of putting a group on the iq root that module extraction drops.
+        if branches
             .iter()
             .filter_map(|branch| branch.first())
-            .map(|root| wa_ir::WapVariant {
-                attrs: root.attrs.clone(),
-                children: root.children.clone(),
-            })
-            .collect::<Vec<_>>();
-        if variants.len() >= 2 {
-            vec![WapChildNode {
-                tag: branches
-                    .iter()
-                    .find_map(|branch| branch.first())
-                    .map(|root| root.tag.clone())
-                    .unwrap_or_default(),
-                variant_groups: vec![wa_ir::WapVariantGroup {
-                    optional: false,
-                    variants,
-                }],
-                ..Default::default()
-            }]
+            .all(|root| root.tag == "iq")
+        {
+            let mut roots = Vec::new();
+            for branch in &branches {
+                apply_contribution(&mut roots, branch, false);
+            }
+            for root in &mut roots {
+                for attr in &mut root.attrs {
+                    if !branches.iter().all(|branch| {
+                        branch.first().is_some_and(|node| {
+                            node.attrs.iter().any(|candidate| candidate == attr)
+                        })
+                    }) {
+                        // A union of server and group addressees has no single
+                        // destination or argument path; never pick its first arm.
+                        attr.kind = wa_ir::WapAttrKind::Dynamic;
+                        attr.value = None;
+                        attr.arg_path = None;
+                    }
+                }
+            }
+            roots
         } else {
-            branches.into_iter().flatten().collect()
+            let variants = branches
+                .iter()
+                .filter_map(|branch| branch.first())
+                .map(|root| wa_ir::WapVariant {
+                    attrs: root.attrs.clone(),
+                    children: root.children.clone(),
+                })
+                .collect::<Vec<_>>();
+            if variants.len() >= 2 {
+                vec![WapChildNode {
+                    tag: branches
+                        .iter()
+                        .find_map(|branch| branch.first())
+                        .map(|root| root.tag.clone())
+                        .unwrap_or_default(),
+                    variant_groups: vec![wa_ir::WapVariantGroup {
+                        optional: false,
+                        variants,
+                    }],
+                    ..Default::default()
+                }]
+            } else {
+                branches.into_iter().flatten().collect()
+            }
         }
     } else {
         resolve_function_return(

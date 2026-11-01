@@ -32,6 +32,8 @@ from pathlib import Path
 # require source attribution: modules may depart, new gaps may arrive, or extraction
 # may improve or regress. The six pins reviewed for WA 2.3000.1047483476 are justified
 # in docs/snapshot-quality-2026-10-07.md and its source/gap evidence sidecars.
+# The 2.3000.1052559453 pins are audited, by source identity, in
+# docs/snapshot-quality-2026-10-31.evidence.json. Zero-loss invariants stay zero.
 BASELINE = {
     "content integer with no byte width": 0,
     # An accessor that checks a value set whose out-of-set behaviour `wa_ir::wap` has not
@@ -52,7 +54,8 @@ BASELINE = {
     # until the union learned to record a conflicting addressee the way it already did
     # for `xmlns` and `type`. Raising a baseline is normally the shape of a loss; this
     # once it is the shape of a claim withdrawn.
-    "iq request with a unknown addressee": 5,
+    # GetMyNewsletterResponses adds another runtime iqTo, like the existing four.
+    "iq request with a unknown addressee": 6,
     "iq request with a unset addressee": 0,
     # Builder-side values whose address the scan could not recover — an attribute or an
     # element content that reads an argument, or a combinator-fed child, with no
@@ -63,9 +66,11 @@ BASELINE = {
     # and says nothing. Almost all of these are the legacy `WAWeb*Job` builders, which
     # take positional parameters and have no argument object to address at all; they fall
     # only if those builders stop existing or start being read.
-    "iq builder attribute with no argument path": 49,
+    # Two departed legacy attrs, one new positional USync common_gid: 49 - 2 + 1.
+    "iq builder attribute with no argument path": 48,
     "iq builder content with no argument path": 23,
-    "iq builder child with no argument path": 10,
+    # USync now conditionally emits a tctoken from getTcToken().
+    "iq builder child with no argument path": 11,
     # A request whose addressee is supplied at runtime — a group's own JID, a newsletter's
     # — and whose argument key the scan could not recover. Two, for different reasons.
     # `WAWebGroupInviteJob` is a legacy positional builder with no argument object to
@@ -90,8 +95,9 @@ BASELINE = {
     # all `RawWamEvent`, the generic envelope whose schema is supplied at runtime by
     # design. The third is held at zero: a written key that names no field of the event
     # means a write was attributed to the wrong construction, and none currently is.
-    "wam construction with an unread argument": 79,
-    "wam construction of an event with no catalog entry": 29,
+    # Source-site arithmetic for departed/new Windows versions and loggers is in the review.
+    "wam construction with an unread argument": 74,
+    "wam construction of an event with no catalog entry": 16,
     "wam written key naming no field of the event": 0,
     # Variable keys whose presence the mex extractor did not establish: a value expression
     # it does not judge (a call's return value, an `await`), or an operation whose call
@@ -119,7 +125,8 @@ BASELINE = {
     # keys were `DebugLabyrinthRange`, whose handle was its own memoised require,
     # not followed that far. That module now departs; six departed keys and four new
     # unresolved nodes account for 108 -> 106 (see the snapshot evidence ledger).
-    "mex variable with an undetermined presence": 106,
+    # 54 new declared keys, three retained keys now judged: 106 + 54 - 3.
+    "mex variable with an undetermined presence": 157,
     # Operations where the verdict is `undetermined` for EVERY variable - no call site
     # was recovered, or the one that was writes nothing this classifier reads. Pinned
     # beside the per-key count because a single key regaining a verdict moves that number
@@ -132,7 +139,8 @@ BASELINE = {
     # `DebugLabyrinthRange`'s variables were withdrawn. The reviewed snapshot removes
     # four wholly undetermined operations and adds SmartComposer's unsupported
     # useMutation alias, so the current exact pin is 13 - 4 + 1 = 10.
-    "mex operation with no established variable presence": 10,
+    # Four new operations; no retained key loses its established judgement.
+    "mex operation with no established variable presence": 14,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
     # because the alternative to dropping it is publishing `["regular"]` over a policy WA
     # stated and we failed to read — so a rise here is a channel rule going missing, not
@@ -160,14 +168,14 @@ BASELINE = {
 # By identity, not by total: an aggregate let one loss disappear while another appeared.
 # Fixing the shape is an extractor change and belongs in its own PR.
 FLATTENED_KEYS = {
-    "incoming/incoming/0/shape/fields|participant,t,verified_name": 5,
-    "incoming/incoming/3/shape/fields/5/children|user": 1,
+    "incoming/incoming/0/shape/fields|t,verified_name": 3,
     "incoming/incoming/3/shape/fields/5/children/0/children|type": 1,
-    "notif/notifications/17/content/fields|from,t": 2,
-    "notif/notifications/24/content/fields/8/children|body,group,reason,sub_group_suggestion": 4,
-    "notif/notifications/23/content/fields|from": 1,
-    "notif/notifications/3/content/fields/7/children|new_lid,old_lid": 2,
-    "notif/notifications/3/content/fields|t": 1,
+    "incoming/incoming/3/shape/fields/5/children|user": 1,
+    "notif/notifications/19/content/fields|from,t": 2,
+    "notif/notifications/25/content/fields|from": 1,
+    "notif/notifications/26/content/fields/8/children|body,group,reason,sub_group_suggestion": 4,
+    "notif/notifications/5/content/fields/7/children|new_lid,old_lid": 2,
+    "notif/notifications/5/content/fields|t": 1
 }
 
 UNRESOLVED_ENUMS = {

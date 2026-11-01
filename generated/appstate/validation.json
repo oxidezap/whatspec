@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
-  "waVersion": "2.3000.1047483476",
-  "moduleSha256": "ea9a7f85879cc90def030d69ddba472c599079845e663d03c9248d273f0255a1",
+  "waVersion": "2.3000.1052559453",
+  "moduleSha256": "f0862ab6e7612aa3acfbc0529c72d09dbbbb19c818f40bd96b24b864556260ea",
   "functions": {
     "validateExternalBlobReference": {
       "module": "WAWebSyncdValidateServerSyncProtobuf",
-      "startByte": 2972,
-      "endByte": 4243,
+      "startByte": 2974,
+      "endByte": 4245,
       "parameters": 2,
       "body": [
         {
@@ -220,8 +220,8 @@
     },
     "validateKeyIdProtobuf": {
       "module": "WAWebSyncdValidateServerSyncProtobuf",
-      "startByte": 5606,
-      "endByte": 5852,
+      "startByte": 5608,
+      "endByte": 5857,
       "parameters": 3,
       "body": [
         {
@@ -306,8 +306,8 @@
     },
     "validateMutationProtobuf": {
       "module": "WAWebSyncdValidateServerSyncProtobuf",
-      "startByte": 4271,
-      "endByte": 4844,
+      "startByte": 4273,
+      "endByte": 4846,
       "parameters": 2,
       "body": [
         {
@@ -421,8 +421,8 @@
     },
     "validatePatchProtobuf": {
       "module": "WAWebSyncdValidateServerSyncProtobuf",
-      "startByte": 1109,
-      "endByte": 2939,
+      "startByte": 1111,
+      "endByte": 2941,
       "parameters": 2,
       "body": [
         {
@@ -958,8 +958,8 @@
     },
     "validateRecordProtobuf": {
       "module": "WAWebSyncdValidateServerSyncProtobuf",
-      "startByte": 4870,
-      "endByte": 5581,
+      "startByte": 4872,
+      "endByte": 5583,
       "parameters": 2,
       "body": [
         {
@@ -1183,8 +1183,8 @@
     },
     "validateSnapshotProtobuf": {
       "module": "WAWebSyncdValidateServerSyncProtobuf",
-      "startByte": 272,
-      "endByte": 1084,
+      "startByte": 274,
+      "endByte": 1086,
       "parameters": 2,
       "body": [
         {

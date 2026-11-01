@@ -32,11 +32,9 @@ fn captured(version: &str) -> Value {
 
 fn operation<'a>(ir: &'a Value, name: &str) -> &'a Value {
     let module = format!("WASmaxOutGroups{name}Request");
-    let mut matches = ir["stanzas"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|s| s["moduleName"] == module);
+    let mut matches = ir["stanzas"].as_array().unwrap().iter().filter(|s| {
+        s["moduleName"] == module || s["moduleName"] == format!("WASmaxGroups{name}RPC")
+    });
     let operation = matches.next().unwrap_or_else(|| panic!("{name} missing"));
     assert!(matches.next().is_none(), "{name} duplicated");
     operation
@@ -572,8 +570,14 @@ fn pilot_lookup_does_not_restrict_unrelated_contracts() {
     let unrelated = stanzas
         .iter()
         .find(|s| {
-            s["moduleName"] != "WASmaxOutGroupsSetSubjectRequest"
-                && s["moduleName"] != "WASmaxOutGroupsAcceptGroupAddRequest"
+            ![
+                "WASmaxOutGroupsSetSubjectRequest",
+                "WASmaxOutGroupsAcceptGroupAddRequest",
+                "WASmaxGroupsSetSubjectRPC",
+                "WASmaxGroupsAcceptGroupAddRPC",
+            ]
+            .iter()
+            .any(|name| s["moduleName"] == *name)
         })
         .expect("full catalog includes unrelated contracts")
         .clone();

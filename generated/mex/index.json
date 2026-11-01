@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.4.0",
-  "waVersion": "2.3000.1047483476",
+  "waVersion": "2.3000.1052559453",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -79,6 +79,48 @@
             ]
           },
           "error_message": "string",
+          "success": "string"
+        }
+      }
+    },
+    "AECompanionOffboard": {
+      "originalName": "WAWebAECompanionOffboardMutation",
+      "docId": "28559481720386041",
+      "operationKind": "mutation",
+      "variables": [
+        "phoneNumber"
+      ],
+      "variablesShape": {
+        "phoneNumber": "string"
+      },
+      "variablesPresence": {
+        "phoneNumber": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xfb_whatsapp_coexistence_offboard_product": {
+          "success": "string"
+        }
+      }
+    },
+    "AECompanionOnboard": {
+      "originalName": "WAWebAECompanionOnboardMutation",
+      "docId": "28609245015427378",
+      "operationKind": "mutation",
+      "variables": [
+        "phoneNumber"
+      ],
+      "variablesShape": {
+        "phoneNumber": "string"
+      },
+      "variablesPresence": {
+        "phoneNumber": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xfb_whatsapp_coexistence_process_native_onboarding": {
           "success": "string"
         }
       }
@@ -242,44 +284,6 @@
             },
             "token": "string"
           }
-        }
-      }
-    },
-    "BizCustomUrlGetUserGraphql": {
-      "originalName": "WAWebBizCustomUrlGetUserGraphqlQuery",
-      "docId": "26867176859566677",
-      "operationKind": "query",
-      "variables": [
-        "data"
-      ],
-      "variablesShape": {
-        "data": {
-          "custom_url": {
-            "path": "string"
-          }
-        }
-      },
-      "variablesPresence": {
-        "data": {
-          "presence": "always",
-          "fields": {
-            "custom_url": {
-              "presence": "always",
-              "fields": {
-                "path": {
-                  "presence": "conditional"
-                }
-              }
-            }
-          }
-        }
-      },
-      "response": {
-        "xwa_custom_url_get_user": {
-          "error_code": "string",
-          "error_text": "string",
-          "lid": "string",
-          "success": "string"
         }
       }
     },
@@ -725,7 +729,6 @@
       "variablesShape": {
         "request": {
           "order": {
-            "direct_connection_encrypted_info": "string",
             "id": "string",
             "image_dimensions": {
               "height": "number",
@@ -745,9 +748,6 @@
             "order": {
               "presence": "always",
               "fields": {
-                "direct_connection_encrypted_info": {
-                  "presence": "conditional"
-                },
                 "id": {
                   "presence": "conditional"
                 },
@@ -763,7 +763,7 @@
                   }
                 },
                 "jid": {
-                  "presence": "undetermined"
+                  "presence": "conditional"
                 },
                 "token": {
                   "presence": "always",
@@ -926,6 +926,44 @@
         "xwa2_newsletter_change_owner": {
           "__typename": "string",
           "id": "string"
+        }
+      }
+    },
+    "CoexCanonicalState": {
+      "originalName": "WAWebCoexCanonicalStateQuery",
+      "docId": "38737092685936550",
+      "operationKind": "query",
+      "variables": [
+        "request"
+      ],
+      "variablesShape": {
+        "request": {
+          "phone_number": "number"
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "phone_number": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xfb_whatsapp_coexistence_bsp_info_query": {
+          "product_states": {
+            "states": [
+              {
+                "coex_connection_descriptor": {
+                  "product": "string",
+                  "provider_id": "string"
+                },
+                "onboarding_status": "string"
+              }
+            ]
+          }
         }
       }
     },
@@ -1143,7 +1181,7 @@
     },
     "ContactManagerCustomerProfile": {
       "originalName": "WAWebContactManagerCustomerProfileQuery",
-      "docId": "37925750573706165",
+      "docId": "29469025239347803",
       "operationKind": "query",
       "variables": [
         "lid"
@@ -1161,54 +1199,87 @@
           "acquisition_date": "string",
           "acquisition_source": "string",
           "address": "string",
+          "ai_summary": "string",
+          "confirmed_appointment_date": "string",
           "dob": "string",
           "email": "string",
-          "last_order_date": "string",
+          "etag": "string",
+          "last_order": "string",
           "last_updates": [
             {
+              "field_name": "string",
+              "source": "string",
               "ts": "string"
             }
           ],
           "lead_stage": "string",
-          "name": "string"
+          "name": "string",
+          "order_preferences": "string"
+        }
+      }
+    },
+    "ContactManagerCustomerProfileDelete": {
+      "originalName": "WAWebContactManagerCustomerProfileDeleteMutation",
+      "docId": "27993814970320462",
+      "operationKind": "mutation",
+      "variables": [
+        "lid"
+      ],
+      "variablesShape": {
+        "lid": "string"
+      },
+      "variablesPresence": {
+        "lid": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xfb_wa_delete_customer_profile": {
+          "deleted_lid": "string"
         }
       }
     },
     "ContactManagerCustomerProfileUpsert": {
       "originalName": "WAWebContactManagerCustomerProfileUpsertMutation",
-      "docId": "27789071790751197",
+      "docId": "29102382062699337",
       "operationKind": "mutation",
       "variables": [
         "input"
       ],
       "variablesShape": {
-        "input": [
-          "string"
-        ]
+        "input": "string"
       },
       "variablesPresence": {
         "input": {
-          "presence": "always"
+          "presence": "conditional"
         }
       },
       "response": {
         "xfb_wa_upsert_customer_profiles": {
+          "conflicts": [
+            {
+              "lid_jid": "string"
+            }
+          ],
           "profiles": [
             {
-              "lid": "string"
+              "lid_jid": "string"
             }
-          ]
+          ],
+          "unresolved_lids": "string"
         }
       }
     },
     "ContactManagerCustomerProfiles": {
       "originalName": "WAWebContactManagerCustomerProfilesQuery",
-      "docId": "27796221486653417",
+      "docId": "29693690733569730",
       "operationKind": "query",
       "variables": [
+        "includeCustomFields",
         "input"
       ],
       "variablesShape": {
+        "includeCustomFields": "string",
         "input": {
           "candidate_lids": "string",
           "cursor": "string",
@@ -1224,6 +1295,9 @@
         }
       },
       "variablesPresence": {
+        "includeCustomFields": {
+          "presence": "always"
+        },
         "input": {
           "presence": "always",
           "fields": {
@@ -1248,7 +1322,7 @@
               }
             },
             "page_size": {
-              "presence": "always"
+              "presence": "conditional"
             },
             "sort_column": {
               "presence": "conditional"
@@ -1265,15 +1339,36 @@
           "profiles": [
             {
               "acquisition_source": "string",
+              "address": "string",
+              "custom_field_values": [
+                {
+                  "custom_field_definition": {
+                    "currency": "string",
+                    "currency_decimal_places": "string",
+                    "enum_option_keys": "string",
+                    "enum_values": "string",
+                    "field_type": "string",
+                    "id": "string",
+                    "name": "string"
+                  },
+                  "date_value": "string",
+                  "enum_option_key": "string",
+                  "id": "string",
+                  "money_amount": "string",
+                  "numeric_value": "string",
+                  "text_value": "string"
+                }
+              ],
+              "dob": "string",
               "email": "string",
-              "last_order_date": "string",
+              "last_order": "string",
               "last_updates": [
                 {
                   "ts": "string"
                 }
               ],
               "lead_stage": "string",
-              "lid": "string",
+              "lid_jid": "string",
               "name": "string"
             }
           ]
@@ -1282,7 +1377,7 @@
     },
     "CreateInviteCode": {
       "originalName": "WAWebMexCreateInviteCodeJobMutation",
-      "docId": "26155584267463745",
+      "docId": "28250338504572715",
       "operationKind": "mutation",
       "variables": [
         "input"
@@ -1305,14 +1400,15 @@
               "presence": "conditional"
             },
             "server_send_sms": {
-              "presence": "always"
+              "presence": "conditional"
             }
           }
         }
       },
       "response": {
         "xwa2_growth_create_invite_code": {
-          "code": "string"
+          "code": "string",
+          "error_reason": "string"
         }
       }
     },
@@ -1504,16 +1600,18 @@
     },
     "CreateWhatsAppAdsIdentity": {
       "originalName": "WAWebCreateWhatsAppAdsIdentityMutation",
-      "docId": "24393949203623093",
+      "docId": "28563449513306594",
       "operationKind": "mutation",
       "variables": [
         "code",
+        "lid",
         "phone_number"
       ],
       "variablesShape": {
         "code": {
           "sensitive_string_value": "string"
         },
+        "lid": "string",
         "phone_number": {
           "sensitive_string_value": "string"
         }
@@ -1526,6 +1624,9 @@
               "presence": "conditional"
             }
           }
+        },
+        "lid": {
+          "presence": "conditional"
         },
         "phone_number": {
           "presence": "always",
@@ -1571,6 +1672,41 @@
             "custom_label": "string"
           }
         ]
+      }
+    },
+    "CustomerManagerAccessState": {
+      "originalName": "WAWebCustomerManagerAccessStateQuery",
+      "docId": "28677428258581927",
+      "operationKind": "query",
+      "response": {
+        "xfb_wa_contact_manager_access_state": {
+          "state": "string",
+          "trial_end_time": "number"
+        }
+      }
+    },
+    "CustomerManagerStartTrial": {
+      "originalName": "WAWebCustomerManagerStartTrialMutation",
+      "docId": "28905083339086977",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {}
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always"
+        }
+      },
+      "response": {
+        "xfb_wa_start_contact_manager_trial": {
+          "access_state": {
+            "state": "string",
+            "trial_end_time": "number"
+          }
+        }
       }
     },
     "DeleteNewsletter": {
@@ -1646,6 +1782,59 @@
       },
       "response": {
         "edit_wa_web_biz_profile": "string"
+      }
+    },
+    "EmailInviteSendGroup": {
+      "originalName": "WAWebEmailInviteSendGroupMutation",
+      "docId": "28484430131216234",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "emails": [
+            "string"
+          ],
+          "inviter_name": "string",
+          "source": "string",
+          "target_id": "string",
+          "target_type": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "emails": {
+              "presence": "undetermined"
+            },
+            "inviter_name": {
+              "presence": "undetermined"
+            },
+            "source": {
+              "presence": "always"
+            },
+            "target_id": {
+              "presence": "conditional"
+            },
+            "target_type": {
+              "presence": "always"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_send_email_invites": {
+          "error_reason": "string",
+          "results": [
+            {
+              "email": "string",
+              "status": "string"
+            }
+          ],
+          "status": "string"
+        }
       }
     },
     "ExternalCtxAuthoriseWAChat": {
@@ -2180,6 +2369,268 @@
         }
       }
     },
+    "FetchGroupInfoIncludBotsJobAcp2": {
+      "originalName": "WAWebMexFetchGroupInfoIncludBotsJobAcp2Query",
+      "docId": "28036426022701940",
+      "operationKind": "query",
+      "variables": [
+        "id",
+        "include_username",
+        "participants_phash",
+        "query_context"
+      ],
+      "variablesShape": {
+        "id": "string",
+        "include_username": "boolean",
+        "participants_phash": "string",
+        "query_context": "string"
+      },
+      "variablesPresence": {
+        "id": {
+          "presence": "conditional"
+        },
+        "include_username": {
+          "presence": "undetermined"
+        },
+        "participants_phash": {
+          "presence": "conditional"
+        },
+        "query_context": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa2_group_query_by_id": {
+          "__typename": "string",
+          "creation_time": "number",
+          "creator": {
+            "id": "string",
+            "lid": "string",
+            "pn": "string",
+            "username_info": {
+              "__typename": "string",
+              "username": "string"
+            }
+          },
+          "description": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "lid": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "id": "string",
+            "value": "string"
+          },
+          "id": "string",
+          "membership_approval_request": "string",
+          "missing_participant_identification": "string",
+          "participants": {
+            "edges": [
+              {
+                "group_history_sent": "string",
+                "join_time": "number",
+                "participant": {
+                  "__typename": "string",
+                  "display_name": "string",
+                  "id": "string",
+                  "jid": "string",
+                  "lid": "string",
+                  "pn": "string",
+                  "username_info": {
+                    "__typename": "string",
+                    "username": "string"
+                  }
+                },
+                "role": "string"
+              }
+            ],
+            "participants_phash_match": "string"
+          },
+          "properties": {
+            "allow_admin_reports": "boolean",
+            "allow_non_admin_sub_group_creation": "boolean",
+            "announcement": "string",
+            "appeal_status": "string",
+            "appeal_update_time": "number",
+            "auto_add_disabled": "boolean",
+            "capi": "string",
+            "closed_by_membership_approval_mode": "string",
+            "ephemeral": {
+              "expiration_time_in_sec": "string"
+            },
+            "general_chat": "string",
+            "group_safety_check": "string",
+            "growth_locked2": {
+              "locked": "string"
+            },
+            "hidden_group": "string",
+            "lid_migration_state": {
+              "addressing_mode": "string"
+            },
+            "limit_sharing": {
+              "limit_companion_sharing_enabled": "boolean",
+              "limit_sharing_enabled": "boolean"
+            },
+            "locked": "string",
+            "member_add_mode": "string",
+            "member_link_mode": "string",
+            "member_share_group_history_mode": "string",
+            "membership_approval_mode_enabled": "boolean",
+            "support": "string"
+          },
+          "state": "string",
+          "subject": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "lid": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "value": "string"
+          },
+          "total_participants_count": "number"
+        }
+      }
+    },
+    "FetchGroupInfoJobAcp2": {
+      "originalName": "WAWebMexFetchGroupInfoJobAcp2Query",
+      "docId": "38735621546085739",
+      "operationKind": "query",
+      "variables": [
+        "id",
+        "include_username",
+        "participants_phash",
+        "query_context"
+      ],
+      "variablesShape": {
+        "id": "string",
+        "include_username": "boolean",
+        "participants_phash": "string",
+        "query_context": "string"
+      },
+      "variablesPresence": {
+        "id": {
+          "presence": "conditional"
+        },
+        "include_username": {
+          "presence": "undetermined"
+        },
+        "participants_phash": {
+          "presence": "conditional"
+        },
+        "query_context": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa2_group_query_by_id": {
+          "__typename": "string",
+          "creation_time": "number",
+          "creator": {
+            "id": "string",
+            "lid": "string",
+            "pn": "string",
+            "username_info": {
+              "__typename": "string",
+              "username": "string"
+            }
+          },
+          "description": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "lid": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "id": "string",
+            "value": "string"
+          },
+          "id": "string",
+          "membership_approval_request": "string",
+          "missing_participant_identification": "string",
+          "participants": {
+            "edges": [
+              {
+                "group_history_sent": "string",
+                "join_time": "number",
+                "node": {
+                  "display_name": "string",
+                  "id": "string",
+                  "lid": "string",
+                  "pn": "string",
+                  "username_info": {
+                    "__typename": "string",
+                    "username": "string"
+                  }
+                },
+                "role": "string"
+              }
+            ],
+            "participants_phash_match": "string"
+          },
+          "properties": {
+            "allow_admin_reports": "boolean",
+            "allow_non_admin_sub_group_creation": "boolean",
+            "announcement": "string",
+            "appeal_status": "string",
+            "appeal_update_time": "number",
+            "auto_add_disabled": "boolean",
+            "capi": "string",
+            "closed_by_membership_approval_mode": "string",
+            "ephemeral": {
+              "expiration_time_in_sec": "string"
+            },
+            "general_chat": "string",
+            "growth_locked2": {
+              "locked": "string"
+            },
+            "hidden_group": "string",
+            "lid_migration_state": {
+              "addressing_mode": "string"
+            },
+            "limit_sharing": {
+              "limit_companion_sharing_enabled": "boolean",
+              "limit_sharing_enabled": "boolean"
+            },
+            "locked": "string",
+            "member_add_mode": "string",
+            "member_link_mode": "string",
+            "member_share_group_history_mode": "string",
+            "membership_approval_mode_enabled": "boolean",
+            "parent_group_jid": "string",
+            "support": "string"
+          },
+          "state": "string",
+          "subject": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "lid": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "value": "string"
+          },
+          "total_participants_count": "number"
+        }
+      }
+    },
     "FetchGroupInviteCode": {
       "originalName": "WAWebMexFetchGroupInviteCodeJobQuery",
       "docId": "29247029834912157",
@@ -2268,7 +2719,7 @@
                     "presence": "always",
                     "fields": {
                       "use_case": {
-                        "presence": "always"
+                        "presence": "conditional"
                       }
                     }
                   },
@@ -2376,7 +2827,7 @@
           "presence": "always"
         },
         "fetch_pinned_messages": {
-          "presence": "undetermined"
+          "presence": "always"
         },
         "fetch_status_metadata": {
           "presence": "always"
@@ -2541,7 +2992,7 @@
       },
       "variablesPresence": {
         "fetch_pinned_messages": {
-          "presence": "undetermined"
+          "presence": "always"
         },
         "fetch_wamo_sub": {
           "presence": "always"
@@ -3246,7 +3697,7 @@
     },
     "FetchNewsletterPendingInvites": {
       "originalName": "WAWebMexFetchNewsletterPendingInvitesJobQuery",
-      "docId": "9783111038412085",
+      "docId": "28049623068067370",
       "operationKind": "query",
       "variables": [
         "newsletter_id"
@@ -3265,8 +3716,7 @@
           "pending_admin_invites": [
             {
               "user": {
-                "id": "string",
-                "pn": "string"
+                "id": "string"
               }
             }
           ]
@@ -3915,8 +4365,39 @@
     },
     "FetchSubscriptionEntryPoints": {
       "originalName": "WAWebFetchSubscriptionEntryPointsQuery",
-      "docId": "9569660009784796",
+      "docId": "28640361858996486",
       "operationKind": "query",
+      "variables": [
+        "subscriptionTypes"
+      ],
+      "variablesShape": {
+        "subscriptionTypes": [
+          {
+            "subscriptionType": "string",
+            "webEntryPointEligibility": "string",
+            "webEntryPointRedirectionUri": "string"
+          }
+        ]
+      },
+      "variablesPresence": {
+        "subscriptionTypes": {
+          "presence": "conditional",
+          "items": {
+            "presence": "always",
+            "fields": {
+              "subscriptionType": {
+                "presence": "undetermined"
+              },
+              "webEntryPointEligibility": {
+                "presence": "undetermined"
+              },
+              "webEntryPointRedirectionUri": {
+                "presence": "undetermined"
+              }
+            }
+          }
+        }
+      },
       "response": {
         "waSubscriptionEntryPoints": {
           "subscriptionEntryPoints": [
@@ -4007,12 +4488,15 @@
     },
     "FetchWassBotListProfilesGQL": {
       "originalName": "WAWebFetchWassBotListProfilesGQLQuery",
-      "docId": "28479090065021614",
+      "docId": "39261984743449137",
       "operationKind": "query",
       "response": {
         "wass_account_list_profiles": [
           {
             "bot_fbid": "string",
+            "creator_lid": "string",
+            "generated_emoji": "string",
+            "hca_entrypoint_id": "string",
             "is_deprecated": "boolean",
             "name": "string",
             "product": "string",
@@ -4024,26 +4508,42 @@
     },
     "FetchWassBotProfileGQL": {
       "originalName": "WAWebFetchWassBotProfileGQLQuery",
-      "docId": "27911751148486446",
+      "docId": "29031553939815852",
       "operationKind": "query",
       "variables": [
-        "botFbid"
+        "botFbid",
+        "groupJid"
       ],
       "variablesShape": {
-        "botFbid": "string"
+        "botFbid": "string",
+        "groupJid": "string"
       },
       "variablesPresence": {
         "botFbid": {
+          "presence": "conditional"
+        },
+        "groupJid": {
           "presence": "conditional"
         }
       },
       "response": {
         "get_wass_account_profile": {
+          "creator_lid": "string",
+          "generated_emoji": "string",
+          "hca_entrypoint_id": "string",
           "is_deprecated": "boolean",
           "name": "string",
           "product": "string",
           "profile_pic_full_url": "string",
-          "profile_pic_thumb_url": "string"
+          "profile_pic_thumb_url": "string",
+          "tos": {
+            "group": [
+              {
+                "blocking": "string",
+                "id": "string"
+              }
+            ]
+          }
         }
       }
     },
@@ -4149,7 +4649,7 @@
     },
     "GetNumbersForBrandIds": {
       "originalName": "WAWebGetNumbersForBrandIdsJobQuery",
-      "docId": "33391034967211217",
+      "docId": "28724500483870087",
       "operationKind": "query",
       "variables": [
         "input"
@@ -4364,6 +4864,58 @@
         }
       }
     },
+    "GetWoasAgeSignal": {
+      "originalName": "WAWebMexGetWoasAgeSignalQuery",
+      "docId": "38845990424986108",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "query_input": [
+            {
+              "jid": "string"
+            }
+          ]
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "query_input": {
+              "presence": "always",
+              "items": {
+                "presence": "always",
+                "fields": {
+                  "jid": {
+                    "presence": "undetermined"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa2_fetch_wa_users": [
+          {
+            "__typename": "string",
+            "age_collection_info": {
+              "assets": [
+                {
+                  "name": "string",
+                  "ttl_sec": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "id": "string"
+          }
+        ]
+      }
+    },
     "GraphQLProductCatalogGetPublicKey": {
       "originalName": "WAWebGraphQLProductCatalogGetPublicKeyJobQuery",
       "docId": "WAWebGraphQLProductCatalogGetPublicKeyJobQuery",
@@ -4442,6 +4994,65 @@
             "encrypted_location_name": "string",
             "result_code": "string"
           }
+        }
+      }
+    },
+    "GroupStoreAndSendInviteSms": {
+      "originalName": "WAWebMexGroupStoreAndSendInviteSmsJobMutation",
+      "docId": "29313771494886407",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "entry_point": "string",
+          "group_jid": "string",
+          "participants": [
+            {
+              "participant": "string",
+              "server_sent_sms": "string"
+            }
+          ]
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "entry_point": {
+              "presence": "conditional"
+            },
+            "group_jid": {
+              "presence": "conditional"
+            },
+            "participants": {
+              "presence": "always",
+              "items": {
+                "presence": "always",
+                "fields": {
+                  "participant": {
+                    "presence": "conditional"
+                  },
+                  "server_sent_sms": {
+                    "presence": "always"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa2_group_store_and_send_invites_sms": {
+          "group_jid": "string",
+          "participant_responses": [
+            {
+              "error_code": "string",
+              "jid": "string",
+              "server_sent": "string"
+            }
+          ]
         }
       }
     },
@@ -4564,6 +5175,55 @@
         }
       }
     },
+    "InternalDirectoryFetchMembers": {
+      "originalName": "WAWebInternalDirectoryFetchMembersJobQuery",
+      "docId": "28645118498472724",
+      "operationKind": "query",
+      "variables": [
+        "after",
+        "first"
+      ],
+      "variablesShape": {
+        "after": {
+          "invalidLidCount": "string"
+        },
+        "first": "string"
+      },
+      "variablesPresence": {
+        "after": {
+          "presence": "conditional",
+          "fields": {
+            "invalidLidCount": {
+              "presence": "undetermined"
+            }
+          }
+        },
+        "first": {
+          "presence": "always"
+        }
+      },
+      "response": {
+        "xwa_whatsapp_for_work_employee_directory": {
+          "edges": [
+            {
+              "node": {
+                "designation": "string",
+                "enrollment_status": "string",
+                "id": "string",
+                "lid": "string",
+                "member_id": "string",
+                "name": "string",
+                "team": "string"
+              }
+            }
+          ],
+          "page_info": {
+            "end_cursor": "string",
+            "has_next_page": "boolean"
+          }
+        }
+      }
+    },
     "JoinNewsletter": {
       "originalName": "WAWebMexJoinNewsletterJobMutation",
       "docId": "24404358912487870",
@@ -4665,6 +5325,36 @@
         "xwa2_newsletter_log_exposures": {
           "__typename": "string"
         }
+      }
+    },
+    "LogServerSentInviteIntent": {
+      "originalName": "WAWebMexLogServerSentInviteIntentJobMutation",
+      "docId": "28486062674347663",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "entry_point": "string",
+          "receiver": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "entry_point": {
+              "presence": "conditional"
+            },
+            "receiver": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa2_growth_log_server_sent_invite_intent": "string"
       }
     },
     "NativeMLModel": {
@@ -4908,6 +5598,931 @@
         }
       }
     },
+    "OrgAdminGraphQLAddChannel": {
+      "originalName": "WAWebOrgAdminGraphQLAddChannelMutation",
+      "docId": "28447256928278589",
+      "operationKind": "mutation",
+      "variables": [
+        "channelID",
+        "orgID"
+      ],
+      "variablesShape": {
+        "channelID": "string",
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "channelID": {
+          "presence": "conditional"
+        },
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_managed_channel_add": {
+          "channel": {
+            "creation_timestamp_s": "string",
+            "description": "string",
+            "follower_count": "number",
+            "id": "string",
+            "invite_code": "string",
+            "name": "string",
+            "picture": {
+              "uri": "string"
+            }
+          },
+          "error_reason": "string",
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLAddGroup": {
+      "originalName": "WAWebOrgAdminGraphQLAddGroupMutation",
+      "docId": "28671827069172109",
+      "operationKind": "mutation",
+      "variables": [
+        "gid",
+        "orgID"
+      ],
+      "variablesShape": {
+        "gid": "string",
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "gid": {
+          "presence": "conditional"
+        },
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_managed_group_add": {
+          "error_reason": "string",
+          "group": {
+            "creation_timestamp_s": "string",
+            "gid": "string",
+            "participant_count": "number",
+            "subject": "string"
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLAdminRoster": {
+      "originalName": "WAWebOrgAdminGraphQLAdminRosterQuery",
+      "docId": "40493889943531509",
+      "operationKind": "query",
+      "variables": [
+        "orgID"
+      ],
+      "variablesShape": {
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_get": {
+          "error_reason": "string",
+          "org_info": {
+            "admin_roster": {
+              "entries": [
+                {
+                  "email_address": "string",
+                  "id": "string",
+                  "invite_expiry": "string",
+                  "member_lid": "string",
+                  "member_tag": "string",
+                  "name": "string",
+                  "phone_number": "number",
+                  "secondary_member_tag": "string",
+                  "status": "string"
+                }
+              ],
+              "is_truncated": "boolean",
+              "total_count": "number",
+              "version": "number"
+            },
+            "id": "string",
+            "member_tag_name": "string",
+            "secondary_member_tag_name": "string"
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLApplyAdminRosterChanges": {
+      "originalName": "WAWebOrgAdminGraphQLApplyAdminRosterChangesMutation",
+      "docId": "40256649857252491",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "adds": [
+            "string"
+          ],
+          "changes": [
+            "string"
+          ],
+          "expected_version": "number",
+          "org_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "adds": {
+              "presence": "undetermined"
+            },
+            "changes": {
+              "presence": "undetermined"
+            },
+            "expected_version": {
+              "presence": "conditional"
+            },
+            "org_id": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_org_admin_roster_apply_changes": {
+          "added_entry_ids": "string",
+          "error_reason": "string",
+          "invalid_change": {
+            "index": "number",
+            "kind": "string"
+          },
+          "status": "string",
+          "version": "number"
+        }
+      }
+    },
+    "OrgAdminGraphQLDirectoryPage": {
+      "originalName": "WAWebOrgAdminGraphQLDirectoryPageQuery",
+      "docId": "28707165072226731",
+      "operationKind": "query",
+      "variables": [
+        "first",
+        "orgID"
+      ],
+      "variablesShape": {
+        "first": "string",
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "first": {
+          "presence": "always"
+        },
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_get": {
+          "error_reason": "string",
+          "org_info": {
+            "id": "string",
+            "members": {
+              "count": "number",
+              "nodes": [
+                {
+                  "display_name": "string",
+                  "lid": "string",
+                  "member_tag": "string",
+                  "phone_number": "number",
+                  "role": "string",
+                  "username": "string"
+                }
+              ],
+              "page_info": {
+                "has_next_page": "boolean"
+              }
+            },
+            "org_member_updated_ts_usec": "string"
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLGroup": {
+      "originalName": "WAWebOrgAdminGraphQLGroupQuery",
+      "docId": "28395729336786789",
+      "operationKind": "query",
+      "variables": [
+        "gid",
+        "orgID"
+      ],
+      "variablesShape": {
+        "gid": "string",
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "gid": {
+          "presence": "conditional"
+        },
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_get": {
+          "error_reason": "string",
+          "org_info": {
+            "id": "string",
+            "managed_group": {
+              "creation_timestamp_s": "string",
+              "description": "string",
+              "gid": "string",
+              "participant_count": "number",
+              "participants": [
+                {
+                  "lid": "string",
+                  "role": "string"
+                }
+              ],
+              "picture": {
+                "uri": "string"
+              },
+              "roster_partial": "string",
+              "subject": "string"
+            }
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLInviteMembers": {
+      "originalName": "WAWebOrgAdminGraphQLInviteMembersMutation",
+      "docId": "28461077290259979",
+      "operationKind": "mutation",
+      "variables": [
+        "orgID",
+        "resend",
+        "rosterEntryIDs"
+      ],
+      "variablesShape": {
+        "orgID": "string",
+        "resend": {
+          "description": "string",
+          "icon_blob": "string",
+          "member_tag_name": "string",
+          "member_tag_options": "string",
+          "org_id": "string",
+          "secondary_member_tag_name": "string"
+        },
+        "rosterEntryIDs": "string"
+      },
+      "variablesPresence": {
+        "orgID": {
+          "presence": "conditional"
+        },
+        "resend": {
+          "presence": "conditional",
+          "fields": {
+            "description": {
+              "presence": "undetermined"
+            },
+            "icon_blob": {
+              "presence": "undetermined"
+            },
+            "member_tag_name": {
+              "presence": "undetermined"
+            },
+            "member_tag_options": {
+              "presence": "undetermined"
+            },
+            "org_id": {
+              "presence": "undetermined"
+            },
+            "secondary_member_tag_name": {
+              "presence": "undetermined"
+            }
+          }
+        },
+        "rosterEntryIDs": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_invite_members": {
+          "error_reason": "string",
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLManagedChannelAdmins": {
+      "originalName": "WAWebOrgAdminGraphQLManagedChannelAdminsQuery",
+      "docId": "29593944580197266",
+      "operationKind": "query",
+      "variables": [
+        "channelID",
+        "orgID"
+      ],
+      "variablesShape": {
+        "channelID": "string",
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "channelID": {
+          "presence": "conditional"
+        },
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_get": {
+          "error_reason": "string",
+          "org_info": {
+            "id": "string",
+            "managed_channel": {
+              "admins": {
+                "members": [
+                  {
+                    "lid": "string",
+                    "role": "string"
+                  }
+                ],
+                "outside_organization_count": "number"
+              },
+              "id": "string"
+            }
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLManagedChannels": {
+      "originalName": "WAWebOrgAdminGraphQLManagedChannelsQuery",
+      "docId": "39052330251080657",
+      "operationKind": "query",
+      "variables": [
+        "orgID"
+      ],
+      "variablesShape": {
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_get": {
+          "error_reason": "string",
+          "org_info": {
+            "id": "string",
+            "managed_channels": {
+              "nodes": [
+                {
+                  "creation_timestamp_s": "string",
+                  "description": "string",
+                  "follower_count": "number",
+                  "id": "string",
+                  "invite_code": "string",
+                  "name": "string",
+                  "picture": {
+                    "uri": "string"
+                  }
+                }
+              ]
+            }
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLManagedEvents": {
+      "originalName": "WAWebOrgAdminGraphQLManagedEventsQuery",
+      "docId": "39566074213037984",
+      "operationKind": "query",
+      "variables": [
+        "orgID"
+      ],
+      "variablesShape": {
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_get": {
+          "error_reason": "string",
+          "org_info": {
+            "id": "string",
+            "managed_events": {
+              "nodes": [
+                {
+                  "end_timestamp_s": "string",
+                  "id": "string",
+                  "name": "string",
+                  "start_timestamp_s": "string",
+                  "status": "string"
+                }
+              ]
+            }
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLManagedGroups": {
+      "originalName": "WAWebOrgAdminGraphQLManagedGroupsQuery",
+      "docId": "28885446151060025",
+      "operationKind": "query",
+      "variables": [
+        "orgID"
+      ],
+      "variablesShape": {
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_get": {
+          "error_reason": "string",
+          "org_info": {
+            "id": "string",
+            "managed_groups": {
+              "nodes": [
+                {
+                  "creation_timestamp_s": "string",
+                  "gid": "string",
+                  "participant_count": "number",
+                  "participants": [
+                    {
+                      "lid": "string",
+                      "role": "string"
+                    }
+                  ],
+                  "roster_partial": "string",
+                  "subject": "string"
+                }
+              ]
+            }
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLMemberSearch": {
+      "originalName": "WAWebOrgAdminGraphQLMemberSearchQuery",
+      "docId": "28641250612201754",
+      "operationKind": "query",
+      "variables": [
+        "after",
+        "first",
+        "memberTag",
+        "orgID",
+        "query"
+      ],
+      "variablesShape": {
+        "after": "string",
+        "first": "string",
+        "memberTag": {
+          "description": "string",
+          "icon_blob": "string",
+          "member_tag_name": "string",
+          "member_tag_options": "string",
+          "org_id": "string",
+          "secondary_member_tag_name": "string"
+        },
+        "orgID": "string",
+        "query": "string"
+      },
+      "variablesPresence": {
+        "after": {
+          "presence": "conditional"
+        },
+        "first": {
+          "presence": "always"
+        },
+        "memberTag": {
+          "presence": "conditional",
+          "fields": {
+            "description": {
+              "presence": "undetermined"
+            },
+            "icon_blob": {
+              "presence": "undetermined"
+            },
+            "member_tag_name": {
+              "presence": "undetermined"
+            },
+            "member_tag_options": {
+              "presence": "undetermined"
+            },
+            "org_id": {
+              "presence": "undetermined"
+            },
+            "secondary_member_tag_name": {
+              "presence": "undetermined"
+            }
+          }
+        },
+        "orgID": {
+          "presence": "conditional"
+        },
+        "query": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xwa_org_member_search": {
+          "count": "number",
+          "nodes": [
+            {
+              "member": {
+                "display_name": "string",
+                "lid": "string",
+                "member_tag": "string",
+                "phone_number": "number",
+                "role": "string",
+                "username": "string"
+              }
+            }
+          ],
+          "page_info": {
+            "end_cursor": "string",
+            "has_next_page": "boolean"
+          }
+        }
+      }
+    },
+    "OrgAdminGraphQLOrgs": {
+      "originalName": "WAWebOrgAdminGraphQLOrgsQuery",
+      "docId": "28528010626842072",
+      "operationKind": "query",
+      "response": {
+        "xwa_org_list": {
+          "orgs": [
+            {
+              "description": "string",
+              "icon_large": {
+                "uri": "string"
+              },
+              "icon_small": {
+                "handle": "string",
+                "uri": "string"
+              },
+              "id": "string",
+              "is_member_directory_enabled": "boolean",
+              "member_tag_options": "string",
+              "members": {
+                "count": "number"
+              },
+              "name": "string",
+              "org_member_updated_ts_usec": "string",
+              "org_updated_ts_usec": "string",
+              "viewer_role": "string"
+            }
+          ]
+        }
+      }
+    },
+    "OrgAdminGraphQLRemoveMember": {
+      "originalName": "WAWebOrgAdminGraphQLRemoveMemberMutation",
+      "docId": "28986698047634303",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "member_lid": "string",
+          "org_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "member_lid": {
+              "presence": "conditional"
+            },
+            "org_id": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_org_member_remove": {
+          "error_reason": "string",
+          "org": {
+            "id": "string",
+            "members": {
+              "count": "number"
+            }
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLSendManagedGroupEmailInvites": {
+      "originalName": "WAWebOrgAdminGraphQLSendManagedGroupEmailInvitesMutation",
+      "docId": "38981821098132867",
+      "operationKind": "mutation",
+      "variables": [
+        "gid",
+        "orgID",
+        "rosterEntryIDs"
+      ],
+      "variablesShape": {
+        "gid": "string",
+        "orgID": "string",
+        "rosterEntryIDs": {
+          "description": "string",
+          "icon_blob": "string",
+          "member_tag_name": "string",
+          "member_tag_options": "string",
+          "org_id": "string",
+          "secondary_member_tag_name": "string"
+        }
+      },
+      "variablesPresence": {
+        "gid": {
+          "presence": "conditional"
+        },
+        "orgID": {
+          "presence": "conditional"
+        },
+        "rosterEntryIDs": {
+          "presence": "conditional",
+          "fields": {
+            "description": {
+              "presence": "undetermined"
+            },
+            "icon_blob": {
+              "presence": "undetermined"
+            },
+            "member_tag_name": {
+              "presence": "undetermined"
+            },
+            "member_tag_options": {
+              "presence": "undetermined"
+            },
+            "org_id": {
+              "presence": "undetermined"
+            },
+            "secondary_member_tag_name": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_org_managed_group_send_email_invites": {
+          "error_reason": "string",
+          "results": [
+            {
+              "status": "string"
+            }
+          ],
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLSetMemberRole": {
+      "originalName": "WAWebOrgAdminGraphQLSetMemberRoleMutation",
+      "docId": "28722796247384351",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "member_lid": "string",
+          "org_id": "string",
+          "role": {
+            "description": "string",
+            "icon_blob": "string",
+            "member_tag_name": "string",
+            "member_tag_options": "string",
+            "org_id": "string",
+            "secondary_member_tag_name": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "member_lid": {
+              "presence": "conditional"
+            },
+            "org_id": {
+              "presence": "conditional"
+            },
+            "role": {
+              "presence": "conditional",
+              "fields": {
+                "description": {
+                  "presence": "undetermined"
+                },
+                "icon_blob": {
+                  "presence": "undetermined"
+                },
+                "member_tag_name": {
+                  "presence": "undetermined"
+                },
+                "member_tag_options": {
+                  "presence": "undetermined"
+                },
+                "org_id": {
+                  "presence": "undetermined"
+                },
+                "secondary_member_tag_name": {
+                  "presence": "undetermined"
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_org_member_set_role": {
+          "error_reason": "string",
+          "org": {
+            "id": "string",
+            "members": {
+              "count": "number"
+            }
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLSubmitBulkGroupRequest": {
+      "originalName": "WAWebOrgAdminGraphQLSubmitBulkGroupRequestMutation",
+      "docId": "27966707869675123",
+      "operationKind": "mutation",
+      "variables": [
+        "createGroupsPlan",
+        "operation",
+        "orgID"
+      ],
+      "variablesShape": {
+        "createGroupsPlan": [
+          {
+            "announcement": "string",
+            "locked": "string",
+            "member_add_mode": "string",
+            "membership_approval": "string",
+            "participant_roster_entry_ids": [
+              "string"
+            ],
+            "subject": "string"
+          }
+        ],
+        "operation": "string",
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "createGroupsPlan": {
+          "presence": "undetermined",
+          "items": {
+            "presence": "always",
+            "fields": {
+              "announcement": {
+                "presence": "undetermined"
+              },
+              "locked": {
+                "presence": "undetermined"
+              },
+              "member_add_mode": {
+                "presence": "undetermined"
+              },
+              "membership_approval": {
+                "presence": "undetermined"
+              },
+              "participant_roster_entry_ids": {
+                "presence": "undetermined"
+              },
+              "subject": {
+                "presence": "undetermined"
+              }
+            }
+          }
+        },
+        "operation": {
+          "presence": "conditional"
+        },
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_bulk_group_request_submit": {
+          "error_reason": "string",
+          "invalid_group_index": "number",
+          "request_id": "string",
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLUpdateOrg": {
+      "originalName": "WAWebOrgAdminGraphQLUpdateOrgMutation",
+      "docId": "26730170143346991",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "description": "string",
+          "icon_blob": "string",
+          "member_tag_name": "string",
+          "member_tag_options": "string",
+          "org_id": "string",
+          "secondary_member_tag_name": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "description": {
+              "presence": "conditional"
+            },
+            "icon_blob": {
+              "presence": "conditional"
+            },
+            "member_tag_name": {
+              "presence": "conditional"
+            },
+            "member_tag_options": {
+              "presence": "conditional"
+            },
+            "org_id": {
+              "presence": "conditional"
+            },
+            "secondary_member_tag_name": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_org_update": {
+          "error_reason": "string",
+          "org": {
+            "description": "string",
+            "icon_large": {
+              "uri": "string"
+            },
+            "icon_small": {
+              "handle": "string",
+              "uri": "string"
+            },
+            "id": "string",
+            "is_member_directory_enabled": "boolean",
+            "member_tag_options": "string",
+            "members": {
+              "count": "number"
+            },
+            "name": "string",
+            "org_member_updated_ts_usec": "string",
+            "org_updated_ts_usec": "string",
+            "viewer_role": "string"
+          },
+          "status": "string"
+        }
+      }
+    },
+    "OrgMemberUpdateNotificationHandler": {
+      "originalName": "WAWebMexOrgMemberUpdateNotificationHandlerQuery",
+      "docId": "29119014437722960",
+      "operationKind": "query",
+      "response": {
+        "xwa2_notify_org_on_member_update": {
+          "members": [
+            {
+              "display_name": "string",
+              "member_action": "string",
+              "member_lid": "string",
+              "member_tag": "string",
+              "role": "string"
+            }
+          ],
+          "org_id": "string",
+          "org_member_updated_ts_usec": "string"
+        }
+      }
+    },
     "PaymentsPasskeyHasCredential": {
       "originalName": "WAWebMexPaymentsPasskeyHasCredentialJobQuery",
       "docId": "36878915648418618",
@@ -4931,7 +6546,6 @@
             "after": "string",
             "allow_shop_source": "boolean",
             "catalog_session_id": "string",
-            "direct_connection_encrypted_info": "string",
             "height": "number",
             "jid": "string",
             "limit": "number",
@@ -4956,9 +6570,6 @@
                   "presence": "always"
                 },
                 "catalog_session_id": {
-                  "presence": "conditional"
-                },
-                "direct_connection_encrypted_info": {
                   "presence": "conditional"
                 },
                 "height": {
@@ -5112,7 +6723,6 @@
           "categories": {
             "biz_jid": "string",
             "catalog_session_id": "string",
-            "direct_connection_encrypted_info": "string",
             "image_dimensions": "string"
           }
         }
@@ -5128,9 +6738,6 @@
                   "presence": "undetermined"
                 },
                 "catalog_session_id": {
-                  "presence": "conditional"
-                },
-                "direct_connection_encrypted_info": {
                   "presence": "conditional"
                 },
                 "image_dimensions": {
@@ -5161,7 +6768,6 @@
       "variablesShape": {
         "request": {
           "product": {
-            "direct_connection_encrypted_info": "string",
             "fetch_compliance_info": "boolean",
             "height": "number",
             "jid": "string",
@@ -5180,9 +6786,6 @@
             "product": {
               "presence": "always",
               "fields": {
-                "direct_connection_encrypted_info": {
-                  "presence": "conditional"
-                },
                 "fetch_compliance_info": {
                   "presence": "undetermined"
                 },
@@ -5331,7 +6934,6 @@
             "after": "string",
             "biz_jid": "string",
             "collection_limit": "string",
-            "direct_connection_encrypted_info": "string",
             "height": "number",
             "item_limit": "string",
             "variant_info_fields": "string",
@@ -5356,9 +6958,6 @@
                 },
                 "collection_limit": {
                   "presence": "undetermined"
-                },
-                "direct_connection_encrypted_info": {
-                  "presence": "conditional"
                 },
                 "height": {
                   "presence": "undetermined"
@@ -5683,7 +7282,6 @@
           "collection": {
             "after": "string",
             "biz_jid": "string",
-            "direct_connection_encrypted_info": "string",
             "height": "number",
             "id": "string",
             "limit": "number",
@@ -5706,9 +7304,6 @@
                 },
                 "biz_jid": {
                   "presence": "undetermined"
-                },
-                "direct_connection_encrypted_info": {
-                  "presence": "conditional"
                 },
                 "height": {
                   "presence": "undetermined"
@@ -6110,9 +7705,668 @@
         }
       }
     },
+    "SharableEventAddInvitations": {
+      "originalName": "WAWebSharableEventAddInvitationsJobMutation",
+      "docId": "27221189747579014",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "event_id": "string",
+          "invited_user_lids": [
+            "string"
+          ]
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "event_id": {
+              "presence": "conditional"
+            },
+            "invited_user_lids": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
+      "response": {
+        "event_add_invitations": {
+          "invitation_add_outcome": {
+            "failed_count": "number",
+            "invalid_count": "number",
+            "is_retryable": "boolean",
+            "newly_added_lids": "string",
+            "successful_count": "number"
+          },
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string",
+              "not_going": "string"
+            },
+            "invitation_list": [
+              {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            ],
+            "last_updated_ts_usec": "string",
+            "total_invited_count": "number"
+          }
+        }
+      }
+    },
+    "SharableEventDelete": {
+      "originalName": "WAWebSharableEventDeleteJobMutation",
+      "docId": "28495617843470831",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "event_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "event_id": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_event_delete": {
+          "success": "string"
+        }
+      }
+    },
+    "SharableEventGet": {
+      "originalName": "WAWebSharableEventGetJobQuery",
+      "docId": "28647847534844030",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "event_id": "string",
+          "event_last_updated_ts_usec": "string",
+          "invitation_last_updated_ts_usec": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "event_id": {
+              "presence": "conditional"
+            },
+            "event_last_updated_ts_usec": {
+              "presence": "conditional"
+            },
+            "invitation_last_updated_ts_usec": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_event_get": {
+          "is_event_metadata_unchanged": "boolean",
+          "is_invitation_metadata_unchanged": "boolean",
+          "privacy_aware_event": {
+            "call_link": {
+              "is_waiting_room_enabled": "boolean",
+              "media_type": "string",
+              "token": "string"
+            },
+            "cover_image": {
+              "is_preset_image": "boolean",
+              "uri": "string"
+            },
+            "cover_image_handle": "string",
+            "created_ts_sec": "string",
+            "creator_lid": "string",
+            "description": "string",
+            "end_ts_sec": "string",
+            "id": "string",
+            "last_updated_ts_usec": "string",
+            "location": {
+              "address": "string",
+              "coordinates": {
+                "latitude": "string",
+                "longitude": "string"
+              },
+              "name": "string",
+              "web_url": "string"
+            },
+            "max_additional_guests": "string",
+            "name": "string",
+            "reminder_ts_sec": "string",
+            "start_ts_sec": "string",
+            "status": "string"
+          },
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string",
+              "not_going": "string"
+            },
+            "invitation_list": [
+              {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            ],
+            "last_updated_ts_usec": "string",
+            "total_invited_count": "number"
+          }
+        }
+      }
+    },
+    "SharableEventGuestJoinedWaNotifications": {
+      "originalName": "WAWebMexSharableEventGuestJoinedWaNotificationsQuery",
+      "docId": "28828665613459115",
+      "operationKind": "query",
+      "response": {
+        "xwa2_notify_event_on_guest_joined_wa": {
+          "event_id": "string",
+          "event_name": "string",
+          "guest_lid": "string",
+          "is_user_visible": "boolean",
+          "pn": "string",
+          "username": "string"
+        }
+      }
+    },
+    "SharableEventList": {
+      "originalName": "WAWebSharableEventListJobQuery",
+      "docId": "28535944269435609",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "categories": [
+            "string"
+          ],
+          "page_size": "number",
+          "time_range": {
+            "end_ts_sec": "string",
+            "start_ts_sec": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "categories": {
+              "presence": "always"
+            },
+            "page_size": {
+              "presence": "always"
+            },
+            "time_range": {
+              "presence": "always",
+              "fields": {
+                "end_ts_sec": {
+                  "presence": "always"
+                },
+                "start_ts_sec": {
+                  "presence": "always"
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_event_list": {
+          "past": [
+            {
+              "privacy_aware_event": {
+                "call_link": {
+                  "is_waiting_room_enabled": "boolean",
+                  "media_type": "string",
+                  "token": "string"
+                },
+                "cover_image": {
+                  "is_preset_image": "boolean",
+                  "uri": "string"
+                },
+                "cover_image_handle": "string",
+                "created_ts_sec": "string",
+                "creator_lid": "string",
+                "description": "string",
+                "end_ts_sec": "string",
+                "id": "string",
+                "last_updated_ts_usec": "string",
+                "location": {
+                  "address": "string",
+                  "coordinates": {
+                    "latitude": "string",
+                    "longitude": "string"
+                  },
+                  "name": "string",
+                  "web_url": "string"
+                },
+                "max_additional_guests": "string",
+                "name": "string",
+                "reminder_ts_sec": "string",
+                "start_ts_sec": "string",
+                "status": "string"
+              },
+              "privacy_aware_my_invitation": {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            }
+          ],
+          "scheduled_calls": [
+            {
+              "privacy_aware_event": {
+                "call_link": {
+                  "is_waiting_room_enabled": "boolean",
+                  "media_type": "string",
+                  "token": "string"
+                },
+                "cover_image": {
+                  "is_preset_image": "boolean",
+                  "uri": "string"
+                },
+                "cover_image_handle": "string",
+                "created_ts_sec": "string",
+                "creator_lid": "string",
+                "description": "string",
+                "end_ts_sec": "string",
+                "id": "string",
+                "last_updated_ts_usec": "string",
+                "location": {
+                  "address": "string",
+                  "coordinates": {
+                    "latitude": "string",
+                    "longitude": "string"
+                  },
+                  "name": "string",
+                  "web_url": "string"
+                },
+                "max_additional_guests": "string",
+                "name": "string",
+                "reminder_ts_sec": "string",
+                "start_ts_sec": "string",
+                "status": "string"
+              },
+              "privacy_aware_my_invitation": {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            }
+          ],
+          "upcoming": [
+            {
+              "privacy_aware_event": {
+                "call_link": {
+                  "is_waiting_room_enabled": "boolean",
+                  "media_type": "string",
+                  "token": "string"
+                },
+                "cover_image": {
+                  "is_preset_image": "boolean",
+                  "uri": "string"
+                },
+                "cover_image_handle": "string",
+                "created_ts_sec": "string",
+                "creator_lid": "string",
+                "description": "string",
+                "end_ts_sec": "string",
+                "id": "string",
+                "last_updated_ts_usec": "string",
+                "location": {
+                  "address": "string",
+                  "coordinates": {
+                    "latitude": "string",
+                    "longitude": "string"
+                  },
+                  "name": "string",
+                  "web_url": "string"
+                },
+                "max_additional_guests": "string",
+                "name": "string",
+                "reminder_ts_sec": "string",
+                "start_ts_sec": "string",
+                "status": "string"
+              },
+              "privacy_aware_my_invitation": {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "SharableEventPlaceSearch": {
+      "originalName": "WAWebSharableEventPlaceSearchJobQuery",
+      "docId": "29474105825541283",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "center": {
+            "latitude": "string",
+            "longitude": "string"
+          },
+          "query": "string",
+          "use_case_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "center": {
+              "presence": "always",
+              "fields": {
+                "latitude": {
+                  "presence": "conditional"
+                },
+                "longitude": {
+                  "presence": "conditional"
+                }
+              }
+            },
+            "query": {
+              "presence": "conditional"
+            },
+            "use_case_id": {
+              "presence": "always"
+            }
+          }
+        }
+      },
+      "response": {
+        "whatsapp_maps_typeahead": {
+          "items": [
+            {
+              "address": {
+                "city": "string",
+                "stateprovince": "string",
+                "streetaddress": "string"
+              },
+              "id": "string",
+              "location": {
+                "latitude": "string",
+                "longitude": "string"
+              },
+              "title": "string"
+            }
+          ]
+        }
+      }
+    },
+    "SharableEventPresetCovers": {
+      "originalName": "WAWebSharableEventPresetCoversJobQuery",
+      "docId": "28576224488725983",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {}
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always"
+        }
+      },
+      "response": {
+        "xwa_event_list_preset_cover_images": {
+          "preset_images": [
+            {
+              "category": "string",
+              "cover_image": {
+                "uri": "string"
+              },
+              "cover_image_handle": "string",
+              "display_order": "string"
+            }
+          ]
+        }
+      }
+    },
+    "SharableEventReconcile": {
+      "originalName": "WAWebSharableEventReconcileJobQuery",
+      "docId": "26914147061616374",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "event_ids": [
+            "string"
+          ]
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "event_ids": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_event_validate_cached_event_ids": {
+          "retained_event_ids": "string"
+        }
+      }
+    },
+    "SharableEventRemoveInvitations": {
+      "originalName": "WAWebSharableEventRemoveInvitationsJobMutation",
+      "docId": "28775803215445491",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "event_id": "string",
+          "invited_user_lids": [
+            "string"
+          ]
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "event_id": {
+              "presence": "conditional"
+            },
+            "invited_user_lids": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_event_remove_invitations": {
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string",
+              "not_going": "string"
+            },
+            "invitation_list": [
+              {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            ],
+            "last_updated_ts_usec": "string",
+            "total_invited_count": "number"
+          }
+        }
+      }
+    },
+    "SharableEventUpdate": {
+      "originalName": "WAWebSharableEventUpdateJobMutation",
+      "docId": "40284114741201878",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_event_update": {
+          "privacy_aware_event": {
+            "call_link": {
+              "is_waiting_room_enabled": "boolean",
+              "media_type": "string",
+              "token": "string"
+            },
+            "cover_image": {
+              "is_preset_image": "boolean",
+              "uri": "string"
+            },
+            "cover_image_handle": "string",
+            "created_ts_sec": "string",
+            "creator_lid": "string",
+            "description": "string",
+            "end_ts_sec": "string",
+            "id": "string",
+            "last_updated_ts_usec": "string",
+            "location": {
+              "address": "string",
+              "coordinates": {
+                "latitude": "string",
+                "longitude": "string"
+              },
+              "name": "string",
+              "web_url": "string"
+            },
+            "max_additional_guests": "string",
+            "name": "string",
+            "reminder_ts_sec": "string",
+            "start_ts_sec": "string",
+            "status": "string"
+          }
+        }
+      }
+    },
+    "SharableEventUpdateRsvp": {
+      "originalName": "WAWebSharableEventUpdateRsvpJobMutation",
+      "docId": "29299336146421342",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "event_update_rsvp": {
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string",
+              "not_going": "string"
+            },
+            "invitation_list": [
+              {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            ],
+            "last_updated_ts_usec": "string",
+            "total_invited_count": "number"
+          }
+        }
+      }
+    },
     "SignupMetadata": {
       "originalName": "WAWebSignupMetadataQuery",
-      "docId": "26378108788468347",
+      "docId": "28516250088045061",
       "operationKind": "query",
       "variables": [
         "phone_number",
@@ -6135,6 +8389,45 @@
           "id": "string",
           "privacy_policy_url": "string",
           "signup_message": "string"
+        }
+      }
+    },
+    "SubscriptionWaffleAgeCheck": {
+      "originalName": "WAWebSubscriptionWaffleAgeCheckQuery",
+      "docId": "38399102469704585",
+      "operationKind": "query",
+      "response": {
+        "pass_age_check_for_wa_meta_one_v2": "string"
+      }
+    },
+    "SupportBugReportCreateDogfoodingTask": {
+      "originalName": "WAWebSupportBugReportCreateDogfoodingTaskMutation",
+      "docId": "28720207430973409",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "category": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "category": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
+      "response": {
+        "wa_support_bug_report_create_dogfooding_task": {
+          "error_code": "string",
+          "error_message": "string",
+          "success": "string",
+          "task_id": "string"
         }
       }
     },
@@ -6463,17 +8756,19 @@
     },
     "Usync": {
       "originalName": "WAWebMexUsyncQuery",
-      "docId": "29829202653362039",
+      "docId": "28496738596651319",
       "operationKind": "query",
       "variables": [
         "include_about_status",
         "include_country_code",
+        "include_orgs",
         "include_username",
         "input"
       ],
       "variablesShape": {
         "include_about_status": "boolean",
         "include_country_code": "boolean",
+        "include_orgs": "boolean",
         "include_username": "boolean",
         "input": {
           "query_input": "string",
@@ -6485,6 +8780,9 @@
           "presence": "always"
         },
         "include_country_code": {
+          "presence": "always"
+        },
+        "include_orgs": {
           "presence": "always"
         },
         "include_username": {
@@ -6515,6 +8813,18 @@
             "country_code": "string",
             "id": "string",
             "jid": "string",
+            "orgs_info": {
+              "__typename": "string",
+              "orgs": [
+                {
+                  "display_name": "string",
+                  "member_tag": "string",
+                  "org_id": "string",
+                  "role": "string"
+                }
+              ],
+              "status": "string"
+            },
             "username_info": {
               "__typename": "string",
               "pin": "string",
@@ -6670,29 +8980,35 @@
     },
     "useWAWebEstimatedDailyReach": {
       "originalName": "useWAWebEstimatedDailyReachQuery",
-      "docId": "26555147174103537",
+      "docId": "28449519141342172",
       "operationKind": "query",
       "variables": [
         "audienceOptionAudience",
         "configuredPlacementSpec",
         "currency",
+        "fetchOfsForecast",
         "flow",
         "flowID",
+        "forecastRequest",
         "legacyAdAccountID",
         "optimizationGoalInput",
         "postID",
-        "targetingSpecAudience"
+        "targetingSpecAudience",
+        "useOfsForecast"
       ],
       "variablesShape": {
         "audienceOptionAudience": "string",
         "configuredPlacementSpec": "string",
         "currency": "string",
+        "fetchOfsForecast": "string",
         "flow": "string",
         "flowID": "string",
+        "forecastRequest": "string",
         "legacyAdAccountID": "string",
         "optimizationGoalInput": "string",
         "postID": "string",
-        "targetingSpecAudience": "string"
+        "targetingSpecAudience": "string",
+        "useOfsForecast": "string"
       },
       "variablesPresence": {
         "audienceOptionAudience": {
@@ -6704,10 +9020,16 @@
         "currency": {
           "presence": "undetermined"
         },
+        "fetchOfsForecast": {
+          "presence": "undetermined"
+        },
         "flow": {
           "presence": "undetermined"
         },
         "flowID": {
+          "presence": "undetermined"
+        },
+        "forecastRequest": {
           "presence": "undetermined"
         },
         "legacyAdAccountID": {
@@ -6720,6 +9042,9 @@
           "presence": "undetermined"
         },
         "targetingSpecAudience": {
+          "presence": "undetermined"
+        },
+        "useOfsForecast": {
           "presence": "undetermined"
         }
       },
@@ -6740,6 +9065,33 @@
               }
             ]
           }
+        },
+        "whatsapp_ctwa_preflight_forecast": {
+          "estimated_daily_impressions": {
+            "lower_bound": "string",
+            "upper_bound": "string"
+          }
+        }
+      }
+    },
+    "useWAWebEstimatedDailyReachShadow": {
+      "originalName": "useWAWebEstimatedDailyReachShadowQuery",
+      "docId": "28286021457733285",
+      "operationKind": "query",
+      "variables": [
+        "forecastRequest"
+      ],
+      "variablesShape": {
+        "forecastRequest": "string"
+      },
+      "variablesPresence": {
+        "forecastRequest": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "whatsapp_ctwa_preflight_forecast": {
+          "__typename": "string"
         }
       }
     },
@@ -6760,6 +9112,27 @@
       },
       "response": {
         "xfb_meta_ai_biz_agent_wa_coach_suggested_reply": {
+          "success": "string"
+        }
+      }
+    },
+    "useWAWebSmartComposerReportThreadEvent": {
+      "originalName": "useWAWebSmartComposerReportThreadEventMutation",
+      "docId": "28777618758528424",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "meta_ai_biz_agent_wa_suggested_reply_thread_event": {
           "success": "string"
         }
       }

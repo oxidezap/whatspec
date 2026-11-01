@@ -2854,7 +2854,7 @@ mod tests {
         let op = ir
             .stanzas
             .iter()
-            .find(|o| o.module_name == "WASmaxOutGroupsSetSubjectRequest")
+            .find(|o| o.module_name == "WASmaxGroupsSetSubjectRPC")
             .unwrap();
         let mut v = op.response.variants[1].clone();
         v.tag = format!("Error{lo}To{hi}");
@@ -2963,7 +2963,7 @@ mod tests {
         let op = ir
             .stanzas
             .iter()
-            .find(|o| o.module_name == "WASmaxOutGroupsSetSubjectRequest")
+            .find(|o| o.module_name == "WASmaxGroupsSetSubjectRPC")
             .unwrap();
         let source = direct_error_payload(&op.response.variants[1]).unwrap();
         let field = source
@@ -3293,7 +3293,7 @@ mod tests {
         let ir: wa_ir::IqIr =
             serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
         for pilot in ["SetSubject", "AcceptGroupAdd"] {
-            let module = format!("WASmaxOutGroups{pilot}Request");
+            let module = format!("WASmaxGroups{pilot}RPC");
             let op = ir
                 .stanzas
                 .iter()

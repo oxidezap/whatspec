@@ -1091,3 +1091,65 @@ mod latest_callback_tests {
         assert_eq!(ir.stanzas[0].response.fields.len(), 1);
     }
 }
+
+#[cfg(test)]
+mod caller_variable_tests {
+    #[test]
+    fn callee_content_does_not_inherit_callers_same_named_request() {
+        let source = r#"__d("WASmaxSubjectRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(e){var t=merge(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"set",to:o("WAWap").S_WHATSAPP_NET}),e);return t}
+            function content(e){var t=e.subjectElementValue,n=o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("subject",null,t));return n}
+            function merge(e,t){var n=content(t);return o("WASmaxMixins").mergeStanzas(e,n)}
+            l.makeSubjectRequest=make,l.mergeSubjectMixin=merge;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let child = &ir.stanzas[0].request.children[0];
+        assert_eq!(child.tag, "subject");
+        assert!(child.children.is_empty());
+        assert_eq!(
+            child.content.as_ref().unwrap().arg_path.as_ref().unwrap()[0].key,
+            "subjectElementValue"
+        );
+    }
+}
+
+#[cfg(test)]
+mod merge_group_name_tests {
+    #[test]
+    fn exported_merge_group_without_mixin_suffix_keeps_union_arms() {
+        let source = r#"__d("WASmaxDirectionsRPC",["WASmaxJsx","WASmaxMixins","WAWap","WASmaxMixinGroupExhaustiveError"],function(g,r,d,o,e,i,l){
+            function make(e){return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxMixins").optionalMerge(group,o("WASmaxJsx").smax("messages",null),e.directions))}
+            function group(dst,args){if(args.before)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("messages",{before:o("WAWap").INT(args.before.value)}));if(args.after)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("messages",{after:o("WAWap").INT(args.after.value)}));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            l.makeDirectionsRequest=make,l.mergeDirections=group;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let groups = &ir.stanzas[0].request.children[0].variant_groups;
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].variants.len(), 2);
+        assert!(groups[0].optional);
+    }
+}
+
+#[cfg(test)]
+mod root_group_tests {
+    #[test]
+    fn iq_root_group_preserves_config_and_clear_children() {
+        let source = r#"__d("WASmaxRootRPC",["WASmaxJsx","WASmaxMixins","WAWap","WASmaxMixinGroupExhaustiveError"],function(g,r,d,o,e,i,l){
+            function make(args){return group(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"set"}),args)}
+            function group(dst,args){if(args.config)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{to:o("WAWap").GROUP_JID(args.config.jid)},o("WASmaxJsx").smax("config",{id:o("WAWap").CUSTOM_STRING(args.config.id)})));if(args.clear)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("clear",{platform:o("WAWap").CUSTOM_STRING(args.clear.platform)})));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            l.makeRootRequest=make,l.mergeRootGroup=group;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas[0].request.target, wa_ir::IqTarget::Unknown);
+        assert!(ir.stanzas[0].request.target_arg_path.is_none());
+        let children = &ir.stanzas[0].request.children;
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].tag, "config");
+        assert_eq!(children[1].tag, "clear");
+        assert!(
+            children
+                .iter()
+                .all(|child| child.attrs[0].arg_path.is_some())
+        );
+    }
+}

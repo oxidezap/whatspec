@@ -1,0 +1,1376 @@
+{
+  "WASmaxNewslettersGetNewsletterMessagesRPC": {
+    "children": {
+      "0": {
+        "attrs": {
+          "0": {
+            "argPath": [
+              {
+                "key": "newsletterMessageRequestPayloadMixinArgs"
+              },
+              {
+                "key": "messagesCount"
+              }
+            ]
+          }
+        },
+        "variantGroups": {
+          "0": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterJIDParams"
+                      },
+                      {
+                        "key": "anyJid"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterJIDParams"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterInviteParams"
+                      },
+                      {
+                        "key": "anyKey"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterInviteParams"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterMessageRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "messageDirectionsArgs"
+                      },
+                      {
+                        "key": "beforeMixin"
+                      },
+                      {
+                        "key": "messagesBefore"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterMessageRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "messageDirectionsArgs"
+                      },
+                      {
+                        "key": "afterMixin"
+                      },
+                      {
+                        "key": "messagesAfter"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "WASmaxNewslettersGetNewsletterStatusesRPC": {
+    "children": {
+      "0": {
+        "attrs": {
+          "0": {
+            "argPath": [
+              {
+                "key": "newsletterStatusRequestPayloadMixinArgs"
+              },
+              {
+                "key": "statusesCount"
+              }
+            ]
+          }
+        },
+        "variantGroups": {
+          "0": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterJIDParams"
+                      },
+                      {
+                        "key": "anyJid"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterJIDParams"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterInviteParams"
+                      },
+                      {
+                        "key": "anyKey"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "queryNewsletterParamsMixinArgs"
+                      },
+                      {
+                        "key": "queryNewsletterParamsArgs"
+                      },
+                      {
+                        "key": "queryNewsletterInviteParams"
+                      },
+                      {
+                        "key": "anyViewRole"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterStatusRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "statusDirectionsArgs"
+                      },
+                      {
+                        "key": "statusBeforeMixin"
+                      },
+                      {
+                        "key": "statusesBefore"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "newsletterStatusRequestPayloadMixinArgs"
+                      },
+                      {
+                        "key": "statusDirectionsArgs"
+                      },
+                      {
+                        "key": "statusAfterMixin"
+                      },
+                      {
+                        "key": "statusesAfter"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "WASmaxPushConfigSetRPC": {
+    "children": {
+      "0": {
+        "variantGroups": {
+          "0": {
+            "variants": {
+              "0": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "fBClient"
+                      },
+                      {
+                        "key": "configAppid"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "fBClient"
+                      },
+                      {
+                        "key": "configDeviceid"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "fBClient"
+                      },
+                      {
+                        "key": "configFbid"
+                      }
+                    ]
+                  }
+                }
+              },
+              "1": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configPlatform"
+                      }
+                    ]
+                  },
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configAppid"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configAppMute"
+                      }
+                    ]
+                  },
+                  "4": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configPkey"
+                      }
+                    ]
+                  },
+                  "5": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configVoipPayloadType"
+                      }
+                    ]
+                  },
+                  "6": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configNumAcc"
+                      }
+                    ]
+                  },
+                  "7": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "configSettings"
+                      }
+                    ]
+                  }
+                },
+                "children": {
+                  "0": {
+                    "attrs": {
+                      "0": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "androidClient"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemJid"
+                          }
+                        ]
+                      },
+                      "1": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "androidClient"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemMute"
+                          }
+                        ]
+                      }
+                    },
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "androidClient"
+                      },
+                      {
+                        "key": "itemArgs",
+                        "list": true
+                      }
+                    ]
+                  }
+                }
+              },
+              "2": {
+                "attrs": {
+                  "0": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configPlatform"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configVoip"
+                      }
+                    ]
+                  },
+                  "4": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configPreview"
+                      }
+                    ]
+                  },
+                  "5": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configDefault"
+                      }
+                    ]
+                  },
+                  "6": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configGroups"
+                      }
+                    ]
+                  },
+                  "7": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configCall"
+                      }
+                    ]
+                  },
+                  "8": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configStatusSound"
+                      }
+                    ]
+                  },
+                  "9": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configLg"
+                      }
+                    ]
+                  },
+                  "10": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configLc"
+                      }
+                    ]
+                  },
+                  "11": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configBackgroundLocation"
+                      }
+                    ]
+                  },
+                  "12": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configNseVer"
+                      }
+                    ]
+                  },
+                  "13": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configNseCall"
+                      }
+                    ]
+                  },
+                  "14": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configNseRead"
+                      }
+                    ]
+                  },
+                  "15": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configNseRetry"
+                      }
+                    ]
+                  },
+                  "16": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configRegPush"
+                      }
+                    ]
+                  },
+                  "17": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configPkey"
+                      }
+                    ]
+                  },
+                  "18": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configVoipPayloadType"
+                      }
+                    ]
+                  },
+                  "19": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configSettings"
+                      }
+                    ]
+                  },
+                  "20": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configAppMute"
+                      }
+                    ]
+                  },
+                  "21": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configCallMute"
+                      }
+                    ]
+                  },
+                  "22": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configAppleWatchId"
+                      }
+                    ]
+                  },
+                  "23": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "configAppleWatchPkey"
+                      }
+                    ]
+                  }
+                },
+                "children": {
+                  "0": {
+                    "attrs": {
+                      "0": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemJid"
+                          }
+                        ]
+                      },
+                      "1": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemMute"
+                          }
+                        ]
+                      },
+                      "2": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemNotify"
+                          }
+                        ]
+                      },
+                      "3": {
+                        "argPath": [
+                          {
+                            "key": "setSetConfigOrSetClearMixinGroupArgs"
+                          },
+                          {
+                            "key": "setSetConfig"
+                          },
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "appleClient"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "itemCall"
+                          }
+                        ]
+                      }
+                    },
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "appleClient"
+                      },
+                      {
+                        "key": "itemArgs",
+                        "list": true
+                      }
+                    ]
+                  }
+                }
+              },
+              "3": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "wNSClient"
+                      },
+                      {
+                        "key": "configVersion"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "wNSClient"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "wNSClient"
+                      },
+                      {
+                        "key": "configPkey"
+                      }
+                    ]
+                  },
+                  "4": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "wNSClient"
+                      },
+                      {
+                        "key": "configSettings"
+                      }
+                    ]
+                  }
+                }
+              },
+              "4": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "enterpriseClient"
+                      },
+                      {
+                        "key": "configId"
+                      }
+                    ]
+                  }
+                }
+              },
+              "5": {
+                "attrs": {
+                  "1": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "webClient"
+                      },
+                      {
+                        "key": "configEndpoint"
+                      }
+                    ]
+                  },
+                  "2": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "webClient"
+                      },
+                      {
+                        "key": "configAuth"
+                      }
+                    ]
+                  },
+                  "3": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "webClient"
+                      },
+                      {
+                        "key": "configP256dh"
+                      }
+                    ]
+                  },
+                  "4": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "webClient"
+                      },
+                      {
+                        "key": "configLg"
+                      }
+                    ]
+                  },
+                  "5": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "webClient"
+                      },
+                      {
+                        "key": "configLc"
+                      }
+                    ]
+                  },
+                  "6": {
+                    "argPath": [
+                      {
+                        "key": "setSetConfigOrSetClearMixinGroupArgs"
+                      },
+                      {
+                        "key": "setSetConfig"
+                      },
+                      {
+                        "key": "configMixinsArgs"
+                      },
+                      {
+                        "key": "webClient"
+                      },
+                      {
+                        "key": "configPushPreferences"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "1": {
+        "attrs": {
+          "0": {
+            "argPath": [
+              {
+                "key": "setSetConfigOrSetClearMixinGroupArgs"
+              },
+              {
+                "key": "setClear"
+              },
+              {
+                "key": "clearPlatform"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.4.0",
-  "waVersion": "2.3000.1047483476",
+  "waVersion": "2.3000.1052559453",
   "incoming": [
     {
       "tag": "message",
@@ -547,40 +547,6 @@
             ]
           },
           {
-            "method": "child",
-            "name": "pay",
-            "type": "string",
-            "parserRequired": false,
-            "tag": "pay",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "transaction",
-            "type": "string",
-            "parserRequired": false,
-            "tag": "transaction",
-            "children": []
-          },
-          {
-            "method": "attrJidWithType",
-            "name": "participant",
-            "type": "jid_typed",
-            "parserRequired": false
-          },
-          {
-            "method": "attrString",
-            "name": "recipient",
-            "type": "string",
-            "parserRequired": true
-          },
-          {
-            "method": "attrInt",
-            "name": "t",
-            "type": "integer",
-            "parserRequired": true
-          },
-          {
             "method": "maybeChild",
             "name": "hsm",
             "type": "string",
@@ -622,10 +588,10 @@
                     "parserRequired": true
                   },
                   {
-                    "method": "attrInt",
+                    "method": "maybeAttrInt",
                     "name": "v",
                     "type": "integer",
-                    "parserRequired": true
+                    "parserRequired": false
                   }
                 ],
                 "contentType": "bytes"
@@ -645,6 +611,12 @@
                   }
                 ],
                 "contentType": "bytes"
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "validation_policy",
+                "type": "string",
+                "parserRequired": false
               }
             ]
           },
@@ -1528,6 +1500,547 @@
             "name": "recipient",
             "type": "user_jid",
             "parserRequired": false
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxVoipLinkCreateRPC",
+      "shape": {
+        "parserName": "parseLinkCreateResponseLinkCreateAck",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "call"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "link_create"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidEnum",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid_typed",
+            "parserRequired": true
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "to",
+            "wireName": "to",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "link_create"
+          },
+          {
+            "method": "attrString",
+            "name": "linkCreateToken",
+            "wireName": "token",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "link_create"
+            ]
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "linkCreateMedia",
+            "wireName": "media",
+            "type": "enum",
+            "parserRequired": false,
+            "unknownValue": "reject",
+            "enumRef": {
+              "name": "ENUM_AUDIO_VIDEO",
+              "module": "WASmaxInVoipEnums",
+              "variants": [
+                {
+                  "name": "audio",
+                  "value": "audio"
+                },
+                {
+                  "name": "video",
+                  "value": "video"
+                }
+              ]
+            },
+            "sourcePath": [
+              "link_create"
+            ]
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "linkCreateCallCreator",
+            "wireName": "call-creator",
+            "type": "device_jid",
+            "parserRequired": false,
+            "sourcePath": [
+              "link_create"
+            ]
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "linkCreateCallId",
+            "wireName": "call-id",
+            "type": "string",
+            "parserRequired": false,
+            "sourcePath": [
+              "link_create"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxVoipLinkCreateRPC",
+      "shape": {
+        "parserName": "parseLinkCreateResponseLinkCreateNack",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "call"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "call"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "link_create"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "to",
+            "wireName": "to",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "link_create"
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxVoipLinkQueryRPC",
+      "shape": {
+        "parserName": "parseLinkQueryResponseLinkQueryAck",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "call"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "call"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "link_query"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "to",
+            "wireName": "to",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "link_query"
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "linkQueryLinkCreator",
+            "wireName": "link_creator",
+            "type": "device_jid",
+            "parserRequired": true,
+            "sourcePath": [
+              "link_query"
+            ]
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "linkQueryLinkCreatorPn",
+            "wireName": "link_creator_pn",
+            "type": "device_jid",
+            "parserRequired": false,
+            "sourcePath": [
+              "link_query"
+            ]
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "linkQueryLinkCreatorUsername",
+            "wireName": "link_creator_username",
+            "type": "string",
+            "parserRequired": false,
+            "sourcePath": [
+              "link_query"
+            ]
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "linkQueryAction",
+            "wireName": "action",
+            "type": "enum",
+            "parserRequired": false,
+            "unknownValue": "reject",
+            "enumRef": {
+              "name": "ENUM_LINKEDIT_PREVIEW",
+              "module": "WASmaxInVoipEnums",
+              "variants": [
+                {
+                  "name": "link_edit",
+                  "value": "link_edit"
+                },
+                {
+                  "name": "preview",
+                  "value": "preview"
+                }
+              ]
+            },
+            "sourcePath": [
+              "link_query"
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "linkQueryToken",
+            "wireName": "token",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "link_query"
+            ]
+          },
+          {
+            "method": "attrEnum",
+            "name": "linkQueryMedia",
+            "wireName": "media",
+            "type": "enum",
+            "parserRequired": true,
+            "unknownValue": "reject",
+            "enumRef": {
+              "name": "ENUM_AUDIO_VIDEO",
+              "module": "WASmaxInVoipEnums",
+              "variants": [
+                {
+                  "name": "audio",
+                  "value": "audio"
+                },
+                {
+                  "name": "video",
+                  "value": "video"
+                }
+              ]
+            },
+            "sourcePath": [
+              "link_query"
+            ]
+          },
+          {
+            "method": "child",
+            "name": "linkQueryGuest",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "guest",
+            "children": [
+              {
+                "method": "maybeAttrEnum",
+                "name": "isGuestEligible",
+                "wireName": "is_guest_eligible",
+                "type": "enum",
+                "parserRequired": false,
+                "unknownValue": "reject",
+                "enumRef": {
+                  "name": "ENUM_0_1",
+                  "module": "WASmaxInVoipEnums",
+                  "variants": [
+                    {
+                      "name": "0",
+                      "value": "0"
+                    },
+                    {
+                      "name": "1",
+                      "value": "1"
+                    }
+                  ]
+                }
+              }
+            ],
+            "repeats": false,
+            "sourcePath": [
+              "link_query"
+            ]
+          },
+          {
+            "method": "",
+            "name": "hasLinkQueryEvent",
+            "type": "bool",
+            "parserRequired": true
+          },
+          {
+            "method": "child",
+            "name": "linkQueryWaitingRoom",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "waiting_room",
+            "children": [
+              {
+                "method": "maybeAttrString",
+                "name": "isAdmin",
+                "wireName": "is_admin",
+                "type": "string",
+                "parserRequired": false,
+                "literalValue": "1"
+              },
+              {
+                "method": "attrEnum",
+                "name": "enabled",
+                "wireName": "enabled",
+                "type": "enum",
+                "parserRequired": true,
+                "unknownValue": "reject",
+                "enumRef": {
+                  "name": "ENUM_0_1",
+                  "module": "WASmaxInVoipEnums",
+                  "variants": [
+                    {
+                      "name": "0",
+                      "value": "0"
+                    },
+                    {
+                      "name": "1",
+                      "value": "1"
+                    }
+                  ]
+                }
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "filter",
+                "wireName": "filter",
+                "type": "string",
+                "parserRequired": false,
+                "literalValue": "guests_only"
+              }
+            ],
+            "repeats": false,
+            "sourcePath": [
+              "link_query"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxVoipLinkQueryRPC",
+      "shape": {
+        "parserName": "parseLinkQueryResponseLinkQueryNack",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "call"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "call"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "link_query"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "to",
+            "wireName": "to",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "link_query"
+          },
+          {
+            "method": "attrString",
+            "name": "errorToken",
+            "wireName": "token",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "error"
+            ]
           }
         ]
       }
@@ -2980,7 +3493,7 @@
     },
     {
       "tag": "ack",
-      "module": "WASmaxInStatusPublishPostBroadcastStatusResponseNegative",
+      "module": "WASmaxStatusPublishPostBroadcastStatusRPC",
       "shape": {
         "parserName": "parsePostBroadcastStatusResponseNegative",
         "assertions": [
@@ -3151,13 +3664,29 @@
               }
             ],
             "sameNode": true
+          },
+          {
+            "method": "",
+            "name": "deviceListStaleMixin",
+            "type": "node",
+            "parserRequired": false,
+            "children": [
+              {
+                "method": "attrString",
+                "name": "phash",
+                "wireName": "phash",
+                "type": "string",
+                "parserRequired": true
+              }
+            ],
+            "sameNode": true
           }
         ]
       }
     },
     {
       "tag": "ack",
-      "module": "WASmaxInStatusPublishPostBroadcastStatusResponseSuccess",
+      "module": "WASmaxStatusPublishPostBroadcastStatusRPC",
       "shape": {
         "parserName": "parsePostBroadcastStatusResponseSuccess",
         "assertions": [
@@ -3343,7 +3872,7 @@
     },
     {
       "tag": "ack",
-      "module": "WASmaxInStatusPublishPostNewsletterStatusResponseNegative",
+      "module": "WASmaxStatusPublishPostNewsletterStatusRPC",
       "shape": {
         "parserName": "parsePostNewsletterStatusResponseNegative",
         "assertions": [
@@ -3513,7 +4042,7 @@
     },
     {
       "tag": "ack",
-      "module": "WASmaxInStatusPublishPostNewsletterStatusResponseSuccess",
+      "module": "WASmaxStatusPublishPostNewsletterStatusRPC",
       "shape": {
         "parserName": "parsePostNewsletterStatusResponseSuccess",
         "assertions": [
@@ -3651,7 +4180,133 @@
     },
     {
       "tag": "ack",
-      "module": "WASmaxInReceiptPublishViewResponseSuccess",
+      "module": "WASmaxReceiptPublishViewRPC",
+      "shape": {
+        "parserName": "parsePublishViewResponseServerError",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "attr",
+            "name": "error",
+            "value": "500"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "receipt"
+          },
+          {
+            "kind": "reference",
+            "name": "from",
+            "referencePath": [
+              "to"
+            ]
+          },
+          {
+            "kind": "reference",
+            "name": "type",
+            "referencePath": [
+              "type"
+            ]
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "500"
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "receipt"
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "parserRequired": false
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "readreceipts",
+            "wireName": "readreceipts",
+            "type": "enum",
+            "parserRequired": false,
+            "unknownValue": "reject",
+            "enumRef": {
+              "name": "ENUM_ALL_NONE",
+              "module": "WASmaxInReceiptEnums",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                }
+              ]
+            }
+          },
+          {
+            "method": "",
+            "name": "deprecatedEditMixin",
+            "type": "node",
+            "parserRequired": false,
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "edit",
+                "wireName": "edit",
+                "type": "enum",
+                "parserRequired": true,
+                "unknownValue": "reject",
+                "enumRef": {
+                  "name": "ENUM_0_1_7",
+                  "module": "WASmaxInReceiptEnums",
+                  "variants": [
+                    {
+                      "name": "0",
+                      "value": "0"
+                    },
+                    {
+                      "name": "1",
+                      "value": "1"
+                    },
+                    {
+                      "name": "7",
+                      "value": "7"
+                    }
+                  ]
+                }
+              }
+            ],
+            "sameNode": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxReceiptPublishViewRPC",
       "shape": {
         "parserName": "parsePublishViewResponseSuccess",
         "assertions": [
@@ -3758,6 +4413,176 @@
               }
             ],
             "sameNode": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxVoipWaitingRoomToggleCallLinkRPC",
+      "shape": {
+        "parserName": "parseWaitingRoomToggleCallLinkResponseWaitingRoomToggleCallLinkAck",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "call"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "call"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "waiting_room_toggle"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "to",
+            "wireName": "to",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "waiting_room_toggle"
+          },
+          {
+            "method": "attrString",
+            "name": "waitingRoomToggleLinkToken",
+            "wireName": "link-token",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "waiting_room_toggle"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WASmaxVoipWaitingRoomToggleCallLinkRPC",
+      "shape": {
+        "parserName": "parseWaitingRoomToggleCallLinkResponseWaitingRoomToggleCallLinkNack",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "call"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
+            "kind": "attr",
+            "name": "class",
+            "value": "call"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "waiting_room_toggle"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "to",
+            "wireName": "to",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "wireName": "class",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "call"
+          },
+          {
+            "method": "attrString",
+            "name": "error",
+            "wireName": "error",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "waiting_room_toggle"
+          },
+          {
+            "method": "attrString",
+            "name": "errorLinkToken",
+            "wireName": "link-token",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "error"
+            ]
           }
         ]
       }

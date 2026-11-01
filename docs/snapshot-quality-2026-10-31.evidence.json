@@ -2854,5 +2854,150 @@
       "schemas": "12/12",
       "internalConsistency": "12 documents pass same locally reviewed pins; official pins unchanged"
     }
+  },
+  "appliedSnapshot": {
+    "waVersion": "2.3000.1052559453",
+    "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf",
+    "acceptedCountReductions": {
+      "wasmBinaries": [
+        7,
+        6
+      ],
+      "iq.stanzas": [
+        142,
+        141
+      ],
+      "iq.typedResponses": [
+        139,
+        138
+      ],
+      "iq.targets.resolved": [
+        137,
+        135
+      ],
+      "iq.targets.server": [
+        105,
+        103
+      ]
+    },
+    "finalIqDiagnostics": {
+      "builder": {
+        "argPathAttrs": 477,
+        "argPathAttrsMissing": 48,
+        "argPathChildren": 173,
+        "argPathChildrenMissing": 11,
+        "argPathContents": 140,
+        "argPathContentsMissing": 23,
+        "elementValues": 169,
+        "optionalChildren": 75,
+        "presenceFlagChildren": 37,
+        "repeatBounds": 51
+      },
+      "candidateModules": 176,
+      "constraints": {
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
+      },
+      "crossModule": {
+        "fieldsRecovered": 461,
+        "requestsEnriched": 19,
+        "requestsWithMixins": 78
+      },
+      "degradedResponses": 3,
+      "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
+        "iq builder substring present but no AST iq call": 5,
+        "mixin fragment (folded into requests, not a standalone stanza)": 36,
+        "shadowedCallbackRead": 5
+      },
+      "excludedFragments": 36,
+      "stanzas": 141,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 135,
+        "server": 103,
+        "unknown": 6,
+        "unset": 0
+      },
+      "typedResponses": 138,
+      "unparseable": 5
+    },
+    "additionalExtractorFixes": [
+      "Reparsed function-local initializers retain their owner when another helper is entered; this prevents caller variables from recursively appearing as callee content.",
+      "All exported merge helpers participate in local composition, including mergeMessageDirections without a Mixin suffix.",
+      "IQ-root union contributions retain their concrete child alternatives and nested child variant groups; conflicting root addressees remain dynamic with no asserted argument path."
+    ],
+    "regressionTests": [
+      "caller_variable_tests::callee_content_does_not_inherit_callers_same_named_request",
+      "merge_group_name_tests::exported_merge_group_without_mixin_suffix_keeps_union_arms",
+      "root_group_tests::iq_root_group_preserves_config_and_clear_children"
+    ],
+    "diagnosticCorrection": "461 recovered fields / 19 enriched requests replace the prior inflated 853 / 20. Committed old baseline was 88 / 11. No extra old-baseline count reduction was accepted.",
+    "pathFixtureReview": "New source-backed path fixture keeps queryNewsletterJIDParams/queryNewsletterInviteParams, beforeMixin/afterMixin, statusBeforeMixin/statusAfterMixin, and push-client discriminator objects. Previous path fixture is preserved. All newsletter direction arms and push config/clear children remain present.",
+    "historicalFixtures": "Preserve old app-state source/IR pairs as dedicated fixtures; current generated Rust parity and historical/current independent IQ runtime cases remain checked.",
+    "sourceEvidence": [
+      {
+        "module": "WASmaxOutNewslettersQueryNewsletterParamsMixin",
+        "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+        "moduleSha256": "f1502cdd13e8a4102e7d4832ed712c2e040d6d6c86fa9f04a523507f01542107",
+        "start": 1427027,
+        "end": 1427462
+      },
+      {
+        "module": "WASmaxPushConfigSetRPC",
+        "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+        "moduleSha256": "087a07abeff6965fee91abd98c47136b84e40c08ad2bdef3744f65475da2040b",
+        "start": 1430624,
+        "end": 1441188
+      },
+      {
+        "module": "WASmaxNewslettersGetNewsletterStatusesRPC",
+        "bundleSha256": "15f85c7df527a00d3e1e623a5b72e9b401549784b57231d343a4dd9d47743958",
+        "moduleSha256": "32e78aede4732567930c87f283a42ea457ca1ec51678732da6bff677b2ee47aa",
+        "start": 19227,
+        "end": 25806
+      },
+      {
+        "module": "WASmaxGroupsSetSubjectRPC",
+        "bundleSha256": "05662cbc860ced518b48704b4c23d3499671f38da2fc8ace3861e7196c37e79b",
+        "moduleSha256": "ae3d75e169ce5b14ac15611c99010376157e0da6f384ab3b55598ba4aaecdf69",
+        "start": 16631,
+        "end": 20900
+      },
+      {
+        "module": "WASmaxNewslettersGetNewsletterStatusesRPC",
+        "bundleSha256": "fb83dc105bcdd3371dddc3ca10642a91c1f389e320e08c39a6d73f58dfd2881c",
+        "moduleSha256": "32e78aede4732567930c87f283a42ea457ca1ec51678732da6bff677b2ee47aa",
+        "start": 1398956,
+        "end": 1405535
+      },
+      {
+        "module": "WASmaxNewslettersGetNewsletterMessagesRPC",
+        "bundleSha256": "4ab82076eb3225f2b47d11a8321e3b821057b8c2fff2944bb3262436ebb15da4",
+        "moduleSha256": "e26ef9b89f0e466b65f32e60d1a71c9723f64c7e5850f5d0c8e3cc84b543dbec",
+        "start": 73662,
+        "end": 80214
+      }
+    ],
+    "publication": {
+      "release": "existing bundle-store",
+      "bundleArchive": {
+        "name": "bundles-2.3000.1052559453-d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf.tar.xz",
+        "sha256": "2958d99a3d84141fa8479f1f991e06246e68c063ca8f618a8d5d361287387f62",
+        "size": 9618940,
+        "verification": "Published asset restored by scripts/regen.sh; every bundle verified against authoritative lock."
+      },
+      "wasmArchive": {
+        "name": "wasm-905d7c6b0b4769fd8bbd3d8860d9ef4e415873c65a00b85573461549695a2375.tar.xz",
+        "sha256": "cb9996956dc029eed817640d7c750bb3e833fe6fb1bc1bb4d1ead7ddf3f82335",
+        "size": 13260212,
+        "verification": "Published asset restored with whatspec restore --wasm; all 24 payload hashes/sizes verified."
+      }
+    }
   }
 }

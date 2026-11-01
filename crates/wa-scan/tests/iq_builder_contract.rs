@@ -80,7 +80,7 @@ fn a_group_rename_carries_the_name() {
     // object before writing it. Without the content the IR describes a request that
     // renames a group to nothing.
     let Some(ir) = committed_ir() else { return };
-    let s = stanza(&ir, "WASmaxOutGroupsSetSubjectRequest");
+    let s = stanza(&ir, "WASmaxGroupsSetSubjectRPC");
     let subject = find(s, "subject");
     let content = subject
         .content
@@ -100,7 +100,7 @@ fn a_repeated_child_is_indexed_and_an_optional_one_is_not() {
     // hands the object over whole. Reading one as the other writes the value somewhere
     // the vendor builder never looks, and the stanza goes out missing it.
     let Some(ir) = committed_ir() else { return };
-    let s = stanza(&ir, "WASmaxOutGroupsCreateRequest");
+    let s = stanza(&ir, "WASmaxGroupsCreateRPC");
 
     let participant = find(s, "participant");
     assert!(participant.repeats);
@@ -148,7 +148,7 @@ fn the_three_cardinalities_are_distinguishable_on_a_real_request() {
     // the same `{tag, [], []}` as a required empty one, so a consumer had no way to
     // learn it is the `bool` argument `hasLocked`.
     let Some(ir) = committed_ir() else { return };
-    let s = stanza(&ir, "WASmaxOutGroupsCreateRequest");
+    let s = stanza(&ir, "WASmaxGroupsCreateRPC");
 
     let locked = request_nodes(s)
         .into_iter()
@@ -267,7 +267,7 @@ fn a_runtime_addressee_says_which_argument_supplies_it() {
             .map(|p| p.iter().map(|x| x.key.clone()).collect())
     };
     assert_eq!(
-        path_of("WASmaxOutGroupsGetGroupInfoRequest").as_deref(),
+        path_of("WASmaxGroupsGetGroupInfoRPC").as_deref(),
         Some(["iqTo".to_string()].as_slice()),
         "a group request addresses the group it is about"
     );
@@ -278,12 +278,12 @@ fn a_runtime_addressee_says_which_argument_supplies_it() {
     // before the disagreement withdraws it — which is why the withdrawal is deliberate
     // rather than a gap.
     assert!(
-        path_of("WASmaxOutGroupsGetGroupProfilePicturesRequest").is_none(),
+        path_of("WASmaxGroupsGetGroupProfilePicturesRPC").is_none(),
         "a disagreement about which addressee is one about its address"
     );
     // A constant addressee has nothing to supply, so it names nothing.
     assert!(
-        path_of("WASmaxOutGroupsCreateRequest").is_none(),
+        path_of("WASmaxGroupsCreateRPC").is_none(),
         "the group server is a constant, not an argument"
     );
 }
@@ -387,7 +387,7 @@ fn a_key_bundle_fetch_descends_into_its_union() {
 /// Preserve the traced parent approval literal and its independent non-null guard.
 fn community_create_parent_mode_has_a_presence_argument() {
     let Some(ir) = committed_ir() else { return };
-    let create = &stanza(&ir, "WASmaxOutGroupsCreateRequest").request.children[0];
+    let create = &stanza(&ir, "WASmaxGroupsCreateRPC").request.children[0];
     let parent = create.children.iter().find(|n| n.tag == "parent").unwrap();
     assert_eq!(parent.children.len(), 0);
     let mode = parent
