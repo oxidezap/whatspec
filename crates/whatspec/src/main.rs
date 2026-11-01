@@ -1167,6 +1167,19 @@ fn iq_builder_counts(ir: &wa_ir::IqIr) -> IqBuilderCounts {
         for child in &s.request.children {
             walk(child, &mut c);
         }
+        for variant in s
+            .request
+            .variant_groups
+            .iter()
+            .flat_map(|group| &group.variants)
+        {
+            for attr in &variant.attrs {
+                count_attr(attr, &mut c);
+            }
+            for child in &variant.children {
+                walk(child, &mut c);
+            }
+        }
     }
     c
 }
@@ -4200,5 +4213,22 @@ mod tests {
         let cut = truncate_on_char_boundary(multi, 3);
         assert!(multi.starts_with(cut));
         assert!(cut.len() <= 3, "{cut:?}");
+    }
+}
+
+#[cfg(test)]
+mod root_choice_diagnostic_tests {
+    #[test]
+    fn builder_counts_include_every_root_choice_payload() {
+        let ir: wa_ir::IqIr = serde_json::from_value(serde_json::json!({
+            "schemaVersion":"4.5.0","waVersion":"test","unparseable":[],"stanzas":[{
+                "moduleName":"WASmaxRootRPC","namespace":"probe","iqType":"set","target":"s.whatsapp.net","parserName":"probe","allExports":[],
+                "request":{"namespace":"probe","iqType":"set","target":"s.whatsapp.net","children":[],"variantGroups":[{"optional":false,"variants":[{"attrs":[],"children":[{"tag":"config","attrs":[{"name":"id","kind":"string","required":true,"argPath":[{"key":"id"}]}],"children":[],"repeats":false}]},{"attrs":[],"children":[{"tag":"clear","attrs":[{"name":"platform","kind":"string","required":true,"argPath":[{"key":"platform"}]}],"children":[],"repeats":false}]}]}]},
+                "response":{"parserName":"probe","assertions":[],"fields":[]}
+            }]
+        })).unwrap();
+        let counts = super::iq_builder_counts(&ir);
+        assert_eq!(counts.arg_path_attrs, 2);
+        assert_eq!(counts.arg_path_attrs_missing, 0);
     }
 }
