@@ -23,6 +23,10 @@ pub struct GroupUnlinkRow {
     /// The official plain-object lookup returned an inherited non-string value.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsupported_action: bool,
+    /// Read every `group` child first with `attrGroupJid("jid")`,
+    /// `attrString("subject")`, and `attrInt("s_t")`, in that order.
+    /// Then look up the action; on this branch, warn and return null.
+    /// LINK instead warns and returns before reading group children.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub null_result: Option<GroupUnknownTypeWarning>,
 }
