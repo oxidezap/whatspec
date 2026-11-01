@@ -3,7 +3,8 @@
 // verified by harness.cjs; no parser behavior is reimplemented here.
 const assert=require('node:assert/strict');
 const {createHarness}=require('./harness.cjs');
-const harness=createHarness('envelope-evidence.json',{strictDiagnosticLogger:true});
+const fixtureRoot=process.env.GROUP_FIXTURE_ROOT;
+const harness=createHarness(fixtureRoot?'evidence.json':'envelope-evidence.json',{strictDiagnosticLogger:true,...(fixtureRoot?{fixtureRoot}:{})});
 const evidence=harness.evidence;
 let flags;
 const marker = () => ({tag: 'missing_participant_identification', attrs: {}});
@@ -51,7 +52,7 @@ function encodeNode(node) {
   else assert.equal(node.content, undefined);
   return encoded;
 }
-const contract = require('../../../generated/notif/group-envelope.json');
+const contract = require(process.env.GROUP_ENVELOPE_CONTRACT || './versions/2.3000.1047483476/group-envelope.json');
 const outcomes = [];
 function run(test, ir) {
   const result = {};

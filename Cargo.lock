@@ -2193,6 +2193,7 @@ dependencies = [
  "oxc_ast_visit",
  "oxc_span",
  "oxc_syntax",
+ "serde",
  "serde_json",
  "wa-enums",
  "wa-ir",

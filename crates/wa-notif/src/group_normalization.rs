@@ -38,16 +38,45 @@ enum Value {
     Object(HashMap<String, Value>),
     Groups,
     Unsupported,
+    RejectedType(wa_ir::group_normalization::GroupUnknownTypeWarning),
 }
 
 struct Eval<'a> {
+    source: &'a str,
     resolver: &'a ConstResolver<'a>,
     vars: HashMap<String, Value>,
     kind: String,
     reason: Option<String>,
+    reads: Vec<&'static str>,
 }
 impl Eval<'_> {
-    fn expr(&self, expr: &Expression<'_>) -> Result<Value, String> {
+    fn require_payload_reads(&self) -> Result<(), String> {
+        let expected: &[&str] = if self.reason.is_some() {
+            &["type", "hasReason", "reason", "groups"]
+        } else {
+            &["type", "hasReason", "groups"]
+        };
+        if self.reads != expected {
+            return Err("changed UNLINK payload read order".into());
+        }
+        Ok(())
+    }
+    fn expr(&mut self, expr: &Expression<'_>) -> Result<Value, String> {
+        let expr = expr.without_parentheses();
+        if let Some((argument, warning)) =
+            crate::group_qualification::unknown_type_warning(self.source, expr, "UNLINK")
+        {
+            let expected = if self.kind == UNKNOWN_INPUT {
+                Value::UnknownKind
+            } else {
+                Value::Text(self.kind.clone())
+            };
+            if self.vars.get(&argument) != Some(&expected) {
+                return Err("UNLINK warning no longer receives wire type".into());
+            }
+            self.require_payload_reads()?;
+            return Ok(Value::RejectedType(warning));
+        }
         if let Some(text) = as_string_lit(expr) {
             return Ok(Value::Text(text.into()));
         }
@@ -73,6 +102,15 @@ impl Eval<'_> {
                 Value::Bool(false) => self.expr(&c.alternate),
                 _ => Err("non-boolean guard".into()),
             },
+            Expression::BinaryExpression(b)
+                if b.operator == oxc_syntax::operator::BinaryOperator::Equality
+                    && matches!(b.right, Expression::NullLiteral(_)) =>
+            {
+                Ok(Value::Bool(matches!(
+                    self.expr(&b.left)?,
+                    Value::Null | Value::Undefined
+                )))
+            }
             Expression::BinaryExpression(b)
                 if b.operator == oxc_syntax::operator::BinaryOperator::StrictEquality =>
             {
@@ -120,6 +158,7 @@ impl Eval<'_> {
                 Ok(Value::Object(values))
             }
             Expression::ComputedMemberExpression(m) => {
+                self.require_payload_reads()?;
                 let Value::Object(obj) = self.expr(&m.object)? else {
                     return Err("lookup on non-object".into());
                 };
@@ -150,6 +189,13 @@ impl Eval<'_> {
                 if c.arguments.len() != if method == "mapChildrenWithTag" { 2 } else { 1 } {
                     return Err("unsupported accessor arity".into());
                 }
+                self.reads.push(match (method, attr) {
+                    ("attrString", "unlink_type") => "type",
+                    ("hasAttr", "unlink_reason") => "hasReason",
+                    ("attrString", "unlink_reason") => "reason",
+                    ("mapChildrenWithTag", "group") if valid_groups(c) => "groups",
+                    _ => return Err(format!("unsupported accessor {method}({attr})")),
+                });
                 match (method, attr) {
                     ("attrString", "unlink_type") => Ok(if self.kind == UNKNOWN_INPUT {
                         Value::UnknownKind
@@ -218,6 +264,7 @@ impl Eval<'_> {
 // Evaluation may stop at a return or skip an untaken branch; qualification
 // must not. Check the complete grammar first, including declaration hoisting.
 fn validate_structure(
+    source: &str,
     statement: &Statement<'_>,
     node: &str,
     resolver: &ConstResolver<'_>,
@@ -236,18 +283,46 @@ fn validate_structure(
             }
         }
         Statement::ReturnStatement(ret) => {
-            validate_expression(ret.argument.as_ref().ok_or("empty return")?, node, resolver)?
+            let expression = ret
+                .argument
+                .as_ref()
+                .ok_or("empty return")?
+                .without_parentheses();
+            if let Expression::ConditionalExpression(condition) = expression
+                && crate::group_qualification::unknown_type_warning(
+                    source,
+                    &condition.consequent,
+                    "UNLINK",
+                )
+                .is_some()
+            {
+                // The only qualified effect is a terminal unknown-type branch.
+                // Never accept it inside a discarded initializer or object field.
+                let Expression::BinaryExpression(test) = condition.test.without_parentheses()
+                else {
+                    return Err("changed UNLINK null guard".into());
+                };
+                if test.operator != oxc_syntax::operator::BinaryOperator::Equality
+                    || !matches!(test.right, Expression::NullLiteral(_))
+                {
+                    return Err("changed UNLINK null guard".into());
+                }
+                validate_expression(&condition.test, node, resolver)?;
+                validate_expression(&condition.alternate, node, resolver)?;
+            } else {
+                validate_expression(expression, node, resolver)?;
+            }
         }
         Statement::BlockStatement(block) => {
             for statement in &block.body {
-                validate_structure(statement, node, resolver)?;
+                validate_structure(source, statement, node, resolver)?;
             }
         }
         Statement::IfStatement(branch) => {
             validate_expression(&branch.test, node, resolver)?;
-            validate_structure(&branch.consequent, node, resolver)?;
+            validate_structure(source, &branch.consequent, node, resolver)?;
             if let Some(alternate) = &branch.alternate {
-                validate_structure(alternate, node, resolver)?;
+                validate_structure(source, alternate, node, resolver)?;
             }
         }
         _ => return Err("unqualified statement anywhere in unlink helper".into()),
@@ -260,6 +335,7 @@ fn validate_expression(
     node: &str,
     resolver: &ConstResolver<'_>,
 ) -> Result<(), String> {
+    let expression = expression.without_parentheses();
     if resolver.resolve(expression).is_some() {
         let call = as_member(expression)
             .and_then(|(object, _)| as_member(object))
@@ -278,7 +354,9 @@ fn validate_expression(
             validate_expression(&condition.alternate, node, resolver)?;
         }
         Expression::BinaryExpression(binary)
-            if binary.operator == oxc_syntax::operator::BinaryOperator::StrictEquality =>
+            if binary.operator == oxc_syntax::operator::BinaryOperator::StrictEquality
+                || (binary.operator == oxc_syntax::operator::BinaryOperator::Equality
+                    && matches!(binary.right, Expression::NullLiteral(_))) =>
         {
             validate_expression(&binary.left, node, resolver)?;
             validate_expression(&binary.right, node, resolver)?;
@@ -534,6 +612,9 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
     {
         return Err("changed helper kind/parameters".into());
     }
+    let source = *slices
+        .get("WAWebHandleGroupNotification")
+        .ok_or("missing group handler")?;
     let resolver = ConstResolver::for_groups(slices);
     let body = f.body.as_ref().ok_or("missing helper body")?;
     let param = f
@@ -547,7 +628,41 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
     }
     crate::group_qualification::reject_optional_access(body)?;
     for statement in &body.statements {
-        validate_structure(statement, param.as_str(), &resolver)?;
+        validate_structure(source, statement, param.as_str(), &resolver)?;
+    }
+    // A byte-identical warning must still resolve its captured cache/imports
+    // in the qualified factory scope, not in a newly introduced helper local.
+    struct WarningScope<'s> {
+        source: &'s str,
+        bindings: BTreeSet<String>,
+        captures: BTreeSet<String>,
+    }
+    impl<'a> Visit<'a> for WarningScope<'_> {
+        fn visit_function(&mut self, _: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
+        fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+            self.bindings.insert(id.name.to_string());
+        }
+        fn visit_expression(&mut self, expression: &Expression<'a>) {
+            if let Some((argument, _)) =
+                crate::group_qualification::unknown_type_warning(self.source, expression, "UNLINK")
+            {
+                self.captures
+                    .extend(crate::group_qualification::warning_captures(
+                        expression, &argument,
+                    ));
+            }
+            walk::walk_expression(self, expression);
+        }
+    }
+    let mut scope = WarningScope {
+        source,
+        bindings: BTreeSet::new(),
+        captures: BTreeSet::new(),
+    };
+    scope.visit_function_body(body);
+    scope.bindings.insert(param.to_string());
+    if !scope.bindings.is_disjoint(&scope.captures) {
+        return Err("UNLINK local shadows warning dependency".into());
     }
     // Reject calls on any receiver except the actual helper parameter. Alias it
     // through an AST-independent binding in the expression evaluator.
@@ -596,34 +711,41 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
             let mut vars = HashMap::new();
             vars.insert(param.to_string(), Value::Node);
             let mut eval = Eval {
+                source,
                 resolver: &resolver,
                 vars,
                 kind: kind.clone(),
                 reason: reason.clone(),
+                reads: vec![],
             };
             let value = eval
                 .statements(&body.statements)?
                 .ok_or("helper has no return")?;
-            let Value::Object(mut obj) = value else {
-                return Err("non-object helper result".into());
-            };
-            if obj.remove("groupDatas") != Some(Value::Groups) || obj.len() != 1 {
-                return Err("changed normalized payload".into());
-            }
-            let (action_type, unsupported_action) = match obj.remove("actionType") {
-                Some(Value::Text(v)) if v == sentinel => {
-                    return Err("unknown input escapes finite action table".into());
+            eval.require_payload_reads()?;
+            let (action_type, unsupported_action, null_result) = match value {
+                Value::RejectedType(warning) => (None, false, Some(warning)),
+                Value::Object(mut obj) => {
+                    if obj.remove("groupDatas") != Some(Value::Groups) || obj.len() != 1 {
+                        return Err("changed normalized payload".into());
+                    }
+                    match obj.remove("actionType") {
+                        Some(Value::Text(v)) if v == sentinel => {
+                            return Err("unknown input escapes finite action table".into());
+                        }
+                        Some(Value::Text(v)) => (Some(v), false, None),
+                        Some(Value::Null | Value::Undefined) => (None, false, None),
+                        Some(Value::Unsupported) => (None, true, None),
+                        _ => return Err("non-string action".into()),
+                    }
                 }
-                Some(Value::Text(v)) => (Some(v), false),
-                Some(Value::Null | Value::Undefined) => (None, false),
-                Some(Value::Unsupported) => (None, true),
-                _ => return Err("non-string action".into()),
+                _ => return Err("non-object helper result".into()),
             };
             rows.push(GroupUnlinkRow {
                 unlink_type: (kind != sentinel).then(|| kind.clone()),
                 reason: reason.filter(|v| v != sentinel),
                 action_type,
                 unsupported_action,
+                null_result,
             });
         }
     }
@@ -657,6 +779,7 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
                 .is_some_and(|fallback| {
                     fallback.action_type != r.action_type
                         || fallback.unsupported_action != r.unsupported_action
+                        || fallback.null_result != r.null_result
                 })
         })
         .map(|r| r.unlink_type.clone())
@@ -668,7 +791,9 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
             rows.iter()
                 .find(|d| d.unlink_type == r.unlink_type && d.reason.is_none())
                 .is_some_and(|d| {
-                    d.action_type != r.action_type || d.unsupported_action != r.unsupported_action
+                    d.action_type != r.action_type
+                        || d.unsupported_action != r.unsupported_action
+                        || d.null_result != r.null_result
                 })
         })
         .map(|r| r.reason.clone())
@@ -771,12 +896,13 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         let helper = format!(
-            r#"function I(e){{var t=e.attrString("unlink_type"),n=e.hasAttr("unlink_reason")?e.attrString("unlink_reason"):null,a={{{table}}};return{{actionType:t==="__proto__"?"same":n===null?"same":t===n?"same":a[t],groupDatas:e.mapChildrenWithTag("group",function(e){{return{{id:o("WAWebJidToWid").groupJidToWid(e.attrGroupJid("jid")),subject:e.attrString("subject"),subjectTime:e.attrInt("s_t")}}}})}}}}"#
+            r#"function I(e){{var t=e.attrString("unlink_type"),n=e.hasAttr("unlink_reason")?e.attrString("unlink_reason"):null,r=e.mapChildrenWithTag("group",function(e){{return{{id:o("WAWebJidToWid").groupJidToWid(e.attrGroupJid("jid")),subject:e.attrString("subject"),subjectTime:e.attrInt("s_t")}}}}),a={{{table}}};return{{actionType:t==="__proto__"?"same":n===null?"same":t===n?"same":a[t],groupDatas:r}}}}"#
         );
         let original = extract(GROUP).unwrap();
         let mut changed = GROUP.to_string();
         changed.replace_range(original.start_byte..original.end_byte, &helper);
-        assert!(extract(&changed).is_err());
+        let error = extract(&changed).unwrap_err();
+        assert!(error.contains("independent unknown strings"), "{error}");
     }
     #[test]
     fn unknown_input_strings_cannot_escape_as_constant_fallbacks() {
@@ -824,10 +950,11 @@ mod tests {
         assert_eq!(rows, extract(GROUP).unwrap().rows);
     }
     #[test]
-    fn official_projection_is_reproducible() {
-        let expected: GroupUnlinkContract =
-            serde_json::from_str(include_str!("../../../generated/notif/group-unlink.json"))
-                .unwrap();
+    fn historical_projection_is_reproducible() {
+        let expected: GroupUnlinkContract = serde_json::from_str(include_str!(
+            "../../../tests/conformance/groups/versions/2.3000.1047483476/group-unlink.json"
+        ))
+        .unwrap();
         assert_eq!(extract(GROUP).unwrap(), expected);
         assert_eq!(expected.rows.len(), 48);
         assert!(

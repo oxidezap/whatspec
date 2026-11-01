@@ -145,6 +145,7 @@ struct Lower {
     loaders: BTreeSet<String>,
     locals: BTreeMap<String, u32>,
     diagnostic_seen: bool,
+    diagnostic_cache: &'static str,
 }
 impl Lower {
     fn local(&self, name: &str) -> Result<u32, String> {
@@ -415,6 +416,7 @@ impl Lower {
                         error.as_ref(),
                         &self.locals,
                         &self.loaders,
+                        self.diagnostic_cache,
                     )?;
                     ops.push(GroupEnvelopeOp::TryDiagnostic {
                         body,
@@ -441,6 +443,7 @@ fn diagnostic(
     error: &str,
     locals: &BTreeMap<String, u32>,
     loaders: &BTreeSet<String>,
+    expected_cache: &str,
 ) -> Result<Vec<String>, String> {
     let [Statement::ExpressionStatement(es)] = statements else {
         return Err("nonlocal catch effects".into());
@@ -461,7 +464,7 @@ fn diagnostic(
         return Err("diagnostic template cache guard".into());
     }
     let cache = as_identifier(&lazy.left).ok_or("diagnostic cache binding")?;
-    if cache != crate::group_qualification::DIAGNOSTIC_CACHE {
+    if cache != expected_cache {
         return Err("diagnostic cache is not the qualified module binding".into());
     }
     if locals.contains_key(cache) || cache == error {
@@ -737,6 +740,7 @@ fn lower_callback(
         loaders: loaders.clone(),
         locals: BTreeMap::new(),
         diagnostic_seen: false,
+        diagnostic_cache: crate::group_qualification::diagnostic_cache(source)?,
     };
     let (last, before) = body.statements.split_last().ok_or("empty parser")?;
     let Statement::ReturnStatement(ret) = last else {
@@ -851,6 +855,7 @@ fn lower_callback(
     )?;
     opaque_references.extend(action_references);
     crate::group_qualification::validate_prefix_bindings(
+        source,
         lower.locals.keys().map(String::as_str),
         &opaque_references,
     )?;
@@ -914,8 +919,11 @@ pub fn extract_group_envelope(
                         .push(Err("unrecognized group parser constructor".into()));
                     return;
                 }
-                let Some(Expression::FunctionExpression(callback)) =
-                    n.arguments.get(1).and_then(arg_expr)
+                let Some(Expression::FunctionExpression(callback)) = n
+                    .arguments
+                    .get(1)
+                    .and_then(arg_expr)
+                    .map(Expression::without_parentheses)
                 else {
                     self.results
                         .push(Err("unrecognized group parser callback".into()));
@@ -1231,9 +1239,10 @@ mod tests {
     #[test]
     fn complete_prefix_and_final_projection_are_extracted() {
         let contract = extract(SOURCE).unwrap();
-        let committed: GroupEnvelopeContract =
-            serde_json::from_str(include_str!("../../../generated/notif/group-envelope.json"))
-                .unwrap();
+        let committed: GroupEnvelopeContract = serde_json::from_str(include_str!(
+            "../../../tests/conformance/groups/versions/2.3000.1047483476/group-envelope.json"
+        ))
+        .unwrap();
         assert_eq!(contract, committed);
         assert!(contract.locals > 10);
         assert!(

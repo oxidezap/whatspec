@@ -1,24 +1,30 @@
 # LINK normalization qualification
 
 `generated/notif/group-link.json` is a separate experimental projection of the
-complete LINK case in `WAWebHandleGroupNotification`. It qualifies the three
+complete LINK case in `WAWebHandleGroupNotification` for WA Web
+2.3000.1052559453. The historical contract remains under
+`versions/2.3000.1047483476/`. It qualifies the three
 normalized action identities, required group-data readers and the conditional
 presence of `hiddenSubgroup`. A parent-group link omits that field. Other link
 types read `hasChild("hidden_group")`, so a false result remains a present field.
 Consumers must preserve this distinction with `Option<bool>` or equivalent.
 
-The spans are relative to the complete preserved handler module. The additional
+The spans are relative to the complete preserved handler module. Current source
+hashes and offsets are in `versions/2.3000.1052559453/evidence.json`. The historical
 `WAWebHandleGroupNotificationConst` fixture resolves the LINK case's actual wire
 tag. Its original bundle bytes are 268451..276687 in bundle
 `09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8`.
-`link-evidence.json` records hashes and spans for every source module. No source
+`link-evidence.json` records the historical hashes and spans. No source
 is extracted by executing a bundle.
 
-The action table is a plain JavaScript object. An ordinary future string yields
-an undefined action, but names inherited from standard `Object.prototype`, such
+The action table is a plain JavaScript object. In the current source, an ordinary
+future string invokes WARN and sendLogs, then returns null before reading group
+children. Its row has `nullResult` with the qualified template and event; consumers
+must preserve call order and exceptions. The historical source instead returned
+an object with an undefined action. Names inherited from standard `Object.prototype`, such
 as `toString`, `constructor` and `__proto__`, produce non-string values. Their
 rows carry `unsupportedAction: true`. A typed consumer must reject those rows,
-not convert them to the undefined/None fallback. This qualification assumes the
+not convert them to the ordinary unknown-type fallback. This qualification assumes the
 standard, unmodified `Object.prototype`; it does not model prototype mutation by
 other runtime code.
 
@@ -37,7 +43,8 @@ nested sibling blocks require requalification of that opaque context.
 The generated output still carries named wire readers for a
 consumer's manual decoder and API adapter.
 
-`node tests/conformance/groups/link.cjs --mutations` executes only the previously
+`node tests/conformance/groups/link.cjs --mutations` tests the historical contract
+and executes only the previously
 AST-extracted official case and official constant module. The input domain is
 independent of IR coverage. It compares 10 ordinary kind/hidden-child cases and
 24 inherited-property cases. Row-removal, absent-versus-false corruption and
@@ -48,3 +55,8 @@ oracle emitted by `--json` distinguishes unsupported result types explicitly.
 
 This projection does not qualify CREATE, the rest of the notification envelope,
 runtime cache/storage/ACK behavior, effective account gates or every group action.
+
+`node tests/conformance/groups/versions/2.3000.1052559453/verify.cjs` checks the
+current contracts and immutable original-source outcomes, including 204 combined
+LINK/UNLINK cases and eight independent IR mutations. Unlike LINK, UNLINK reads
+each group payload before warning and returning null for an unknown type.

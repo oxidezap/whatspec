@@ -12,7 +12,7 @@ function source(name) {
   return bytes.toString();
 }
 const typesSource = source('WAWebGroupType');
-const contract = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../generated/notif/group-unlink.json')));
+const contract = JSON.parse(fs.readFileSync(path.join(__dirname, 'versions/2.3000.1047483476/group-unlink.json')));
 const helper = source('WAWebHandleGroupNotification').slice(contract.startByte, contract.endByte);
 function action(moduleSource, helperSource = helper) {
   let types;

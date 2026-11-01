@@ -13,6 +13,8 @@ pub struct GroupUnlinkContract {
     pub rows: Vec<GroupUnlinkRow>,
 }
 
+/// Every row first reads every `group` child with `attrGroupJid("jid")`,
+/// `attrString("subject")`, and `attrInt("s_t")`, before deciding the action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -23,4 +25,19 @@ pub struct GroupUnlinkRow {
     /// The official plain-object lookup returned an inherited non-string value.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsupported_action: bool,
+    /// An ordinary unknown type warns and returns null after the payload reads
+    /// documented on this row. LINK instead returns before group children.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub null_result: Option<GroupUnknownTypeWarning>,
+}
+
+/// A qualified unknown-type branch invokes WARN(template, wire type), then
+/// sendLogs(event), then returns null. Calls are observable and may throw;
+/// consumers must preserve their order and must not emit a partial action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GroupUnknownTypeWarning {
+    pub template: Vec<String>,
+    pub event: String,
 }

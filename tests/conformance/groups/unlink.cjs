@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../../..');
 const evidence = JSON.parse(fs.readFileSync(path.join(__dirname, 'evidence.json')));
-const contractPath = process.argv.includes('--contract') ? process.argv[process.argv.indexOf('--contract') + 1] : path.join(root, 'generated/notif/group-unlink.json');
+const contractPath = process.argv.includes('--contract') ? process.argv[process.argv.indexOf('--contract') + 1] : path.join(root, 'tests/conformance/groups/versions/2.3000.1047483476/group-unlink.json');
 const contract = JSON.parse(fs.readFileSync(contractPath));
 const sources = {};
 for (const m of evidence.modules) {

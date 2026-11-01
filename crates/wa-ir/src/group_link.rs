@@ -13,11 +13,13 @@ pub struct GroupLinkContract {
     pub wire_tag: String,
     pub link_type_attribute: String,
     pub group_child_tag: String,
-    /// Required group payload reads, in JavaScript evaluation order.
+    /// Group payload reads, in JavaScript evaluation order, when an action
+    /// payload is constructed (not on an early `nullResult` branch).
     pub group_fields: Vec<GroupLinkField>,
     /// `linkType: null` is the ordinary unknown-string fallback, excluding
     /// rows marked `unsupportedAction`. The wire attribute itself
-    /// is still required. An unknown type produces an undefined action upstream.
+    /// is still required. Historically an unknown type produced an undefined
+    /// action; a row with `nullResult` instead warns and returns null.
     pub rows: Vec<GroupLinkRow>,
 }
 
@@ -41,6 +43,9 @@ pub struct GroupLinkRow {
     /// it must never be collapsed into the ordinary undefined fallback.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsupported_action: bool,
+    /// When present, warn and return null before reading group children.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub null_result: Option<crate::group_normalization::GroupUnknownTypeWarning>,
     /// When present, read this child's presence for `hiddenSubgroup: bool`.
     /// When absent, omit `hiddenSubgroup`, rather than emitting false.
     pub hidden_subgroup_child: Option<String>,

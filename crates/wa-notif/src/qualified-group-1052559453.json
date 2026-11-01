@@ -1,0 +1,71 @@
+{
+  "moduleFrame": "74021d7aff76228797d45022ba55d6dd38138408f82979566249e99d6f34d866",
+  "actions": "e7335febbf636d7471ff6195eb0fc9ad1151debf062fb581d439afcd4021b9ce",
+  "helpers": "59819f4ce7d98e07ee02c2f7bd69ed1108a666dcb2eadd26ed504c4eab040683",
+  "linkContext": "89b8458554c108e73a06d176b0a8100bbc45d9c0687d17d5299ab4c0fa4b068e",
+  "unlinkContext": "21b7fe178a55f80a2881d26671fa0821f6d7ce385a4437e25f255554bff005e7",
+  "diagnosticCache": "p",
+  "providers": {
+    "$InternalEnum": "82b7b18d50af52e7f59e70338c869994bbfe707f85df522835b9c4d4b95cddb0",
+    "WAJids": "8b8655512bfc775d31954e5101970d1774e2c0800e4608698be13105cc23fb0c",
+    "WAParsableWapNode": "1c2e9ba9fabf92a027b2e8ced39a2cc7cc89cc107e6add73d90834a0bef868f3",
+    "WAParsableXmlNode": "5d238b9f2e2ecde2141c039a19811f665104b3ab03a149578004a402f492681a",
+    "WATimeUtils": "c4cf33d3661e5a8dd1580c6202b1550f1143aad6077bfdbc9fc028ae624776dc",
+    "WAWebEphemeralityTypes": "26cc07e3f4c1cdcd43a14d61a83da58e03bbb938c961515f28f545a92689ba88",
+    "WAWebEphemeralityUtils": "7b0cebb37f37d6abe6b0edb69e2b62c1a912405bb06be64d17f8138069994799",
+    "WAWebGroupApiConst": "e193101113930eb633f4bd15e46958be0f8c781fb7007641a00a92b550bfdd31",
+    "WAWebGroupHistoryPostJoinTypes": "dfa6dccddd76e6350b0f05f005d5ea09191bafe2e125aede3388b96c49a14e2f",
+    "WAWebGroupHistoryShareMode": "26f1317f95a282441bbfe77dbb88a0109687cdd54333c27260ba9905ee5fcaa1",
+    "WAWebGroupMemberLinkMode": "79f0d690ff3ab0719fbde5fc16daa3859c690a062ca155321191ead04cabb884",
+    "WAWebGroupType": "d63035154901e9677bc08acd8ab3994845087875ca5ce84636ec765b72553519",
+    "WAWebGroupsQueryApi": "4015cce0711e5baebf7b475b331ac0377967765683c47ba66483ef58d2adf566",
+    "WAWebHandleGroupNotificationConst": "cd9900c3d837667a170a9e0b611e9808544ab52717efd7f5c11a13419b3fc335",
+    "WAWebRequestMethodType": "cc85d5aece1efb901a1e8b266ef90bf3e02bf0f1a4765c58e8592cb19a0d1023",
+    "WAWebSchemaGroupMetadata": "7fa15b1681882906c7cdef2fea492ba9c3cb82c0799414b64add593f92c3cb66",
+    "nullthrows": "dc6eb8c1da357368b7ab18fbb02faf3a0d1c098671c2f6df9f0c438d84a65569"
+  },
+  "rootLocals": [
+    "e",
+    "t",
+    "n",
+    "a",
+    "i",
+    "l",
+    "s",
+    "u",
+    "c",
+    "d",
+    "m",
+    "f",
+    "g",
+    "h",
+    "y",
+    "C",
+    "v",
+    "R",
+    "$"
+  ],
+  "helperLocals": [
+    "v"
+  ],
+  "unlinkWarningNull": {
+    "sha256": "5d62a41d4a1beb06b2ebb70d0154c06850f0771c2dce0e79a715e70e1c66071b",
+    "source": "o(\"WALogger\").WARN(m||(m=babelHelpers.taggedTemplateLiteralLoose([\"Unrecognized unlink_type: \",\"\"])),t).sendLogs(\"group-unrecognized-unlink-type\"),null",
+    "argument": "t",
+    "template": [
+      "Unrecognized unlink_type: ",
+      ""
+    ],
+    "event": "group-unrecognized-unlink-type"
+  },
+  "linkWarningNull": {
+    "sha256": "2b8fd2ff5ea6e31437af65d8f25b2da86bf53ae2ee0b5f730d6bbdb8994716c8",
+    "source": "o(\"WALogger\").WARN(_||(_=babelHelpers.taggedTemplateLiteralLoose([\"Unrecognized link_type: \",\"\"])),i).sendLogs(\"group-unrecognized-link-type\"),null",
+    "argument": "i",
+    "template": [
+      "Unrecognized link_type: ",
+      ""
+    ],
+    "event": "group-unrecognized-link-type"
+  }
+}
