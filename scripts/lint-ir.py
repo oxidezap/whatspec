@@ -394,7 +394,7 @@ def stable_identity_path(document, path):
     """Name array entries by their IR identity, so a reorder cannot move a pin."""
     current = document
     result = []
-    for encoded_part in path.strip("/").split("/") if path else []:
+    for encoded_part in path.removeprefix("/").split("/") if path else []:
         part = encoded_part.replace("~1", "/").replace("~0", "~")
         if isinstance(current, list):
             current = current[int(part)]
