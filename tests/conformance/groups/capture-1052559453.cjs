@@ -98,6 +98,8 @@ function collectBindings(callback) {
       return;
     }
     if (['FunctionExpression', 'ArrowFunctionExpression'].includes(node.type)) return;
+    if (['ClassDeclaration', 'ClassExpression'].includes(node.type))
+      throw Error('unqualified class binding');
     if (node.type === 'VariableDeclaration' && node.kind !== 'var')
       throw Error('unqualified lexical binding');
     if (node.type === 'VariableDeclarator') {
@@ -123,6 +125,8 @@ if (process.argv.includes('--self-test')) {
     'function({x}){}',
     'function(x=1){}',
     'function(...x){}',
+    'function(x){class C{}}',
+    'function(x){var C=class{static{var hidden}}}',
     'function(x){var {y}=x}',
     'function(x){if(x){function nested(){}}}'
   ])
@@ -130,7 +134,7 @@ if (process.argv.includes('--self-test')) {
   assert.deepEqual(
     collectBindings(
       parse(
-        'function(e){var x;function helper(){var privateLocal}if(e){var y}var alias=function(z){var inner}}'
+        'function(e){var x;function helper(){var privateLocal;class Private{}}if(e){var y}var alias=function(z){var inner}}'
       )
     ),
     { rootLocals: ['e', 'x', 'helper', 'y', 'alias'], helperLocals: ['helper'] }

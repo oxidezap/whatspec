@@ -896,12 +896,13 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         let helper = format!(
-            r#"function I(e){{var t=e.attrString("unlink_type"),n=e.hasAttr("unlink_reason")?e.attrString("unlink_reason"):null,a={{{table}}};return{{actionType:t==="__proto__"?"same":n===null?"same":t===n?"same":a[t],groupDatas:e.mapChildrenWithTag("group",function(e){{return{{id:o("WAWebJidToWid").groupJidToWid(e.attrGroupJid("jid")),subject:e.attrString("subject"),subjectTime:e.attrInt("s_t")}}}})}}}}"#
+            r#"function I(e){{var t=e.attrString("unlink_type"),n=e.hasAttr("unlink_reason")?e.attrString("unlink_reason"):null,r=e.mapChildrenWithTag("group",function(e){{return{{id:o("WAWebJidToWid").groupJidToWid(e.attrGroupJid("jid")),subject:e.attrString("subject"),subjectTime:e.attrInt("s_t")}}}}),a={{{table}}};return{{actionType:t==="__proto__"?"same":n===null?"same":t===n?"same":a[t],groupDatas:r}}}}"#
         );
         let original = extract(GROUP).unwrap();
         let mut changed = GROUP.to_string();
         changed.replace_range(original.start_byte..original.end_byte, &helper);
-        assert!(extract(&changed).is_err());
+        let error = extract(&changed).unwrap_err();
+        assert!(error.contains("independent unknown strings"), "{error}");
     }
     #[test]
     fn unknown_input_strings_cannot_escape_as_constant_fallbacks() {

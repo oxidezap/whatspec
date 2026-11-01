@@ -173,7 +173,8 @@
         "unlink_cannot_skip_duplicate_or_reorder_payload_reads",
         "link_case_locals_cannot_shadow_warning_captures"
       ],
-      "independentSourceProof": "node tests/conformance/groups/versions/2.3000.1052559453/qualification-regressions.cjs"
+      "independentSourceProof": "node tests/conformance/groups/versions/2.3000.1052559453/qualification-regressions.cjs",
+      "method": "Overlay the newly added current_tests onto the 677eac0 group_link.rs and group_normalization.rs implementation while retaining the current scope-profile reader, run the test filter, and restore the fixes. Two regressions fail; five controls pass."
     },
     "findings": [
       {
@@ -264,6 +265,20 @@
         ],
         "disposition": "stale",
         "evidence": "Before this review, 5d9cb00 already replaced the quoted sentence. Current GroupLinkContract rows doc explicitly distinguishes historical undefined actions from nullResult warnings and null returns."
+      },
+      {
+        "comments": [
+          4434391634
+        ],
+        "disposition": "fixed",
+        "evidence": "Capture rejects ClassDeclaration and ClassExpression in the collected scope, with regression self-tests that failed before the fix. Classes inside opaque nested helper bodies do not leak inner bindings into the outer scope. Exact recapture remains unchanged."
+      },
+      {
+        "comments": [
+          4434398115
+        ],
+        "disposition": "fixed",
+        "evidence": "The historical adversarial unknown-input helper now reads payload before computing its action. Its assertion requires independent unknown strings, not a generic error. Before the helper fix that specific assertion failed with changed UNLINK payload read order; after it passes."
       }
     ]
   }
