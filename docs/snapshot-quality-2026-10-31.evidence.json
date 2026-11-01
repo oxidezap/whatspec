@@ -2882,7 +2882,7 @@
     },
     "finalIqDiagnostics": {
       "builder": {
-        "argPathAttrs": 477,
+        "argPathAttrs": 478,
         "argPathAttrsMissing": 48,
         "argPathChildren": 173,
         "argPathChildrenMissing": 11,
@@ -2998,7 +2998,8 @@
         "size": 13260212,
         "verification": "Published asset restored with whatspec restore --wasm; all 24 payload hashes/sizes verified."
       }
-    }
+    },
+    "schemaVersion": "4.5.0"
   },
   "retrySemanticReview": {
     "waVersion": "2.3000.1052559453",
@@ -3096,7 +3097,7 @@
       "Session reset/save-base-key decisions retain their count=2 / count>2 boundaries, registration mismatch behavior and status session scope; all 11 original scenarios and suspension cuts pass on current code.",
       "Identity eligibility now returns {hasAdditionalRetryTargets,retryEligibility}; row ordering, primary delivery and alternate-key guards remain checked with 12 original scenarios, additional-target metadata variants, and semantic mutations.",
       "Sent message lookup is factored into a separate generator. It checks primary/alternate addon records before primary/alternate message rows and preserves revoked protocol row IDs. Six isolated loader scenarios and four loader mutations check its exact selection.",
-      "getMsgIfAuthorized now accepts loadedSentMessage/isPq and returns {msgRecord,retryContext:{hasAdditionalRetryTargets},isIdentityChangedSinceSend}. Coex precedence, alternate-device fallback, deny reasons, addon handling, revoked conversion and PQ reject metrics are checked by 18 current-version scenarios plus yield failure/cancellation and six main authorization mutations.",
+      "getMsgIfAuthorized now accepts loadedSentMessage/isPq and returns {msgRecord,retryContext:{hasAdditionalRetryTargets},isIdentityChangedSinceSend}. Coex precedence, alternate-device fallback, deny reasons, addon handling, revoked conversion and PQ reject metrics are checked by 19 current-version scenarios plus yield failure/cancellation and eleven main authorization/metric mutations.",
       "Receipt key inclusion still starts at stateless || retryCount>=2. Fourteen combinations qualify the first suspension; later PQ key upload and crypto operations remain outside this oracle boundary."
     ],
     "antiDrift": "Exact full source/inventory equality with the reviewed version-specific capture remains mandatory. Unknown revisions or any changed captured source fail before execution. Both preserved historical and current oracles run in CI.",
@@ -3104,14 +3105,196 @@
       "captureGateScenarios": 10,
       "sessionScenarios": 11,
       "eligibilityScenarios": 12,
-      "authorizationScenarios": 18,
+      "authorizationScenarios": 19,
       "loaderScenarios": 6,
-      "semanticMutations": 22,
+      "semanticMutations": 27,
       "mutatedCurrentCapture": "rejected before execution"
     },
     "limits": [
       "No library retry policy or server protocol decision is changed by this update; the oracle executes selected preserved upstream generator bodies against synthetic facts.",
       "The HandleRetryRequest source inventory records new AEA/PQ-related orchestration and additional helpers. Queue scheduling, callee behavior, crypto, storage, transport and complete resend/AEA enforcement are not claimed executable by this partial oracle."
     ]
+  },
+  "finalReviewReconciliation": {
+    "schemaVersion": "4.5.0",
+    "rootChoices": "request.variantGroups records exclusive IQ payload arms; common root headers are factored out and conflicting destinations remain unknown. Reference codegen emits one selected payload arm. Checked generation rejects unqualified root choices, and unsupported root-attribute alternatives fail closed rather than producing a wrong stanza.",
+    "appstateVersions": {
+      "resolved": 69,
+      "missing": 0,
+      "Archive": 3
+    },
+    "reviewThreads": [
+      {
+        "threadId": "PRRT_kwDOSxmno86yWACD",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433871601",
+        "status": "fixed",
+        "resolution": "Parenthesized getVersion callbacks are recognized; all 69 current actions have versions, Archive=3.",
+        "evidence": "parenthesized_version_tests::version_getter_survives_parenthesized_function"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWACG",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433871604",
+        "status": "fixed",
+        "resolution": "Schema 4.5 preserves request.variantGroups; mandatory groups select one arm. Runtime emitter test checks config and clear separately.",
+        "evidence": "root_choice_emits_exactly_one_payload_child"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5r",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877037",
+        "status": "duplicate-fixed",
+        "resolution": "Same root-choice defect as 4433871604; alternatives are no longer simultaneous siblings.",
+        "evidence": "iq_root_group_preserves_config_and_clear_children"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5t",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877040",
+        "status": "fixed",
+        "resolution": "Optional guards recurse into variant attrs and children.",
+        "evidence": "exported_merge_group_without_mixin_suffix_keeps_union_arms"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5u",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877042",
+        "status": "fixed",
+        "resolution": "Only the final enum argument participates in local-identifier enum lookup.",
+        "evidence": "node_identifier_cannot_supply_an_inline_enum"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5v",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877044",
+        "status": "fixed",
+        "resolution": "Prior pin arithmetic is explicitly labeled historical; current pin is 14.",
+        "evidence": "scripts/lint-ir.py"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA50",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877050",
+        "status": "stale-description-corrected",
+        "resolution": "The current PR body documents the approved snapshot and changed source-reviewed pins; no pending-approval claim remains.",
+        "evidence": "PR body"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA53",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877056",
+        "status": "fixed",
+        "resolution": "If no transport-local cascade yields arms, inspect other local functions with the same lexical cascade analysis.",
+        "evidence": "rpc_cascade_can_delegate_outside_the_transport_function"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA55",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877060",
+        "status": "fixed",
+        "resolution": "Use borrowed Cow helper maps and clone only when local declarations require an overlay.",
+        "evidence": "wa-notif actions lexical regressions"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA56",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877062",
+        "status": "fixed",
+        "resolution": "Enclosing function/arrow parameters shadow module helpers.",
+        "evidence": "action_parameter_shadows_module_helper"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA59",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877065",
+        "status": "fixed",
+        "resolution": "Block declarations are overlaid only within their own lexical block.",
+        "evidence": "block_helper_does_not_shadow_switch_outside_block"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6B",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877071",
+        "status": "fixed",
+        "resolution": "Fixed integer literals use OXC ECMAScript NumberToString, including exact and rounded unsafe-size values, exponent formatting and negative zero.",
+        "evidence": "wrapped_integer_literals_are_fixed_wire_values"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6D",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877074",
+        "status": "fixed",
+        "resolution": "makeResult(binding.value) retains Binding::Union payloads and source paths.",
+        "evidence": "direct_make_result_value_keeps_a_union"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6I",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877080",
+        "status": "fixed",
+        "resolution": "Flattened-shape pins use semantic notification/handler, action and field identities rather than array offsets.",
+        "evidence": "StableShapeIdentity.test_notification_reorder_keeps_identity_and_replacement_changes_it"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6L",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877085",
+        "status": "fixed",
+        "resolution": "The fixture replacement includes the following mapChildren line and affects only the group handler.",
+        "evidence": "parser_local_helper_shadows_the_factory_helper_with_the_same_name"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6O",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877092",
+        "status": "fixed",
+        "resolution": "Server-request candidate docs describe bundled RPCs and the subsequent root-tag gate.",
+        "evidence": "srvreq.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6P",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877095",
+        "status": "fixed",
+        "resolution": "Both bundled passes reuse the already parsed module program; the legacy visitor skips discarded IQ work for bundled modules.",
+        "evidence": "bundled_rpc_requests_from_program"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6U",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877103",
+        "status": "fixed",
+        "resolution": "Bundled and qualified legacy comments are attached to their respective gates.",
+        "evidence": "module.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6Z",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877109",
+        "status": "fixed",
+        "resolution": "Operation-name docs describe both legacy Out Request and bundled RPC names.",
+        "evidence": "smax_request_op_name docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6e",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877115",
+        "status": "fixed",
+        "resolution": "Bundled requests with non-get/set literal types are dropped instead of borrowing a mixin type.",
+        "evidence": "invalid_literal_type_cannot_borrow_a_mixins_get_type"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6j",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877120",
+        "status": "fixed",
+        "resolution": "ACK candidate and scanner docs include bundled RPCs.",
+        "evidence": "incoming.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6q",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877129",
+        "status": "fixed",
+        "resolution": "Comments distinguish legacy Create contributions from scoped RPC contributions for every Out mixin.",
+        "evidence": "mixin_index.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWD3O",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433896633",
+        "status": "fixed",
+        "resolution": "Assert retry count, sender/message type, revoke state, session scope and PQ metadata; add revoked-denied case and five metric mutations.",
+        "evidence": "authorization-latest.mjs 19 scenarios / 27 total semantic mutations"
+      }
+    ],
+    "validation": {
+      "workspaceTests": 1824,
+      "pythonTests": 16,
+      "schemas": "12/12",
+      "lint": "12 internally consistent documents",
+      "determinism": "31 artifacts restored and checked byte-for-byte"
+    },
+    "countsUnchangedFromApprovedBundle": true,
+    "frozenInputsUnchanged": true,
+    "additionalShrinkAllowanceUsed": false
   }
 }

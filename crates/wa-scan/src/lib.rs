@@ -1127,6 +1127,13 @@ mod merge_group_name_tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].variants.len(), 2);
         assert!(groups[0].optional);
+        assert!(
+            groups[0]
+                .variants
+                .iter()
+                .flat_map(|variant| &variant.attrs)
+                .all(|attr| !attr.required && attr.presence_arg_path.is_some())
+        );
     }
 }
 
@@ -1142,14 +1149,20 @@ mod root_group_tests {
         let ir = super::extract_iq(source, "test");
         assert_eq!(ir.stanzas[0].request.target, wa_ir::IqTarget::Unknown);
         assert!(ir.stanzas[0].request.target_arg_path.is_none());
-        let children = &ir.stanzas[0].request.children;
-        assert_eq!(children.len(), 2);
-        assert_eq!(children[0].tag, "config");
-        assert_eq!(children[1].tag, "clear");
-        assert!(
-            children
-                .iter()
-                .all(|child| child.attrs[0].arg_path.is_some())
-        );
+        assert!(ir.stanzas[0].request.children.is_empty());
+        let group = &ir.stanzas[0].request.variant_groups[0];
+        assert!(!group.optional);
+        assert_eq!(group.variants.len(), 2);
+        assert_eq!(group.variants[0].children[0].tag, "config");
+        assert_eq!(group.variants[1].children[0].tag, "clear");
+    }
+}
+
+#[cfg(test)]
+mod invalid_bundled_type_tests {
+    #[test]
+    fn invalid_literal_type_cannot_borrow_a_mixins_get_type() {
+        let source = r#"__d("WASmaxInvalidRPC",["WASmaxJsx","WAWap"],function(g,r,d,o,e,i,l){function make(args){return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"result",to:o("WAWap").S_WHATSAPP_NET})}l.makeInvalidRequest=make;});"#;
+        assert!(super::extract_iq(source, "test").stanzas.is_empty());
     }
 }

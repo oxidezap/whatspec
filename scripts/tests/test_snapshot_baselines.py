@@ -110,3 +110,13 @@ class ReviewedBaselines(unittest.TestCase):
                                         return
                         self.fail('no suitable presence node')
                     self.changed(path, original, mutate, name)
+
+class StableShapeIdentity(unittest.TestCase):
+    def test_notification_reorder_keeps_identity_and_replacement_changes_it(self):
+        first = {'type': 'groups', 'handlerModule': 'Groups', 'handlerFunction': 'handle', 'content': {'fields': []}}
+        other = {'type': 'other', 'handlerModule': 'Other', 'handlerFunction': 'handle'}
+        path = lint.stable_identity_path({'notifications': [first, other]}, '/notifications/0/content')
+        self.assertEqual(path, lint.stable_identity_path({'notifications': [other, first]}, '/notifications/1/content'))
+        changed = copy.deepcopy(first)
+        changed['type'] = 'replacement'
+        self.assertNotEqual(path, lint.stable_identity_path({'notifications': [changed]}, '/notifications/0/content'))

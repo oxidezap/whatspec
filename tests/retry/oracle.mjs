@@ -139,4 +139,4 @@ else {
   assert.equal(fixture.sourceSha256,record.sourceSha256);
   assert.equal(fixture.receiptSourceSha256,receipt.sourceSha256);
 }
-console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; ${latest ? 22 : 18} semantic mutations detected`);
+console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; ${latest ? 27 : 18} semantic mutations detected`);

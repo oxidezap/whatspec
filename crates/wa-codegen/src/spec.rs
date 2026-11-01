@@ -1183,19 +1183,30 @@ pub(crate) fn generate_spec_diagnosed(
     let is_confirmation = op.response.fields.is_empty();
     let iq = iq_type_str(op.iq_type);
 
+    let root_payload = wa_ir::WapChildNode {
+        tag: "iq_payload".to_string(),
+        children: op.request.children.clone(),
+        variant_groups: op.request.variant_groups.clone(),
+        ..Default::default()
+    };
+    let request_nodes = if op.request.variant_groups.is_empty() {
+        op.request.children.as_slice()
+    } else {
+        std::slice::from_ref(&root_payload)
+    };
     // Spec fields from request-children attrs (skip const + generated id).
     let mut spec_fields: Vec<(String, &'static str, WapAttrKind)> = Vec::new();
     let mut seen_spec = HashSet::new();
     let mut attr_fields = AttrFieldMap::new();
     collect_attrs(
-        &op.request.children,
+        request_nodes,
         &mut spec_fields,
         &mut seen_spec,
         &[],
         &mut attr_fields,
     );
     collect_presence_fields(
-        &op.request.children,
+        request_nodes,
         &mut spec_fields,
         &mut seen_spec,
         &mut attr_fields,
@@ -1524,6 +1535,17 @@ fn emit_build_iq(
     attr_fields: &AttrFieldMap,
 ) -> Vec<String> {
     let mut lines = vec!["    fn build_iq(&self) -> InfoQuery<'static> {".to_string()];
+    if op
+        .request
+        .variant_groups
+        .iter()
+        .flat_map(|group| &group.variants)
+        .any(|variant| !variant.attrs.is_empty())
+    {
+        lines.push("        panic!(\"request.root_attribute_alternatives_unemitted\")".to_string());
+        lines.push("    }".to_string());
+        return lines;
+    }
     let target = match op.target {
         // The two literal addressees, the only ones the builder can write on its own.
         IqTarget::GroupServer => "Jid::new(\"\", Server::Group)".to_string(),
@@ -1557,7 +1579,27 @@ fn emit_build_iq(
         }
     };
     let target = target.as_str();
-    if !op.request.children.is_empty() {
+    if !op.request.variant_groups.is_empty() {
+        let payload = wa_ir::WapChildNode {
+            tag: "iq_payload".to_string(),
+            children: op.request.children.clone(),
+            variant_groups: op.request.variant_groups.clone(),
+            ..Default::default()
+        };
+        let mut ctx = VariantCtx {
+            spec_base,
+            enum_defs: variant_enums,
+            fields: variant_fields,
+            reserved,
+            attr_fields,
+        };
+        let (payload_lines, payload_var, _) =
+            emit_child_builder(&payload, "        ", &mut Default::default(), &mut ctx, &[]);
+        lines.extend(payload_lines);
+        lines.push(format!(
+            "        InfoQuery::{iq}({ns_const}, {target}, {payload_var}.content)"
+        ));
+    } else if !op.request.children.is_empty() {
         let mut ctx = VariantCtx {
             spec_base,
             enum_defs: variant_enums,
@@ -2075,6 +2117,7 @@ mod tests {
             exported_function: exported.map(str::to_string),
             all_exports: vec![],
             request: IqRequestDef {
+                variant_groups: Vec::new(),
                 target_arg_path: None,
                 namespace: "w:test".into(),
                 iq_type: IqType::Get,

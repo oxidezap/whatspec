@@ -190,6 +190,13 @@
           "items": {
             "$ref": "#/$defs/WapArgSegment"
           }
+        },
+        "variantGroups": {
+          "description": "Mutually exclusive payload alternatives at the IQ root. Each mandatory\ngroup selects exactly one arm; children here are not simultaneous siblings.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapVariantGroup"
+          }
         }
       },
       "required": [

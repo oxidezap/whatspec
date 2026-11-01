@@ -118,6 +118,20 @@ fn diagnose(op: &IqStanzaDef) -> IqGenerationDiagnostic {
         reasons.push("request.target_argument_missing".into());
     }
     request_gaps(&op.request.children, &mut reasons);
+    if !op.request.variant_groups.is_empty() {
+        reasons.push("request.root_disjunction_validation_unqualified".into());
+        for variant in op
+            .request
+            .variant_groups
+            .iter()
+            .flat_map(|group| &group.variants)
+        {
+            request_gaps(&variant.children, &mut reasons);
+            if !variant.attrs.is_empty() {
+                reasons.push("request.root_attribute_alternatives_unemitted".into());
+            }
+        }
+    }
     field_reference_gaps(&op.response.fields, &mut reasons);
     for variant in &op.response.variants {
         field_reference_gaps(&variant.fields, &mut reasons);

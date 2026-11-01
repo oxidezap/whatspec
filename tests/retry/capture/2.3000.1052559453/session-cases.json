@@ -140,6 +140,16 @@
         ]
       },
       {
+        "name": "revoked-rejected",
+        "authorized": false,
+        "effects": [
+          "coex",
+          "eligibility",
+          "prepare",
+          "reject"
+        ]
+      },
+      {
         "name": "pq-rejection-true",
         "authorized": false,
         "effects": [
@@ -232,6 +242,11 @@
       "lookup-alternate-key"
     ],
     "mutations": [
+      "metric-retry-count",
+      "metric-device-type",
+      "metric-message-type",
+      "metric-revoke-state",
+      "metric-session-scope",
       "identity-binding",
       "coex-precedence",
       "alternate-guard",

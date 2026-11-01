@@ -159,9 +159,8 @@ pub(crate) fn build_pass(
             by_module.insert(name.to_string(), frag);
         }
     }
-    // Only the traced Create dependency closure receives scoped declarations
-    // and the selected merge export's second-argument root. The public fragment
-    // index above keeps the existing extraction behavior for every other request.
+    // Legacy `contributions` scopes only the traced Create dependency closure;
+    // the public fragment index preserves other legacy requests' behavior.
     let mut qualified = MixinContributions::new();
     resolve_contribution_rec(
         "WASmaxOutGroupsCreateRequest",
@@ -172,6 +171,7 @@ pub(crate) fn build_pass(
         helpers,
         ContributionMode::Qualified,
     );
+    // Bundled RPC contributions scope every Out mixin and preserve optional guards.
     let mut rpc_contributions = MixinContributions::new();
     for name in slices.keys() {
         resolve_contribution_rec(

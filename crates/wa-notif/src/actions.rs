@@ -490,6 +490,9 @@ struct LocalFns {
 }
 
 impl<'a> Visit<'a> for LocalFns {
+    fn visit_block_statement(&mut self, _: &oxc_ast::ast::BlockStatement<'a>) {
+        // A block has its own lexical declarations; its SwitchFinder overlays them.
+    }
     fn visit_function(
         &mut self,
         f: &oxc_ast::ast::Function<'a>,
@@ -552,17 +555,166 @@ fn is_tag_read(e: &Expression) -> bool {
 }
 
 impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
+    fn visit_function(
+        &mut self,
+        function: &oxc_ast::ast::Function<'a>,
+        _: oxc_syntax::scope::ScopeFlags,
+    ) {
+        let mut formals = self.ctx.formals.clone();
+        for parameter in &function.params.items {
+            formals.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        if let Some(rest) = &function.params.rest {
+            formals.extend(
+                rest.rest
+                    .argument
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        let ctx = ArmCtx {
+            formals: &formals,
+            ..*self.ctx
+        };
+        let mut nested = SwitchFinder {
+            ctx: &ctx,
+            best: None,
+            tag_locals: HashSet::new(),
+        };
+        if let Some(body) = &function.body {
+            nested.visit_function_body(body);
+        }
+        if let Some(best) = nested.best
+            && self
+                .best
+                .as_ref()
+                .is_none_or(|previous| best.len() > previous.len())
+        {
+            self.best = Some(best);
+        }
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        function: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        let mut formals = self.ctx.formals.clone();
+        for parameter in &function.params.items {
+            formals.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        if let Some(rest) = &function.params.rest {
+            formals.extend(
+                rest.rest
+                    .argument
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        let ctx = ArmCtx {
+            formals: &formals,
+            ..*self.ctx
+        };
+        let mut nested = SwitchFinder {
+            ctx: &ctx,
+            best: None,
+            tag_locals: HashSet::new(),
+        };
+        nested.visit_function_body(&function.body);
+        if let Some(best) = nested.best
+            && self
+                .best
+                .as_ref()
+                .is_none_or(|previous| best.len() > previous.len())
+        {
+            self.best = Some(best);
+        }
+    }
+
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        let mut declarations = LocalFns::default();
+        for statement in &block.body {
+            declarations.visit_statement(statement);
+        }
+        let mut locals = std::borrow::Cow::Borrowed(self.ctx.locals);
+        let mut formals = self.ctx.formals.clone();
+        for statement in &block.body {
+            if let Statement::VariableDeclaration(declaration) = statement {
+                for binding in &declaration.declarations {
+                    if !binding.init.as_ref().is_some_and(|init| {
+                        matches!(
+                            init,
+                            Expression::FunctionExpression(_)
+                                | Expression::ArrowFunctionExpression(_)
+                        )
+                    }) {
+                        formals.extend(
+                            binding
+                                .id
+                                .get_binding_identifiers()
+                                .into_iter()
+                                .map(|id| id.name.to_string()),
+                        );
+                    }
+                }
+            }
+        }
+        for (name, (start, end)) in declarations.spans {
+            formals.remove(&name);
+            locals
+                .to_mut()
+                .insert(name, self.ctx.source[start..end].to_string());
+        }
+        let ctx = ArmCtx {
+            locals: &locals,
+            formals: &formals,
+            ..*self.ctx
+        };
+        let mut nested = SwitchFinder {
+            ctx: &ctx,
+            best: None,
+            tag_locals: self.tag_locals.clone(),
+        };
+        walk::walk_block_statement(&mut nested, block);
+        if let Some(best) = nested.best
+            && self
+                .best
+                .as_ref()
+                .is_none_or(|previous| best.len() > previous.len())
+        {
+            self.best = Some(best);
+        }
+    }
+
     /// Record this function's `var x = child.tag()` bindings before walking its body,
     /// so a switch inside it can be checked against them.
     fn visit_function_body(&mut self, body: &oxc_ast::ast::FunctionBody<'a>) {
         let mut declarations = LocalFns::default();
         declarations.visit_function_body(body);
-        let mut locals = self.ctx.locals.clone();
+        let mut locals = std::borrow::Cow::Borrowed(self.ctx.locals);
+        let mut formals = self.ctx.formals.clone();
         for (name, (start, end)) in declarations.spans {
-            locals.insert(name, self.ctx.source[start..end].to_string());
+            formals.remove(&name);
+            locals
+                .to_mut()
+                .insert(name, self.ctx.source[start..end].to_string());
         }
         let ctx = ArmCtx {
             locals: &locals,
+            formals: &formals,
             ..*self.ctx
         };
         let mut nested = SwitchFinder {

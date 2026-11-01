@@ -109,7 +109,9 @@ pub fn generate_iq(ir: &IqIr) -> String {
 fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
     let ns_const = format!("{}_NAMESPACE", snake_case(namespace).to_uppercase());
 
-    let needs_node_builder = operations.iter().any(|o| !o.request.children.is_empty());
+    let needs_node_builder = operations
+        .iter()
+        .any(|o| !o.request.children.is_empty() || !o.request.variant_groups.is_empty());
 
     let mut lines: Vec<String> = Vec::new();
     lines.push("use crate::iq::spec::IqSpec;".to_string());
@@ -299,6 +301,7 @@ mod tests {
                 exported_function: Some("title".into()),
                 all_exports: vec!["title".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "fb:thrift_iq".into(),
                     iq_type: IqType::Get,
@@ -356,6 +359,7 @@ mod tests {
                     exported_function: Some("detail".into()),
                     all_exports: vec!["detail".into()],
                     request: IqRequestDef {
+                        variant_groups: Vec::new(),
                         target_arg_path: None,
                         namespace: "fb:thrift_iq".into(),
                         iq_type: IqType::Get,
@@ -414,6 +418,7 @@ mod tests {
                 exported_function: Some("weights".into()),
                 all_exports: vec!["weights".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "fb:thrift_iq".into(),
                     iq_type: IqType::Get,
@@ -466,6 +471,7 @@ mod tests {
                 exported_function: Some("scores".into()),
                 all_exports: vec!["scores".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "fb:thrift_iq".into(),
                     iq_type: IqType::Get,
@@ -528,6 +534,7 @@ mod tests {
                 exported_function: Some("keys".into()),
                 all_exports: vec!["keys".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "encrypt".into(),
                     iq_type: IqType::Get,
@@ -582,6 +589,7 @@ mod tests {
                 exported_function: Some("digest".into()),
                 all_exports: vec!["digest".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "encrypt".into(),
                     iq_type: IqType::Get,
@@ -628,6 +636,7 @@ mod tests {
                 exported_function: Some("pn".into()),
                 all_exports: vec!["pn".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "w:g2".into(),
                     iq_type: IqType::Get,
@@ -703,6 +712,7 @@ mod tests {
                 exported_function: Some("blob".into()),
                 all_exports: vec!["blob".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "encrypt".into(),
                     iq_type: IqType::Get,
@@ -739,6 +749,7 @@ mod tests {
                 exported_function: Some("queryTest".into()),
                 all_exports: vec!["queryTest".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "w:test".into(),
                     iq_type: IqType::Get,
@@ -805,6 +816,7 @@ mod tests {
                 exported_function: Some("queryMode".into()),
                 all_exports: vec!["queryMode".into()],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "w:mode".into(),
                     iq_type: IqType::Get,
@@ -845,6 +857,7 @@ mod tests {
                 exported_function: None,
                 all_exports: vec![],
                 request: IqRequestDef {
+                    variant_groups: Vec::new(),
                     target_arg_path: None,
                     namespace: "w:x".into(),
                     iq_type: IqType::Set,

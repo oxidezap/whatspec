@@ -6,11 +6,29 @@
 //! `(tag, attrs?, ...children)` shape — we accept both method names here.
 
 use oxc_ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
+use oxc_syntax::{number::ToJsString, operator::UnaryOperator};
 use wa_ir::{AttrEnumRef, WapAttrDef, WapAttrKind};
+
+fn integer_literal_runtime(expr: &Expression) -> Option<f64> {
+    match expr {
+        Expression::NumericLiteral(number)
+            if number.value.is_finite() && number.value.fract() == 0.0 =>
+        {
+            Some(number.value)
+        }
+        Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::UnaryNegation => {
+            integer_literal_runtime(&unary.argument).map(|value| -value)
+        }
+        Expression::ParenthesizedExpression(parenthesized) => {
+            integer_literal_runtime(&parenthesized.expression)
+        }
+        _ => None,
+    }
+}
 
 use crate::alias::{AliasMap, resolve_owner};
 use crate::module::require_module_name;
-use wa_oxc::{arg_expr, as_call, as_int, as_member, as_string_lit, callee_method, callee_object};
+use wa_oxc::{arg_expr, as_call, as_member, as_string_lit, callee_method, callee_object};
 
 /// The wire value of a `WAWap` bare-server JID constant, or `None` for any other
 /// property. Only the two servers an `<iq>` is ever addressed to; the JID *flavour*
@@ -281,10 +299,13 @@ fn classify_attr_node<'a>(
         }
         if method == "INT"
             && callee_object(call).and_then(|owner| resolve_owner(owner, aliases)) == Some("WAWap")
-            && let Some(literal) = call.arguments.first().and_then(arg_expr).and_then(as_int)
-            && literal.unsigned_abs() <= 9_007_199_254_740_991
+            && let Some(literal) = call
+                .arguments
+                .first()
+                .and_then(arg_expr)
+                .and_then(integer_literal_runtime)
         {
-            return owned(WapAttrKind::Const, Some(literal.to_string()), true);
+            return owned(WapAttrKind::Const, Some(literal.to_js_string()), true);
         }
         let kind = match method {
             "CUSTOM_STRING" | "STANZA_ID" => Some(WapAttrKind::String),
@@ -371,13 +392,21 @@ mod tests {
     #[test]
     fn wrapped_integer_literals_are_fixed_wire_values() {
         let attrs = attrs_of(
-            r#"o("WAWap").wap("x", {version: o("WAWap").INT(3), offset: o("WAWap").INT(-2), runtime: o("WAWap").INT(args.count)})"#,
+            r#"o("WAWap").wap("x", {version: o("WAWap").INT(3), offset: o("WAWap").INT(-2), runtime: o("WAWap").INT(args.count), large: o("WAWap").INT(9007199254740992)})"#,
         );
         assert_eq!(attrs[0].kind, WapAttrKind::Const);
         assert_eq!(attrs[0].value.as_deref(), Some("3"));
         assert_eq!(attrs[1].value.as_deref(), Some("-2"));
         assert_eq!(attrs[2].kind, WapAttrKind::Integer);
         assert!(attrs[2].value.is_none());
+        assert_eq!(attrs[3].value.as_deref(), Some("9007199254740992"));
+        let large = attrs_of(
+            r#"o("WAWap").wap("x", {rounded:o("WAWap").INT(9007199254740993),wide:o("WAWap").INT(9223372036854775808),exponent:o("WAWap").INT(1e21),zero:o("WAWap").INT(-0)})"#,
+        );
+        assert_eq!(large[0].value.as_deref(), Some("9007199254740992"));
+        assert_eq!(large[1].value.as_deref(), Some("9223372036854776000"));
+        assert_eq!(large[2].value.as_deref(), Some("1e+21"));
+        assert_eq!(large[3].value.as_deref(), Some("0"));
     }
 
     #[test]

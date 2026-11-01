@@ -36,7 +36,8 @@ fn server_request_tag(tag: &str) -> Option<ServerRequestTag> {
     })
 }
 
-/// A `WASmaxIn<X>Request` module that defines a server-initiated request read-shape.
+/// A `WASmaxIn<X>Request` or bundled `WASmax<X>RPC` candidate; the asserted
+/// root tag below determines whether it defines a server-initiated request.
 /// Excludes error-response variants (`WASmaxIn<X>Response<V>InvalidRequest`, already
 /// covered as iq response variants) and mixin fragments (`…Mixin`, folded into a
 /// parent, not standalone).

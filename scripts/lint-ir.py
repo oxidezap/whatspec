@@ -138,7 +138,7 @@ BASELINE = {
     # Rose to 13 with the same change that took the per-key count to 108: all three of
     # `DebugLabyrinthRange`'s variables were withdrawn. The reviewed snapshot removes
     # four wholly undetermined operations and adds SmartComposer's unsupported
-    # useMutation alias, so the current exact pin is 13 - 4 + 1 = 10.
+    # useMutation alias (the previous snapshot's exact pin was 10).
     # Four new operations; no retained key loses its established judgement.
     "mex operation with no established variable presence": 14,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
@@ -168,14 +168,14 @@ BASELINE = {
 # By identity, not by total: an aggregate let one loss disappear while another appeared.
 # Fixing the shape is an extractor change and belongs in its own PR.
 FLATTENED_KEYS = {
-    "incoming/incoming/0/shape/fields|t,verified_name": 3,
-    "incoming/incoming/3/shape/fields/5/children/0/children|type": 1,
-    "incoming/incoming/3/shape/fields/5/children|user": 1,
-    "notif/notifications/19/content/fields|from,t": 2,
-    "notif/notifications/25/content/fields|from": 1,
-    "notif/notifications/26/content/fields/8/children|body,group,reason,sub_group_suggestion": 4,
-    "notif/notifications/5/content/fields/7/children|new_lid,old_lid": 2,
-    "notif/notifications/5/content/fields|t": 1
+    "incoming/incoming/tag=message;module=WAWebHandleMsgParser/shape/fields|t,verified_name": 3,
+    "incoming/incoming/tag=receipt;module=WAWebHandleMsgReceiptParser/shape/fields/name=participants/children/name=user/children|type": 1,
+    "incoming/incoming/tag=receipt;module=WAWebHandleMsgReceiptParser/shape/fields/name=participants/children|user": 1,
+    "notif/notifications/type=picture;handlerModule=WAWebHandleProfilePicNotification;handlerFunction=handleProfilePicNotificationJob/content/fields|from,t": 2,
+    "notif/notifications/type=status;handlerModule=WAWebHandleAboutNotification;handlerFunction=handleAboutNotification/content/fields|from": 1,
+    "notif/notifications/type=w:gp2;handlerModule=WAWebHandleGroupNotification;handlerFunction=handleGroupNotification/content/fields/name=children/children|body,group,reason,sub_group_suggestion": 4,
+    "notif/notifications/type=contacts;handlerModule=WAWebHandleContactNotification;handlerFunction=None/content/fields/name=modify/children|new_lid,old_lid": 2,
+    "notif/notifications/type=contacts;handlerModule=WAWebHandleContactNotification;handlerFunction=None/content/fields|t": 1
 }
 
 UNRESOLVED_ENUMS = {
@@ -388,6 +388,25 @@ def _collect_proto(path, want):
             if stack:
                 stack.pop()
     return out
+
+
+def stable_identity_path(document, path):
+    """Name array entries by their IR identity, so a reorder cannot move a pin."""
+    current = document
+    result = []
+    for part in path.strip("/").split("/") if path else []:
+        if isinstance(current, list):
+            current = current[int(part)]
+            identity = None
+            if isinstance(current, dict):
+                keys = ("type", "handlerModule", "handlerFunction") if "handlerModule" in current else ("tag", "module") if "module" in current and "tag" in current else ("wireTag", "actionType") if "wireTag" in current else ("name",) if "name" in current else ("tag",) if "tag" in current else ()
+                if keys:
+                    identity = ";".join(f"{key}={current.get(key)}" for key in keys)
+            result.append((identity or f"#{part}").replace("~", "~0").replace("/", "~1"))
+        else:
+            current = current[part]
+            result.append(part)
+    return "/" + "/".join(result) if result else ""
 
 
 def walk(node, visit, path=""):
@@ -961,8 +980,11 @@ def count_builder_gaps(data, domain, counts):
             walk_node(ch)
 
     for st in data.get("stanzas") or []:
-        for ch in ((st.get("request") or {}).get("children")) or []:
+        request = st.get("request") or {}
+        for ch in request.get("children") or []:
             walk_node(ch)
+        # Root groups contain mutually exclusive payloads, not simultaneous children.
+        walk_node({"variantGroups": request.get("variantGroups") or []})
 
 
 def count_unaddressed_targets(data, domain, counts):
@@ -2042,7 +2064,7 @@ def main() -> int:
             # Independent of the field gate — see each function's note.
             check_enum_ref(node, f"{domain}{path}", errors, seen_refs)
             check_const_bytes(node, f"{domain}{path}", errors)
-            check_action_keys(node, f"{domain}{path}", errors, flattened)
+            check_action_keys(node, f"{domain}{stable_identity_path(data, path)}", errors, flattened)
             check_variant_groups(node, f"{domain}{path}", errors)
             check_child_requiredness(node, f"{domain}{path}", errors)
             check_arg_path(node, f"{domain}{path}", errors)

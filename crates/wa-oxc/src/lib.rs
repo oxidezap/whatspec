@@ -57,14 +57,20 @@ pub fn as_int(e: &Expression) -> Option<i64> {
         Expression::NumericLiteral(n)
             if n.value.fract() == 0.0
                 && n.value >= i64::MIN as f64
-                && n.value <= i64::MAX as f64 =>
+                && n.value < -(i64::MIN as f64) =>
         {
             Some(n.value as i64)
         }
         // Minified negatives are `-N` (unary minus over a literal), e.g. proto
         // enum values like `-1`; fold them so they aren't silently dropped.
         Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => {
-            as_int(&u.argument).map(|v| -v)
+            if let Expression::NumericLiteral(number) = &u.argument
+                && number.value == -(i64::MIN as f64)
+            {
+                Some(i64::MIN)
+            } else {
+                as_int(&u.argument).and_then(i64::checked_neg)
+            }
         }
         _ => None,
     }
@@ -194,7 +200,12 @@ mod tests {
     #[test]
     fn as_int_rejects_fractional_and_out_of_range() {
         let alloc = Allocator::default();
-        let ret = Parser::new(&alloc, "[7, 1.5, 9e30, -3];", SourceType::cjs()).parse();
+        let ret = Parser::new(
+            &alloc,
+            "[7, 1.5, 9e30, -3, 9223372036854775808, -9223372036854775808];",
+            SourceType::cjs(),
+        )
+        .parse();
         let oxc_ast::ast::Statement::ExpressionStatement(es) = &ret.program.body[0] else {
             panic!("expr stmt");
         };
@@ -205,6 +216,8 @@ mod tests {
         assert_eq!(el(0), Some(7)); // plain integer
         assert_eq!(el(1), None); // fractional → no silent truncation to 1
         assert_eq!(el(2), None); // 9e30 is out of i64 range
+        assert_eq!(el(4), None); // the rounded f64 i64::MAX bound is exclusive
+        assert_eq!(el(5), Some(i64::MIN));
         assert_eq!(el(3), Some(-3)); // unary minus is folded (proto enum negatives)
     }
 }

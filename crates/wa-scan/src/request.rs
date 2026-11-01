@@ -2186,6 +2186,7 @@ fn resolve_function_return(
 /// Resolve complete exported request builders in a bundled RPC. Local merge
 /// exports are evaluated as contributions, with their destination excluded from
 /// the argument-object frame and rebased at the actual call site.
+#[cfg(test)]
 pub(crate) fn bundled_rpc_requests(
     source: &str,
     helpers: &HelperIndex,
@@ -2193,15 +2194,24 @@ pub(crate) fn bundled_rpc_requests(
 ) -> Vec<(String, usize, WapChildNode)> {
     let allocator = Allocator::default();
     let parsed = wa_oxc::parse_cjs(&allocator, source);
-    let mut scope = build_scoped_var_scope(&parsed.program);
+    bundled_rpc_requests_from_program(&parsed.program, source, helpers, contributions)
+}
+
+pub(crate) fn bundled_rpc_requests_from_program(
+    program: &Program,
+    source: &str,
+    helpers: &HelperIndex,
+    contributions: &MixinContributions,
+) -> Vec<(String, usize, WapChildNode)> {
+    let mut scope = build_scoped_var_scope(program);
     scope.bundled_rpc = true;
     scope.guard_optional_descendants = true;
-    let aliases = build_alias_map(&parsed.program);
+    let aliases = build_alias_map(program);
     let mut finder = ExportFnFinder {
         scope: &scope,
         out: Vec::new(),
     };
-    finder.visit_program(&parsed.program);
+    finder.visit_program(program);
     let exports = finder.out;
     scope.local_merges = exports
         .iter()
@@ -2256,6 +2266,16 @@ fn guard_optional_attributes(nodes: &mut [WapChildNode], guard: Option<&[WapArgS
         guard_optional_attributes(&mut node.children, guard);
         for group in &mut node.variant_groups {
             group.optional = true;
+            for variant in &mut group.variants {
+                let mut branch = WapChildNode {
+                    attrs: std::mem::take(&mut variant.attrs),
+                    children: std::mem::take(&mut variant.children),
+                    ..Default::default()
+                };
+                guard_optional_attributes(std::slice::from_mut(&mut branch), guard);
+                variant.attrs = branch.attrs;
+                variant.children = branch.children;
+            }
         }
     }
 }
@@ -2320,59 +2340,65 @@ fn resolve_local_merge(
             helpers,
             depth + 1,
         );
-        // Request roots have no variant-group slot in the request IR. Keep
-        // their concrete child alternatives (including each child's own groups)
-        // instead of putting a group on the iq root that module extraction drops.
-        if branches
+        let mut variants = branches
             .iter()
             .filter_map(|branch| branch.first())
-            .all(|root| root.tag == "iq")
-        {
-            let mut roots = Vec::new();
-            for branch in &branches {
-                apply_contribution(&mut roots, branch, false);
-            }
-            for root in &mut roots {
-                for attr in &mut root.attrs {
-                    if !branches.iter().all(|branch| {
-                        branch.first().is_some_and(|node| {
-                            node.attrs.iter().any(|candidate| candidate == attr)
-                        })
-                    }) {
-                        // A union of server and group addressees has no single
-                        // destination or argument path; never pick its first arm.
-                        attr.kind = wa_ir::WapAttrKind::Dynamic;
-                        attr.value = None;
-                        attr.arg_path = None;
+            .map(|root| wa_ir::WapVariant {
+                attrs: root.attrs.clone(),
+                children: root.children.clone(),
+            })
+            .collect::<Vec<_>>();
+        if variants.len() >= 2 {
+            let tag = branches
+                .iter()
+                .find_map(|branch| branch.first())
+                .map(|root| root.tag.clone())
+                .unwrap_or_default();
+            let mut attrs = Vec::new();
+            if tag == "iq" {
+                let names: std::collections::BTreeSet<_> = variants
+                    .iter()
+                    .flat_map(|variant| variant.attrs.iter().map(|attr| attr.name.clone()))
+                    .collect();
+                for name in names {
+                    let first = variants
+                        .iter()
+                        .flat_map(|variant| &variant.attrs)
+                        .find(|attr| attr.name == name)
+                        .unwrap()
+                        .clone();
+                    if variants
+                        .iter()
+                        .all(|variant| variant.attrs.contains(&first))
+                    {
+                        for variant in &mut variants {
+                            variant.attrs.retain(|attr| attr != &first);
+                        }
+                        attrs.push(first);
+                    } else {
+                        let mut ambiguous = first;
+                        ambiguous.kind = wa_ir::WapAttrKind::Dynamic;
+                        ambiguous.value = None;
+                        ambiguous.arg_path = None;
+                        attrs.push(ambiguous);
                     }
                 }
             }
-            roots
+            vec![WapChildNode {
+                attrs,
+                tag: branches
+                    .iter()
+                    .find_map(|branch| branch.first())
+                    .map(|root| root.tag.clone())
+                    .unwrap_or_default(),
+                variant_groups: vec![wa_ir::WapVariantGroup {
+                    optional: false,
+                    variants,
+                }],
+                ..Default::default()
+            }]
         } else {
-            let variants = branches
-                .iter()
-                .filter_map(|branch| branch.first())
-                .map(|root| wa_ir::WapVariant {
-                    attrs: root.attrs.clone(),
-                    children: root.children.clone(),
-                })
-                .collect::<Vec<_>>();
-            if variants.len() >= 2 {
-                vec![WapChildNode {
-                    tag: branches
-                        .iter()
-                        .find_map(|branch| branch.first())
-                        .map(|root| root.tag.clone())
-                        .unwrap_or_default(),
-                    variant_groups: vec![wa_ir::WapVariantGroup {
-                        optional: false,
-                        variants,
-                    }],
-                    ..Default::default()
-                }]
-            } else {
-                branches.into_iter().flatten().collect()
-            }
+            branches.into_iter().flatten().collect()
         }
     } else {
         resolve_function_return(

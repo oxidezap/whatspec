@@ -1106,8 +1106,12 @@ fn enum_arg_ref(
             .find_map(as_string_lit)
             .unwrap_or("<content>")
     );
-    let Some((module, name)) = args.iter().filter_map(arg_expr).rev().find_map(|expr| {
+    let Some((module, name)) = args.iter().enumerate().rev().find_map(|(index, argument)| {
+        let expr = arg_expr(argument)?;
         module_member_ref(expr).or_else(|| {
+            if index + 1 != args.len() {
+                return None;
+            }
             let local = as_identifier(expr)?;
             Some((locals.module.clone()?, locals.exports.get(local)?.clone()))
         })
@@ -1509,11 +1513,19 @@ pub(crate) fn scan_rpc_variants(slice: &str, module: &str) -> Vec<(String, Strin
     }
     let mut sources: Vec<_> = locals.functions.iter().collect();
     sources.sort_by_key(|(name, _)| *name);
-    sources
-        .into_iter()
+    let arms: Vec<_> = sources
+        .iter()
         .filter(|(_, src)| src.contains("sendSmaxStanza"))
         .flat_map(|(_, src)| scan_local_cascade(src, module, slice))
-        .collect()
+        .collect();
+    if arms.is_empty() {
+        sources
+            .into_iter()
+            .flat_map(|(_, src)| scan_local_cascade(src, module, slice))
+            .collect()
+    } else {
+        arms
+    }
 }
 
 fn scan_local_cascade(
@@ -1705,6 +1717,17 @@ fn resolve_result_arg(
                     ..
                 }) => Some(lift_child_fields(tag, source_path, fields)),
                 Some(Binding::ChildGroup { fields, .. }) => Some(fields.clone()),
+                Some(Binding::Union {
+                    variants,
+                    source_path,
+                }) => Some(vec![ParsedField {
+                    name: "value".to_string(),
+                    field_type: ParsedFieldType::Union,
+                    union_variants: Some(variants.clone()),
+                    parser_required: true,
+                    source_path: opt_vec(source_path.clone()),
+                    ..Default::default()
+                }]),
                 _ => None,
             };
         }
@@ -3771,6 +3794,91 @@ mod tests {
                 .any(|a| a.kind == AssertionKind::Content),
             "the plain-content fallback carries no content discriminator: {:?}",
             unknown_v.assertions
+        );
+    }
+}
+
+#[cfg(test)]
+mod review_result_tests {
+    use super::*;
+    #[test]
+    fn node_identifier_cannot_supply_an_inline_enum() {
+        let alloc = Allocator::default();
+        let parsed = wa_oxc::parse_cjs(&alloc, "attrStringEnum(n,\"state\",{GOOD:\"good\"});");
+        let Statement::ExpressionStatement(statement) = &parsed.program.body[0] else {
+            panic!("expression")
+        };
+        let Expression::CallExpression(call) = &statement.expression else {
+            panic!("call")
+        };
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        resolver.enum_cache.borrow_mut().insert(
+            ("Module".into(), "WRONG".into()),
+            Some(AttrEnumRef {
+                name: "WRONG".into(),
+                module: "Module".into(),
+                variants: vec![AttrEnumVariant {
+                    name: "BAD".into(),
+                    value: "bad".into(),
+                }],
+            }),
+        );
+        let mut locals = LocalFns::new();
+        locals.module = Some("Module".into());
+        locals.exports.insert("n".into(), "WRONG".into());
+        assert!(
+            enum_arg_ref(
+                Some("attrStringEnum"),
+                &call.arguments,
+                &resolver,
+                "probe",
+                None,
+                &locals
+            )
+            .is_none()
+        );
+    }
+    #[test]
+    fn direct_make_result_value_keeps_a_union() {
+        let alloc = Allocator::default();
+        let parsed = wa_oxc::parse_cjs(&alloc, "result.value;");
+        let Statement::ExpressionStatement(statement) = &parsed.program.body[0] else {
+            panic!("expression")
+        };
+        let bindings = HashMap::from([(
+            "result".into(),
+            Binding::Union {
+                variants: vec![UnionVariant {
+                    name: "Only".into(),
+                    fields: vec![],
+                    assertions: vec![],
+                }],
+                source_path: vec!["payload".into()],
+            },
+        )]);
+        let fields = resolve_result_arg(&statement.expression, &bindings).unwrap();
+        assert_eq!(fields[0].union_variants.as_ref().unwrap()[0].name, "Only");
+        assert_eq!(
+            fields[0].source_path.as_deref(),
+            Some(["payload".to_string()].as_slice())
+        );
+    }
+    #[test]
+    fn rpc_cascade_can_delegate_outside_the_transport_function() {
+        let source = r#"__d("WASmaxDelegatedRPC",[],function(g,r,d,o,e,i,l){
+            function parse(node){return o("WAResultOrError").makeResult({});}
+            function response(node){var result=parse(node);if(result.success)return {name:"DelegatedResponseSuccess",value:result.value};}
+            l.parseDelegatedResponseSuccess=parse;
+        });"#;
+        let arms = scan_rpc_variants(source, "WASmaxDelegatedRPC");
+        assert_eq!(
+            arms,
+            vec![(
+                "DelegatedResponseSuccess".into(),
+                "WASmaxDelegatedRPC".into(),
+                "parseDelegatedResponseSuccess".into()
+            )]
         );
     }
 }

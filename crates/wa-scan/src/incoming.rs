@@ -117,7 +117,8 @@ pub fn scan_incoming_with_diagnostics(
     (out, drops)
 }
 
-/// A `WASmaxIn*Response{Success,Negative}` module whose root reads a top-level `<ack>` —
+/// A legacy `WASmaxIn*Response{Success,Negative}` or bundled `WASmax*RPC`
+/// candidate whose parser must assert a top-level `<ack>` —
 /// the structured acknowledgement the server returns for a client publish/send (the
 /// `WASmaxInMessagePublish*` family). iq responses live in `…Response*` modules too but
 /// assert `iq`, so the `ack` tag gate in [`scan_incoming_smax_acks`] drops them; `…Mixin`
@@ -131,7 +132,8 @@ fn is_smax_ack_response_module(name: &str) -> bool {
         && !name.contains("Mixin")
 }
 
-/// Recover the smax `<ack>` read-shapes: each `WASmaxIn*Response{Success,Negative}` root
+/// Recover smax `<ack>` roots from `WASmaxIn*Response{Success,Negative}` and
+/// bundled `WASmax*RPC` modules. Each root
 /// that asserts the top-level `ack`, with its field tree (ack envelope + edit/revoke/paid
 /// sub-mixins and disjunctions) resolved through the shared [`Resolver`]. Mirrors the
 /// srvreq root pass; only the tag gate (`ack`, not the server-request set) differs.

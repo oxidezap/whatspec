@@ -353,7 +353,8 @@ static ACTION_KEY: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 static VERSION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\bgetVersion\s*=\s*function\s*\([^)]*\)\s*\{\s*return\s+([^;}]+)"#).unwrap()
+    Regex::new(r#"\bgetVersion\s*=\s*(?:\(\s*)*function\s*\([^)]*\)\s*\{\s*return\s+([^;}]+)"#)
+        .unwrap()
 });
 static VERSION_CONST: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r#"{SYNCD_CONST_REF}\.([A-Z][A-Z0-9_]*)"#)).unwrap());
@@ -1593,5 +1594,26 @@ mod tests {
         // `a=b; b=a;` would loop forever without the depth cap — must just stop.
         let fb = "var a=b;var b=a;";
         assert_eq!(extract_trailing_name("a", fb, fb.len(), 0), None);
+    }
+}
+
+#[cfg(test)]
+mod parenthesized_version_tests {
+    #[test]
+    fn version_getter_survives_parenthesized_function() {
+        for source in [
+            "i.getVersion=function(){return 3}",
+            "i.getVersion=(function(){return 3})",
+            "i.getVersion=((function(){return 3}))",
+        ] {
+            let captures = super::VERSION.captures(source).unwrap();
+            assert_eq!(
+                super::resolve_version(
+                    Some(captures.get(1).unwrap().as_str()),
+                    &Default::default()
+                ),
+                Some(3)
+            );
+        }
     }
 }

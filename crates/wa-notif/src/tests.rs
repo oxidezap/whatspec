@@ -2411,8 +2411,8 @@ fn nested_helper_names_do_not_hide_factory_helpers() {
 #[test]
 fn parser_local_helper_shadows_the_factory_helper_with_the_same_name() {
     let bundle = GROUP_ACTIONS_BUNDLE.replace(
-        "  function h(e){",
-        "  function h(e){ function w(node){ return {local:node.attrGroupJid(\"jid\")}; }",
+        "  function h(e){\n    var x = e.mapChildren",
+        "  function h(e){ function w(node){ return {local:node.attrGroupJid(\"jid\")}; }\n    var x = e.mapChildren",
     );
     let ir = extract_notif(&bundle, "test");
     let action = group_actions(&ir)
@@ -2427,4 +2427,36 @@ fn parser_local_helper_shadows_the_factory_helper_with_the_same_name() {
     assert!(fields.contains(&"local"));
     assert!(!fields.contains(&"alpha"));
     assert!(!fields.contains(&"beta"));
+}
+
+#[test]
+fn action_parameter_shadows_module_helper() {
+    let bundle = GROUP_ACTIONS_BUNDLE.replace(
+        "function h(e){\n    var x = e.mapChildren",
+        "function h(e,w){\n    var x = e.mapChildren",
+    );
+    let ir = extract_notif(&bundle, "test");
+    let actions = group_actions(&ir);
+    if let Some(action) = actions
+        .into_iter()
+        .find(|action| action.wire_tag == "ephemeral")
+    {
+        assert!(
+            !action
+                .fields
+                .iter()
+                .any(|field| field.name == "alpha" || field.name == "beta")
+        );
+    }
+}
+#[test]
+fn block_helper_does_not_shadow_switch_outside_block() {
+    let bundle=GROUP_ACTIONS_BUNDLE.replace("function h(e){\n    var x = e.mapChildren", "function h(e){ {function w(node){return {wrong:node.attrString(\"wrong\")}}}\n    var x = e.mapChildren");
+    let ir = extract_notif(&bundle, "test");
+    let action = group_actions(&ir)
+        .into_iter()
+        .find(|action| action.wire_tag == "ephemeral")
+        .unwrap();
+    assert!(action.fields.iter().any(|field| field.name == "alpha"));
+    assert!(!action.fields.iter().any(|field| field.name == "wrong"));
 }

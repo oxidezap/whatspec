@@ -114,16 +114,25 @@ pub fn scan_module_outcome(
     };
 
     // Pass 1: variable/function scope (offset-based, lifetime-free) + smax aliases.
-    // Admit the traced Create contract first. Other requests still use the
-    // fragment boundary until their nested argument shapes are qualified.
+    // Bundled RPCs expose complete request exports and local merge functions.
     let bundled_requests = if module_name.starts_with("WASmax") && module_name.ends_with("RPC") {
-        crate::request::bundled_rpc_requests(source, helpers, &mixins.rpc_contributions)
+        crate::request::bundled_rpc_requests_from_program(
+            &ret.program,
+            source,
+            helpers,
+            &mixins.rpc_contributions,
+        )
     } else {
         Vec::new()
     };
     let bundled = !bundled_requests.is_empty();
     let bundled_recovery: std::collections::HashMap<(String, usize), usize> = if bundled {
-        let local = crate::request::bundled_rpc_requests(source, helpers, &Default::default());
+        let local = crate::request::bundled_rpc_requests_from_program(
+            &ret.program,
+            source,
+            helpers,
+            &Default::default(),
+        );
         bundled_requests
             .iter()
             .map(|(name, return_index, complete)| {
@@ -154,6 +163,7 @@ pub fn scan_module_outcome(
         Default::default()
     };
 
+    // Other legacy requests retain their fragment boundary until qualified.
     let qualified_create = module_name == "WASmaxOutGroupsCreateRequest";
     let scope = if qualified_create || bundled {
         build_scoped_var_scope(&ret.program)
@@ -165,6 +175,7 @@ pub fn scan_module_outcome(
     // Pass 2: collect exports, iq requests, the response parser, and the mixin
     // modules this module folds in (for cross-module xmlns/type resolution).
     let mut scanner = ModuleScanner {
+        scan_iq: !bundled,
         source,
         scope: &scope,
         aliases: &aliases,
@@ -181,6 +192,9 @@ pub fn scan_module_outcome(
     if bundled {
         scanner.iq_calls = bundled_requests
             .into_iter()
+            .filter(|(_, _, root)| {
+                const_value(&root.attrs, "type").is_none_or(|value| matches!(value, "get" | "set"))
+            })
             .map(|(export, return_index, root)| IqCall {
                 recovered_fields: bundled_recovery
                     .get(&(export.clone(), return_index))
@@ -200,6 +214,7 @@ pub fn scan_module_outcome(
                     .and_then(|attr| attr.arg_path.clone()),
                 wrote_to: root.attrs.iter().any(|attr| attr.name == "to"),
                 children: root.children,
+                variant_groups: root.variant_groups,
                 export: Some(export),
             })
             .collect();
@@ -330,6 +345,7 @@ pub fn scan_module_outcome(
                             mixin_target_path.clone()
                         },
                         children: iq.children,
+                        variant_groups: iq.variant_groups,
                         export: iq.export,
                     })
                 }
@@ -448,6 +464,7 @@ pub fn scan_module_outcome(
                 target: iq.target,
                 target_arg_path: iq.target_arg_path,
                 children: iq.children,
+                variant_groups: iq.variant_groups,
             },
             response: response.clone(),
         })
@@ -506,6 +523,7 @@ struct IqCall {
     /// `e.sendFooBar = function(){ … wap("iq") … }` → `sendFooBar`), captured
     /// during the walk so the stanza's `exportedFunction` isn't guessed by index.
     export: Option<String>,
+    variant_groups: Vec<wa_ir::WapVariantGroup>,
 }
 
 /// An iq call after namespace/type resolution + guard — ready to emit.
@@ -516,9 +534,11 @@ struct ResolvedIqCall {
     target_arg_path: Option<wa_ir::WapArgPath>,
     children: Vec<WapChildNode>,
     export: Option<String>,
+    variant_groups: Vec<wa_ir::WapVariantGroup>,
 }
 
 struct ModuleScanner<'src> {
+    scan_iq: bool,
     contributions: Option<&'src crate::request::MixinContributions>,
     source: &'src str,
     scope: &'src VarScope,
@@ -599,7 +619,9 @@ impl<'a> Visit<'a> for ModuleScanner<'_> {
         }
 
         let hint = self.type_hints.get(&call.span().start).copied();
-        if let Some(iq) = self.try_iq_call(call, hint) {
+        if self.scan_iq
+            && let Some(iq) = self.try_iq_call(call, hint)
+        {
             self.iq_calls.push(iq);
         }
         walk::walk_call_expression(self, call);
@@ -651,7 +673,7 @@ pub(crate) fn require_module_name(e: &Expression) -> Option<String> {
 }
 
 /// `WASmaxOut<X>Request` → `X` (operation name shared with the response module
-/// `WASmaxIn<X>ResponseSuccess`). `None` for any other module name.
+/// `WASmaxIn<X>ResponseSuccess`), or `WASmax<X>RPC` → `X` for bundled RPCs.
 fn smax_request_op_name(module: &str) -> Option<&str> {
     module
         .strip_prefix("WASmaxOut")
@@ -762,6 +784,7 @@ impl ModuleScanner<'_> {
         enforce_argument_boundary(&mut children, self.scope, call.span().start as usize);
 
         Some(IqCall {
+            variant_groups: Vec::new(),
             recovered_fields: 0,
             namespace,
             iq_type,

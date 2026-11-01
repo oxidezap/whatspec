@@ -19,6 +19,7 @@ const cases=[
  {name:'load-fallback',load:true,expected:['load','coex','eligibility','prepare'],authorized:true},
  {name:'message-missing',load:true,missing:true,expected:['load']},
  {name:'revoked',revoked:true,expected:['coex','eligibility','prepare'],authorized:true},
+ {name:'revoked-rejected',revoked:true,eligibility:E.INELIGIBLE_CHANGED_IDENTITY,expected:['coex','eligibility','prepare','reject'],reason:'identity_change'},
  ...[true,false,undefined].map(pq=>({name:`pq-rejection-${pq}`,pq,eligibility:E.INELIGIBLE_CHANGED_IDENTITY,expected:['coex','eligibility','prepare','reject'],reason:'identity_change'})),
 ];
 function execute(source,c,cut={}) {
@@ -57,7 +58,7 @@ function execute(source,c,cut={}) {
 function check(source,c){
  const t=execute(source,c);assert.equal(t.terminal,'return',`${c.name}: ${t.error}`);assert.deepEqual(t.effects.map(e=>e.name),c.expected,c.name);assert.equal(t.value!=null,!!c.authorized,c.name);
  if(c.authorized){assert.equal(t.value.msgRecord,t.record);assert.deepEqual({...t.value.retryContext},{hasAdditionalRetryTargets:!!c.additional && c.coex==null});assert.equal(t.value.isIdentityChangedSinceSend,!!c.changed);if(c.revoked){assert.equal(t.value.msgRecord.data.type,'protocol');assert.equal(t.value.msgRecord.data.subtype,'sender_revoke')}}
- if(c.reason){const args=t.effects.at(-1).args;assert.equal(args.retryRejectReason,c.reason);assert.equal(args.isPq,c.pq===true);assert.equal(args.pqFallbackReason,c.pq===false?'regular-fallback':undefined)}
+ if(c.reason){const args=t.effects.at(-1).args;assert.equal(args.retryRejectReason,c.reason);assert.equal(args.isPq,c.pq===true);assert.equal(args.pqFallbackReason,c.pq===false?'regular-fallback':undefined);assert.equal(args.msgRetryCount,3);assert.equal(args.senderDeviceType,'companion');assert.equal(args.messageType,c.revoked?'protocol':'regular');assert.equal(args.retryRevoke,!!c.revoked);assert.equal(args.sessionScope,'default');assert.equal(args.e2eSenderType,undefined);assert.equal(args.encryptionType,undefined)}
  return t;
 }
 function lookupCases(source){
@@ -92,7 +93,7 @@ export function authorizationLatestOracle(audit){
   const interrupted=execute(source,c,{[kind]:index});assert.equal(interrupted.terminal,kind==='failAt'?'throw':'cancel');if(kind==='failAt')assert.equal(interrupted.error,'synthetic-latest-failure');
   const stop=normal.effects.findIndex((e,i)=>e.name===normal.completed[index]&&normal.effects.slice(0,i+1).filter(x=>['load','coex','eligibility','prepare'].includes(x.name)).length===index+1)+1;
   assert.deepEqual(interrupted.effects.map(e=>e.name),normal.effects.slice(0,stop).map(e=>e.name));}}
- const mutations=[['identityRowId:y','identityRowId:_','identity-binding'],['C!=null?','false?','coex-precedence'],['R?o("WAWebApiContact")','!R?o("WAWebApiContact")','alternate-guard'],['hasAdditionalRetryTargets:v','hasAdditionalRetryTargets:!1','metadata-forwarding'],['_<y','_>y','identity-change-context'],['case o("WAWebApiMessageInfoStore").RetryEligibilityResult.ELIGIBLE:','case o("WAWebApiMessageInfoStore").RetryEligibilityResult.INELIGIBLE_CHANGED_IDENTITY:','identity-must-not-authorize']];
+ const mutations=[['msgRetryCount:d','msgRetryCount:999','metric-retry-count'],['senderDeviceType:c.isCompanion()?','senderDeviceType:!1?','metric-device-type'],['getWamMessageType(g.data)','getWamMessageType({type:"WRONG"})','metric-message-type'],['retryRevoke:I','retryRevoke:!1','metric-revoke-state'],['sessionScopeToWamType(m)','sessionScopeToWamType("WRONG")','metric-session-scope'],['identityRowId:y','identityRowId:_','identity-binding'],['C!=null?','false?','coex-precedence'],['R?o("WAWebApiContact")','!R?o("WAWebApiContact")','alternate-guard'],['hasAdditionalRetryTargets:v','hasAdditionalRetryTargets:!1','metadata-forwarding'],['_<y','_>y','identity-change-context'],['case o("WAWebApiMessageInfoStore").RetryEligibilityResult.ELIGIBLE:','case o("WAWebApiMessageInfoStore").RetryEligibilityResult.INELIGIBLE_CHANGED_IDENTITY:','identity-must-not-authorize']];
  for(const[from,to,name]of mutations){assert.ok(source.includes(from),`missing latest mutation ${name}`);assert.ok(cases.some(c=>{try{check(source.replace(from,to),c);return false}catch{return true}}),`undetected latest mutation ${name}`)}
  return {sourceSha256:record.sourceSha256,cases:cases.map(c=>({name:c.name,authorized:!!c.authorized,effects:c.expected})),lookup,lookupMutations:lookupMutations.map(m=>m[2]),mutations:mutations.map(m=>m[2])};
 }
