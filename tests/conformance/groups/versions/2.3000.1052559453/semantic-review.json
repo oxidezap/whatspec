@@ -1,0 +1,159 @@
+{
+  "waVersion": "2.3000.1052559453",
+  "historicalVersion": "2.3000.1047483476",
+  "scope": "Group notification parser and experimental normalization contracts; not a claim about server API removal.",
+  "canonicalAstComparison": {
+    "parser": "acorn",
+    "version": "8.19.0",
+    "ignoredFields": [
+      "start",
+      "end",
+      "raw"
+    ],
+    "modules": [
+      {
+        "name": "$InternalEnum",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAJids",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAParsableWapNode",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAParsableXmlNode",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WATimeUtils",
+        "equal": false,
+        "changedLeaves": 309
+      },
+      {
+        "name": "WAWebEphemeralityTypes",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebEphemeralityUtils",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebGroupApiConst",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebGroupHistoryPostJoinTypes",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebGroupMemberLinkMode",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebGroupType",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebGroupsQueryApi",
+        "equal": false,
+        "changedLeaves": 14
+      },
+      {
+        "name": "WAWebHandleGroupNotification",
+        "equal": false,
+        "changedLeaves": 147
+      },
+      {
+        "name": "WAWebHandleGroupNotificationConst",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebRequestMethodType",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "WAWebSchemaGroupMetadata",
+        "equal": true,
+        "changedLeaves": 0
+      },
+      {
+        "name": "nullthrows",
+        "equal": true,
+        "changedLeaves": 0
+      }
+    ]
+  },
+  "qualifiedChanges": [
+    {
+      "module": "WATimeUtils",
+      "finding": "castToUnixTime is byte-identical; signed-int32 wrap and clamp remain. Other exports changed, including decimal-string validation, so the entire module is pinned without claiming all exports unchanged.",
+      "cases": [
+        "timestamp-wraps-to-signed32",
+        "timestamp-reserved-minimum-is-clamped",
+        "invalid-time-precedes-unknown-action",
+        "time-cast-wraps-before-normalization"
+      ]
+    },
+    {
+      "module": "WAWebGroupsQueryApi",
+      "finding": "extractLinkedParent is byte-identical. Metadata parsing elsewhere removes the participant history gate and adds memberShareGroupHistoryMode; CREATE now reads the actual new enum module.",
+      "cases": [
+        "parent-mode-flags-and-reason",
+        "history-share-mode-admin_share",
+        "history-share-mode-all_member_share",
+        "history-share-mode-future_mode"
+      ]
+    },
+    {
+      "module": "WAWebHandleGroupNotification",
+      "finding": "CREATE adds isNewGroup, reads participant history without the prior gate, and includes memberShareGroupHistoryMode. LINK and UNLINK now warn, send logs and return null on ordinary unknown types. Inherited Object.prototype lookup values still produce unsupported non-string actions. LINK returns before group payload reads; UNLINK reads payload first.",
+      "cases": [
+        "new-group-unknown-trigger",
+        "existing-group-unknown-trigger",
+        "disabled-country-and-history-gates",
+        "history-is-read-without-feature-gate"
+      ],
+      "normalizationCases": 204,
+      "warningFailureOrderChecked": true
+    }
+  ],
+  "historicalPreservation": {
+    "sources": "../../sources",
+    "contracts": "../2.3000.1047483476",
+    "existingOraclesRetained": true
+  },
+  "currentOracles": {
+    "actions": "actions.json",
+    "envelope": "envelope.json",
+    "create": "create.json",
+    "normalization": "normalization.json",
+    "verification": "node tests/conformance/groups/versions/2.3000.1052559453/verify.cjs"
+  },
+  "contractChange": {
+    "field": "rows[].nullResult",
+    "optional": true,
+    "meaning": "WARN(template, wire type), then sendLogs(event), then return null; preserve exceptions and source read order. LINK performs no group reads on this branch; UNLINK group reads precede it.",
+    "schemaVersion": "4.5.0",
+    "experimentalGroupContractsOnly": true
+  },
+  "limits": [
+    "Synthetic identities and context facts; no authenticated WhatsApp traffic.",
+    "Opaque provider initializers and omitted action code remain exact-source qualified; source drift is rejected.",
+    "The main snapshot, AppState collection versions/actions and baselines are untouched by this qualification follow-up."
+  ]
+}

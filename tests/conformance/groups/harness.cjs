@@ -17,11 +17,11 @@ function encodeNode(node){
   return result;
 }
 function plain(value){return JSON.parse(JSON.stringify(value));}
-function createHarness(evidenceName='envelope-evidence.json',{strictDiagnosticLogger=false}={}){
-  const evidence=JSON.parse(fs.readFileSync(path.join(__dirname,evidenceName)));
+function createHarness(evidenceName='envelope-evidence.json',{strictDiagnosticLogger=false,fixtureRoot=__dirname}={}){
+  const evidence=JSON.parse(fs.readFileSync(path.join(fixtureRoot,evidenceName)));
   const sources={};
   for(const module of evidence.modules){
-    const bytes=fs.readFileSync(path.join(__dirname,'sources',module.name+'.js'));
+    const bytes=fs.readFileSync(path.join(fixtureRoot,'sources',module.name+'.js'));
     assert.equal(hash(bytes),module.moduleSha256,module.name);
     assert.equal(bytes.length,module.endByte-module.startByte,module.name+' complete length');
     sources[module.name]=bytes.toString();

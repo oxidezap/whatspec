@@ -23,4 +23,17 @@ pub struct GroupUnlinkRow {
     /// The official plain-object lookup returned an inherited non-string value.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsupported_action: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub null_result: Option<GroupUnknownTypeWarning>,
+}
+
+/// A qualified unknown-type branch invokes WARN(template, wire type), then
+/// sendLogs(event), then returns null. Calls are observable and may throw;
+/// consumers must preserve their order and must not emit a partial action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GroupUnknownTypeWarning {
+    pub template: Vec<String>,
+    pub event: String,
 }

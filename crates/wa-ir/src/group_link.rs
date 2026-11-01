@@ -41,6 +41,9 @@ pub struct GroupLinkRow {
     /// it must never be collapsed into the ordinary undefined fallback.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsupported_action: bool,
+    /// When present, warn and return null before reading group children.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub null_result: Option<crate::group_normalization::GroupUnknownTypeWarning>,
     /// When present, read this child's presence for `hiddenSubgroup: bool`.
     /// When absent, omit `hiddenSubgroup`, rather than emitting false.
     pub hidden_subgroup_child: Option<String>,

@@ -9,6 +9,8 @@ rust-version.workspace = true
 description = "Native tooling: oxc AST extraction of WhatsApp Web's incoming stanza-dispatch catalog (notification types + handlers). Not WASM-targeted."
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
 oxc_allocator = { workspace = true }
 oxc_ast = { workspace = true }
 oxc_ast_visit = { workspace = true }
@@ -20,6 +22,3 @@ wa-oxc = { workspace = true }
 wa-scan = { workspace = true }
 wa-transform = { workspace = true }
 wa-text = { workspace = true }
-
-[dev-dependencies]
-serde_json = { workspace = true }

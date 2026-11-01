@@ -105,7 +105,12 @@ pub fn extract_link(slices: &HashMap<&str, &str>) -> Result<GroupLinkContract, S
                                         case.span(),
                                         "LINK",
                                     )?;
-                                    project_case(case, &self.resolver, child.name.as_str())
+                                    project_case(
+                                        self.source,
+                                        case,
+                                        &self.resolver,
+                                        child.name.as_str(),
+                                    )
                                 }),
                         );
                     }
@@ -174,6 +179,7 @@ fn is_link_case(e: &Expression<'_>) -> bool {
 }
 
 fn project_case(
+    source: &str,
     case: &SwitchCase<'_>,
     resolver: &ConstResolver<'_>,
     dispatched_child: &str,
@@ -194,8 +200,10 @@ fn project_case(
     if vars.kind != VariableDeclarationKind::Var {
         return Err("lexical LINK declarations need scope qualification".into());
     }
-    let [kind, table] = vars.declarations.as_slice() else {
-        return Err("changed LINK binding sequence".into());
+    let (kind, table, action) = match vars.declarations.as_slice() {
+        [kind, table] => (kind, table, None),
+        [kind, table, action] => (kind, table, Some(action)),
+        _ => return Err("changed LINK binding sequence".into()),
     };
     let kind_name = kind
         .id
@@ -255,9 +263,55 @@ fn project_case(
     {
         return Err("changed or incomplete LINK type family".into());
     }
-    let Expression::ObjectExpression(output) = ret.argument.as_ref().ok_or("empty LINK return")?
-    else {
-        return Err("non-object LINK return".into());
+    let returned = ret.argument.as_ref().ok_or("empty LINK return")?;
+    let (output, null_result) = if let Some(action) = action {
+        let name = action
+            .id
+            .get_identifier_name()
+            .ok_or("destructured link action")?;
+        if [kind_name.as_str(), table_name.as_str(), dispatched_child].contains(&name.as_str()) {
+            return Err("LINK action binding collides".into());
+        }
+        let Expression::ComputedMemberExpression(lookup) = action
+            .init
+            .as_ref()
+            .ok_or("missing action lookup")?
+            .without_parentheses()
+        else {
+            return Err("non-table action binding".into());
+        };
+        if as_identifier(&lookup.object) != Some(table_name.as_str())
+            || as_identifier(&lookup.expression) != Some(kind_name.as_str())
+        {
+            return Err("changed action lookup binding".into());
+        }
+        let Expression::ConditionalExpression(condition) = returned.without_parentheses() else {
+            return Err("missing unknown LINK guard".into());
+        };
+        let Expression::BinaryExpression(test) = condition.test.without_parentheses() else {
+            return Err("changed LINK null guard".into());
+        };
+        if test.operator != oxc_syntax::operator::BinaryOperator::Equality
+            || as_identifier(&test.left) != Some(name.as_str())
+            || !matches!(test.right, Expression::NullLiteral(_))
+        {
+            return Err("changed LINK null guard".into());
+        }
+        let (argument, warning) =
+            crate::group_qualification::unknown_type_warning(source, &condition.consequent, "LINK")
+                .ok_or("unqualified LINK warning/null branch")?;
+        if argument != kind_name.as_str() {
+            return Err("LINK warning argument changed".into());
+        }
+        let Expression::ObjectExpression(output) = condition.alternate.without_parentheses() else {
+            return Err("non-object LINK success".into());
+        };
+        (output, Some(warning))
+    } else {
+        let Expression::ObjectExpression(output) = returned.without_parentheses() else {
+            return Err("non-object LINK return".into());
+        };
+        (output, None)
     };
     let fields = object_fields(output)?;
     if fields
@@ -268,13 +322,19 @@ fn project_case(
     {
         return Err("changed LINK output sequence".into());
     }
-    let Expression::ComputedMemberExpression(lookup) = fields[0].1 else {
-        return Err("non-table action lookup".into());
-    };
-    if as_identifier(&lookup.object) != Some(table_name.as_str())
-        || as_identifier(&lookup.expression) != Some(kind_name.as_str())
-    {
-        return Err("changed action lookup binding".into());
+    if let Some(action) = action {
+        if as_identifier(fields[0].1) != action.id.get_identifier_name().as_deref() {
+            return Err("changed LINK result action binding".into());
+        }
+    } else {
+        let Expression::ComputedMemberExpression(lookup) = fields[0].1 else {
+            return Err("non-table action lookup".into());
+        };
+        if as_identifier(&lookup.object) != Some(table_name.as_str())
+            || as_identifier(&lookup.expression) != Some(kind_name.as_str())
+        {
+            return Err("changed action lookup binding".into());
+        }
     }
     let groups = as_call(fields[1].1).ok_or("non-call group projection")?;
     let Some((receiver, "mapChildrenWithTag")) = as_member(&groups.callee) else {
@@ -404,7 +464,8 @@ fn project_case(
         link_type: None,
         action_type: None,
         unsupported_action: false,
-        hidden_subgroup_child: Some(hidden_read.wire_name.clone()),
+        hidden_subgroup_child: null_result.is_none().then(|| hidden_read.wire_name.clone()),
+        null_result,
     }];
     for (kind, action) in actions {
         let child = (kind != excluded).then(|| hidden_read.wire_name.clone());
@@ -412,6 +473,7 @@ fn project_case(
             link_type: Some(kind),
             action_type: Some(action),
             unsupported_action: false,
+            null_result: None,
             hidden_subgroup_child: child,
         });
     }
@@ -420,6 +482,7 @@ fn project_case(
             link_type: Some((*key).to_string()),
             action_type: None,
             unsupported_action: true,
+            null_result: None,
             hidden_subgroup_child: Some(hidden_read.wire_name.clone()),
         });
     }

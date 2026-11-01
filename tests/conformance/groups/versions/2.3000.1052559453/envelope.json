@@ -1,0 +1,2842 @@
+{
+  "waVersion": "2.3000.1052559453",
+  "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf",
+  "callback": {
+    "name": "groupNotificationParser",
+    "startByte": 10858,
+    "endByte": 23344,
+    "sha256": "0c9b28f4c4ac5e27d2032dae378710cb9cc7dd17f9dcbf17769f8962f2ec4fb0"
+  },
+  "cases": [
+    {
+      "name": "absent-to-does-not-require-local-lid",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": null,
+        "mePn": null
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "exact-local-lid-device",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "to": "100001:2@lid"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 1,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrString",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "exact-local-pn-device",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "to": "200002:2@s.whatsapp.net"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 1,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrString",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "same-account-other-device-is-not-destination",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "to": "100001:3@lid"
+        },
+        "children": []
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have \"to\" matching meLid (\"100001:2@lid\") or mePn (\"200002:2@s.whatsapp.net\"), but instead has \"100001:3@lid\"",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have \"to\" matching meLid (\"100001:2@lid\") or mePn (\"200002:2@s.whatsapp.net\"), but instead has \"100001:3@lid\"",
+      "telemetryErrors": 0,
+      "localLidReads": 1,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrString",
+          "to"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "destination-error-precedes-missing-from-time-and-unknown-action",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "id": "synthetic",
+          "to": "100001:3@lid"
+        },
+        "children": [
+          {
+            "tag": "future_action",
+            "attrs": {}
+          }
+        ]
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have \"to\" matching meLid (\"100001:2@lid\") or mePn (\"200002:2@s.whatsapp.net\"), but instead has \"100001:3@lid\"",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have \"to\" matching meLid (\"100001:2@lid\") or mePn (\"200002:2@s.whatsapp.net\"), but instead has \"100001:3@lid\"",
+      "telemetryErrors": 0,
+      "localLidReads": 1,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrString",
+          "to"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "missing-from-is-required",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "id": "synthetic",
+          "t": "123"
+        },
+        "children": []
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have attribute \"from\"",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have attribute \"from\"",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "participant-is-optional",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "invalid-participant-is-not-a-user",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant": "123456@g.us"
+        },
+        "children": []
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have \"participant\"={UserJid}, but instead has \"123456@g.us\"",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have \"participant\"={UserJid}, but instead has \"123456@g.us\"",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "attrUserJid",
+          "participant"
+        ],
+        [
+          "attrString",
+          "participant"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "missing-time-is-required",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic"
+        },
+        "children": []
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have attribute \"t\"",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have attribute \"t\"",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "missing-id-is-required-after-action-processing",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "t": "123"
+        },
+        "children": [
+          {
+            "tag": "missing_participant_identification",
+            "attrs": {}
+          }
+        ]
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have attribute \"id\"",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have attribute \"id\"",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "invalid-participant-pn-lid-is-caught-locally",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant": "100001@lid",
+          "participant_pn": "100002@lid"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": "100001@lid",
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 1,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "attrUserJid",
+          "participant"
+        ],
+        [
+          "attrString",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrString",
+          "participant_pn"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "invalid-participant-pn-device-is-caught-locally",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant_pn": "200002:2@s.whatsapp.net"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 1,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrString",
+          "participant_pn"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "valid-participant-pn-is-retained",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant_pn": "200003@s.whatsapp.net"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": "200003@s.whatsapp.net",
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrString",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "disabled-username-gate-drops-marker-action-only",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant_username": "synthetic_username",
+          "participant_country_code": "US",
+          "addressing_mode": "lid"
+        },
+        "children": [
+          {
+            "tag": "missing_participant_identification",
+            "attrs": {}
+          }
+        ]
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": true,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "attrString",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "enabled-username-gate-stamps-incomplete-marker",
+      "flags": {
+        "username": true,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant_username": "synthetic_username",
+          "participant_country_code": "US",
+          "addressing_mode": "lid"
+        },
+        "children": [
+          {
+            "tag": "missing_participant_identification",
+            "attrs": {}
+          }
+        ]
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": true,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": "synthetic_username",
+        "authorUsernameCountryCode": "US",
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": true
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "attrString",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "attrString",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "attrString",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "unknown-action-is-an-error",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123"
+        },
+        "children": [
+          {
+            "tag": "future_action",
+            "attrs": {}
+          }
+        ]
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> Unrecognized group action future_action",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> Unrecognized group action future_action",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "unknown-action-precedes-final-id",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "t": "123"
+        },
+        "children": [
+          {
+            "tag": "future_action",
+            "attrs": {}
+          }
+        ]
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> Unrecognized group action future_action",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> Unrecognized group action future_action",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "timestamp-wraps-to-signed32",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "4294967297"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 1,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "timestamp-reserved-minimum-is-clamped",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "2147483648"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": -2147483647,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "simple-unit-action-is-normalized",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123"
+        },
+        "children": [
+          {
+            "tag": "suspended",
+            "attrs": {}
+          }
+        ]
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [
+          {
+            "actionType": "suspend",
+            "value": true
+          }
+        ],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "tag-error-precedes-local-device-access",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": null,
+        "mePn": null
+      },
+      "input": {
+        "tag": "iq",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "to": "200002:2@s.whatsapp.net"
+        },
+        "children": []
+      },
+      "error": "XmppParsingFailure: synthetic: expected <iq> to be <notification>",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <iq> to be <notification>",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "absent-children-content-is-empty-actions",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123"
+        }
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "empty-byte-content-is-not-children-before-final-id",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "t": "123"
+        },
+        "bytes": []
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have children",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have children",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "empty-string-content-is-not-children",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123"
+        },
+        "string": ""
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have children",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have children",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "to-requires-lid-fact-before-matching-pn",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": null,
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "to": "200002:2@s.whatsapp.net"
+        },
+        "children": []
+      },
+      "error": "MissingContextFact: missing local device LID",
+      "errorName": "MissingContextFact",
+      "errorParser": null,
+      "errorReason": null,
+      "telemetryErrors": 0,
+      "localLidReads": 1,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrString",
+          "to"
+        ]
+      ]
+    },
+    {
+      "name": "invalid-time-precedes-unknown-action",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "future_time"
+        },
+        "children": [
+          {
+            "tag": "future_action",
+            "attrs": {}
+          }
+        ]
+      },
+      "error": "XmppParsingFailure: synthetic: expected <notification> to have \"t\"={integer} but has value \"future_time\"",
+      "errorName": "XmppParsingFailure",
+      "errorParser": "synthetic",
+      "errorReason": "expected <notification> to have \"t\"={integer} but has value \"future_time\"",
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "tag"
+        ]
+      ]
+    },
+    {
+      "name": "bot-participant-is-a-supported-user-class",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant": "200002@bot"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": "200002@bot",
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "attrUserJid",
+          "participant"
+        ],
+        [
+          "attrString",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "pn-prefix-outside-official-user-class-is-caught",
+      "flags": {
+        "username": false,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant_pn": "100002@s.whatsapp.net"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "authorUsernameCountryCode": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 1,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrString",
+          "participant_pn"
+        ],
+        [
+          "tag"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    },
+    {
+      "name": "unknown-country-is-undefined-with-username-gate-enabled",
+      "flags": {
+        "username": true,
+        "history": false,
+        "opus": false,
+        "meLid": "100001:2@lid",
+        "mePn": "200002:2@s.whatsapp.net"
+      },
+      "input": {
+        "tag": "notification",
+        "attrs": {
+          "type": "w:gp2",
+          "from": "123456@g.us",
+          "id": "synthetic",
+          "t": "123",
+          "participant_country_code": "future_country"
+        },
+        "children": []
+      },
+      "success": {
+        "externalId": "synthetic",
+        "chatId": "123456@g.us",
+        "isLidAddressingMode": false,
+        "author": null,
+        "authorPhoneNumber": null,
+        "authorUsername": null,
+        "ts": 123,
+        "pushname": null,
+        "offline": null,
+        "actions": [],
+        "hasIncompleteParticipantInformation": false
+      },
+      "telemetryErrors": 0,
+      "localLidReads": 0,
+      "reads": [
+        [
+          "assertTag",
+          "notification"
+        ],
+        [
+          "hasAttr",
+          "to"
+        ],
+        [
+          "attrGroupJid",
+          "from"
+        ],
+        [
+          "attrString",
+          "from"
+        ],
+        [
+          "hasAttr",
+          "participant"
+        ],
+        [
+          "maybeAttrPhoneUserJid",
+          "participant_pn"
+        ],
+        [
+          "hasAttr",
+          "participant_pn"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "hasAttr",
+          "addressing_mode"
+        ],
+        [
+          "hasAttr",
+          "participant_username"
+        ],
+        [
+          "hasAttr",
+          "participant_country_code"
+        ],
+        [
+          "attrString",
+          "participant_country_code"
+        ],
+        [
+          "mapChildren"
+        ],
+        [
+          "attrString",
+          "id"
+        ],
+        [
+          "attrTime",
+          "t"
+        ],
+        [
+          "attrString",
+          "t"
+        ],
+        [
+          "maybeAttrString",
+          "notify"
+        ],
+        [
+          "hasAttr",
+          "notify"
+        ],
+        [
+          "maybeAttrString",
+          "offline"
+        ],
+        [
+          "hasAttr",
+          "offline"
+        ]
+      ]
+    }
+  ]
+}
