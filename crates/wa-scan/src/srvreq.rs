@@ -36,11 +36,15 @@ fn server_request_tag(tag: &str) -> Option<ServerRequestTag> {
     })
 }
 
-/// A `WASmaxIn<X>Request` module that defines a server-initiated request read-shape.
+/// A `WASmaxIn<X>Request` or bundled `WASmax<X>RPC` candidate; the asserted
+/// root tag below determines whether it defines a server-initiated request.
 /// Excludes error-response variants (`WASmaxIn<X>Response<V>InvalidRequest`, already
 /// covered as iq response variants) and mixin fragments (`…Mixin`, folded into a
 /// parent, not standalone).
 fn is_server_request_module(name: &str) -> bool {
+    if name.starts_with("WASmax") && name.ends_with("RPC") {
+        return true;
+    }
     name.starts_with("WASmaxIn")
         && name.ends_with("Request")
         && !name.contains("Response")
@@ -71,6 +75,10 @@ pub fn scan_server_requests_from_modules(
         }
         let exports = analyze_module_exports(&source[m.start..m.end], &resolver);
         for (name, shape) in &exports {
+            if m.name.ends_with("RPC") && (!name.ends_with("Request") || name.contains("Response"))
+            {
+                continue;
+            }
             // Skip inner child parsers: their export name extends another export's
             // at a word boundary (`<root><ChildSuffix>`, PascalCase), and their fields
             // are already nested in the root's tree. Requiring the suffix to start on a
@@ -269,5 +277,29 @@ mod tests {
         // `iq`(1) < `chatstate`(4) < `status`(6) by enum order → chatstate before status.
         assert_eq!(got[0].tag, ServerRequestTag::Chatstate);
         assert_eq!(got[1].tag, ServerRequestTag::Status);
+    }
+}
+
+#[cfg(test)]
+mod bundled_request_tests {
+    #[test]
+    fn rpc_request_and_response_are_not_confused() {
+        let source = r#"
+        __d("WASmaxServerUpdateRPC",["WASmaxParseUtils","WAResultOrError"],function(g,r,d,o,e,i,l){
+            function incoming(node) {
+                var tag=o("WASmaxParseUtils").assertTag(node,"iq");if(!tag.success)return tag;
+                var id=o("WASmaxParseUtils").attrString(node,"id");return id.success?o("WAResultOrError").makeResult({id:id.value}):id;
+            }
+            function response(node) {
+                var tag=o("WASmaxParseUtils").assertTag(node,"iq");if(!tag.success)return tag;
+                return o("WAResultOrError").makeResult({});
+            }
+            l.parseServerUpdateRequest=incoming,l.parseServerUpdateResponseSuccess=response;
+        });"#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let result = super::scan_server_requests_from_modules(source, &definitions);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].shape.parser_name, "parseServerUpdateRequest");
+        assert_eq!(result[0].shape.fields[0].name, "id");
     }
 }

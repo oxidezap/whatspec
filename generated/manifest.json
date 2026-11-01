@@ -1,6 +1,6 @@
 {
-  "abPropsConfigs": 2861,
-  "appstateActions": 66,
+  "abPropsConfigs": 3343,
+  "appstateActions": 69,
   "diagnostics": {
     "incoming": {
       "dropsByReason": {
@@ -10,68 +10,68 @@
     },
     "iq": {
       "builder": {
-        "argPathAttrs": 223,
-        "argPathAttrsMissing": 49,
-        "argPathChildren": 111,
-        "argPathChildrenMissing": 10,
-        "argPathContents": 46,
+        "argPathAttrs": 478,
+        "argPathAttrsMissing": 48,
+        "argPathChildren": 173,
+        "argPathChildrenMissing": 11,
+        "argPathContents": 140,
         "argPathContentsMissing": 23,
-        "elementValues": 72,
-        "optionalChildren": 35,
-        "presenceFlagChildren": 31,
-        "repeatBounds": 35
+        "elementValues": 169,
+        "optionalChildren": 75,
+        "presenceFlagChildren": 37,
+        "repeatBounds": 51
       },
-      "candidateModules": 206,
+      "candidateModules": 176,
       "constraints": {
-        "errorArms": 645,
-        "errorTexts": 577,
-        "fieldEnumRefs": 234,
-        "fieldLiterals": 1792,
-        "referenceConstraints": 584,
-        "typedErrorVariants": 104
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
       },
       "crossModule": {
-        "fieldsRecovered": 88,
-        "requestsEnriched": 11,
-        "requestsWithMixins": 93
+        "fieldsRecovered": 461,
+        "requestsEnriched": 19,
+        "requestsWithMixins": 78
       },
       "degradedResponses": 3,
       "dropsByReason": {
         "incompatibleRepeatedRead": 1,
         "iq builder substring present but no AST iq call": 5,
-        "mixin fragment (folded into requests, not a standalone stanza)": 66,
+        "mixin fragment (folded into requests, not a standalone stanza)": 36,
         "shadowedCallbackRead": 5
       },
-      "excludedFragments": 66,
-      "stanzas": 142,
+      "excludedFragments": 36,
+      "stanzas": 141,
       "targets": {
         "groupJid": 26,
         "groupServer": 6,
-        "resolved": 137,
-        "server": 105,
-        "unknown": 5,
+        "resolved": 135,
+        "server": 103,
+        "unknown": 6,
         "unset": 0
       },
-      "typedResponses": 139,
+      "typedResponses": 138,
       "unparseable": 5
     },
     "mex": {
       "docIdsFromName": 0,
-      "docIdsFromSibling": 30,
-      "docIdsInline": 107,
+      "docIdsFromSibling": 38,
+      "docIdsInline": 145,
       "dropsByReason": {
-        "ambiguousCallSite": 1,
+        "ambiguousCallSite": 3,
         "operationWithNoCallSite": 6,
         "unreadableCallArgument": 1,
         "unreadableKey": 0,
         "unreadableSpread": 0
       },
-      "operations": 137,
-      "operationsFullyDetermined": 7,
-      "operationsWithVariables": 122,
-      "presenceAlways": 122,
-      "presenceConditional": 177,
-      "presenceUndetermined": 106
+      "operations": 183,
+      "operationsFullyDetermined": 9,
+      "operationsWithVariables": 164,
+      "presenceAlways": 154,
+      "presenceConditional": 241,
+      "presenceUndetermined": 157
     },
     "notif": {
       "actionShapes": 184,
@@ -84,25 +84,25 @@
         "shadowedCallbackRead": 1
       },
       "stanzaTags": 13,
-      "typedContent": 22,
-      "types": 27
+      "typedContent": 24,
+      "types": 29
     },
     "wam": {
-      "callSiteFieldValues": 766,
-      "callSiteFields": 3453,
-      "callSites": 807,
+      "callSiteFieldValues": 807,
+      "callSiteFields": 3601,
+      "callSites": 850,
       "constants": 6,
-      "constructions": 874,
+      "constructions": 906,
       "dropsByReason": {
-        "construction of an event with no catalog entry": 29,
-        "unreadConstructionArgument.call": 1,
-        "unreadConstructionArgument.identifier": 75,
+        "construction of an event with no catalog entry": 16,
+        "unreadConstructionArgument.call": 7,
+        "unreadConstructionArgument.identifier": 64,
         "unreadConstructionArgument.member": 3
       },
-      "duplicateCallSites": 38,
-      "events": 439,
+      "duplicateCallSites": 40,
+      "events": 448,
       "globals": 46,
-      "partialCallSites": 107,
+      "partialCallSites": 128,
       "privateStatsIds": 9,
       "samplingWeightOverrides": 4
     }
@@ -111,93 +111,93 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "13210f6948d3c394472e10656863972d1ac322c21253f48d5c06f376928d5d46"
+      "sha256": "a1ea0449a2cf9b12597d7d3614b988f57466e916fd3b03b48588d1344afb8222"
     },
     "appstate": {
       "batchValidation": {
         "file": "appstate/validation_batch.json",
         "schema": "appstate/validation_batch.schema.json",
-        "sha256": "99d30f6ae93a48d37a10184583f0f59570adf4a16add849272f5a928e336cada"
+        "sha256": "dc63156bb21e0c1882124c9f8780b27af607d8ea42a5a940e49da435914985b2"
       },
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "67f7c0befad6db13c34b92354387b2204842806f9bca208796c5fc2dd6981f72",
+      "sha256": "74e505640a3d08e128da70cede2db98333918affef88d435745274e7c1f16307",
       "validation": {
         "file": "appstate/validation.json",
         "schema": "appstate/validation.schema.json",
-        "sha256": "6215f75d908578f550af11be008339b34cd63d893eeb659f060f8dc84d6e2505"
+        "sha256": "b9b108e82dca299ebd44d1b9060ff3f55f6b2fddf2b72b82d607a07643e98215"
       }
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "234dbd35acab17e35bf29b65187dda6af99ee3ce21a6b0417a12b0dcbe5ad98d"
+      "sha256": "2efcd35d395027acbbfdf423afec6daef4378c1f3eec83328f4e06171ad4e42c"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "4a22ad7fb2b1dd0aadecdf92d274f0c52332f5807a17062e90940b15e155ee39"
+      "sha256": "124cd201495f18d1e8b268cbd129fb5ea4af3dbd8fedef51083df088625006ac"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "8b2f9e3f55b3ec314f57a6ed948ec3da1c3da6ac33a3d9ddf007c0c28b1ddd07"
+      "sha256": "9cf6a4d81d718a0f84f6d0c0ce04714acd3a5b57ad010e089949ebc1c15e3fbc"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "f478302f7eb75d53973f4f1a24042529fc71194f481ed2dd21b56ed339ae2d3f"
+      "sha256": "d91b1d03a24f3240af5f846d848c0e1f296833c6fbb4067c64e9d27439566199"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "2fae5328502ad9b8a2ecdeabdd17ad786ee92c419ce29ddf42ec7f5679e6331b"
+      "sha256": "38a2a24b2243a4d1faa6cc3f7cd4b1aafb788203d4edb6c043acf7b2f964d10f"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "6ae95b8601b39ca0c4804abef9d58643a1bb1b451828b880bf022b8276501a68"
+      "sha256": "9c8933cb377747c75223d606f71383f3992185468c76a5a358e46acc32c60f28"
     },
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "c769b479d7d721c9fe443acadde248e869d6902c7a2b27934ba244b8764e25e6"
+      "sha256": "e05a75341c425c6779c24233139d9da80560ed68199ac7bf716b092850db56f0"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "95973d45ac5ce43090f01eea11a96658cdbc533141395ac8540801dcb056ea44"
+      "sha256": "25770d1a955b5126681c2b0aeb257045a60eb2da5d8eaf96ff46542c570c47e7"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "357cadf07e0b10c829a1b1ffe550db3055f0d84fc01540bdd5b3c793c4c3ebfd"
+      "sha256": "2aa63c08d47aea45fa2df6a78be71ba785d80851aedb17ef94d8e47b85af2070"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "d899388bb0ea4137687c7b13a54014bab24e887ac6d231b9c90971742152b260"
+      "sha256": "b18af54f40089d3a3bdb917599ed5c88a1ebb68b77260a831fc7e3776add1638"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "721a78556c2d2d2048e53e1fe51d12257a0e716641006e22d0d99c21a717b05d"
+      "sha256": "83bf0f6cfee9d45f5d8bcfe3ea9de8b3ad679cebd5f371357e42da56cee52775"
     }
   },
-  "enumDefs": 399,
+  "enumDefs": 419,
   "generatorVersion": "0.1.0",
-  "incomingDefs": 18,
+  "incomingDefs": 25,
   "iqModules": 33,
-  "mexOperations": 137,
-  "notifTypes": 27,
-  "protoEntities": 241,
-  "schemaVersion": "4.4.0",
-  "serverRequestDefs": 24,
-  "stanzaDefs": 199,
+  "mexOperations": 183,
+  "notifTypes": 29,
+  "protoEntities": 244,
+  "schemaVersion": "4.5.0",
+  "serverRequestDefs": 29,
+  "stanzaDefs": 204,
   "tokenDoubleByte": 1024,
   "tokenSingleByte": 236,
-  "waVersion": "2.3000.1047483476",
-  "wamEvents": 439,
-  "wasmBinaries": 7,
-  "wasmResources": 69,
-  "wasmWasmHandles": 30
+  "waVersion": "2.3000.1052559453",
+  "wamEvents": 448,
+  "wasmBinaries": 6,
+  "wasmResources": 91,
+  "wasmWasmHandles": 36
 }

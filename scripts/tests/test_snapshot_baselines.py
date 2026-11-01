@@ -110,3 +110,22 @@ class ReviewedBaselines(unittest.TestCase):
                                         return
                         self.fail('no suitable presence node')
                     self.changed(path, original, mutate, name)
+
+class StableShapeIdentity(unittest.TestCase):
+    def test_notification_reorder_keeps_identity_and_replacement_changes_it(self):
+        first = {'type': 'groups', 'handlerModule': 'Groups', 'handlerFunction': 'handle', 'content': {'fields': []}}
+        other = {'type': 'other', 'handlerModule': 'Other', 'handlerFunction': 'handle'}
+        path = lint.stable_identity_path({'notifications': [first, other]}, '/notifications/0/content')
+        self.assertEqual(path, lint.stable_identity_path({'notifications': [other, first]}, '/notifications/1/content'))
+        changed = copy.deepcopy(first)
+        changed['type'] = 'replacement'
+        self.assertNotEqual(path, lint.stable_identity_path({'notifications': [changed]}, '/notifications/0/content'))
+
+    def test_slash_and_tilde_object_keys_are_safe_json_pointer_segments(self):
+        from collections import defaultdict
+        for key in ['container/key~value', '']:
+            document = {key: {'fields': [{'name': 'x'}, {'name': 'x'}]}}
+            errors, flattened = [], defaultdict(int)
+            lint.walk(document, lambda node, path: lint.check_action_keys(node, lint.stable_identity_path(document, path), errors, flattened))
+            escaped = key.replace('~', '~0').replace('/', '~1')
+            self.assertEqual(flattened, {f'/{escaped}/fields|x': 1})

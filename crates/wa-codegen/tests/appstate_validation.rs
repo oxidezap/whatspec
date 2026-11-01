@@ -289,7 +289,7 @@ fn official_batch_algorithms_match_generated_rust() {
 fn extraction_fixtures_match_programs_and_mutation_trips_the_gate() {
     const SOURCE: &str = include_str!("../../wa-appstate/tests/fixtures/server_sync_protobuf.js");
     let ir: wa_ir::AppstateValidationIr =
-        serde_json::from_str(include_str!("../../../generated/appstate/validation.json")).unwrap();
+        serde_json::from_str(include_str!("fixtures/appstate_validation_ir.json")).unwrap();
     assert_eq!(
         wa_appstate::validation::extract(SOURCE, &ir.wa_version).unwrap(),
         ir
@@ -301,10 +301,8 @@ fn extraction_fixtures_match_programs_and_mutation_trips_the_gate() {
         wa_codegen::generate_appstate_validation(&mutated).unwrap(),
         include_str!("fixtures/appstate_validation.rs.txt")
     );
-    let batch: wa_ir::AppstateBatchValidationIr = serde_json::from_str(include_str!(
-        "../../../generated/appstate/validation_batch.json"
-    ))
-    .unwrap();
+    let batch: wa_ir::AppstateBatchValidationIr =
+        serde_json::from_str(include_str!("fixtures/appstate_batch_validation_ir.json")).unwrap();
     let source = format!(
         "{};{}",
         include_str!("../../wa-appstate/src/fixtures/validate_mutations.js"),

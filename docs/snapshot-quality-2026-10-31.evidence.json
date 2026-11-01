@@ -1,0 +1,3350 @@
+{
+  "evidenceFormatVersion": 1,
+  "oldInputs": {
+    "waVersion": "2.3000.1047483476",
+    "setHash": "05609307e68b0f6ccfd2a121a573049999e38b752cfe7155ebbe5c661805751b",
+    "bundleCount": 579
+  },
+  "newInputs": {
+    "waVersion": "2.3000.1052556849",
+    "setHash": "83d601ea298e3e7950c2f440452065dc60ec4f60868c6a3b09694eea6f1ff490",
+    "bundleCount": 676
+  },
+  "coverage": "Both complete input multisets were verified by SHA-256 and size; every JavaScript file passed the checked AST parser. Absence means no matching static module definition in this snapshot, not server API removal.",
+  "sourceIndex": {
+    "oldUniqueModules": 19713,
+    "newUniqueModules": 21317
+  },
+  "iqReview": {
+    "recoveredFormat": "Bundled RPCs co-locate request, parser and mixin functions. Follow local return values, preserve lexical scopes, compose destination mixins, preserve union arms and resolve local enum exports.",
+    "removedBuilders": [
+      {
+        "module": "WASmaxOutBizLinkingGetLinkedAccountsRequest",
+        "basis": "The request and its RPC are absent from the complete new static module index. The old request built fb:thrift_iq / linked_accounts with smax_id 42. WAWebLinkedAccountsGQL remains in the new snapshot; this review does not assert that the server-side IQ was removed."
+      },
+      {
+        "module": "WAWebBusinessProfileJob",
+        "basis": "The old commerce_settings/cart enabled IQ and commerceSettingsResponse parser are absent from the new module. updateCartEnabled retains the GraphQL implementation and no longer falls back to the IQ. The three business_profile IQ builders remain."
+      },
+      {
+        "module": "WAWebSetReadReceiptJob",
+        "basis": "The complete old module with privacy/category name=readreceipts value=all|none is absent from the new static module index."
+      }
+    ],
+    "newBuilders": [
+      "NewslettersGetMyNewsletterResponses",
+      "BrPaymentGetPixBankList"
+    ],
+    "arithmetic": "142 old stanzas - 3 removed static builders + 2 new builders = 141. The same changes give 139 - 3 + 2 = 138 typed responses, with all 3 previously degraded responses retained. Server targets: 105 - 3 + 1 = 103. The new newsletter request is runtime-addressed via args.iqTo, so unknown targets become 5 + 1 = 6.",
+    "constraints": {
+      "old": {
+        "errorArms": 645,
+        "errorTexts": 577,
+        "fieldEnumRefs": 234,
+        "fieldLiterals": 1792,
+        "referenceConstraints": 584,
+        "typedErrorVariants": 104
+      },
+      "new": {
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
+      }
+    },
+    "argumentGaps": {
+      "attributes": "49 - commerce_settings/cart.enabled - privacy/category.value + USync user.common_gid = 48. The added common_gid comes from t.getCommonGid() in a positional mapper, not an addressable builder options object. Newly recovered INT(2)/INT(3) raw-version literals are fixed wire values, not argument gaps.",
+      "children": "10 + USync conditional tctoken = 11. It is supplied by t.getTcToken() in the same positional mapper. Content gaps remain 23 and runtime-target gaps remain 2."
+    }
+  },
+  "wasmReview": {
+    "oldBinaries": 7,
+    "newBinaries": 6,
+    "basis": "ls_voprf_utils_v2 and LSVoprfWasm, which declared crypto_utils_v2.wasm and bx 30933, are absent from the new complete module index. WAWebTheiaVoprfJsEd25519 remains. The VoIP payload path changes its content hash but remains catalogued; wasm-evidenced bx handles increase from 30 to 36."
+  },
+  "incomingReview": {
+    "basis": "The old WAWebHandleMsgParser payment helper read pay and transaction children, participant via attrJidWithType and t via attrInt. That helper and all pay/transaction literals and attrInt(t) calls are absent from the new module. The main participant attrDeviceJid and attrTime(t) remain. Consequently duplicate keys change from participant,t,verified_name with multiplicity 5 to t,verified_name with multiplicity 3. No retained read was dropped."
+  },
+  "notificationReview": {
+    "basis": "Notification array positions move because new types sort before existing entries; the flattened-key counts for devices, newsletter and group-source helpers are unchanged. Shadowed group helpers are resolved lexically, restoring linked_group_promote/demote jid and all 184 action shape elements."
+  },
+  "mexReview": {
+    "basis": "Presence extraction code is unchanged. Every previously judged retained key keeps a judgement; no retained always/conditional key becomes undetermined. New snapshot declarations introduce 54 previously unrepresented undetermined keys; three existing keys now have a verdict from their changed source call sites. 106 + 54 - 3 = 157. Four added wholly-undetermined operations account for 10 -> 14. These remain explicit unknowns, not invented conditional or always claims.",
+    "retainedVerdictLosses": [],
+    "newUndeterminedKeys": [
+      {
+        "operation": "ContactManagerCustomerProfileDelete",
+        "path": "/lid"
+      },
+      {
+        "operation": "EmailInviteSendGroup",
+        "path": "/input/fields/emails"
+      },
+      {
+        "operation": "EmailInviteSendGroup",
+        "path": "/input/fields/inviter_name"
+      },
+      {
+        "operation": "FetchGroupInfoIncludBotsJobAcp2",
+        "path": "/include_username"
+      },
+      {
+        "operation": "FetchGroupInfoJobAcp2",
+        "path": "/include_username"
+      },
+      {
+        "operation": "FetchSubscriptionEntryPoints",
+        "path": "/subscriptionTypes/items/fields/subscriptionType"
+      },
+      {
+        "operation": "FetchSubscriptionEntryPoints",
+        "path": "/subscriptionTypes/items/fields/webEntryPointEligibility"
+      },
+      {
+        "operation": "FetchSubscriptionEntryPoints",
+        "path": "/subscriptionTypes/items/fields/webEntryPointRedirectionUri"
+      },
+      {
+        "operation": "GetWoasAgeSignal",
+        "path": "/input/fields/query_input/items/fields/jid"
+      },
+      {
+        "operation": "InternalDirectoryFetchMembers",
+        "path": "/after/fields/invalidLidCount"
+      },
+      {
+        "operation": "OrgAdminGraphQLApplyAdminRosterChanges",
+        "path": "/input/fields/adds"
+      },
+      {
+        "operation": "OrgAdminGraphQLApplyAdminRosterChanges",
+        "path": "/input/fields/changes"
+      },
+      {
+        "operation": "OrgAdminGraphQLInviteMembers",
+        "path": "/resend/fields/description"
+      },
+      {
+        "operation": "OrgAdminGraphQLInviteMembers",
+        "path": "/resend/fields/icon_blob"
+      },
+      {
+        "operation": "OrgAdminGraphQLInviteMembers",
+        "path": "/resend/fields/member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLInviteMembers",
+        "path": "/resend/fields/member_tag_options"
+      },
+      {
+        "operation": "OrgAdminGraphQLInviteMembers",
+        "path": "/resend/fields/org_id"
+      },
+      {
+        "operation": "OrgAdminGraphQLInviteMembers",
+        "path": "/resend/fields/secondary_member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLMemberSearch",
+        "path": "/memberTag/fields/description"
+      },
+      {
+        "operation": "OrgAdminGraphQLMemberSearch",
+        "path": "/memberTag/fields/icon_blob"
+      },
+      {
+        "operation": "OrgAdminGraphQLMemberSearch",
+        "path": "/memberTag/fields/member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLMemberSearch",
+        "path": "/memberTag/fields/member_tag_options"
+      },
+      {
+        "operation": "OrgAdminGraphQLMemberSearch",
+        "path": "/memberTag/fields/org_id"
+      },
+      {
+        "operation": "OrgAdminGraphQLMemberSearch",
+        "path": "/memberTag/fields/secondary_member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLMemberSearch",
+        "path": "/query"
+      },
+      {
+        "operation": "OrgAdminGraphQLSendManagedGroupEmailInvites",
+        "path": "/rosterEntryIDs/fields/description"
+      },
+      {
+        "operation": "OrgAdminGraphQLSendManagedGroupEmailInvites",
+        "path": "/rosterEntryIDs/fields/icon_blob"
+      },
+      {
+        "operation": "OrgAdminGraphQLSendManagedGroupEmailInvites",
+        "path": "/rosterEntryIDs/fields/member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLSendManagedGroupEmailInvites",
+        "path": "/rosterEntryIDs/fields/member_tag_options"
+      },
+      {
+        "operation": "OrgAdminGraphQLSendManagedGroupEmailInvites",
+        "path": "/rosterEntryIDs/fields/org_id"
+      },
+      {
+        "operation": "OrgAdminGraphQLSendManagedGroupEmailInvites",
+        "path": "/rosterEntryIDs/fields/secondary_member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLSetMemberRole",
+        "path": "/input/fields/role/fields/description"
+      },
+      {
+        "operation": "OrgAdminGraphQLSetMemberRole",
+        "path": "/input/fields/role/fields/icon_blob"
+      },
+      {
+        "operation": "OrgAdminGraphQLSetMemberRole",
+        "path": "/input/fields/role/fields/member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLSetMemberRole",
+        "path": "/input/fields/role/fields/member_tag_options"
+      },
+      {
+        "operation": "OrgAdminGraphQLSetMemberRole",
+        "path": "/input/fields/role/fields/org_id"
+      },
+      {
+        "operation": "OrgAdminGraphQLSetMemberRole",
+        "path": "/input/fields/role/fields/secondary_member_tag_name"
+      },
+      {
+        "operation": "OrgAdminGraphQLSubmitBulkGroupRequest",
+        "path": "/createGroupsPlan"
+      },
+      {
+        "operation": "OrgAdminGraphQLSubmitBulkGroupRequest",
+        "path": "/createGroupsPlan/items/fields/announcement"
+      },
+      {
+        "operation": "OrgAdminGraphQLSubmitBulkGroupRequest",
+        "path": "/createGroupsPlan/items/fields/locked"
+      },
+      {
+        "operation": "OrgAdminGraphQLSubmitBulkGroupRequest",
+        "path": "/createGroupsPlan/items/fields/member_add_mode"
+      },
+      {
+        "operation": "OrgAdminGraphQLSubmitBulkGroupRequest",
+        "path": "/createGroupsPlan/items/fields/membership_approval"
+      },
+      {
+        "operation": "OrgAdminGraphQLSubmitBulkGroupRequest",
+        "path": "/createGroupsPlan/items/fields/participant_roster_entry_ids"
+      },
+      {
+        "operation": "OrgAdminGraphQLSubmitBulkGroupRequest",
+        "path": "/createGroupsPlan/items/fields/subject"
+      },
+      {
+        "operation": "SharableEventAddInvitations",
+        "path": "/input/fields/invited_user_lids"
+      },
+      {
+        "operation": "SharableEventReconcile",
+        "path": "/input/fields/event_ids"
+      },
+      {
+        "operation": "SharableEventRemoveInvitations",
+        "path": "/input/fields/invited_user_lids"
+      },
+      {
+        "operation": "SharableEventUpdateRsvp",
+        "path": "/input"
+      },
+      {
+        "operation": "SupportBugReportCreateDogfoodingTask",
+        "path": "/input/fields/category"
+      },
+      {
+        "operation": "useWAWebEstimatedDailyReach",
+        "path": "/fetchOfsForecast"
+      },
+      {
+        "operation": "useWAWebEstimatedDailyReach",
+        "path": "/forecastRequest"
+      },
+      {
+        "operation": "useWAWebEstimatedDailyReach",
+        "path": "/useOfsForecast"
+      },
+      {
+        "operation": "useWAWebEstimatedDailyReachShadow",
+        "path": "/forecastRequest"
+      },
+      {
+        "operation": "useWAWebSmartComposerReportThreadEvent",
+        "path": "/input"
+      }
+    ],
+    "resolvedKeys": [
+      {
+        "operation": "BizQueryOrder",
+        "path": "/request/fields/order/fields/jid",
+        "presence": "conditional"
+      },
+      {
+        "operation": "FetchNewsletter",
+        "path": "/fetch_pinned_messages",
+        "presence": "always"
+      },
+      {
+        "operation": "FetchNewsletterDehydrated",
+        "path": "/fetch_pinned_messages",
+        "presence": "always"
+      }
+    ],
+    "newWhollyUndeterminedOperations": [
+      "ContactManagerCustomerProfileDelete",
+      "SharableEventUpdateRsvp",
+      "useWAWebEstimatedDailyReachShadow",
+      "useWAWebSmartComposerReportThreadEvent"
+    ]
+  },
+  "wamReview": {
+    "basis": "WAM extraction code is unchanged. The complete old/new quality-gaps reports independently verified the input sets and every module parse. Twenty obsolete versioned Windows RawWamEvent modules depart and seven new versions arrive, accounting for 29 - 20 + 7 = 16 uncatalogued sites. Unread arguments: 79 - 20 old versioned modules - 1 renamed contact-search logger + 7 new versions + 1 replacement contact-search logger + 2 added call-user-journey sites + 6 added thread-logging sites = 74. All retained site identities keep the same reason and multiplicity.",
+    "oldDrops": {
+      "construction of an event with no catalog entry": 29,
+      "unreadConstructionArgument.call": 1,
+      "unreadConstructionArgument.identifier": 75,
+      "unreadConstructionArgument.member": 3
+    },
+    "newDrops": {
+      "construction of an event with no catalog entry": 16,
+      "unreadConstructionArgument.call": 7,
+      "unreadConstructionArgument.identifier": 64,
+      "unreadConstructionArgument.member": 3
+    },
+    "departedGapSites": [
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2611",
+        "moduleSha256": "0d4e75f34e035dacab1681e81ea3db826c41a6d79a81614232ce8345d28a8172",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 348287,
+            "start": 345931
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2611",
+        "moduleSha256": "0d4e75f34e035dacab1681e81ea3db826c41a6d79a81614232ce8345d28a8172",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 348287,
+            "start": 345931
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2613",
+        "moduleSha256": "463897bd06e8f7fdd5180e4a9e57a3c192909e10822d643f46150545f51a48df",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 399805,
+            "start": 397449
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2613",
+        "moduleSha256": "463897bd06e8f7fdd5180e4a9e57a3c192909e10822d643f46150545f51a48df",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 399805,
+            "start": 397449
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2614",
+        "moduleSha256": "54abd440c3b004931c74a3d456f483cf6983bd2028e75b831ef505aca5e4ba59",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 459389,
+            "start": 457033
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2614",
+        "moduleSha256": "54abd440c3b004931c74a3d456f483cf6983bd2028e75b831ef505aca5e4ba59",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 459389,
+            "start": 457033
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2615",
+        "moduleSha256": "5b3593fca3f9e3ed46f4d3cae0bc5ce64b85460df1a3898cd9f83b7752fd63e9",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 534183,
+            "start": 531827
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2615",
+        "moduleSha256": "5b3593fca3f9e3ed46f4d3cae0bc5ce64b85460df1a3898cd9f83b7752fd63e9",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 534183,
+            "start": 531827
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2616",
+        "moduleSha256": "d463007b105d844e88b21e10f318633e4c3150c5d8d10967734b0b51a9bc42d8",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 594817,
+            "start": 592461
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2220,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2616",
+        "moduleSha256": "d463007b105d844e88b21e10f318633e4c3150c5d8d10967734b0b51a9bc42d8",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 594817,
+            "start": 592461
+          }
+        ],
+        "start": 2172
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2249,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2605",
+        "moduleSha256": "723f8640e417f6233936b1d649dd7b036575d09333803a9649b6fc3f60a312fe",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 205541,
+            "start": 202900
+          }
+        ],
+        "start": 2201
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2249,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2605",
+        "moduleSha256": "723f8640e417f6233936b1d649dd7b036575d09333803a9649b6fc3f60a312fe",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 205541,
+            "start": 202900
+          }
+        ],
+        "start": 2201
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2249,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2606",
+        "moduleSha256": "cb4f77d67741cd7a55e52b5b680c3c52096047f612d95eefc056c4e84910a8b9",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 252984,
+            "start": 250343
+          }
+        ],
+        "start": 2201
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2249,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2606",
+        "moduleSha256": "cb4f77d67741cd7a55e52b5b680c3c52096047f612d95eefc056c4e84910a8b9",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 252984,
+            "start": 250343
+          }
+        ],
+        "start": 2201
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2249,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2607",
+        "moduleSha256": "eddef97317595e14622d0f824cbb6150325f7faed22d5bb7b75bfd24a7c95b48",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 300666,
+            "start": 298025
+          }
+        ],
+        "start": 2201
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2249,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2607",
+        "moduleSha256": "eddef97317595e14622d0f824cbb6150325f7faed22d5bb7b75bfd24a7c95b48",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 300666,
+            "start": 298025
+          }
+        ],
+        "start": 2201
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2620",
+        "moduleSha256": "1c2609e1cbf853ac9b6d05a863bde77991a328ad38a601b0b3982157202fbe93",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 670789,
+            "start": 668159
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2620",
+        "moduleSha256": "1c2609e1cbf853ac9b6d05a863bde77991a328ad38a601b0b3982157202fbe93",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 670789,
+            "start": 668159
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2622",
+        "moduleSha256": "13639b87b00850533ef44f15fe2b4e109d3491fece21edf3b136a2ce8efdebaf",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 71393,
+            "start": 68763
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2622",
+        "moduleSha256": "13639b87b00850533ef44f15fe2b4e109d3491fece21edf3b136a2ce8efdebaf",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 71393,
+            "start": 68763
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2623",
+        "moduleSha256": "f09d02d0c59b9239fd9d00fe6239631bf88ef3f66d4737ace3b6759c2b11d1f9",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 148736,
+            "start": 146106
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2623",
+        "moduleSha256": "f09d02d0c59b9239fd9d00fe6239631bf88ef3f66d4737ace3b6759c2b11d1f9",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 148736,
+            "start": 146106
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2625",
+        "moduleSha256": "c6d137cbaa02c9314629f1ff45030db5b6fed2bd030db41088dadbf0a90ec1f4",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 226079,
+            "start": 223449
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2625",
+        "moduleSha256": "c6d137cbaa02c9314629f1ff45030db5b6fed2bd030db41088dadbf0a90ec1f4",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 226079,
+            "start": 223449
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2626",
+        "moduleSha256": "a0b5c35e45233068cff4a7219d8d262df558dea2e9245d3db5ec3c28f3fdcd3d",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 303498,
+            "start": 300868
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2626",
+        "moduleSha256": "a0b5c35e45233068cff4a7219d8d262df558dea2e9245d3db5ec3c28f3fdcd3d",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 303498,
+            "start": 300868
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2627",
+        "moduleSha256": "a031b16070a8b54238e2ba6ea825b7ec620c32ccc9edb2f9064ee6bb5dfb818d",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 381899,
+            "start": 379269
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2627",
+        "moduleSha256": "a031b16070a8b54238e2ba6ea825b7ec620c32ccc9edb2f9064ee6bb5dfb818d",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 381899,
+            "start": 379269
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2628",
+        "moduleSha256": "906cf9dc789fd3afc80f66efb8ae01f3dc2755172b059622d607e1c1fcb38921",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 460710,
+            "start": 458080
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2628",
+        "moduleSha256": "906cf9dc789fd3afc80f66efb8ae01f3dc2755172b059622d607e1c1fcb38921",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 460710,
+            "start": 458080
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2629",
+        "moduleSha256": "d01ab99b403d69808b0cd62c2ad92083aacfc34cdb7e7250e5e96a039ba75f64",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 539521,
+            "start": 536891
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2629",
+        "moduleSha256": "d01ab99b403d69808b0cd62c2ad92083aacfc34cdb7e7250e5e96a039ba75f64",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 539521,
+            "start": 536891
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2630",
+        "moduleSha256": "2cfee40ceeb3ee81d9404690a891b78b683fba3a279c7c2f9b999c93dfa07866",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 618332,
+            "start": 615702
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2630",
+        "moduleSha256": "2cfee40ceeb3ee81d9404690a891b78b683fba3a279c7c2f9b999c93dfa07866",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 618332,
+            "start": 615702
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2631",
+        "moduleSha256": "eb4d6659d168794e57c2aa8f71fc7781c67e706efb5662179e7d60f8d3365383",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 698696,
+            "start": 696066
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2631",
+        "moduleSha256": "eb4d6659d168794e57c2aa8f71fc7781c67e706efb5662179e7d60f8d3365383",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 698696,
+            "start": 696066
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2632",
+        "moduleSha256": "15feae41b5a94e35a1b742de4f8112e2d2a1c1b2abec2b74138bf19326d03014",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 779222,
+            "start": 776592
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 2494,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2632",
+        "moduleSha256": "15feae41b5a94e35a1b742de4f8112e2d2a1c1b2abec2b74138bf19326d03014",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "0329fc9ac66fae345da0ffbef241d3d4fdc1fff852588f9d79de5418b3ecca21",
+            "end": 779222,
+            "start": 776592
+          }
+        ],
+        "start": 2446
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 1240,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2587",
+        "moduleSha256": "e2beba93f753da3ee44bbd7df37a289efb54252e796242823db48dbba214d169",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 158098,
+            "start": 156778
+          }
+        ],
+        "start": 1192
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 1240,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2587",
+        "moduleSha256": "e2beba93f753da3ee44bbd7df37a289efb54252e796242823db48dbba214d169",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "f2b6e324f1e5f6a160b96dc0a6e6c4d25dadb4ebfa2868bfb3ea2f64a0179b66",
+            "end": 158098,
+            "start": 156778
+          }
+        ],
+        "start": 1192
+      },
+      {
+        "constructionSha256": "b1d3a6a81b81bdc6c5015011356514c77a8ad261bbdfb716194c10a5dcf67c10",
+        "end": 260,
+        "eventExport": "ContactSearchExperienceWamEvent",
+        "eventModule": "WAWebContactSearchExperienceWamEvent",
+        "field": null,
+        "module": "WAWebUsernameSearchLogger",
+        "moduleSha256": "684a5e43627b62597b92252fe3388489e23a7d8e0459df433dfc136b27f7f1fb",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "9b681e073f14f9d50e3dc12b456e4f980b554eff4d58827bc91c90a697e9ca38",
+            "end": 1467179,
+            "start": 1466812
+          },
+          {
+            "bundleSha256": "ccc55faa930edceeed0adf07153dd3714444ea2edb1fc5f876c8047c17740d8a",
+            "end": 33776,
+            "start": 33409
+          }
+        ],
+        "start": 179
+      }
+    ],
+    "addedGapSites": [
+      {
+        "constructionSha256": "4c7d5ae66123e685fd483a3b804527d53b28958a7c77e75c9148499ad5b44109",
+        "end": 544,
+        "eventExport": "ThreadInteractionDataIntegrityWamEvent",
+        "eventModule": "WAWebThreadInteractionDataIntegrityWamEvent",
+        "field": null,
+        "module": "WAWebThreadLoggingIntegrity",
+        "moduleSha256": "a39ea11c81b47f45caf9ef9fc44910b9c5bdae09da3fce75bd6bbfffd6c67c8f",
+        "reason": "unreadConstructionArgument.call",
+        "sources": [
+          {
+            "bundleSha256": "2ed71153ea9df3097cba71df7817ab6572ff1d347ea8e17d9afe35b96469d4b4",
+            "end": 1176196,
+            "start": 1175001
+          },
+          {
+            "bundleSha256": "48113dbd1b3531931fcce6b1ba7160ebba1c35d9cf92692299fd6dd5cef810f0",
+            "end": 31795,
+            "start": 30600
+          }
+        ],
+        "start": 446
+      },
+      {
+        "constructionSha256": "547d4a98a3298c148ad2ac6aa758ced41837bcf636ee1f8083fc47e0efc3a5c3",
+        "end": 5373,
+        "eventExport": "CallUserJourneyWamEvent",
+        "eventModule": "WAWebCallUserJourneyWamEvent",
+        "field": null,
+        "module": "WAWebCallUserJourneyLogger",
+        "moduleSha256": "fccbba710535efdf62bbec5992addf6870d033a48a63a1b824e71675fdd9f536",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "39a2f3af970f08f8465e7f173988f0d18c0087fed0eb7dba08b3a292d7c89b30",
+            "end": 6019507,
+            "start": 6013032
+          }
+        ],
+        "start": 5308
+      },
+      {
+        "constructionSha256": "547d4a98a3298c148ad2ac6aa758ced41837bcf636ee1f8083fc47e0efc3a5c3",
+        "end": 5873,
+        "eventExport": "CallUserJourneyWamEvent",
+        "eventModule": "WAWebCallUserJourneyWamEvent",
+        "field": null,
+        "module": "WAWebCallUserJourneyLogger",
+        "moduleSha256": "fccbba710535efdf62bbec5992addf6870d033a48a63a1b824e71675fdd9f536",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "39a2f3af970f08f8465e7f173988f0d18c0087fed0eb7dba08b3a292d7c89b30",
+            "end": 6019507,
+            "start": 6013032
+          }
+        ],
+        "start": 5808
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2637",
+        "moduleSha256": "902c4190f9851e995ba9003eb116d2352b4f577977ae447d3757a38047b9ba99",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 551064,
+            "start": 547663
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2637",
+        "moduleSha256": "902c4190f9851e995ba9003eb116d2352b4f577977ae447d3757a38047b9ba99",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 551064,
+            "start": 547663
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2638",
+        "moduleSha256": "197b5c035b34dbd8408bc25fbeae96496a2df0fc43a0385d6ef9c91178abe690",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 634660,
+            "start": 631259
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2638",
+        "moduleSha256": "197b5c035b34dbd8408bc25fbeae96496a2df0fc43a0385d6ef9c91178abe690",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 634660,
+            "start": 631259
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2639",
+        "moduleSha256": "acef88867c027b29889a7ada07c3c1ac81644a4c7c8882250992608f505b87bb",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 718159,
+            "start": 714758
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2639",
+        "moduleSha256": "acef88867c027b29889a7ada07c3c1ac81644a4c7c8882250992608f505b87bb",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 718159,
+            "start": 714758
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2640",
+        "moduleSha256": "d5344547219383790a51541a2bec6df6b902f6ddabad9e7e0dc83435e25a994c",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 801629,
+            "start": 798228
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3265,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2640",
+        "moduleSha256": "d5344547219383790a51541a2bec6df6b902f6ddabad9e7e0dc83435e25a994c",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 801629,
+            "start": 798228
+          }
+        ],
+        "start": 3217
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 2722,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2641",
+        "moduleSha256": "fccfc00869644f240fe1b99ec4609c17a9b411cb380b08b3ab25e025190ab0d3",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 887295,
+            "start": 882807
+          }
+        ],
+        "start": 2674
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 2722,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2641",
+        "moduleSha256": "fccfc00869644f240fe1b99ec4609c17a9b411cb380b08b3ab25e025190ab0d3",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 887295,
+            "start": 882807
+          }
+        ],
+        "start": 2674
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 2722,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2642",
+        "moduleSha256": "93e63afc73fb242af001c5b74ecd27a756c714eb7d968dcf3f948b56dd2e2d04",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 973642,
+            "start": 969154
+          }
+        ],
+        "start": 2674
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 2722,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2642",
+        "moduleSha256": "93e63afc73fb242af001c5b74ecd27a756c714eb7d968dcf3f948b56dd2e2d04",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 973642,
+            "start": 969154
+          }
+        ],
+        "start": 2674
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 2722,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2643",
+        "moduleSha256": "d8c3f7a9b361699c33e69955e8beb9adfce7c8bc09ab1392c482bc5f9af5df21",
+        "reason": "construction of an event with no catalog entry",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 1063565,
+            "start": 1059077
+          }
+        ],
+        "start": 2674
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 2722,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2643",
+        "moduleSha256": "d8c3f7a9b361699c33e69955e8beb9adfce7c8bc09ab1392c482bc5f9af5df21",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "bd1c26baf4ce123577631a0fb4e612bdb1665612933109a56fe68208009bf503",
+            "end": 1063565,
+            "start": 1059077
+          }
+        ],
+        "start": 2674
+      },
+      {
+        "constructionSha256": "87b3e812486b865cd4f811d303b7cf85a3218fb4cd40b8ff90b04cdec5ac747b",
+        "end": 595,
+        "eventExport": "ThreadInteractionDataCoreConsumerWamEvent",
+        "eventModule": "WAWebThreadInteractionDataCoreConsumerWamEvent",
+        "field": null,
+        "module": "WAWebThreadLoggingCoreConsumer",
+        "moduleSha256": "960a8e9b585eb18adbf961cee9d6d28ec7afb60a471f471b607de09c3cf0da2a",
+        "reason": "unreadConstructionArgument.call",
+        "sources": [
+          {
+            "bundleSha256": "2ed71153ea9df3097cba71df7817ab6572ff1d347ea8e17d9afe35b96469d4b4",
+            "end": 1173295,
+            "start": 1166693
+          },
+          {
+            "bundleSha256": "48113dbd1b3531931fcce6b1ba7160ebba1c35d9cf92692299fd6dd5cef810f0",
+            "end": 28894,
+            "start": 22292
+          }
+        ],
+        "start": 491
+      },
+      {
+        "constructionSha256": "9a58ca03c85390bd629141f544cab628e71aa45e6216aa332d3895308d9be8b4",
+        "end": 519,
+        "eventExport": "ThreadInteractionDataVoipWamEvent",
+        "eventModule": "WAWebThreadInteractionDataVoipWamEvent",
+        "field": null,
+        "module": "WAWebThreadLoggingVoip",
+        "moduleSha256": "c08963e61c1c121c7bae4d341ef896e9b0643e05cc21213dc0a6333a7affd935",
+        "reason": "unreadConstructionArgument.call",
+        "sources": [
+          {
+            "bundleSha256": "2ed71153ea9df3097cba71df7817ab6572ff1d347ea8e17d9afe35b96469d4b4",
+            "end": 1182347,
+            "start": 1180966
+          },
+          {
+            "bundleSha256": "48113dbd1b3531931fcce6b1ba7160ebba1c35d9cf92692299fd6dd5cef810f0",
+            "end": 37946,
+            "start": 36565
+          }
+        ],
+        "start": 431
+      },
+      {
+        "constructionSha256": "a190c01d4b6ed49fecc11946d1bb85d68c5a50c7e60e18c73f00beb3979de021",
+        "end": 543,
+        "eventExport": "ThreadInteractionDataBizWamEvent",
+        "eventModule": "WAWebThreadInteractionDataBizWamEvent",
+        "field": null,
+        "module": "WAWebThreadLoggingBiz",
+        "moduleSha256": "4ab064d6cc2c05e6818c2ae42130a86251f66b72a62eac49f2788578d27a87a0",
+        "reason": "unreadConstructionArgument.call",
+        "sources": [
+          {
+            "bundleSha256": "2ed71153ea9df3097cba71df7817ab6572ff1d347ea8e17d9afe35b96469d4b4",
+            "end": 1155971,
+            "start": 1153546
+          },
+          {
+            "bundleSha256": "48113dbd1b3531931fcce6b1ba7160ebba1c35d9cf92692299fd6dd5cef810f0",
+            "end": 11570,
+            "start": 9145
+          }
+        ],
+        "start": 457
+      },
+      {
+        "constructionSha256": "b1d3a6a81b81bdc6c5015011356514c77a8ad261bbdfb716194c10a5dcf67c10",
+        "end": 300,
+        "eventExport": "ContactSearchExperienceWamEvent",
+        "eventModule": "WAWebContactSearchExperienceWamEvent",
+        "field": null,
+        "module": "WAWebContactSearchExperienceLogger",
+        "moduleSha256": "7a10f9d5b5ee579d03e8a9ce8cd1a049bd79cc5c011bdc976a143237b1307bbb",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "307bbab3025c7a32e052ee84d7c80f27b6679aed42b5f6a25428ff39c8759c1f",
+            "end": 797940,
+            "start": 797124
+          }
+        ],
+        "start": 219
+      },
+      {
+        "constructionSha256": "bbfb4df6a3f31b9907268af6a4a605628511e4c4bed5fb49e4d5ea5e5287ecd5",
+        "end": 550,
+        "eventExport": "ThreadInteractionDataNotificationWamEvent",
+        "eventModule": "WAWebThreadInteractionDataNotificationWamEvent",
+        "field": null,
+        "module": "WAWebThreadLoggingNotification",
+        "moduleSha256": "b895951d0a11c15948e21b8c03831d16d96c7bf0703b78b7096dfecc57f47d9f",
+        "reason": "unreadConstructionArgument.call",
+        "sources": [
+          {
+            "bundleSha256": "2ed71153ea9df3097cba71df7817ab6572ff1d347ea8e17d9afe35b96469d4b4",
+            "end": 1179112,
+            "start": 1177808
+          },
+          {
+            "bundleSha256": "48113dbd1b3531931fcce6b1ba7160ebba1c35d9cf92692299fd6dd5cef810f0",
+            "end": 34711,
+            "start": 33407
+          }
+        ],
+        "start": 446
+      },
+      {
+        "constructionSha256": "bf0a60824e6cf772d8c1716871e98ad0162f248dc40206cefe017c2d911299fc",
+        "end": 509,
+        "eventExport": "ThreadInteractionDataAiWamEvent",
+        "eventModule": "WAWebThreadInteractionDataAiWamEvent",
+        "field": null,
+        "module": "WAWebThreadLoggingAi",
+        "moduleSha256": "7579924b7ccf15c894b5e83c99c808ae78dd6371cf20221a5250b823f11d21be",
+        "reason": "unreadConstructionArgument.call",
+        "sources": [
+          {
+            "bundleSha256": "2ed71153ea9df3097cba71df7817ab6572ff1d347ea8e17d9afe35b96469d4b4",
+            "end": 1149905,
+            "start": 1148574
+          },
+          {
+            "bundleSha256": "48113dbd1b3531931fcce6b1ba7160ebba1c35d9cf92692299fd6dd5cef810f0",
+            "end": 5504,
+            "start": 4173
+          }
+        ],
+        "start": 425
+      }
+    ]
+  },
+  "sourceEvidence": [
+    {
+      "old": {
+        "module": "WASmaxOutBizLinkingGetLinkedAccountsRequest",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "19d6e256f76764b480182e7ba82fb94888fc3aa2d52aeedb30d14a1aab70f500"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3759ae9b91f03d11301433abb539dbe1cf575b9ba83d71cac768aa5fd662f76a",
+            "moduleSha256": "19d6e256f76764b480182e7ba82fb94888fc3aa2d52aeedb30d14a1aab70f500",
+            "start": 73547,
+            "end": 73962
+          }
+        ]
+      },
+      "new": {
+        "module": "WASmaxOutBizLinkingGetLinkedAccountsRequest",
+        "status": "absent-from-complete-parsed-static-index"
+      }
+    },
+    {
+      "old": {
+        "module": "WASmaxBizLinkingGetLinkedAccountsRPC",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "0ee474b53fb406318212e5bbcb7c80ae3288959d87ea15e68d79514f9427f5b3"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3759ae9b91f03d11301433abb539dbe1cf575b9ba83d71cac768aa5fd662f76a",
+            "moduleSha256": "0ee474b53fb406318212e5bbcb7c80ae3288959d87ea15e68d79514f9427f5b3",
+            "start": 73964,
+            "end": 75322
+          }
+        ]
+      },
+      "new": {
+        "module": "WASmaxBizLinkingGetLinkedAccountsRPC",
+        "status": "absent-from-complete-parsed-static-index"
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebBusinessProfileJob",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "ffa87c2b58e1432d52c7229f80cfda823a2d651d022be46c0a909bc76e9a1730"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+            "moduleSha256": "ffa87c2b58e1432d52c7229f80cfda823a2d651d022be46c0a909bc76e9a1730",
+            "start": 3401716,
+            "end": 3407579
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebBusinessProfileJob",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "afa1a19224870ca06feb0c2793be290670eac894cfe2a46d4e7a0e9ecedca6d4"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "66dfa1e11c9bad46dc6f854a45bf60c8342e7c1758801d5447d9262d92d885a0",
+            "moduleSha256": "afa1a19224870ca06feb0c2793be290670eac894cfe2a46d4e7a0e9ecedca6d4",
+            "start": 5542,
+            "end": 10574
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebSetReadReceiptJob",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "a7781820566f76eaa044e19088ff98ddac5427fb97305764b956aef21f7b1251"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "1087aa11d33bb3fc57106e2705491d4784acacaeee39fb521ba40768bd073718",
+            "moduleSha256": "a7781820566f76eaa044e19088ff98ddac5427fb97305764b956aef21f7b1251",
+            "start": 580259,
+            "end": 581181
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebSetReadReceiptJob",
+        "status": "absent-from-complete-parsed-static-index"
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebLinkedAccountsGQL",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "3019f425f70be0768fc7784d578e3f938b64c0a22a82b708bf38d64035a3f832"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3759ae9b91f03d11301433abb539dbe1cf575b9ba83d71cac768aa5fd662f76a",
+            "moduleSha256": "3019f425f70be0768fc7784d578e3f938b64c0a22a82b708bf38d64035a3f832",
+            "start": 127865,
+            "end": 129261
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebLinkedAccountsGQL",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "296adfebe45c9a52e81b66d4b2cbe0b61858d9e4b082e5c829aab274f95ef053"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "bba1e68f3bc3ccc4b71e305f4de584706332f8085118a4ec9ef4c29561a24142",
+            "moduleSha256": "296adfebe45c9a52e81b66d4b2cbe0b61858d9e4b082e5c829aab274f95ef053",
+            "start": 174546,
+            "end": 178969
+          },
+          {
+            "bundleSha256": "92748730b2ceca203a1a0bbc69111d3d7ab81bbb59fd1b07a86ad88ded834010",
+            "moduleSha256": "296adfebe45c9a52e81b66d4b2cbe0b61858d9e4b082e5c829aab274f95ef053",
+            "start": 1533008,
+            "end": 1537431
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebHandleMsgParser",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "7b9570911ce9a72d8a2fbdcd30a9e4c4fbf9df45e3867345843e5a823e52a4c1"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+            "moduleSha256": "7b9570911ce9a72d8a2fbdcd30a9e4c4fbf9df45e3867345843e5a823e52a4c1",
+            "start": 639070,
+            "end": 661974
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebHandleMsgParser",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "a46c0467a83f167662f11289f289d78b017efa089f8a36e166b5d4bc93f24ca3"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "39a2f3af970f08f8465e7f173988f0d18c0087fed0eb7dba08b3a292d7c89b30",
+            "moduleSha256": "a46c0467a83f167662f11289f289d78b017efa089f8a36e166b5d4bc93f24ca3",
+            "start": 4895282,
+            "end": 4916072
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebUsync",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "aeaff1a057b7cc384402a249a737d2446ae8c2362712e6f34fb3c8ac0cfc42bf"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "082e0ef2faaa6247e6e17a225bb1685b7e583e946f7b0dc17ee58c431c1a07a8",
+            "moduleSha256": "aeaff1a057b7cc384402a249a737d2446ae8c2362712e6f34fb3c8ac0cfc42bf",
+            "start": 1001125,
+            "end": 1006859
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebUsync",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "d43e77212f7604521c1d201ffb48aa739358b44db4a7d9e9856400c5a703bde0"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "0ff806e5f551d3babb04899d38abc2d990db44391c32cfa699481f919609b895",
+            "moduleSha256": "d43e77212f7604521c1d201ffb48aa739358b44db4a7d9e9856400c5a703bde0",
+            "start": 800625,
+            "end": 806517
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "ls_voprf_utils_v2",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "fca6ece607cd4948d933d85d88f064cc076146630435128b620269e08ce201b1"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "c54c9f5d6efd0077efe74637fd08fd3a66a9b562f6b28d007dac4dcf6cefe6e9",
+            "moduleSha256": "fca6ece607cd4948d933d85d88f064cc076146630435128b620269e08ce201b1",
+            "start": 197,
+            "end": 60344
+          }
+        ]
+      },
+      "new": {
+        "module": "ls_voprf_utils_v2",
+        "status": "absent-from-complete-parsed-static-index"
+      }
+    },
+    {
+      "old": {
+        "module": "LSVoprfWasm",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "a2d04d4f76ae9b4494ef0d89a1c7b21e7135fb5d0fc9c974334c557688d41573"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "d819e82ff2dfe04cc8480996af93bdc5e80c47c9765a592e5d95bb5edccbc8f4",
+            "moduleSha256": "a2d04d4f76ae9b4494ef0d89a1c7b21e7135fb5d0fc9c974334c557688d41573",
+            "start": 19638,
+            "end": 19890
+          }
+        ]
+      },
+      "new": {
+        "module": "LSVoprfWasm",
+        "status": "absent-from-complete-parsed-static-index"
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebTheiaVoprfJsEd25519",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "803770ef41941337bc16374d76c329a83e7f1594035f350ec0fa195e2ac59ef2"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "1087aa11d33bb3fc57106e2705491d4784acacaeee39fb521ba40768bd073718",
+            "moduleSha256": "803770ef41941337bc16374d76c329a83e7f1594035f350ec0fa195e2ac59ef2",
+            "start": 499930,
+            "end": 507943
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebTheiaVoprfJsEd25519",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "a41835c38afc510b0f3709c5a49eaa7d331aaae59dfeb20c066faf452baa34a8"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "657c66992f2ed7fad456670f78e20e641ce0d94f4a75a62bfb982103182577af",
+            "moduleSha256": "a41835c38afc510b0f3709c5a49eaa7d331aaae59dfeb20c066faf452baa34a8",
+            "start": 579259,
+            "end": 587200
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WASmaxGroupsGetGroupInfoRPC",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "d980524f47e186aa1b10457e3858f11634c7a0a411c8a87d43f3116be4b96ef3"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+            "moduleSha256": "d980524f47e186aa1b10457e3858f11634c7a0a411c8a87d43f3116be4b96ef3",
+            "start": 14193,
+            "end": 15465
+          }
+        ]
+      },
+      "new": {
+        "module": "WASmaxGroupsGetGroupInfoRPC",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "3f59feab25320a1c8721cc56ec0fa90aec2858a42df477c812ebc6cbbec5c117"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "14b93908d25403b15a2c4b121c29ce8eca7eb14acba1550f69e56959b19b323b",
+            "moduleSha256": "3f59feab25320a1c8721cc56ec0fa90aec2858a42df477c812ebc6cbbec5c117",
+            "start": 6077,
+            "end": 12020
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WASmaxOutGroupsGetGroupInfoRequest",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "eb9fd2a586870a6ce09a23c0e04ddbd76bb02d11e3933650714544a17872d936"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "34859849724a114869fd78e4479a6c412b4ab3ec36c3da2985d8ec4ecb75d5d2",
+            "moduleSha256": "eb9fd2a586870a6ce09a23c0e04ddbd76bb02d11e3933650714544a17872d936",
+            "start": 13168,
+            "end": 14191
+          }
+        ]
+      },
+      "new": {
+        "module": "WASmaxOutGroupsGetGroupInfoRequest",
+        "status": "absent-from-complete-parsed-static-index"
+      }
+    },
+    {
+      "old": {
+        "module": "WASmaxNewslettersGetMyNewsletterResponsesRPC",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WASmaxNewslettersGetMyNewsletterResponsesRPC",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "3985ab244f0715a09c23f1798ee924d2d548381eefdcda1f1d3750bc2fa3fd30"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "b44d8de2bb7a06d3753cae49e127cafc7f30be8f24cc5097e3114f2e9b98e7a5",
+            "moduleSha256": "3985ab244f0715a09c23f1798ee924d2d548381eefdcda1f1d3750bc2fa3fd30",
+            "start": 19,
+            "end": 4209
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WASmaxOutBrPaymentGetPixBankListRequest",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WASmaxOutBrPaymentGetPixBankListRequest",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "57a508d053d9eed3fca62956f3bdac6bbd19a904ef6a5af258defc9e4754533c"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "b46e200637fa4ab0e5498f0dae15d810f28d6b2fb26bce07222801944c43c230",
+            "moduleSha256": "57a508d053d9eed3fca62956f3bdac6bbd19a904ef6a5af258defc9e4754533c",
+            "start": 3659,
+            "end": 4061
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebHandleGroupNotification",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "a65d861ba0dacdcec52d2df48712a80677ecf10021d7df63c84183f195db13a1"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "09d91fdc4089c50ab1d35dd6c796ee82ef4c3296710316d20383c85738b871b8",
+            "moduleSha256": "a65d861ba0dacdcec52d2df48712a80677ecf10021d7df63c84183f195db13a1",
+            "start": 1693402,
+            "end": 1716842
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebHandleGroupNotification",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "756f7a3891d0f8770aa95b7e4cb54d8194e27a7d940cebebb9b6c3a7aacfc29e"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "39a2f3af970f08f8465e7f173988f0d18c0087fed0eb7dba08b3a292d7c89b30",
+            "moduleSha256": "756f7a3891d0f8770aa95b7e4cb54d8194e27a7d940cebebb9b6c3a7aacfc29e",
+            "start": 2364012,
+            "end": 2387882
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebBizQueryOrderJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "f2f6ab41ac0e0dfd2c0daee441be3ca83fe4af19bfeba998c2a5dc97a29b24db"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+            "moduleSha256": "f2f6ab41ac0e0dfd2c0daee441be3ca83fe4af19bfeba998c2a5dc97a29b24db",
+            "start": 2272205,
+            "end": 2275344
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebBizQueryOrderJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "f2f6ab41ac0e0dfd2c0daee441be3ca83fe4af19bfeba998c2a5dc97a29b24db"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "307bbab3025c7a32e052ee84d7c80f27b6679aed42b5f6a25428ff39c8759c1f",
+            "moduleSha256": "f2f6ab41ac0e0dfd2c0daee441be3ca83fe4af19bfeba998c2a5dc97a29b24db",
+            "start": 198789,
+            "end": 201928
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebContactManagerCustomerProfileDeleteMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebContactManagerCustomerProfileDeleteMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "ef78da153fe37ed9a8341f736e635991c4627907280c230221f4c515130a7354"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "71618e39b9486b2f9a70fe86c3784dad06202e568d0d03d1e081116f889dc239",
+            "moduleSha256": "ef78da153fe37ed9a8341f736e635991c4627907280c230221f4c515130a7354",
+            "start": 64362,
+            "end": 65433
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebContactManagerCustomerProfileDeleteMutation",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebContactManagerCustomerProfileDeleteMutation",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "615c716da7ff20d9a50c1692eb497a3b2ed90ec6a53ce0c3dfbf011020b2b40a"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "71618e39b9486b2f9a70fe86c3784dad06202e568d0d03d1e081116f889dc239",
+            "moduleSha256": "615c716da7ff20d9a50c1692eb497a3b2ed90ec6a53ce0c3dfbf011020b2b40a",
+            "start": 65435,
+            "end": 66984
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebEmailInviteSendGroupMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebEmailInviteSendGroupMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "b21ddf6a674c386f88a8ef546a2e8bf3c6cc96953b5e0eec458588e9c00725b8"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "852bfa66f626045679cafc43d23d32a2da1fa6f6f568fc46b7652eb4985f88e3",
+            "moduleSha256": "b21ddf6a674c386f88a8ef546a2e8bf3c6cc96953b5e0eec458588e9c00725b8",
+            "start": 6073,
+            "end": 7225
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebEmailInviteSendGroupMutation",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebEmailInviteSendGroupMutation",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "b5e7e0ae207e33f1790ba84ba0554d0a1fbca85274756df733561664dafd1438"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "852bfa66f626045679cafc43d23d32a2da1fa6f6f568fc46b7652eb4985f88e3",
+            "moduleSha256": "b5e7e0ae207e33f1790ba84ba0554d0a1fbca85274756df733561664dafd1438",
+            "start": 7227,
+            "end": 8008
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebMexFetchGroupInfoIncludBotsJobAcp2Query.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebMexFetchGroupInfoIncludBotsJobAcp2Query.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "a46b4bf7114b980d9108e9389bf02392c60ba25d01666d96aa22c293453793ac"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "39a2f3af970f08f8465e7f173988f0d18c0087fed0eb7dba08b3a292d7c89b30",
+            "moduleSha256": "a46b4bf7114b980d9108e9389bf02392c60ba25d01666d96aa22c293453793ac",
+            "start": 1033170,
+            "end": 1041729
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebMexFetchGroupInfoJobAcp2Query.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebMexFetchGroupInfoJobAcp2Query.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "aca60275327163133e818a7fcde3bf65711221449f6fa8bff0ee4922d04a16df"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "39a2f3af970f08f8465e7f173988f0d18c0087fed0eb7dba08b3a292d7c89b30",
+            "moduleSha256": "aca60275327163133e818a7fcde3bf65711221449f6fa8bff0ee4922d04a16df",
+            "start": 1059523,
+            "end": 1067754
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebMexFetchNewsletterJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "c45101869de13508fddd0c7d0f28289079d4835ea6f4919ec5d1564668288458"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+            "moduleSha256": "c45101869de13508fddd0c7d0f28289079d4835ea6f4919ec5d1564668288458",
+            "start": 2760559,
+            "end": 2765648
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebMexFetchNewsletterJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "c45101869de13508fddd0c7d0f28289079d4835ea6f4919ec5d1564668288458"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "2f895cb35d10ffff8e67f5db1743a70b5033496c82e4de4fcc2c08babcb6d0da",
+            "moduleSha256": "c45101869de13508fddd0c7d0f28289079d4835ea6f4919ec5d1564668288458",
+            "start": 1753875,
+            "end": 1758964
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebMexFetchNewsletterDehydratedJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "e884b04fa49d56ef02d2c43360db3396ab76786c4131cc1a39bfeba7b4a03591"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "f588ee2f033b87e018a3be34a37ec1347d8b6b8700de539e6be31481b29c4690",
+            "moduleSha256": "e884b04fa49d56ef02d2c43360db3396ab76786c4131cc1a39bfeba7b4a03591",
+            "start": 2756981,
+            "end": 2759645
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebMexFetchNewsletterDehydratedJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "e884b04fa49d56ef02d2c43360db3396ab76786c4131cc1a39bfeba7b4a03591"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "2f895cb35d10ffff8e67f5db1743a70b5033496c82e4de4fcc2c08babcb6d0da",
+            "moduleSha256": "e884b04fa49d56ef02d2c43360db3396ab76786c4131cc1a39bfeba7b4a03591",
+            "start": 1750394,
+            "end": 1753058
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebFetchSubscriptionEntryPointsQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "65da32d7fde77631e883c25fce5bbb085037537657a741c9ba1c9d856a465ea3"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "b6a60494b96941d4f130f165112647667426337cb4060c63cfeb38330fb38bf1",
+            "moduleSha256": "65da32d7fde77631e883c25fce5bbb085037537657a741c9ba1c9d856a465ea3",
+            "start": 119071,
+            "end": 120431
+          }
+        ]
+      },
+      "new": {
+        "module": "WAWebFetchSubscriptionEntryPointsQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "cecdb8716082bcc52bd82d76329552d122ed7ebbd592adc2c1033617137bead8"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "2ddbb4539164219c713f1598dd65ca77dcd2921bc122f60921151d7105a82f22",
+            "moduleSha256": "cecdb8716082bcc52bd82d76329552d122ed7ebbd592adc2c1033617137bead8",
+            "start": 152,
+            "end": 1654
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebMexGetWoasAgeSignalQuery.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebMexGetWoasAgeSignalQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "f8ce85e342d78eff70f5c1d36a903dc3a153076e22c0057d9043f8394353e5ff"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "2f895cb35d10ffff8e67f5db1743a70b5033496c82e4de4fcc2c08babcb6d0da",
+            "moduleSha256": "f8ce85e342d78eff70f5c1d36a903dc3a153076e22c0057d9043f8394353e5ff",
+            "start": 419937,
+            "end": 421660
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebInternalDirectoryFetchMembersJobQuery.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebInternalDirectoryFetchMembersJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "dfea9887c66373869eb8b58c2c4cdf9f2e6217113419b34a8abfdc9c78f2f8cb"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3549395adf963b752ca6ffe19721a6bf79271af196858e18f50b3558d68469bb",
+            "moduleSha256": "dfea9887c66373869eb8b58c2c4cdf9f2e6217113419b34a8abfdc9c78f2f8cb",
+            "start": 19,
+            "end": 2576
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebOrgAdminGraphQLApplyAdminRosterChangesMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebOrgAdminGraphQLApplyAdminRosterChangesMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "716ba219ee808fae38c63aab15fbaeac0d9c24081d73800f08dd1d104113fdb4"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3a81f23bd6f973114d5b109e39520a01bd2b5cab4a2a0da7630ccec329a7c354",
+            "moduleSha256": "716ba219ee808fae38c63aab15fbaeac0d9c24081d73800f08dd1d104113fdb4",
+            "start": 6048,
+            "end": 7530
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebOrgAdminGraphQLInviteMembersMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebOrgAdminGraphQLInviteMembersMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "4c1ad4c21d17688ab408da1d6f1f2208384444f8ba01f45b4d2ae0c3002cbbf7"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3a81f23bd6f973114d5b109e39520a01bd2b5cab4a2a0da7630ccec329a7c354",
+            "moduleSha256": "4c1ad4c21d17688ab408da1d6f1f2208384444f8ba01f45b4d2ae0c3002cbbf7",
+            "start": 12653,
+            "end": 13922
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebOrgAdminGraphQLMemberSearchQuery.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebOrgAdminGraphQLMemberSearchQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "0428326297d38f52826f3d4cf68fe9934a9e625d567606b907c0b918dbc4e297"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3a81f23bd6f973114d5b109e39520a01bd2b5cab4a2a0da7630ccec329a7c354",
+            "moduleSha256": "0428326297d38f52826f3d4cf68fe9934a9e625d567606b907c0b918dbc4e297",
+            "start": 22671,
+            "end": 24990
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebOrgAdminGraphQLSendManagedGroupEmailInvitesMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebOrgAdminGraphQLSendManagedGroupEmailInvitesMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "ac07ee2d1b22543b6a56c6cd5f961b6340ebbd190645d092efeec5d9fa3fa34b"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3a81f23bd6f973114d5b109e39520a01bd2b5cab4a2a0da7630ccec329a7c354",
+            "moduleSha256": "ac07ee2d1b22543b6a56c6cd5f961b6340ebbd190645d092efeec5d9fa3fa34b",
+            "start": 28483,
+            "end": 29936
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebOrgAdminGraphQLSetMemberRoleMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebOrgAdminGraphQLSetMemberRoleMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "ba145db2d5d6f815382df594b128989a2eda8657fbf1a3af3a025cbe9a856716"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3a81f23bd6f973114d5b109e39520a01bd2b5cab4a2a0da7630ccec329a7c354",
+            "moduleSha256": "ba145db2d5d6f815382df594b128989a2eda8657fbf1a3af3a025cbe9a856716",
+            "start": 29938,
+            "end": 31303
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebOrgAdminGraphQLSubmitBulkGroupRequestMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebOrgAdminGraphQLSubmitBulkGroupRequestMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "6163430e759b93f1e247e3ef90ef95b80bb4485773784835430b2fe1bdc73a22"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3a81f23bd6f973114d5b109e39520a01bd2b5cab4a2a0da7630ccec329a7c354",
+            "moduleSha256": "6163430e759b93f1e247e3ef90ef95b80bb4485773784835430b2fe1bdc73a22",
+            "start": 31305,
+            "end": 32772
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebSharableEventAddInvitationsJobMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebSharableEventAddInvitationsJobMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "73b1d24873410cf039327a86bf210f92fec602f6610a31a7468c168541e3d023"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "c707c6cd2a295c50c1fcdd1213783612f5526bbed14939fb2bbdad4815e2675f",
+            "moduleSha256": "73b1d24873410cf039327a86bf210f92fec602f6610a31a7468c168541e3d023",
+            "start": 26637,
+            "end": 30448
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebSharableEventReconcileJobQuery.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebSharableEventReconcileJobQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "bf1470a39091dd2b424c2f72ded6089a09534ec53824aec7befdc5fa591ef365"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "14311e9131a392a1d9fe89117db8a4fb8132ce155aab0e0e32a4cddd3b182738",
+            "moduleSha256": "bf1470a39091dd2b424c2f72ded6089a09534ec53824aec7befdc5fa591ef365",
+            "start": 1021,
+            "end": 1923
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebSharableEventRemoveInvitationsJobMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebSharableEventRemoveInvitationsJobMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "da619dc5246c7f11f454479b6610207d1c0e49dfe0ea41322ea2de6ee1fbd892"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "5b0512902e4e595fed389bcd31f098ed56258340c07b4d61b4472be9e6a8dff5",
+            "moduleSha256": "da619dc5246c7f11f454479b6610207d1c0e49dfe0ea41322ea2de6ee1fbd892",
+            "start": 3195,
+            "end": 6485
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebSharableEventUpdateRsvpJobMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebSharableEventUpdateRsvpJobMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "1f8e3406a2964dad6df60ce3b916c64ef5ceff86d2868944e4e04f10eb4e753e"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "df83f98b9bfd04fb01c3a464cce9be9c2112f814f7250cac26be8f8d84dc849a",
+            "moduleSha256": "1f8e3406a2964dad6df60ce3b916c64ef5ceff86d2868944e4e04f10eb4e753e",
+            "start": 19,
+            "end": 3371
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebSupportBugReportCreateDogfoodingTaskMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebSupportBugReportCreateDogfoodingTaskMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "e73321f7643d7b6c4144d5f9b3142c2baa23a229e40c073d4008a781d2e41723"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3482f1c8752e67d0da37388c4ac5a1a685684316633064afe57f22f5e98756d1",
+            "moduleSha256": "e73321f7643d7b6c4144d5f9b3142c2baa23a229e40c073d4008a781d2e41723",
+            "start": 17623,
+            "end": 18816
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "WAWebSupportBugReportCreateDogfoodingTaskMutation",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "WAWebSupportBugReportCreateDogfoodingTaskMutation",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "2593f723d9c5ea0f6ae20f772cc0a152d6a98a37c0ab0729c610c1d670544c6d"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "3482f1c8752e67d0da37388c4ac5a1a685684316633064afe57f22f5e98756d1",
+            "moduleSha256": "2593f723d9c5ea0f6ae20f772cc0a152d6a98a37c0ab0729c610c1d670544c6d",
+            "start": 18818,
+            "end": 21321
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "useWAWebEstimatedDailyReachQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "b44250d57d796aaac0362dbfb6bf9b2b5b61f53a86286c20f7f6c2e8577a43b7"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "8ed5216205e86f2b6531d72b2ccbbfaf80ae63e1b420fea173d14e3f7608a85d",
+            "moduleSha256": "b44250d57d796aaac0362dbfb6bf9b2b5b61f53a86286c20f7f6c2e8577a43b7",
+            "start": 89331,
+            "end": 92439
+          }
+        ]
+      },
+      "new": {
+        "module": "useWAWebEstimatedDailyReachQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "4184da531d05e0165f7abcbee4e04c6206ab410cf0c99c6281db2c8a8a9e5c32"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "4a4d2638d211f8897d8d288fadbe2939520f9ebab5bfb54727be0c5760072ced",
+            "moduleSha256": "4184da531d05e0165f7abcbee4e04c6206ab410cf0c99c6281db2c8a8a9e5c32",
+            "start": 101774,
+            "end": 105799
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "useWAWebEstimatedDailyReach",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "94b99132e8590404762159dc7dc85fca941a291117ed632787c99c2bbfc62de0"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "8ed5216205e86f2b6531d72b2ccbbfaf80ae63e1b420fea173d14e3f7608a85d",
+            "moduleSha256": "94b99132e8590404762159dc7dc85fca941a291117ed632787c99c2bbfc62de0",
+            "start": 92441,
+            "end": 94337
+          }
+        ]
+      },
+      "new": {
+        "module": "useWAWebEstimatedDailyReach",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "c67086e39057933a4a4eb4b02d6b09b8571a83f761526eaa6c36d87377265103"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "4a4d2638d211f8897d8d288fadbe2939520f9ebab5bfb54727be0c5760072ced",
+            "moduleSha256": "c67086e39057933a4a4eb4b02d6b09b8571a83f761526eaa6c36d87377265103",
+            "start": 106973,
+            "end": 110299
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "useWAWebEstimatedDailyReachShadowQuery.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "useWAWebEstimatedDailyReachShadowQuery.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "29ef055169a6e91342a78cffbde68fb373c01ae8a3f118244c36e356f52f1744"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "4a4d2638d211f8897d8d288fadbe2939520f9ebab5bfb54727be0c5760072ced",
+            "moduleSha256": "29ef055169a6e91342a78cffbde68fb373c01ae8a3f118244c36e356f52f1744",
+            "start": 105934,
+            "end": 106971
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "useWAWebSmartComposerReportThreadEventMutation.graphql",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "useWAWebSmartComposerReportThreadEventMutation.graphql",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "19171615533b3e63eb3b3228684b95cbaa967c010501e187e5ebcb6ccdb3cdb2"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "9ac7465054d99ff09d66caa554d65227456dd1eb4a172949eb68586f418e2403",
+            "moduleSha256": "19171615533b3e63eb3b3228684b95cbaa967c010501e187e5ebcb6ccdb3cdb2",
+            "start": 39877,
+            "end": 40969
+          }
+        ]
+      }
+    },
+    {
+      "old": {
+        "module": "useWAWebSmartComposerReportThreadEvent",
+        "status": "absent-from-complete-parsed-static-index"
+      },
+      "new": {
+        "module": "useWAWebSmartComposerReportThreadEvent",
+        "status": "present",
+        "distinctDefinitionHashes": [
+          "209e1dfc635c5ebe7f7e11d6f0fac05679b01ad0a51749ab0f995cd59ddfbe2c"
+        ],
+        "sources": [
+          {
+            "bundleSha256": "9ac7465054d99ff09d66caa554d65227456dd1eb4a172949eb68586f418e2403",
+            "moduleSha256": "209e1dfc635c5ebe7f7e11d6f0fac05679b01ad0a51749ab0f995cd59ddfbe2c",
+            "start": 40971,
+            "end": 43688
+          }
+        ]
+      }
+    }
+  ],
+  "reviewReconciliation": {
+    "candidate": "2.3000.1052556849",
+    "threads": {
+      "4433545504": {
+        "fix": "Preserve existing optional/presence-flag child guards under outer optional mixins.",
+        "test": "review_regression_optional_children_keep_their_own_combinator_paths"
+      },
+      "4433545507": {
+        "fix": "Resolve closest visible function binding before merge classification and helper evaluation; use exclusive function span ends.",
+        "tests": [
+          "review_regression_nested_helper_shadows_the_indexed_outer_merge",
+          "visible_export_and_nested_helper_keep_their_own_argument_frames"
+        ]
+      },
+      "4433554377": {
+        "fix": "Pair recovery by export and return index; count the maximum surviving matched pair; ambiguous multiple roots conservatively contribute zero.",
+        "tests": [
+          "review_regression_unrelated_returns_do_not_count_as_mixin_recovery",
+          "recovery_uses_the_largest_corresponding_return_pair"
+        ]
+      }
+    },
+    "diagnosticsAfterFixes": {
+      "builder": {
+        "argPathAttrs": 615,
+        "argPathAttrsMissing": 48,
+        "argPathChildren": 171,
+        "argPathChildrenMissing": 11,
+        "argPathContents": 135,
+        "argPathContentsMissing": 23,
+        "elementValues": 164,
+        "optionalChildren": 75,
+        "presenceFlagChildren": 37,
+        "repeatBounds": 49
+      },
+      "candidateModules": 176,
+      "constraints": {
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
+      },
+      "crossModule": {
+        "fieldsRecovered": 853,
+        "requestsEnriched": 20,
+        "requestsWithMixins": 78
+      },
+      "degradedResponses": 3,
+      "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
+        "iq builder substring present but no AST iq call": 5,
+        "mixin fragment (folded into requests, not a standalone stanza)": 36,
+        "shadowedCallbackRead": 5
+      },
+      "excludedFragments": 36,
+      "stanzas": 141,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 135,
+        "server": 103,
+        "unknown": 6,
+        "unset": 0
+      },
+      "typedResponses": 138,
+      "unparseable": 5
+    },
+    "previousInflatedFieldsRecovered": 1483,
+    "explanation": "Recovered fields are a maximum per module, summed across modules; 853 replaces the inflated 1483. These diagnostics do not remove an extracted request or response.",
+    "guardReductions": {
+      "wasmBinaries": [
+        7,
+        6
+      ],
+      "iq.stanzas": [
+        142,
+        141
+      ],
+      "iq.typedResponses": [
+        139,
+        138
+      ],
+      "iq.targets.resolved": [
+        137,
+        135
+      ],
+      "iq.targets.server": [
+        105,
+        103
+      ]
+    },
+    "interpretation": "Absent client builders/static wasm declarations in these preserved bundles do not prove removal of server APIs.",
+    "validation": {
+      "schemas": "12/12",
+      "candidateInternalInvariants": "12 documents passed source-reviewed candidate pins; committed pins unchanged"
+    }
+  },
+  "latestOfficialCheckpoint": {
+    "inputs": {
+      "waVersion": "2.3000.1052559453",
+      "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf",
+      "bundleCount": 676
+    },
+    "source": "https://web.whatsapp.com/ and static.whatsapp.net",
+    "all676FilesParsed": true,
+    "uniqueStaticModules": 21318,
+    "diagnosticsIdenticalToPostReviewCandidate": true,
+    "diagnostics": {
+      "builder": {
+        "argPathAttrs": 615,
+        "argPathAttrsMissing": 48,
+        "argPathChildren": 171,
+        "argPathChildrenMissing": 11,
+        "argPathContents": 135,
+        "argPathContentsMissing": 23,
+        "elementValues": 164,
+        "optionalChildren": 75,
+        "presenceFlagChildren": 37,
+        "repeatBounds": 49
+      },
+      "candidateModules": 176,
+      "constraints": {
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
+      },
+      "crossModule": {
+        "fieldsRecovered": 853,
+        "requestsEnriched": 20,
+        "requestsWithMixins": 78
+      },
+      "degradedResponses": 3,
+      "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
+        "iq builder substring present but no AST iq call": 5,
+        "mixin fragment (folded into requests, not a standalone stanza)": 36,
+        "shadowedCallbackRead": 5
+      },
+      "excludedFragments": 36,
+      "stanzas": 141,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 135,
+        "server": 103,
+        "unknown": 6,
+        "unset": 0
+      },
+      "typedResponses": 138,
+      "unparseable": 5
+    },
+    "sourceEvidence": [
+      {
+        "module": "WASmaxOutBizLinkingGetLinkedAccountsRequest",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "WASmaxBizLinkingGetLinkedAccountsRPC",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "WAWebSetReadReceiptJob",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "ls_voprf_utils_v2",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "LSVoprfWasm",
+        "status": "absent-from-complete-parsed-static-index",
+        "sources": []
+      },
+      {
+        "module": "WAWebBusinessProfileJob",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "b0f3f96e1ad0029c89fe87b4031e76d5138a4bf136405ed4c2a2a64a5d008d85",
+            "moduleSha256": "01f61434abc10e23c6631b33af1792f4dfd9d688b847dccb02df5a035dae1977",
+            "start": 5538,
+            "end": 10568
+          }
+        ]
+      },
+      {
+        "module": "WAWebLinkedAccountsGQL",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "c91c872f682ffbc6d0fe57dc1dbb95c693eed935961de62e7c5b618a3c6ae8b2",
+            "moduleSha256": "4a9387f62cf9a94cbb9d6b1388cb2ef4490ee32c3eeabc4b1527b5f09719ee44",
+            "start": 174414,
+            "end": 178835
+          },
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "moduleSha256": "4a9387f62cf9a94cbb9d6b1388cb2ef4490ee32c3eeabc4b1527b5f09719ee44",
+            "start": 1532358,
+            "end": 1536779
+          }
+        ]
+      },
+      {
+        "module": "WAWebTheiaVoprfJsEd25519",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "d524f9f0fb3efd03e51c782009fccb3e12519fe7db134b4bf5c648e0eb561516",
+            "moduleSha256": "2c4cb39d261ce1044317b88d1bf0581dbbf2c7fa487053ed4b545a70dddab798",
+            "start": 579215,
+            "end": 587154
+          }
+        ]
+      },
+      {
+        "module": "WAWebTosJob",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+            "moduleSha256": "2d3f9e2ba83bc4564dcd125a1ed180c4613a8cf23c5b2a84c4b31bb09572f6d5",
+            "start": 3206952,
+            "end": 3209097
+          }
+        ]
+      },
+      {
+        "module": "WAWebUsync",
+        "status": "present",
+        "sources": [
+          {
+            "bundleSha256": "33f068d88cd48d1bc584bc03a3f68aa9a2332fa698616c0975d4aa84d69f04d8",
+            "moduleSha256": "cff726b93bed929cf56eb5b38b74e171b4c1f50858d9afbcbf56efac8ae7a639",
+            "start": 800219,
+            "end": 806113
+          }
+        ]
+      }
+    ],
+    "businessProfileFinding": "Current updateCartEnabled keeps GraphQL only; three business_profile IQ builders remain; commerce_settings/cart IQ fallback absent.",
+    "newFormatFix": "Parenthesized legacy parser callbacks previously degraded three WAWebTosJob requests and WAWebUsync; callback unwrapping restores all four. Regression latest_callback_tests::parenthesized_legacy_callback_retains_response_fields.",
+    "fiveGuardReductionsUnchanged": true,
+    "wasmSetHash": "905d7c6b0b4769fd8bbd3d8860d9ef4e415873c65a00b85573461549695a2375",
+    "validation": {
+      "workspaceTests": 1812,
+      "schemas": "12/12",
+      "internalConsistency": "12 documents pass same locally reviewed pins; official pins unchanged"
+    }
+  },
+  "appliedSnapshot": {
+    "waVersion": "2.3000.1052559453",
+    "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf",
+    "acceptedCountReductions": {
+      "wasmBinaries": [
+        7,
+        6
+      ],
+      "iq.stanzas": [
+        142,
+        141
+      ],
+      "iq.typedResponses": [
+        139,
+        138
+      ],
+      "iq.targets.resolved": [
+        137,
+        135
+      ],
+      "iq.targets.server": [
+        105,
+        103
+      ]
+    },
+    "finalIqDiagnostics": {
+      "builder": {
+        "argPathAttrs": 478,
+        "argPathAttrsMissing": 48,
+        "argPathChildren": 173,
+        "argPathChildrenMissing": 11,
+        "argPathContents": 140,
+        "argPathContentsMissing": 23,
+        "elementValues": 169,
+        "optionalChildren": 75,
+        "presenceFlagChildren": 37,
+        "repeatBounds": 51
+      },
+      "candidateModules": 176,
+      "constraints": {
+        "errorArms": 664,
+        "errorTexts": 595,
+        "fieldEnumRefs": 236,
+        "fieldLiterals": 1853,
+        "referenceConstraints": 606,
+        "typedErrorVariants": 108
+      },
+      "crossModule": {
+        "fieldsRecovered": 461,
+        "requestsEnriched": 19,
+        "requestsWithMixins": 78
+      },
+      "degradedResponses": 3,
+      "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
+        "iq builder substring present but no AST iq call": 5,
+        "mixin fragment (folded into requests, not a standalone stanza)": 36,
+        "shadowedCallbackRead": 5
+      },
+      "excludedFragments": 36,
+      "stanzas": 141,
+      "targets": {
+        "groupJid": 26,
+        "groupServer": 6,
+        "resolved": 135,
+        "server": 103,
+        "unknown": 6,
+        "unset": 0
+      },
+      "typedResponses": 138,
+      "unparseable": 5
+    },
+    "additionalExtractorFixes": [
+      "Reparsed function-local initializers retain their owner when another helper is entered; this prevents caller variables from recursively appearing as callee content.",
+      "All exported merge helpers participate in local composition, including mergeMessageDirections without a Mixin suffix.",
+      "IQ-root union contributions retain their concrete child alternatives and nested child variant groups; conflicting root addressees remain dynamic with no asserted argument path."
+    ],
+    "regressionTests": [
+      "caller_variable_tests::callee_content_does_not_inherit_callers_same_named_request",
+      "merge_group_name_tests::exported_merge_group_without_mixin_suffix_keeps_union_arms",
+      "root_group_tests::iq_root_group_preserves_config_and_clear_children"
+    ],
+    "diagnosticCorrection": "461 recovered fields / 19 enriched requests replace the prior inflated 853 / 20. Committed old baseline was 88 / 11. No extra old-baseline count reduction was accepted.",
+    "pathFixtureReview": "New source-backed path fixture keeps queryNewsletterJIDParams/queryNewsletterInviteParams, beforeMixin/afterMixin, statusBeforeMixin/statusAfterMixin, and push-client discriminator objects. Previous path fixture is preserved. All newsletter direction arms and push config/clear children remain present.",
+    "historicalFixtures": "Preserve old app-state source/IR pairs as dedicated fixtures; current generated Rust parity and historical/current independent IQ runtime cases remain checked.",
+    "sourceEvidence": [
+      {
+        "module": "WASmaxOutNewslettersQueryNewsletterParamsMixin",
+        "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+        "moduleSha256": "f1502cdd13e8a4102e7d4832ed712c2e040d6d6c86fa9f04a523507f01542107",
+        "start": 1427027,
+        "end": 1427462
+      },
+      {
+        "module": "WASmaxPushConfigSetRPC",
+        "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+        "moduleSha256": "087a07abeff6965fee91abd98c47136b84e40c08ad2bdef3744f65475da2040b",
+        "start": 1430624,
+        "end": 1441188
+      },
+      {
+        "module": "WASmaxNewslettersGetNewsletterStatusesRPC",
+        "bundleSha256": "15f85c7df527a00d3e1e623a5b72e9b401549784b57231d343a4dd9d47743958",
+        "moduleSha256": "32e78aede4732567930c87f283a42ea457ca1ec51678732da6bff677b2ee47aa",
+        "start": 19227,
+        "end": 25806
+      },
+      {
+        "module": "WASmaxGroupsSetSubjectRPC",
+        "bundleSha256": "05662cbc860ced518b48704b4c23d3499671f38da2fc8ace3861e7196c37e79b",
+        "moduleSha256": "ae3d75e169ce5b14ac15611c99010376157e0da6f384ab3b55598ba4aaecdf69",
+        "start": 16631,
+        "end": 20900
+      },
+      {
+        "module": "WASmaxNewslettersGetNewsletterStatusesRPC",
+        "bundleSha256": "fb83dc105bcdd3371dddc3ca10642a91c1f389e320e08c39a6d73f58dfd2881c",
+        "moduleSha256": "32e78aede4732567930c87f283a42ea457ca1ec51678732da6bff677b2ee47aa",
+        "start": 1398956,
+        "end": 1405535
+      },
+      {
+        "module": "WASmaxNewslettersGetNewsletterMessagesRPC",
+        "bundleSha256": "4ab82076eb3225f2b47d11a8321e3b821057b8c2fff2944bb3262436ebb15da4",
+        "moduleSha256": "e26ef9b89f0e466b65f32e60d1a71c9723f64c7e5850f5d0c8e3cc84b543dbec",
+        "start": 73662,
+        "end": 80214
+      }
+    ],
+    "publication": {
+      "release": "existing bundle-store",
+      "bundleArchive": {
+        "name": "bundles-2.3000.1052559453-d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf.tar.xz",
+        "sha256": "2958d99a3d84141fa8479f1f991e06246e68c063ca8f618a8d5d361287387f62",
+        "size": 9618940,
+        "verification": "Published asset restored by scripts/regen.sh; every bundle verified against authoritative lock."
+      },
+      "wasmArchive": {
+        "name": "wasm-905d7c6b0b4769fd8bbd3d8860d9ef4e415873c65a00b85573461549695a2375.tar.xz",
+        "sha256": "cb9996956dc029eed817640d7c750bb3e833fe6fb1bc1bb4d1ead7ddf3f82335",
+        "size": 13260212,
+        "verification": "Published asset restored with whatspec restore --wasm; all 24 payload hashes/sizes verified."
+      }
+    },
+    "schemaVersion": "4.5.0"
+  },
+  "retrySemanticReview": {
+    "waVersion": "2.3000.1052559453",
+    "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf",
+    "capture": "tests/retry/capture/2.3000.1052559453/audit.json",
+    "preservedHistoricalCapture": "tests/retry/capture/audit.json",
+    "moduleEvidence": [
+      {
+        "module": "WAWebApiMessageInfoStore",
+        "previousSourceSha256": "52a01ee3cbaee1b32f366275bc4e3c3f77144448fcf7f5834b2fef10c770aede",
+        "sourceSha256": "3d3c93c8f99132027c41cbd2c53d68cc196c3dc4284ede7e2326467fe7cfe666",
+        "previousGenerators": 5,
+        "generators": 7,
+        "definitions": [
+          {
+            "bundleSha256": "33f068d88cd48d1bc584bc03a3f68aa9a2332fa698616c0975d4aa84d69f04d8",
+            "end": 919032,
+            "start": 910846
+          }
+        ]
+      },
+      {
+        "module": "WAWebHandleRetryRequest",
+        "previousSourceSha256": "de5655e0bf0080f16bc8425b1048f427c64297c0632f5ead44d831de3364eafa",
+        "sourceSha256": "00b5514d19c37b98cdcbbabb87920098547137f92c954805410bce6995652ee5",
+        "previousGenerators": 5,
+        "generators": 9,
+        "definitions": [
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "end": 4588065,
+            "start": 4576263
+          },
+          {
+            "bundleSha256": "5bb049289dddc84e67c07ee789c1463f1d051d1b936776b48753aff989ec6e1b",
+            "end": 219994,
+            "start": 208192
+          }
+        ]
+      },
+      {
+        "module": "WAWebProcessRetryKeyBundle",
+        "previousSourceSha256": "a513da03b1ecc4aa02c8d95e13a85da5ab2d77bb7af9104db3ea98fbbb00a3f8",
+        "sourceSha256": "0de160721b3b03eee5945b9de8f1fe4154b516825dff9adf34ef8f61aff7b1f3",
+        "previousGenerators": 2,
+        "generators": 5,
+        "definitions": [
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "end": 4548476,
+            "start": 4540999
+          },
+          {
+            "bundleSha256": "5bb049289dddc84e67c07ee789c1463f1d051d1b936776b48753aff989ec6e1b",
+            "end": 180405,
+            "start": 172928
+          }
+        ]
+      },
+      {
+        "module": "WAWebSendRetryReceiptJob",
+        "previousSourceSha256": "39a97ce6c6cfddc3d3f3ed61136dd2cebc30a6b9f55d0f8646eb5edb6f7c2a63",
+        "sourceSha256": "feadec59db2abd83467fcd56c9d73745d6f2c32402a248c36a19d862a9e2873b",
+        "previousGenerators": 3,
+        "generators": 3,
+        "definitions": [
+          {
+            "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+            "end": 5006055,
+            "start": 4999040
+          }
+        ]
+      },
+      {
+        "module": "WAWebUpdateLocalSignalSession",
+        "previousSourceSha256": "d68c5f1c5a7556dadd9d107734a1bc2fc992b392151eb5b51e3e33d5045f417e",
+        "sourceSha256": "3c4418a228d3b85068c921c08e257ba73568533c80c7f96d88c21eccb2b53b9d",
+        "previousGenerators": 1,
+        "generators": 1,
+        "definitions": [
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "end": 4576261,
+            "start": 4573895
+          },
+          {
+            "bundleSha256": "5bb049289dddc84e67c07ee789c1463f1d051d1b936776b48753aff989ec6e1b",
+            "end": 208190,
+            "start": 205824
+          }
+        ]
+      }
+    ],
+    "findings": [
+      "Session reset/save-base-key decisions retain their count=2 / count>2 boundaries, registration mismatch behavior and status session scope; all 11 original scenarios and suspension cuts pass on current code.",
+      "Identity eligibility now returns {hasAdditionalRetryTargets,retryEligibility}; row ordering, primary delivery and alternate-key guards remain checked with 12 original scenarios, additional-target metadata variants, and semantic mutations.",
+      "Sent message lookup is factored into a separate generator. It checks primary/alternate addon records before primary/alternate message rows and preserves revoked protocol row IDs. Six isolated loader scenarios and four loader mutations check its exact selection.",
+      "getMsgIfAuthorized now accepts loadedSentMessage/isPq and returns {msgRecord,retryContext:{hasAdditionalRetryTargets},isIdentityChangedSinceSend}. Coex precedence, alternate-device fallback, deny reasons, addon handling, revoked conversion and PQ reject metrics are checked by 19 current-version scenarios plus yield failure/cancellation and eleven main authorization/metric mutations.",
+      "Receipt key inclusion still starts at stateless || retryCount>=2. Fourteen combinations qualify the first suspension; later PQ key upload and crypto operations remain outside this oracle boundary."
+    ],
+    "antiDrift": "Exact full source/inventory equality with the reviewed version-specific capture remains mandatory. Unknown revisions or any changed captured source fail before execution. Both preserved historical and current oracles run in CI.",
+    "validation": {
+      "captureGateScenarios": 10,
+      "sessionScenarios": 11,
+      "eligibilityScenarios": 12,
+      "authorizationScenarios": 19,
+      "loaderScenarios": 6,
+      "semanticMutations": 27,
+      "mutatedCurrentCapture": "rejected before execution"
+    },
+    "limits": [
+      "No library retry policy or server protocol decision is changed by this update; the oracle executes selected preserved upstream generator bodies against synthetic facts.",
+      "The HandleRetryRequest source inventory records new AEA/PQ-related orchestration and additional helpers. Queue scheduling, callee behavior, crypto, storage, transport and complete resend/AEA enforcement are not claimed executable by this partial oracle."
+    ]
+  },
+  "finalReviewReconciliation": {
+    "schemaVersion": "4.5.0",
+    "rootChoices": "request.variantGroups records exclusive IQ payload arms; common root headers are factored out and conflicting destinations remain unknown. Reference codegen emits one selected payload arm. Checked generation rejects unqualified root choices, and unsupported root-attribute alternatives fail closed rather than producing a wrong stanza.",
+    "appstateVersions": {
+      "resolved": 69,
+      "missing": 0,
+      "Archive": 3
+    },
+    "reviewThreads": [
+      {
+        "threadId": "PRRT_kwDOSxmno86yWACD",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433871601",
+        "status": "fixed",
+        "resolution": "Parenthesized getVersion callbacks are recognized; all 69 current actions have versions, Archive=3.",
+        "evidence": "parenthesized_version_tests::version_getter_survives_parenthesized_function"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWACG",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433871604",
+        "status": "fixed",
+        "resolution": "Schema 4.5 preserves request.variantGroups; mandatory groups select one arm. Runtime emitter test checks config and clear separately.",
+        "evidence": "root_choice_emits_exactly_one_payload_child"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5r",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877037",
+        "status": "duplicate-fixed",
+        "resolution": "Same root-choice defect as 4433871604; alternatives are no longer simultaneous siblings.",
+        "evidence": "iq_root_group_preserves_config_and_clear_children"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5t",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877040",
+        "status": "fixed",
+        "resolution": "Optional guards recurse into variant attrs and children.",
+        "evidence": "exported_merge_group_without_mixin_suffix_keeps_union_arms"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5u",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877042",
+        "status": "fixed",
+        "resolution": "Only the final enum argument participates in local-identifier enum lookup.",
+        "evidence": "node_identifier_cannot_supply_an_inline_enum"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA5v",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877044",
+        "status": "fixed",
+        "resolution": "Prior pin arithmetic is explicitly labeled historical; current pin is 14.",
+        "evidence": "scripts/lint-ir.py"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA50",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877050",
+        "status": "stale-description-corrected",
+        "resolution": "The current PR body documents the approved snapshot and changed source-reviewed pins; no pending-approval claim remains.",
+        "evidence": "PR body"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA53",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877056",
+        "status": "fixed",
+        "resolution": "If no transport-local cascade yields arms, inspect other local functions with the same lexical cascade analysis.",
+        "evidence": "rpc_cascade_can_delegate_outside_the_transport_function"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA55",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877060",
+        "status": "fixed",
+        "resolution": "Use borrowed Cow helper maps and clone only when local declarations require an overlay.",
+        "evidence": "wa-notif actions lexical regressions"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA56",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877062",
+        "status": "fixed",
+        "resolution": "Enclosing function/arrow parameters shadow module helpers.",
+        "evidence": "action_parameter_shadows_module_helper"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA59",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877065",
+        "status": "fixed",
+        "resolution": "Block declarations are overlaid only within their own lexical block.",
+        "evidence": "block_helper_does_not_shadow_switch_outside_block"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6B",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877071",
+        "status": "fixed",
+        "resolution": "Fixed integer literals use OXC ECMAScript NumberToString, including exact and rounded unsafe-size values, exponent formatting and negative zero.",
+        "evidence": "wrapped_integer_literals_are_fixed_wire_values"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6D",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877074",
+        "status": "fixed",
+        "resolution": "makeResult(binding.value) retains Binding::Union payloads and source paths.",
+        "evidence": "direct_make_result_value_keeps_a_union"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6I",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877080",
+        "status": "fixed",
+        "resolution": "Flattened-shape pins use semantic notification/handler, action and field identities rather than array offsets.",
+        "evidence": "StableShapeIdentity.test_notification_reorder_keeps_identity_and_replacement_changes_it"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6L",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877085",
+        "status": "fixed",
+        "resolution": "The fixture replacement includes the following mapChildren line and affects only the group handler.",
+        "evidence": "parser_local_helper_shadows_the_factory_helper_with_the_same_name"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6O",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877092",
+        "status": "fixed",
+        "resolution": "Server-request candidate docs describe bundled RPCs and the subsequent root-tag gate.",
+        "evidence": "srvreq.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6P",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877095",
+        "status": "fixed",
+        "resolution": "Both bundled passes reuse the already parsed module program; the legacy visitor skips discarded IQ work for bundled modules.",
+        "evidence": "bundled_rpc_requests_from_program"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6U",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877103",
+        "status": "fixed",
+        "resolution": "Bundled and qualified legacy comments are attached to their respective gates.",
+        "evidence": "module.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6Z",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877109",
+        "status": "fixed",
+        "resolution": "Operation-name docs describe both legacy Out Request and bundled RPC names.",
+        "evidence": "smax_request_op_name docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6e",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877115",
+        "status": "fixed",
+        "resolution": "Bundled requests with non-get/set literal types are dropped instead of borrowing a mixin type.",
+        "evidence": "invalid_literal_type_cannot_borrow_a_mixins_get_type"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6j",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877120",
+        "status": "fixed",
+        "resolution": "ACK candidate and scanner docs include bundled RPCs.",
+        "evidence": "incoming.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWA6q",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433877129",
+        "status": "fixed",
+        "resolution": "Comments distinguish legacy Create contributions from scoped RPC contributions for every Out mixin.",
+        "evidence": "mixin_index.rs docs"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWD3O",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433896633",
+        "status": "fixed",
+        "resolution": "Assert retry count, sender/message type, revoke state, session scope and PQ metadata; add revoked-denied case and five metric mutations.",
+        "evidence": "authorization-latest.mjs 19 scenarios / 27 total semantic mutations"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOC",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993183",
+        "status": "fixed",
+        "resolution": "Require the ephemeral action with expect before checking absence of module-helper fields.",
+        "evidence": "action_parameter_shadows_module_helper"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOD",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993184",
+        "status": "fixed",
+        "resolution": "Rewrite the long fixture replacement with concat and verify rustfmt compliance.",
+        "evidence": "cargo fmt --all --check"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOF",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993187",
+        "status": "fixed",
+        "resolution": "Compile the fixture without --test, execute main, and require the count of two checked payload cases. Reintroducing --test is an observed failing mutation.",
+        "evidence": "root_choice_emits_exactly_one_payload_child / root-choice-harness-mutation.log"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOI",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993191",
+        "status": "fixed",
+        "resolution": "The i64::MIN exception requires the exact canonical raw decimal literal; rounded out-of-range and fractional spellings are rejected.",
+        "evidence": "as_int_rejects_fractional_and_out_of_range"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOL",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993194",
+        "status": "fixed",
+        "resolution": "Include root variant groups in stanza deduplication identity; preserve root arms in constant/content/enum enrichment.",
+        "evidence": "distinct_root_choices_are_not_deduplicated"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTON",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993196",
+        "status": "fixed",
+        "resolution": "walk encodes JSON Pointer segments and stable_identity_path decodes them safely, including slash and tilde keys.",
+        "evidence": "StableShapeIdentity.test_slash_and_tilde_object_keys_are_safe_json_pointer_segments"
+      },
+      {
+        "threadId": "PRRT_kwDOSxmno86yWTOP",
+        "comment": "https://github.com/oxidezap/whatspec/pull/64#discussion_r4433993198",
+        "status": "fixed",
+        "resolution": "Collect block-local tag bindings before visiting block switches.",
+        "evidence": "block_local_tag_alias_still_selects_actions"
+      }
+    ],
+    "validation": {
+      "workspaceTests": 1827,
+      "pythonTests": 17,
+      "schemas": "12/12",
+      "lint": "12 internally consistent documents",
+      "determinism": "31 artifacts restored and checked byte-for-byte",
+      "rootChoiceMainExecution": "Both payload assertions execute in main; the wrong --test compilation flag is rejected by the integration test."
+    },
+    "countsUnchangedFromApprovedBundle": true,
+    "frozenInputsUnchanged": true,
+    "additionalShrinkAllowanceUsed": false
+  }
+}

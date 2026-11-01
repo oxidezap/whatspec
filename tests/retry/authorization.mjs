@@ -1,6 +1,7 @@
 // Independent reviewed expectations for the actual getMsgIfAuthorized generator.
 // Dependency stubs supply eligibility facts; they do not implement authorization.
 import vm from 'node:vm';
+import { authorizationLatestOracle } from './authorization-latest.mjs';
 import assert from 'node:assert/strict';
 const E={ELIGIBLE:'eligible',INELIGIBLE_ALREADY_DELIVERED:'delivered',INELIGIBLE_CHANGED_IDENTITY:'identity',INELIGIBLE_RECORD_MISSING:'missing'};
 const common=['addonLookup','messageLookup','coexEligibility','identityEligibility'];
@@ -82,6 +83,7 @@ function assertCase(source,c){
   return t;
 }
 export function authorizationOracle(audit){
+  if(audit.waVersion==='2.3000.1052559453')return authorizationLatestOracle(audit);
   const record=audit.modules.find(m=>m.module==='WAWebProcessRetryKeyBundle');
   assert.equal(record.inventory.generators.length,2);
   const source=record.inventory.generators[0].source;

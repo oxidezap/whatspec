@@ -8,7 +8,10 @@ fn qualify(label: &str, input: &str) {
     ir.stanzas.retain(|op| {
         matches!(
             op.module_name.as_str(),
-            "WASmaxOutGroupsSetSubjectRequest" | "WASmaxOutGroupsAcceptGroupAddRequest"
+            "WASmaxGroupsSetSubjectRPC"
+                | "WASmaxGroupsAcceptGroupAddRPC"
+                | "WASmaxOutGroupsSetSubjectRequest"
+                | "WASmaxOutGroupsAcceptGroupAddRequest"
         )
     });
     assert_eq!(ir.stanzas.len(), 2);
@@ -65,4 +68,9 @@ fn previous_snapshot_generated_code() {
         "previous",
         include_str!("../../../tests/conformance/compiled/inputs/2.3000.1045368834.json"),
     );
+}
+
+#[test]
+fn latest_snapshot_generated_code() {
+    qualify("latest", include_str!("../../../generated/iq/index.json"));
 }

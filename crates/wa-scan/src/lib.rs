@@ -60,6 +60,14 @@ fn single_namespace_content_tags(stanzas: &[IqStanzaDef]) -> HashSet<String> {
     let mut tag_ns: HashMap<String, HashSet<String>> = HashMap::new();
     for s in stanzas {
         walk(&s.request.children, &s.namespace, &mut tag_ns);
+        for variant in s
+            .request
+            .variant_groups
+            .iter()
+            .flat_map(|group| &group.variants)
+        {
+            walk(&variant.children, &s.namespace, &mut tag_ns);
+        }
     }
     tag_ns
         .into_iter()
@@ -259,6 +267,21 @@ pub fn scan_iq_with_diagnostics(
             &content_lengths,
             &tag_fallback,
         );
+        if !s.request.variant_groups.is_empty() {
+            let mut root = WapChildNode {
+                tag: "iq".into(),
+                variant_groups: std::mem::take(&mut s.request.variant_groups),
+                ..Default::default()
+            };
+            const_value_index::enrich(std::slice::from_mut(&mut root), &const_values);
+            content_length_index::enrich(
+                std::slice::from_mut(&mut root),
+                "",
+                &content_lengths,
+                &tag_fallback,
+            );
+            s.request.variant_groups = root.variant_groups;
+        }
     }
 
     // Resolve request-attribute enum links: the builder references
@@ -269,6 +292,14 @@ pub fn scan_iq_with_diagnostics(
     let mut enum_linker = ResponseEnumLinker::new(module_defs, source);
     for s in &mut stanzas {
         enum_resolver.resolve_tree(&mut s.request.children);
+        if !s.request.variant_groups.is_empty() {
+            let mut root = WapChildNode {
+                variant_groups: std::mem::take(&mut s.request.variant_groups),
+                ..Default::default()
+            };
+            enum_resolver.resolve_tree(std::slice::from_mut(&mut root));
+            s.request.variant_groups = root.variant_groups;
+        }
         // The response side needs the same pass, and gets it from the shared linker so
         // the fields/variants traversal is not re-derived here. The parser, not the enum,
         // is the unit of loss: two parsers that both fail to resolve `ENUM_OFF_ON` on
@@ -770,5 +801,423 @@ mod tests {
         let s = &res.stanzas[0];
         assert_eq!(s.request.children[0].tag, "rotate");
         assert!(s.request.children[0].children.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod bundled_rpc_tests {
+    const BUNDLED: &str = r#"
+    __d("WASmaxProbeGetRPC",["WAComms","WAResultOrError","WASmaxJsx","WASmaxMixins","WASmaxParseUtils","WASmaxParseReference","WAWap"],function(t,n,r,o,a,i,l){
+        function send(args, options) { return execute.apply(this,arguments); }
+        function execute() { return execute=o("runtime").asyncToGenerator(function*(args,options){
+            var request=build(args), response=yield o("WAComms").sendSmaxStanza(request,options), accepted=success(response,request);
+            if(accepted.success)return {name:"ProbeGetResponseSuccess",value:accepted.value};
+            var rejected=error(response,request);
+            if(rejected.success)return {name:"ProbeGetResponseError",value:rejected.value};
+            throw Error("unparseable");
+        }),execute.apply(this,arguments); }
+        function build(args) {
+            var subject=args.subject;
+            var node=namespace(o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("query",{jid:o("WAWap").JID(subject)})),args);
+            return node;
+        }
+        function namespace(dst,args) {
+            var target=args.target;
+            var fragment=base(o("WASmaxJsx").smax("iq",{to:o("WAWap").JID(target),xmlns:"w:probe"}));
+            return o("WASmaxMixins").mergeStanzas(dst,fragment);
+        }
+        function base(dst) {
+            var fragment=o("WASmaxJsx").smax("iq",{type:"get"});
+            return o("WASmaxMixins").mergeStanzas(dst,fragment);
+        }
+        function success(node,request) {
+            var tag=o("WASmaxParseUtils").assertTag(node,"iq");if(!tag.success)return tag;
+            var type=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,node,"type","result");if(!type.success)return type;
+            var reference=o("WASmaxParseReference").attrStringFromReference(request,["id"]);if(!reference.success)return reference;
+            var id=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,node,"id",reference.value);if(!id.success)return id;
+            var state=o("WASmaxParseUtils").attrStringEnum(node,"state",states);if(!state.success)return state;
+            return o("WAResultOrError").makeResult({state:state.value});
+        }
+        function error(node,request) {
+            var child=o("WASmaxParseUtils").flattenedChildWithTag(node,"error");if(!child.success)return child;
+            var parsed=errors(child.value);if(!parsed.success)return parsed;
+            return o("WAResultOrError").makeResult({error:parsed.value});
+        }
+        function errors(node) {
+            var parsed=badRequest(node);
+            return parsed.success?o("WAResultOrError").makeResult({name:"BadRequest",value:parsed.value}):o("WASmaxParseUtils").errorMixinDisjunction(node,["BadRequest"],[parsed]);
+        }
+        function badRequest(node) {
+            var code=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrInt,node,"code",400);if(!code.success)return code;
+            var text=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,node,"text","bad-request");
+            return text.success?o("WAResultOrError").makeResult({code:code.value,text:text.value}):text;
+        }
+        var states={on:"on",off:"off"};
+        l.sendProbeGetRPC=send,l.makeProbeGetRequest=build,l.mergeNamespaceMixin=namespace,l.mergeBaseMixin=base,
+        l.parseProbeGetResponseSuccess=success,l.parseProbeGetResponseError=error,l.parseProbeErrors=errors,l.parseBadRequest=badRequest,l.ENUM_ON_OFF=states;
+    });
+    "#;
+
+    #[test]
+    fn bundled_rpc_keeps_complete_request_and_ordered_response_contracts() {
+        let ir = super::extract_iq(BUNDLED, "test");
+        assert_eq!(ir.stanzas.len(), 1, "{:?}", ir.unparseable);
+        let stanza = &ir.stanzas[0];
+        assert_eq!(stanza.namespace, "w:probe");
+        assert_eq!(
+            stanza.exported_function.as_deref(),
+            Some("makeProbeGetRequest")
+        );
+        assert_eq!(stanza.request.children.len(), 1);
+        assert_eq!(stanza.request.children[0].tag, "query");
+        assert_eq!(
+            stanza.request.children[0].attrs[0]
+                .arg_path
+                .as_ref()
+                .unwrap()[0]
+                .key,
+            "subject"
+        );
+        assert_eq!(
+            stanza.request.target_arg_path.as_ref().unwrap()[0].key,
+            "target"
+        );
+        assert_eq!(stanza.response.variants.len(), 2);
+        assert_eq!(stanza.response.variants[0].tag, "ProbeGetResponseSuccess");
+        assert_eq!(stanza.response.variants[1].tag, "ProbeGetResponseError");
+        assert!(
+            stanza.response.variants[0]
+                .assertions
+                .iter()
+                .any(|assertion| assertion.kind == wa_ir::AssertionKind::Reference)
+        );
+        let state = &stanza.response.fields[0];
+        assert_eq!(state.enum_ref.as_ref().unwrap().module, "WASmaxProbeGetRPC");
+        assert_eq!(state.enum_ref.as_ref().unwrap().variants.len(), 2);
+        assert!(!stanza.response.variants[1].error_arms.is_empty());
+        let renamed = BUNDLED.replace("node", "send");
+        let renamed = super::extract_iq(&renamed, "test");
+        assert_eq!(
+            renamed.stanzas[0].response.fields[0].enum_ref,
+            state.enum_ref
+        );
+    }
+}
+
+#[cfg(test)]
+mod bundled_diagnostic_tests {
+    #[test]
+    fn bundled_rpc_counts_its_recovered_external_mixin_fields() {
+        let source = r#"
+        __d("WASmaxOutProbeExtraMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function payload(args) { var value=args.value;return o("WASmaxJsx").smax("query",{value:o("WAWap").CUSTOM_STRING(value)}); }
+            function merge(dst,args) { var extra=payload(args);return o("WASmaxMixins").mergeStanzas(dst,extra); }
+            l.mergeExtraMixin=merge;
+        });
+        __d("WASmaxProbeRPC",["WASmaxJsx","WASmaxOutProbeExtraMixin","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutProbeExtraMixin").mergeExtraMixin(o("WASmaxJsx").smax("query",null),args.extra)); }
+            l.makeProbeRequest=make;
+        });"#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let (ir, statistics) =
+            super::extract_iq_from_modules_with_diagnostics(source, &definitions, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(statistics.cross_module.requests_enriched, 1);
+        assert_eq!(statistics.cross_module.fields_recovered, 1);
+        let path = ir.stanzas[0].request.children[0].attrs[0]
+            .arg_path
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            path.iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "value"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod optional_external_mixin_tests {
+    #[test]
+    fn precomputed_rpc_mixins_keep_optional_descendant_guards() {
+        let source = r#"
+        __d("WASmaxOutExtraMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function payload(args) { return o("WASmaxJsx").smax("query",null,o("WASmaxJsx").smax("raw",{v:o("WAWap").INT(3)})); }
+            function merge(dst,args) { var part=payload(args);return o("WASmaxMixins").mergeStanzas(dst,part); }
+            l.mergeExtraMixin=merge;
+        });
+        __d("WASmaxOutWrapperMixin",["WASmaxJsx","WASmaxMixins","WASmaxOutExtraMixin"],function(g,r,d,o,e,i,l){
+            function payload(args) { return o("WASmaxMixins").optionalMerge(o("WASmaxOutExtraMixin").mergeExtraMixin,o("WASmaxJsx").smax("query",null),args.extra); }
+            function merge(dst,args) { var part=payload(args);return o("WASmaxMixins").mergeStanzas(dst,part); }
+            l.mergeWrapperMixin=merge;
+        });
+        __d("WASmaxProbeRPC",["WASmaxJsx","WASmaxOutWrapperMixin","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutWrapperMixin").mergeWrapperMixin(o("WASmaxJsx").smax("query",null,o("WASmaxJsx").smax("raw",null)),args.details)); }
+            l.makeProbeRequest=make;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let attribute = &ir.stanzas[0].request.children[0].children[0].attrs[0];
+        assert_eq!(attribute.value.as_deref(), Some("3"));
+        assert!(!attribute.required);
+        assert_eq!(
+            attribute
+                .presence_arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["details", "extra"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod review_regression_tests {
+    use wa_ir::WapChildPresence;
+
+    #[test]
+    fn review_regression_optional_children_keep_their_own_combinator_paths() {
+        let source = r#"
+        __d("WASmaxOptionalChildrenRPC",["WASmaxJsx","WASmaxMixins","WASmaxChildren","WAWap"],function(g,r,d,o,e,i,l){
+            function marker(){ return o("WASmaxJsx").smax("locked",null); }
+            function user(args){ return o("WASmaxJsx").smax("user",{jid:o("WAWap").JID(args.jid)}); }
+            function payload(args){ return o("WASmaxJsx").smax("smax$any",null,o("WASmaxChildren").HAS_OPTIONAL_CHILD(marker,args.locked),o("WASmaxChildren").OPTIONAL_CHILD(user,args.user),o("WASmaxJsx").smax("required",null)); }
+            function merge(dst,args){ var part=payload(args);return o("WASmaxMixins").mergeStanzas(dst,part); }
+            function make(args){ return o("WASmaxMixins").optionalMerge(merge,o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET}),args.extra); }
+            l.makeOptionalChildrenRequest=make,l.mergeExtraMixin=merge;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let children = &ir.stanzas[0].request.children;
+        let marker = children.iter().find(|child| child.tag == "locked").unwrap();
+        assert_eq!(marker.presence, WapChildPresence::PresenceFlag);
+        assert_eq!(
+            marker
+                .arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "locked"]
+        );
+        let user = children.iter().find(|child| child.tag == "user").unwrap();
+        assert_eq!(user.presence, WapChildPresence::Optional);
+        assert_eq!(
+            user.arg_path
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|part| part.key.as_str())
+                .collect::<Vec<_>>(),
+            ["extra", "user"]
+        );
+        let required = children
+            .iter()
+            .find(|child| child.tag == "required")
+            .unwrap();
+        assert_eq!(required.presence, WapChildPresence::Optional);
+        assert_eq!(required.arg_path.as_ref().unwrap()[0].key, "extra");
+    }
+
+    #[test]
+    fn review_regression_nested_helper_shadows_the_indexed_outer_merge() {
+        let source = r#"
+        __d("WASmaxShadowRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function helper(dst,args){ return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("wrong",null))); }
+            function make(args){
+                function helper(){ return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("right",null)); }
+                return helper();
+            }
+            l.makeShadowRequest=make,l.mergeOuterMixin=helper;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(ir.stanzas[0].request.children[0].tag, "right");
+    }
+
+    #[test]
+    fn review_regression_unrelated_returns_do_not_count_as_mixin_recovery() {
+        let source = r#"
+        __d("WASmaxBranchesRPC",["WASmaxJsx","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args){
+                if(args.left)return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("left",null));
+                return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("right",null));
+            }
+            l.makeBranchesRequest=make;
+        });"#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let (ir, statistics) =
+            super::extract_iq_from_modules_with_diagnostics(source, &definitions, "test");
+        assert_eq!(ir.stanzas.len(), 2);
+        assert_eq!(statistics.cross_module.fields_recovered, 0);
+        assert_eq!(statistics.cross_module.requests_enriched, 0);
+    }
+}
+
+#[cfg(test)]
+mod paired_return_review_tests {
+    #[test]
+    fn recovery_uses_the_largest_corresponding_return_pair() {
+        let source = r#"
+        __d("WASmaxOutLargeMixin",["WASmaxJsx","WASmaxMixins"],function(g,r,d,o,e,i,l){
+            function merge(dst){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("large",{one:"1",two:"2"}));}l.mergeLargeMixin=merge;
+        });
+        __d("WASmaxOutSmallMixin",["WASmaxJsx","WASmaxMixins"],function(g,r,d,o,e,i,l){
+            function merge(dst){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("small",{one:"1"}));}l.mergeSmallMixin=merge;
+        });
+        __d("WASmaxBranchesRPC",["WASmaxJsx","WAWap","WASmaxOutLargeMixin","WASmaxOutSmallMixin"],function(g,r,d,o,e,i,l){
+            function make(args){
+                if(args.large)return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutLargeMixin").mergeLargeMixin(o("WASmaxJsx").smax("large",null)));
+                return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxOutSmallMixin").mergeSmallMixin(o("WASmaxJsx").smax("small",null)));
+            }l.makeBranchesRequest=make;
+        });"#;
+        let definitions = wa_transform::extract_module_definitions(source);
+        let (ir, statistics) =
+            super::extract_iq_from_modules_with_diagnostics(source, &definitions, "test");
+        assert_eq!(ir.stanzas.len(), 2);
+        assert_eq!(statistics.cross_module.fields_recovered, 2);
+        assert_eq!(statistics.cross_module.requests_enriched, 1);
+    }
+
+    #[test]
+    fn visible_export_and_nested_helper_keep_their_own_argument_frames() {
+        let source = r#"
+        __d("WASmaxShadowRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args){
+                function helper(value){return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("query",{jid:o("WAWap").JID(value.jid)}));}
+                return helper(args);
+            }
+            function helper(dst,args){return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{xmlns:"wrong",type:"get"}));}
+            l.makeShadowRequest=make,l.mergeOuterMixin=helper;
+        });"#;
+        // Adjacent minified declarations share an exclusive boundary, not an owner.
+        let source = source.replace("}\n            function helper", "}function helper");
+        let ir = super::extract_iq(&source, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(ir.stanzas[0].namespace, "probe");
+        assert_eq!(
+            ir.stanzas[0].request.children[0].attrs[0]
+                .arg_path
+                .as_ref()
+                .unwrap()[0]
+                .key,
+            "jid"
+        );
+    }
+}
+
+#[cfg(test)]
+mod latest_callback_tests {
+    #[test]
+    fn parenthesized_legacy_callback_retains_response_fields() {
+        let source = r#"__d("WAWebCallbackJob",["WADeprecatedWapParser","WAWap"],function(g,r,d,o,e,i,l){
+            var parser=new(r("WADeprecatedWapParser"))("probe",((function(node){node.assertTag("iq");return {value:node.attrString("value")};})));
+            function send(){return o("WAWap").wap("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET});}
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas.len(), 1);
+        assert_eq!(ir.stanzas[0].response.parser_name, "probe");
+        assert_eq!(ir.stanzas[0].response.fields.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod caller_variable_tests {
+    #[test]
+    fn callee_content_does_not_inherit_callers_same_named_request() {
+        let source = r#"__d("WASmaxSubjectRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(e){var t=merge(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"set",to:o("WAWap").S_WHATSAPP_NET}),e);return t}
+            function content(e){var t=e.subjectElementValue,n=o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("subject",null,t));return n}
+            function merge(e,t){var n=content(t);return o("WASmaxMixins").mergeStanzas(e,n)}
+            l.makeSubjectRequest=make,l.mergeSubjectMixin=merge;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let child = &ir.stanzas[0].request.children[0];
+        assert_eq!(child.tag, "subject");
+        assert!(child.children.is_empty());
+        assert_eq!(
+            child.content.as_ref().unwrap().arg_path.as_ref().unwrap()[0].key,
+            "subjectElementValue"
+        );
+    }
+}
+
+#[cfg(test)]
+mod merge_group_name_tests {
+    #[test]
+    fn exported_merge_group_without_mixin_suffix_keeps_union_arms() {
+        let source = r#"__d("WASmaxDirectionsRPC",["WASmaxJsx","WASmaxMixins","WAWap","WASmaxMixinGroupExhaustiveError"],function(g,r,d,o,e,i,l){
+            function make(e){return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET},o("WASmaxMixins").optionalMerge(group,o("WASmaxJsx").smax("messages",null),e.directions))}
+            function group(dst,args){if(args.before)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("messages",{before:o("WAWap").INT(args.before.value)}));if(args.after)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("messages",{after:o("WAWap").INT(args.after.value)}));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            l.makeDirectionsRequest=make,l.mergeDirections=group;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        let groups = &ir.stanzas[0].request.children[0].variant_groups;
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].variants.len(), 2);
+        assert!(groups[0].optional);
+        assert!(
+            groups[0]
+                .variants
+                .iter()
+                .flat_map(|variant| &variant.attrs)
+                .all(|attr| !attr.required && attr.presence_arg_path.is_some())
+        );
+    }
+}
+
+#[cfg(test)]
+mod root_group_tests {
+    #[test]
+    fn iq_root_group_preserves_config_and_clear_children() {
+        let source = r#"__d("WASmaxRootRPC",["WASmaxJsx","WASmaxMixins","WAWap","WASmaxMixinGroupExhaustiveError"],function(g,r,d,o,e,i,l){
+            function make(args){return group(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"set"}),args)}
+            function group(dst,args){if(args.config)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{to:o("WAWap").GROUP_JID(args.config.jid)},o("WASmaxJsx").smax("config",{id:o("WAWap").CUSTOM_STRING(args.config.id)})));if(args.clear)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",{to:o("WAWap").S_WHATSAPP_NET},o("WASmaxJsx").smax("clear",{platform:o("WAWap").CUSTOM_STRING(args.clear.platform)})));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            l.makeRootRequest=make,l.mergeRootGroup=group;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas[0].request.target, wa_ir::IqTarget::Unknown);
+        assert!(ir.stanzas[0].request.target_arg_path.is_none());
+        assert!(ir.stanzas[0].request.children.is_empty());
+        let group = &ir.stanzas[0].request.variant_groups[0];
+        assert!(!group.optional);
+        assert_eq!(group.variants.len(), 2);
+        assert_eq!(group.variants[0].children[0].tag, "config");
+        assert_eq!(group.variants[1].children[0].tag, "clear");
+    }
+}
+
+#[cfg(test)]
+mod invalid_bundled_type_tests {
+    #[test]
+    fn invalid_literal_type_cannot_borrow_a_mixins_get_type() {
+        let source = r#"__d("WASmaxInvalidRPC",["WASmaxJsx","WAWap"],function(g,r,d,o,e,i,l){function make(args){return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"result",to:o("WAWap").S_WHATSAPP_NET})}l.makeInvalidRequest=make;});"#;
+        assert!(super::extract_iq(source, "test").stanzas.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod root_choice_identity_tests {
+    #[test]
+    fn distinct_root_choices_are_not_deduplicated() {
+        let source = r#"__d("WASmaxChoicesRPC",["WASmaxJsx","WASmaxMixins","WAWap","WASmaxMixinGroupExhaustiveError"],function(g,r,d,o,e,i,l){
+            function makeOne(args){return first(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET}),args)}
+            function makeTwo(args){return second(o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get",to:o("WAWap").S_WHATSAPP_NET}),args)}
+            function first(dst,args){if(args.one)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("first",null)));if(args.two)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("second",null)));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            function second(dst,args){if(args.one)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("third",null)));if(args.two)return o("WASmaxMixins").mergeStanzas(dst,o("WASmaxJsx").smax("iq",null,o("WASmaxJsx").smax("fourth",null)));throw new(o("WASmaxMixinGroupExhaustiveError")).SmaxMixinGroupExhaustiveError}
+            l.makeOneRequest=makeOne,l.makeTwoRequest=makeTwo,l.mergeFirstGroup=first,l.mergeSecondGroup=second;
+        });"#;
+        let ir = super::extract_iq(source, "test");
+        assert_eq!(ir.stanzas.len(), 2);
+        assert_eq!(
+            ir.stanzas[0].request.variant_groups[0].variants[0].children[0].tag,
+            "first"
+        );
+        assert_eq!(
+            ir.stanzas[1].request.variant_groups[0].variants[0].children[0].tag,
+            "third"
+        );
     }
 }

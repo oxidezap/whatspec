@@ -32,6 +32,8 @@ from pathlib import Path
 # require source attribution: modules may depart, new gaps may arrive, or extraction
 # may improve or regress. The six pins reviewed for WA 2.3000.1047483476 are justified
 # in docs/snapshot-quality-2026-10-07.md and its source/gap evidence sidecars.
+# The 2.3000.1052559453 pins are audited, by source identity, in
+# docs/snapshot-quality-2026-10-31.evidence.json. Zero-loss invariants stay zero.
 BASELINE = {
     "content integer with no byte width": 0,
     # An accessor that checks a value set whose out-of-set behaviour `wa_ir::wap` has not
@@ -52,7 +54,8 @@ BASELINE = {
     # until the union learned to record a conflicting addressee the way it already did
     # for `xmlns` and `type`. Raising a baseline is normally the shape of a loss; this
     # once it is the shape of a claim withdrawn.
-    "iq request with a unknown addressee": 5,
+    # GetMyNewsletterResponses adds another runtime iqTo, like the existing four.
+    "iq request with a unknown addressee": 6,
     "iq request with a unset addressee": 0,
     # Builder-side values whose address the scan could not recover — an attribute or an
     # element content that reads an argument, or a combinator-fed child, with no
@@ -63,9 +66,11 @@ BASELINE = {
     # and says nothing. Almost all of these are the legacy `WAWeb*Job` builders, which
     # take positional parameters and have no argument object to address at all; they fall
     # only if those builders stop existing or start being read.
-    "iq builder attribute with no argument path": 49,
+    # Two departed legacy attrs, one new positional USync common_gid: 49 - 2 + 1.
+    "iq builder attribute with no argument path": 48,
     "iq builder content with no argument path": 23,
-    "iq builder child with no argument path": 10,
+    # USync now conditionally emits a tctoken from getTcToken().
+    "iq builder child with no argument path": 11,
     # A request whose addressee is supplied at runtime — a group's own JID, a newsletter's
     # — and whose argument key the scan could not recover. Two, for different reasons.
     # `WAWebGroupInviteJob` is a legacy positional builder with no argument object to
@@ -90,8 +95,9 @@ BASELINE = {
     # all `RawWamEvent`, the generic envelope whose schema is supplied at runtime by
     # design. The third is held at zero: a written key that names no field of the event
     # means a write was attributed to the wrong construction, and none currently is.
-    "wam construction with an unread argument": 79,
-    "wam construction of an event with no catalog entry": 29,
+    # Source-site arithmetic for departed/new Windows versions and loggers is in the review.
+    "wam construction with an unread argument": 74,
+    "wam construction of an event with no catalog entry": 16,
     "wam written key naming no field of the event": 0,
     # Variable keys whose presence the mex extractor did not establish: a value expression
     # it does not judge (a call's return value, an `await`), or an operation whose call
@@ -119,7 +125,8 @@ BASELINE = {
     # keys were `DebugLabyrinthRange`, whose handle was its own memoised require,
     # not followed that far. That module now departs; six departed keys and four new
     # unresolved nodes account for 108 -> 106 (see the snapshot evidence ledger).
-    "mex variable with an undetermined presence": 106,
+    # 54 new declared keys, three retained keys now judged: 106 + 54 - 3.
+    "mex variable with an undetermined presence": 157,
     # Operations where the verdict is `undetermined` for EVERY variable - no call site
     # was recovered, or the one that was writes nothing this classifier reads. Pinned
     # beside the per-key count because a single key regaining a verdict moves that number
@@ -131,8 +138,9 @@ BASELINE = {
     # Rose to 13 with the same change that took the per-key count to 108: all three of
     # `DebugLabyrinthRange`'s variables were withdrawn. The reviewed snapshot removes
     # four wholly undetermined operations and adds SmartComposer's unsupported
-    # useMutation alias, so the current exact pin is 13 - 4 + 1 = 10.
-    "mex operation with no established variable presence": 10,
+    # useMutation alias (the previous snapshot's exact pin was 10).
+    # Four new operations; no retained key loses its established judgement.
+    "mex operation with no established variable presence": 14,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
     # because the alternative to dropping it is publishing `["regular"]` over a policy WA
     # stated and we failed to read — so a rise here is a channel rule going missing, not
@@ -160,14 +168,14 @@ BASELINE = {
 # By identity, not by total: an aggregate let one loss disappear while another appeared.
 # Fixing the shape is an extractor change and belongs in its own PR.
 FLATTENED_KEYS = {
-    "incoming/incoming/0/shape/fields|participant,t,verified_name": 5,
-    "incoming/incoming/3/shape/fields/5/children|user": 1,
-    "incoming/incoming/3/shape/fields/5/children/0/children|type": 1,
-    "notif/notifications/17/content/fields|from,t": 2,
-    "notif/notifications/24/content/fields/8/children|body,group,reason,sub_group_suggestion": 4,
-    "notif/notifications/23/content/fields|from": 1,
-    "notif/notifications/3/content/fields/7/children|new_lid,old_lid": 2,
-    "notif/notifications/3/content/fields|t": 1,
+    "incoming/incoming/tag=message;module=WAWebHandleMsgParser/shape/fields|t,verified_name": 3,
+    "incoming/incoming/tag=receipt;module=WAWebHandleMsgReceiptParser/shape/fields/name=participants/children/name=user/children|type": 1,
+    "incoming/incoming/tag=receipt;module=WAWebHandleMsgReceiptParser/shape/fields/name=participants/children|user": 1,
+    "notif/notifications/type=picture;handlerModule=WAWebHandleProfilePicNotification;handlerFunction=handleProfilePicNotificationJob/content/fields|from,t": 2,
+    "notif/notifications/type=status;handlerModule=WAWebHandleAboutNotification;handlerFunction=handleAboutNotification/content/fields|from": 1,
+    "notif/notifications/type=w:gp2;handlerModule=WAWebHandleGroupNotification;handlerFunction=handleGroupNotification/content/fields/name=children/children|body,group,reason,sub_group_suggestion": 4,
+    "notif/notifications/type=contacts;handlerModule=WAWebHandleContactNotification;handlerFunction=None/content/fields/name=modify/children|new_lid,old_lid": 2,
+    "notif/notifications/type=contacts;handlerModule=WAWebHandleContactNotification;handlerFunction=None/content/fields|t": 1
 }
 
 UNRESOLVED_ENUMS = {
@@ -382,12 +390,33 @@ def _collect_proto(path, want):
     return out
 
 
+def stable_identity_path(document, path):
+    """Name array entries by their IR identity, so a reorder cannot move a pin."""
+    current = document
+    result = []
+    for encoded_part in path.removeprefix("/").split("/") if path else []:
+        part = encoded_part.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, list):
+            current = current[int(part)]
+            identity = None
+            if isinstance(current, dict):
+                keys = ("type", "handlerModule", "handlerFunction") if "handlerModule" in current else ("tag", "module") if "module" in current and "tag" in current else ("wireTag", "actionType") if "wireTag" in current else ("name",) if "name" in current else ("tag",) if "tag" in current else ()
+                if keys:
+                    identity = ";".join(f"{key}={current.get(key)}" for key in keys)
+            result.append((identity or f"#{part}").replace("~", "~0").replace("/", "~1"))
+        else:
+            current = current[part]
+            result.append(encoded_part)
+    return "/" + "/".join(result) if result else ""
+
+
 def walk(node, visit, path=""):
     """Depth-first over every dict in the document, with a readable path."""
     if isinstance(node, dict):
         visit(node, path)
         for k, v in node.items():
-            walk(v, visit, f"{path}/{k}")
+            escaped = str(k).replace("~", "~0").replace("/", "~1")
+            walk(v, visit, f"{path}/{escaped}")
     elif isinstance(node, list):
         for i, v in enumerate(node):
             walk(v, visit, f"{path}/{i}")
@@ -953,8 +982,11 @@ def count_builder_gaps(data, domain, counts):
             walk_node(ch)
 
     for st in data.get("stanzas") or []:
-        for ch in ((st.get("request") or {}).get("children")) or []:
+        request = st.get("request") or {}
+        for ch in request.get("children") or []:
             walk_node(ch)
+        # Root groups contain mutually exclusive payloads, not simultaneous children.
+        walk_node({"variantGroups": request.get("variantGroups") or []})
 
 
 def count_unaddressed_targets(data, domain, counts):
@@ -2034,7 +2066,7 @@ def main() -> int:
             # Independent of the field gate — see each function's note.
             check_enum_ref(node, f"{domain}{path}", errors, seen_refs)
             check_const_bytes(node, f"{domain}{path}", errors)
-            check_action_keys(node, f"{domain}{path}", errors, flattened)
+            check_action_keys(node, f"{domain}{stable_identity_path(data, path)}", errors, flattened)
             check_variant_groups(node, f"{domain}{path}", errors)
             check_child_requiredness(node, f"{domain}{path}", errors)
             check_arg_path(node, f"{domain}{path}", errors)

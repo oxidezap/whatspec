@@ -43,7 +43,11 @@ pub(crate) fn parsed_response_from_new_expr(
         return None;
     }
     let name = resolve_parser_name(&new_expr.arguments[0], source)?;
-    let Some(Expression::FunctionExpression(cb)) = arg_expr(&new_expr.arguments[1]) else {
+    let mut callback = arg_expr(&new_expr.arguments[1])?;
+    while let Expression::ParenthesizedExpression(parenthesized) = callback {
+        callback = &parenthesized.expression;
+    }
+    let Expression::FunctionExpression(cb) = callback else {
         return None;
     };
     // The callee must reference WADeprecatedWapParser.

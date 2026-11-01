@@ -1,6 +1,6 @@
 {
-  "schemaVersion": "4.4.0",
-  "waVersion": "2.3000.1047483476",
+  "schemaVersion": "4.5.0",
+  "waVersion": "2.3000.1052559453",
   "dispatcherModules": [
     "WAWebCommsHandleLoggedInStanza",
     "WAWebCommsHandleWorkerCompatibleStanza"
@@ -321,6 +321,233 @@
                 "parserRequired": false
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "biz_thread_data",
+      "content": {
+        "parserName": "parseNotifyRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "biz_thread_data"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "biz_thread_data"
+          },
+          {
+            "method": "attrLidUserJid",
+            "name": "threadDataThreadLid",
+            "wireName": "thread_lid",
+            "type": "lid_user_jid",
+            "parserRequired": true,
+            "sourcePath": [
+              "thread_data"
+            ]
+          },
+          {
+            "method": "attrEnum",
+            "name": "threadDataOrigin",
+            "wireName": "origin",
+            "type": "enum",
+            "parserRequired": true,
+            "unknownValue": "reject",
+            "enumRef": {
+              "name": "ENUM_GENERATED_MANUAL",
+              "module": "WASmaxBizThreadDataNotifyRPC",
+              "variants": [
+                {
+                  "name": "generated",
+                  "value": "generated"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                }
+              ]
+            },
+            "sourcePath": [
+              "thread_data"
+            ]
+          },
+          {
+            "method": "attrInt",
+            "name": "threadDataUpdateTs",
+            "wireName": "update_ts",
+            "type": "timestamp",
+            "parserRequired": true,
+            "sourcePath": [
+              "thread_data"
+            ]
+          },
+          {
+            "method": "contentBytes",
+            "name": "threadDataPayloadElementValue",
+            "type": "bytes",
+            "parserRequired": true,
+            "byteMin": 1,
+            "byteMax": 4096,
+            "sourcePath": [
+              "thread_data",
+              "payload"
+            ]
+          },
+          {
+            "method": "child",
+            "name": "threadDataSubtypeMixin",
+            "type": "string",
+            "parserRequired": true,
+            "tag": "thread_data",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "notifSubType",
+                "wireName": "notif_sub_type",
+                "type": "string",
+                "parserRequired": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "parserRequired": false,
+            "intMin": 0,
+            "intMax": 1024
+          }
+        ]
+      }
+    },
+    {
+      "type": "biz_thread_data_bulk",
+      "content": {
+        "parserName": "parseNotifyBulkRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "biz_thread_data_bulk"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "biz_thread_data_bulk"
+          },
+          {
+            "method": "attrInt",
+            "name": "threadDataBulkUpdateTs",
+            "wireName": "update_ts",
+            "type": "timestamp",
+            "parserRequired": true,
+            "sourcePath": [
+              "thread_data_bulk"
+            ]
+          },
+          {
+            "method": "child",
+            "name": "threadDataBulkSubtypeMixin",
+            "type": "string",
+            "parserRequired": true,
+            "tag": "thread_data_bulk",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "notifSubType",
+                "wireName": "notif_sub_type",
+                "type": "string",
+                "parserRequired": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "parserRequired": false,
+            "intMin": 0,
+            "intMax": 1024
           }
         ]
       }
@@ -2998,7 +3225,7 @@
                   "required": true
                 }
               ],
-              "required": true
+              "required": false
             }
           ]
         },
@@ -3121,7 +3348,7 @@
                   "required": true
                 }
               ],
-              "required": true
+              "required": false
             }
           ]
         },

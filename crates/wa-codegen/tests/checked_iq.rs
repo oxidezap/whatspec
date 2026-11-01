@@ -2,11 +2,11 @@ use std::{fs, process::Command};
 mod support;
 
 const MODULES: &[&str] = &[
-    "WASmaxOutGroupsSetSubjectRequest",
-    "WASmaxOutGroupsAcceptGroupAddRequest",
-    "WASmaxOutGroupsJoinLinkedGroupRequest",
-    "WASmaxOutGroupsDeleteParentGroupRequest",
-    "WASmaxOutPassiveModeActiveIQRequest",
+    "WASmaxGroupsSetSubjectRPC",
+    "WASmaxGroupsAcceptGroupAddRPC",
+    "WASmaxGroupsJoinLinkedGroupRPC",
+    "WASmaxGroupsDeleteParentGroupRPC",
+    "WASmaxPassiveModeActiveIQRPC",
     "WASmaxOutMdGetCountryCodeRequest",
 ];
 
@@ -45,7 +45,7 @@ fn checked_generation_rejects_lost_context_request_inputs_and_missing_outcomes()
         let op = ir
             .stanzas
             .iter_mut()
-            .find(|s| s.module_name.ends_with("SetSubjectRequest"))
+            .find(|s| s.module_name.ends_with("SetSubjectRPC"))
             .unwrap();
         match mutation {
             0 => op.request.children[0].content.as_mut().unwrap().arg_path = None,
@@ -70,7 +70,7 @@ fn checked_generation_rejects_lost_context_request_inputs_and_missing_outcomes()
         );
     }
     fn op_name() -> &'static str {
-        "WASmaxOutGroupsSetSubjectRequest"
+        "WASmaxGroupsSetSubjectRPC"
     }
     let all: wa_ir::IqIr =
         serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
@@ -86,7 +86,7 @@ fn checked_generation_refuses_the_real_optout_echo_and_nested_echo_mutations() {
     let mut all: wa_ir::IqIr =
         serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
     all.stanzas
-        .retain(|s| s.module_name == "WASmaxOutBlocklistsUpdateOptOutListRequest");
+        .retain(|s| s.module_name == "WASmaxBlocklistsUpdateOptOutListRPC");
     let diagnostics = wa_codegen::generate_iq_checked(&all).unwrap_err();
     assert!(
         diagnostics

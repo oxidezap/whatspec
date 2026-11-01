@@ -32,7 +32,7 @@ use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::helper_index::HelperIndex;
 use crate::module::{iq_type_from_merge_name, require_module_name};
 use crate::request::{
-    MergeArg, MixinContributions, VarScope, build_var_scope, resolve_child_node,
+    ContributionMode, MergeArg, MixinContributions, VarScope, build_var_scope, resolve_child_node,
     resolve_contribution,
 };
 use wa_oxc::{arg_expr, callee_method, callee_object};
@@ -99,6 +99,7 @@ pub(crate) struct MixinIqFragment {
 pub struct MixinIndex {
     by_module: BTreeMap<String, MixinIqFragment>,
     pub(crate) contributions: MixinContributions,
+    pub(crate) rpc_contributions: MixinContributions,
 }
 
 impl MixinIndex {
@@ -146,7 +147,7 @@ pub(crate) fn build_pass(
             &mut contributions,
             &mut visiting,
             helpers,
-            false,
+            ContributionMode::Legacy,
         );
     }
 
@@ -158,9 +159,8 @@ pub(crate) fn build_pass(
             by_module.insert(name.to_string(), frag);
         }
     }
-    // Only the traced Create dependency closure receives scoped declarations
-    // and the selected merge export's second-argument root. The public fragment
-    // index above keeps the existing extraction behavior for every other request.
+    // Legacy `contributions` scopes only the traced Create dependency closure;
+    // the public fragment index preserves other legacy requests' behavior.
     let mut qualified = MixinContributions::new();
     resolve_contribution_rec(
         "WASmaxOutGroupsCreateRequest",
@@ -169,11 +169,25 @@ pub(crate) fn build_pass(
         &mut qualified,
         &mut HashSet::new(),
         helpers,
-        true,
+        ContributionMode::Qualified,
     );
+    // Bundled RPC contributions scope every Out mixin and preserve optional guards.
+    let mut rpc_contributions = MixinContributions::new();
+    for name in slices.keys() {
+        resolve_contribution_rec(
+            name,
+            &slices,
+            &deps,
+            &mut rpc_contributions,
+            &mut HashSet::new(),
+            helpers,
+            ContributionMode::BundledRpc,
+        );
+    }
     MixinIndex {
         by_module,
         contributions: qualified,
+        rpc_contributions,
     }
 }
 
@@ -223,7 +237,7 @@ fn resolve_contribution_rec(
     contributions: &mut MixinContributions,
     visiting: &mut HashSet<String>,
     helpers: &HelperIndex,
-    qualified_create: bool,
+    mode: ContributionMode,
 ) {
     if contributions.contains_key(name) || visiting.contains(name) {
         return;
@@ -231,20 +245,12 @@ fn resolve_contribution_rec(
     visiting.insert(name.to_string());
     if let Some(ds) = deps.get(name) {
         for d in ds {
-            resolve_contribution_rec(
-                d,
-                slices,
-                deps,
-                contributions,
-                visiting,
-                helpers,
-                qualified_create,
-            );
+            resolve_contribution_rec(d, slices, deps, contributions, visiting, helpers, mode);
         }
     }
     visiting.remove(name);
     if let Some(slice) = slices.get(name) {
-        let contrib = resolve_contribution(slice, contributions, helpers, qualified_create);
+        let contrib = resolve_contribution(slice, contributions, helpers, mode);
         contributions.insert(name.to_string(), contrib);
     }
 }

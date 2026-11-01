@@ -147,8 +147,10 @@ fn shared_mixin_index_preserves_non_create_argument_paths() {
                 .collect(),
         )
     }
-    let expected: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/non_create_argument_paths.json")).unwrap();
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/non_create_argument_paths_1052559453.json"
+    ))
+    .unwrap();
     let ir: serde_json::Value =
         serde_json::from_str(include_str!("../../../generated/iq/index.json")).unwrap();
     for (module, baseline) in expected.as_object().unwrap() {

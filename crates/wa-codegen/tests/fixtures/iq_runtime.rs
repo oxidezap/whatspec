@@ -10,6 +10,7 @@ pub struct Node {
     pub children: Vec<Node>,
     pub children_attached: bool,
     pub bytes: Option<Vec<u8>>,
+    pub content: Option<node::NodeContent>,
 }
 #[derive(Clone, Copy)]
 pub struct NodeRef<'a> {
@@ -37,6 +38,7 @@ impl Node {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             children_attached: !children.is_empty(),
+            content: if children.is_empty() { None } else { Some(node::NodeContent::Nodes(children.clone())) },
             children,
             bytes: None,
         }
@@ -127,12 +129,14 @@ pub mod builder {
             self.0.children.clear();
             self.0.children_attached = false;
             self.0.bytes = Some(bytes);
+            self.0.content = None;
             self
         }
         /// Replace child content just as the production NodeBuilder does.
         pub fn children(mut self, children: impl IntoIterator<Item = crate::Node>) -> Self {
             self.0.children = children.into_iter().collect();
             self.0.children_attached = true;
+            self.0.content = Some(crate::node::NodeContent::Nodes(self.0.children.clone()));
             self.0.bytes = None;
             self
         }

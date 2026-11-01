@@ -1,10 +1,10 @@
 {
-  "schemaVersion": "4.4.0",
-  "waVersion": "2.3000.1047483476",
+  "schemaVersion": "4.5.0",
+  "waVersion": "2.3000.1052559453",
   "requests": [
     {
       "tag": "notification",
-      "module": "WASmaxInBizCtwaActionBannerSuggestionRequest",
+      "module": "WASmaxBizCtwaActionBannerSuggestionRPC",
       "shape": {
         "parserName": "parseBannerSuggestionRequest",
         "assertions": [
@@ -33,13 +33,6 @@
             "literalValue": "s.whatsapp.net"
           },
           {
-            "method": "attrUserJid",
-            "name": "to",
-            "wireName": "to",
-            "type": "user_jid",
-            "parserRequired": false
-          },
-          {
             "method": "attrString",
             "name": "type",
             "wireName": "type",
@@ -53,6 +46,16 @@
             "wireName": "target_entity_id",
             "type": "string",
             "parserRequired": true,
+            "sourcePath": [
+              "ctwa_suggestion"
+            ]
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "ctwaSuggestionNotificationLogId",
+            "wireName": "notification_log_id",
+            "type": "string",
+            "parserRequired": false,
             "sourcePath": [
               "ctwa_suggestion"
             ]
@@ -106,7 +109,7 @@
                 "unknownValue": "reject",
                 "enumRef": {
                   "name": "ENUM_INFO_WARNING",
-                  "module": "WASmaxInBizCtwaActionEnums",
+                  "module": "WASmaxBizCtwaActionBannerSuggestionRPC",
                   "variants": [
                     {
                       "name": "info",
@@ -131,7 +134,7 @@
                 "unknownValue": "reject",
                 "enumRef": {
                   "name": "ENUM_FALSE_TRUE",
-                  "module": "WASmaxInBizCtwaActionEnums",
+                  "module": "WASmaxBizCtwaActionBannerSuggestionRPC",
                   "variants": [
                     {
                       "name": "false",
@@ -471,7 +474,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInBizCtwaAdAccountNonceNotificationRequest",
+      "module": "WASmaxBizCtwaAdAccountNonceNotificationRPC",
       "shape": {
         "parserName": "parseNonceNotificationRequest",
         "assertions": [
@@ -498,13 +501,6 @@
             "type": "jid",
             "parserRequired": true,
             "literalValue": "s.whatsapp.net"
-          },
-          {
-            "method": "attrUserJid",
-            "name": "to",
-            "wireName": "to",
-            "type": "user_jid",
-            "parserRequired": false
           },
           {
             "method": "attrString",
@@ -551,7 +547,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInBizSettingsSyncPrivacySettingRequest",
+      "module": "WASmaxBizSettingsSyncPrivacySettingRPC",
       "shape": {
         "parserName": "parseSyncPrivacySettingRequest",
         "assertions": [
@@ -578,13 +574,6 @@
             "type": "jid",
             "parserRequired": true,
             "literalValue": "s.whatsapp.net"
-          },
-          {
-            "method": "attrUserJid",
-            "name": "to",
-            "wireName": "to",
-            "type": "user_jid",
-            "parserRequired": false
           },
           {
             "method": "attrString",
@@ -671,7 +660,236 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInCoexistenceOffboardingNotificationRequest",
+      "module": "WASmaxBizThreadDataNotifyBulkRPC",
+      "shape": {
+        "parserName": "parseNotifyBulkRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "biz_thread_data_bulk"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "biz_thread_data_bulk"
+          },
+          {
+            "method": "attrInt",
+            "name": "threadDataBulkUpdateTs",
+            "wireName": "update_ts",
+            "type": "timestamp",
+            "parserRequired": true,
+            "sourcePath": [
+              "thread_data_bulk"
+            ]
+          },
+          {
+            "method": "child",
+            "name": "threadDataBulkSubtypeMixin",
+            "type": "string",
+            "parserRequired": true,
+            "tag": "thread_data_bulk",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "notifSubType",
+                "wireName": "notif_sub_type",
+                "type": "string",
+                "parserRequired": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "parserRequired": false,
+            "intMin": 0,
+            "intMax": 1024
+          }
+        ]
+      }
+    },
+    {
+      "tag": "notification",
+      "module": "WASmaxBizThreadDataNotifyRPC",
+      "shape": {
+        "parserName": "parseNotifyRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "biz_thread_data"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "biz_thread_data"
+          },
+          {
+            "method": "attrLidUserJid",
+            "name": "threadDataThreadLid",
+            "wireName": "thread_lid",
+            "type": "lid_user_jid",
+            "parserRequired": true,
+            "sourcePath": [
+              "thread_data"
+            ]
+          },
+          {
+            "method": "attrEnum",
+            "name": "threadDataOrigin",
+            "wireName": "origin",
+            "type": "enum",
+            "parserRequired": true,
+            "unknownValue": "reject",
+            "enumRef": {
+              "name": "ENUM_GENERATED_MANUAL",
+              "module": "WASmaxBizThreadDataNotifyRPC",
+              "variants": [
+                {
+                  "name": "generated",
+                  "value": "generated"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                }
+              ]
+            },
+            "sourcePath": [
+              "thread_data"
+            ]
+          },
+          {
+            "method": "attrInt",
+            "name": "threadDataUpdateTs",
+            "wireName": "update_ts",
+            "type": "timestamp",
+            "parserRequired": true,
+            "sourcePath": [
+              "thread_data"
+            ]
+          },
+          {
+            "method": "contentBytes",
+            "name": "threadDataPayloadElementValue",
+            "type": "bytes",
+            "parserRequired": true,
+            "byteMin": 1,
+            "byteMax": 4096,
+            "sourcePath": [
+              "thread_data",
+              "payload"
+            ]
+          },
+          {
+            "method": "child",
+            "name": "threadDataSubtypeMixin",
+            "type": "string",
+            "parserRequired": true,
+            "tag": "thread_data",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "notifSubType",
+                "wireName": "notif_sub_type",
+                "type": "string",
+                "parserRequired": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "parserRequired": false,
+            "intMin": 0,
+            "intMax": 1024
+          }
+        ]
+      }
+    },
+    {
+      "tag": "notification",
+      "module": "WASmaxCoexistenceOffboardingNotificationRPC",
       "shape": {
         "parserName": "parseOffboardingNotificationRequest",
         "assertions": [
@@ -715,7 +933,7 @@
             "parserRequired": true,
             "unknownValue": "reject",
             "enumRef": {
-              "name": "ENUM_AIFROMMETA_AUTOMATION_BUSINESSPLATFORM",
+              "name": "ENUM_AIFROMMETA_AUTHORIZEDAGENT_AUTOMATION_BBPRO_BUSINESSPLATFORM",
               "module": "WASmaxInCoexistenceEnums",
               "variants": [
                 {
@@ -723,8 +941,16 @@
                   "value": "ai_from_meta"
                 },
                 {
+                  "name": "authorized_agent",
+                  "value": "authorized_agent"
+                },
+                {
                   "name": "automation",
                   "value": "automation"
+                },
+                {
+                  "name": "bb_pro",
+                  "value": "bb_pro"
                 },
                 {
                   "name": "business_platform",
@@ -789,9 +1015,9 @@
                 "tag": "id",
                 "children": [
                   {
-                    "method": "contentInt",
+                    "method": "contentBytes",
                     "name": "elementValue",
-                    "type": "integer",
+                    "type": "bytes",
                     "parserRequired": true
                   }
                 ],
@@ -825,13 +1051,48 @@
             "parserRequired": false,
             "intMin": 0,
             "intMax": 1024
+          },
+          {
+            "method": "child",
+            "name": "offboardingCoexConnectionDescriptor",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "coex_connection_descriptor",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "productElementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "byteMin": 1,
+                "byteMax": 64,
+                "sourcePath": [
+                  "product"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "providerIdElementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "byteMin": 1,
+                "byteMax": 32,
+                "sourcePath": [
+                  "provider_id"
+                ]
+              }
+            ],
+            "repeats": false,
+            "sourcePath": [
+              "offboarding"
+            ]
           }
         ]
       }
     },
     {
       "tag": "notification",
-      "module": "WASmaxInCoexistenceOnboardingStatusNotificationRequest",
+      "module": "WASmaxCoexistenceOnboardingStatusNotificationRPC",
       "shape": {
         "parserName": "parseOnboardingStatusNotificationRequest",
         "assertions": [
@@ -907,7 +1168,7 @@
                 "parserRequired": true,
                 "unknownValue": "reject",
                 "enumRef": {
-                  "name": "ENUM_AIFROMMETA_AUTOMATION_BUSINESSPLATFORM",
+                  "name": "ENUM_AIFROMMETA_AUTHORIZEDAGENT_AUTOMATION_BBPRO_BUSINESSPLATFORM",
                   "module": "WASmaxInCoexistenceEnums",
                   "variants": [
                     {
@@ -915,8 +1176,16 @@
                       "value": "ai_from_meta"
                     },
                     {
+                      "name": "authorized_agent",
+                      "value": "authorized_agent"
+                    },
+                    {
                       "name": "automation",
                       "value": "automation"
+                    },
+                    {
+                      "name": "bb_pro",
+                      "value": "bb_pro"
                     },
                     {
                       "name": "business_platform",
@@ -981,9 +1250,9 @@
                 "tag": "id",
                 "children": [
                   {
-                    "method": "contentInt",
+                    "method": "contentBytes",
                     "name": "elementValue",
-                    "type": "integer",
+                    "type": "bytes",
                     "parserRequired": true
                   }
                 ],
@@ -1017,13 +1286,48 @@
             "parserRequired": false,
             "intMin": 0,
             "intMax": 1024
+          },
+          {
+            "method": "child",
+            "name": "onboardingStatusCoexConnectionDescriptor",
+            "type": "string",
+            "parserRequired": false,
+            "tag": "coex_connection_descriptor",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "productElementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "byteMin": 1,
+                "byteMax": 64,
+                "sourcePath": [
+                  "product"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "providerIdElementValue",
+                "type": "bytes",
+                "parserRequired": true,
+                "byteMin": 1,
+                "byteMax": 32,
+                "sourcePath": [
+                  "provider_id"
+                ]
+              }
+            ],
+            "repeats": false,
+            "sourcePath": [
+              "onboarding_status"
+            ]
           }
         ]
       }
     },
     {
       "tag": "notification",
-      "module": "WASmaxInCoexistenceSyncNotificationRequest",
+      "module": "WASmaxCoexistenceSyncNotificationRPC",
       "shape": {
         "parserName": "parseSyncNotificationRequest",
         "assertions": [
@@ -1091,7 +1395,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInGroupsGroupsDirtyNotificationRequest",
+      "module": "WASmaxGroupsGroupsDirtyNotificationRPC",
       "shape": {
         "parserName": "parseGroupsDirtyNotificationRequest",
         "assertions": [
@@ -1562,7 +1866,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInNewslettersLiveUpdatesNotificationRequest",
+      "module": "WASmaxNewslettersLiveUpdatesNotificationRPC",
       "shape": {
         "parserName": "parseLiveUpdatesNotificationRequest",
         "assertions": [
@@ -2022,9 +2326,13 @@
                                         "parserRequired": true,
                                         "unknownValue": "reject",
                                         "enumRef": {
-                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                           "module": "WASmaxInNewslettersEnums",
                                           "variants": [
+                                            {
+                                              "name": "av1_video_dual_upload",
+                                              "value": "av1_video_dual_upload"
+                                            },
                                             {
                                               "name": "hd_image_dual_upload",
                                               "value": "hd_image_dual_upload"
@@ -2403,9 +2711,13 @@
                                                 "parserRequired": true,
                                                 "unknownValue": "reject",
                                                 "enumRef": {
-                                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                                  "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                                   "module": "WASmaxInNewslettersEnums",
                                                   "variants": [
+                                                    {
+                                                      "name": "av1_video_dual_upload",
+                                                      "value": "av1_video_dual_upload"
+                                                    },
                                                     {
                                                       "name": "hd_image_dual_upload",
                                                       "value": "hd_image_dual_upload"
@@ -2707,9 +3019,13 @@
                                         "parserRequired": true,
                                         "unknownValue": "reject",
                                         "enumRef": {
-                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                           "module": "WASmaxInNewslettersEnums",
                                           "variants": [
+                                            {
+                                              "name": "av1_video_dual_upload",
+                                              "value": "av1_video_dual_upload"
+                                            },
                                             {
                                               "name": "hd_image_dual_upload",
                                               "value": "hd_image_dual_upload"
@@ -3056,9 +3372,13 @@
                                         "parserRequired": true,
                                         "unknownValue": "reject",
                                         "enumRef": {
-                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                           "module": "WASmaxInNewslettersEnums",
                                           "variants": [
+                                            {
+                                              "name": "av1_video_dual_upload",
+                                              "value": "av1_video_dual_upload"
+                                            },
                                             {
                                               "name": "hd_image_dual_upload",
                                               "value": "hd_image_dual_upload"
@@ -3421,9 +3741,13 @@
                                 "parserRequired": true,
                                 "unknownValue": "reject",
                                 "enumRef": {
-                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                   "module": "WASmaxInNewslettersEnums",
                                   "variants": [
+                                    {
+                                      "name": "av1_video_dual_upload",
+                                      "value": "av1_video_dual_upload"
+                                    },
                                     {
                                       "name": "hd_image_dual_upload",
                                       "value": "hd_image_dual_upload"
@@ -4360,7 +4684,50 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInPsaResetSmbLastQpPrefetchTimestampRequest",
+      "module": "WASmaxNotificationFallbackGenericNotificationRPC",
+      "shape": {
+        "parserName": "parseGenericNotificationRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "participant",
+            "wireName": "participant",
+            "type": "jid_typed",
+            "parserRequired": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": false
+          }
+        ]
+      }
+    },
+    {
+      "tag": "notification",
+      "module": "WASmaxPsaResetSmbLastQpPrefetchTimestampRPC",
       "shape": {
         "parserName": "parseResetSmbLastQpPrefetchTimestampRequest",
         "assertions": [
@@ -4422,7 +4789,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInQpSurfacesQPNotificationRequest",
+      "module": "WASmaxQpSurfacesQPNotificationRPC",
       "shape": {
         "parserName": "parseQPNotificationRequest",
         "assertions": [
@@ -4561,7 +4928,7 @@
                         "unknownValue": "reject",
                         "enumRef": {
                           "name": "ENUM_FALSE_TRUE",
-                          "module": "WASmaxInQpSurfacesEnums",
+                          "module": "WASmaxQpSurfacesQPNotificationRPC",
                           "variants": [
                             {
                               "name": "false",
@@ -4586,7 +4953,7 @@
                         "unknownValue": "reject",
                         "enumRef": {
                           "name": "ENUM_FALSE_TRUE",
-                          "module": "WASmaxInQpSurfacesEnums",
+                          "module": "WASmaxQpSurfacesQPNotificationRPC",
                           "variants": [
                             {
                               "name": "false",
@@ -4621,7 +4988,7 @@
                         "unknownValue": "reject",
                         "enumRef": {
                           "name": "ENUM_FALSE_TRUE",
-                          "module": "WASmaxInQpSurfacesEnums",
+                          "module": "WASmaxQpSurfacesQPNotificationRPC",
                           "variants": [
                             {
                               "name": "false",
@@ -4656,7 +5023,7 @@
                         "unknownValue": "reject",
                         "enumRef": {
                           "name": "ENUM_FALSE_TRUE",
-                          "module": "WASmaxInQpSurfacesEnums",
+                          "module": "WASmaxQpSurfacesQPNotificationRPC",
                           "variants": [
                             {
                               "name": "false",
@@ -4721,7 +5088,7 @@
                         "unknownValue": "reject",
                         "enumRef": {
                           "name": "ENUM_FALSE_TRUE",
-                          "module": "WASmaxInQpSurfacesEnums",
+                          "module": "WASmaxQpSurfacesQPNotificationRPC",
                           "variants": [
                             {
                               "name": "false",
@@ -4730,6 +5097,31 @@
                             {
                               "name": "true",
                               "value": "true"
+                            }
+                          ]
+                        },
+                        "sourcePath": [
+                          "qp_config"
+                        ]
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "qpConfigExposureStrategy",
+                        "wireName": "exposure_strategy",
+                        "type": "enum",
+                        "parserRequired": false,
+                        "unknownValue": "reject",
+                        "enumRef": {
+                          "name": "ENUM_CLIENT_SERVER",
+                          "module": "WASmaxQpSurfacesQPNotificationRPC",
+                          "variants": [
+                            {
+                              "name": "client",
+                              "value": "client"
+                            },
+                            {
+                              "name": "server",
+                              "value": "server"
                             }
                           ]
                         },
@@ -5134,9 +5526,9 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInSmbMeteredMessagesCampaignCampaignStateChangedNotificationRequest",
+      "module": "WASmaxSmbMeteredMessagesCampaignBbProCampaignStatusNotificationRPC",
       "shape": {
-        "parserName": "parseCampaignStateChangedNotificationRequest",
+        "parserName": "parseBbProCampaignStatusNotificationRequest",
         "assertions": [
           {
             "kind": "tag",
@@ -5163,11 +5555,131 @@
             "literalValue": "s.whatsapp.net"
           },
           {
-            "method": "attrUserJid",
-            "name": "to",
-            "wireName": "to",
-            "type": "user_jid",
-            "parserRequired": false
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": true,
+            "literalValue": "business"
+          },
+          {
+            "method": "attrString",
+            "name": "bbProCampaignCampaignId",
+            "wireName": "campaign_id",
+            "type": "string",
+            "parserRequired": true,
+            "sourcePath": [
+              "bb_pro_campaign"
+            ]
+          },
+          {
+            "method": "attrEnum",
+            "name": "bbProCampaignStatus",
+            "wireName": "status",
+            "type": "enum",
+            "parserRequired": true,
+            "unknownValue": "reject",
+            "enumRef": {
+              "name": "ENUM_ACTIVE_COMPLETED_INREVIEW_NOTSENDING_OFF_PROCESSING_REJECTED_SCHEDULED_SENDINGLIMITED",
+              "module": "WASmaxInSmbMeteredMessagesCampaignEnums",
+              "variants": [
+                {
+                  "name": "ACTIVE",
+                  "value": "ACTIVE"
+                },
+                {
+                  "name": "COMPLETED",
+                  "value": "COMPLETED"
+                },
+                {
+                  "name": "IN_REVIEW",
+                  "value": "IN_REVIEW"
+                },
+                {
+                  "name": "NOT_SENDING",
+                  "value": "NOT_SENDING"
+                },
+                {
+                  "name": "OFF",
+                  "value": "OFF"
+                },
+                {
+                  "name": "PROCESSING",
+                  "value": "PROCESSING"
+                },
+                {
+                  "name": "REJECTED",
+                  "value": "REJECTED"
+                },
+                {
+                  "name": "SCHEDULED",
+                  "value": "SCHEDULED"
+                },
+                {
+                  "name": "SENDING_LIMITED",
+                  "value": "SENDING_LIMITED"
+                }
+              ]
+            },
+            "sourcePath": [
+              "bb_pro_campaign"
+            ]
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "parserRequired": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "parserRequired": false,
+            "intMin": 0,
+            "intMax": 1024
+          }
+        ]
+      }
+    },
+    {
+      "tag": "notification",
+      "module": "WASmaxSmbMeteredMessagesCampaignCampaignStateChangedNotificationRPC",
+      "shape": {
+        "parserName": "parseCampaignStateChangedNotificationRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "from",
+            "value": "s.whatsapp.net"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "business"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrDomainJid",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "parserRequired": true,
+            "literalValue": "s.whatsapp.net"
           },
           {
             "method": "attrString",
@@ -5260,7 +5772,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInWaffleWFNotificationRequest",
+      "module": "WASmaxWaffleWFNotificationRPC",
       "shape": {
         "parserName": "parseWFNotificationRequest",
         "assertions": [
@@ -5818,7 +6330,7 @@
     },
     {
       "tag": "ib",
-      "module": "WASmaxInClientExpirationClientExpirationRequest",
+      "module": "WASmaxClientExpirationClientExpirationRPC",
       "shape": {
         "parserName": "parseClientExpirationRequest",
         "assertions": [
@@ -5856,7 +6368,7 @@
     },
     {
       "tag": "presence",
-      "module": "WASmaxInPresenceServerUpdateRequest",
+      "module": "WASmaxPresenceServerUpdateRPC",
       "shape": {
         "parserName": "parseServerUpdateRequest",
         "assertions": [
@@ -5957,7 +6469,7 @@
                     "unknownValue": "reject",
                     "enumRef": {
                       "name": "ENUM_DENY_ERROR_NONE",
-                      "module": "WASmaxInPresenceEnums",
+                      "module": "WASmaxPresenceServerUpdateRPC",
                       "variants": [
                         {
                           "name": "deny",
@@ -6065,7 +6577,7 @@
     },
     {
       "tag": "chatstate",
-      "module": "WASmaxInChatstateServerNotificationRequest",
+      "module": "WASmaxChatstateServerNotificationRPC",
       "shape": {
         "parserName": "parseServerNotificationRequest",
         "assertions": [
@@ -6101,6 +6613,31 @@
             "parserRequired": true,
             "unionVariants": [
               {
+                "name": "FromBot",
+                "fields": [
+                  {
+                    "method": "attrUserJid",
+                    "name": "from",
+                    "wireName": "from",
+                    "type": "user_jid",
+                    "parserRequired": true
+                  },
+                  {
+                    "method": "attrLidUserJid",
+                    "name": "participant",
+                    "wireName": "participant",
+                    "type": "lid_user_jid",
+                    "parserRequired": true
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "chatstate"
+                  }
+                ]
+              },
+              {
                 "name": "FromUser",
                 "fields": [
                   {
@@ -6134,13 +6671,6 @@
                     "wireName": "participant",
                     "type": "jid_typed",
                     "parserRequired": true
-                  },
-                  {
-                    "method": "attrUserJid",
-                    "name": "participantPn",
-                    "wireName": "participant_pn",
-                    "type": "user_jid",
-                    "parserRequired": false
                   }
                 ],
                 "assertions": [
@@ -6191,7 +6721,7 @@
     },
     {
       "tag": "message",
-      "module": "WASmaxInMessageDeliverNewsletterRequest",
+      "module": "WASmaxMessageDeliverNewsletterRPC",
       "shape": {
         "parserName": "parseNewsletterRequest",
         "assertions": [
@@ -6625,9 +7155,13 @@
                                 "parserRequired": true,
                                 "unknownValue": "reject",
                                 "enumRef": {
-                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                   "module": "WASmaxInMessageDeliverEnums",
                                   "variants": [
+                                    {
+                                      "name": "av1_video_dual_upload",
+                                      "value": "av1_video_dual_upload"
+                                    },
                                     {
                                       "name": "hd_image_dual_upload",
                                       "value": "hd_image_dual_upload"
@@ -6704,6 +7238,64 @@
                   {
                     "kind": "tag",
                     "name": "message"
+                  }
+                ]
+              },
+              {
+                "name": "NewsletterQuestionResponseRevokeFanout",
+                "fields": [
+                  {
+                    "method": "attrString",
+                    "name": "edit",
+                    "wireName": "edit",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "7"
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "type",
+                    "wireName": "type",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "text"
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "metaQuestiontype",
+                    "wireName": "questiontype",
+                    "type": "string",
+                    "parserRequired": true,
+                    "literalValue": "response",
+                    "sourcePath": [
+                      "meta"
+                    ]
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "metaResponseServerId",
+                    "wireName": "response_server_id",
+                    "type": "string",
+                    "parserRequired": true,
+                    "sourcePath": [
+                      "meta"
+                    ]
+                  }
+                ],
+                "assertions": [
+                  {
+                    "kind": "tag",
+                    "name": "message"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "edit",
+                    "value": "7"
+                  },
+                  {
+                    "kind": "attr",
+                    "name": "type",
+                    "value": "text"
                   }
                 ]
               },
@@ -7069,9 +7661,13 @@
                                         "parserRequired": true,
                                         "unknownValue": "reject",
                                         "enumRef": {
-                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                           "module": "WASmaxInMessageDeliverEnums",
                                           "variants": [
+                                            {
+                                              "name": "av1_video_dual_upload",
+                                              "value": "av1_video_dual_upload"
+                                            },
                                             {
                                               "name": "hd_image_dual_upload",
                                               "value": "hd_image_dual_upload"
@@ -7373,9 +7969,13 @@
                                 "parserRequired": true,
                                 "unknownValue": "reject",
                                 "enumRef": {
-                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                   "module": "WASmaxInMessageDeliverEnums",
                                   "variants": [
+                                    {
+                                      "name": "av1_video_dual_upload",
+                                      "value": "av1_video_dual_upload"
+                                    },
                                     {
                                       "name": "hd_image_dual_upload",
                                       "value": "hd_image_dual_upload"
@@ -7722,9 +8322,13 @@
                                 "parserRequired": true,
                                 "unknownValue": "reject",
                                 "enumRef": {
-                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                                   "module": "WASmaxInMessageDeliverEnums",
                                   "variants": [
+                                    {
+                                      "name": "av1_video_dual_upload",
+                                      "value": "av1_video_dual_upload"
+                                    },
                                     {
                                       "name": "hd_image_dual_upload",
                                       "value": "hd_image_dual_upload"
@@ -8087,9 +8691,13 @@
                         "parserRequired": true,
                         "unknownValue": "reject",
                         "enumRef": {
-                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                          "name": "ENUM_AV1VIDEODUALUPLOAD_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
                           "module": "WASmaxInMessageDeliverEnums",
                           "variants": [
+                            {
+                              "name": "av1_video_dual_upload",
+                              "value": "av1_video_dual_upload"
+                            },
                             {
                               "name": "hd_image_dual_upload",
                               "value": "hd_image_dual_upload"
@@ -8974,6 +9582,49 @@
               }
             ],
             "sameNode": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "message",
+      "module": "WASmaxMessageFallbackDeliverRPC",
+      "shape": {
+        "parserName": "parseDeliverRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "message"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "parserRequired": true
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid_typed",
+            "parserRequired": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "parserRequired": false
+          },
+          {
+            "method": "attrJidEnum",
+            "name": "participant",
+            "wireName": "participant",
+            "type": "jid_typed",
+            "parserRequired": false
           }
         ]
       }

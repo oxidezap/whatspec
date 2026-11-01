@@ -20,4 +20,5 @@ jobs:
       - run: cargo run -p whatspec -- restore --from-lock generated/bundles.lock.json --out /tmp/retry-inputs
       - run: cargo run -p wa-transform --example retry_audit -- generated/bundles.lock.json /tmp/retry-inputs /tmp/retry-audit
       - run: node tests/retry/capture-gates.mjs
+      - run: node tests/retry/oracle.mjs
       - run: node tests/retry/oracle.mjs /tmp/retry-audit/audit.json

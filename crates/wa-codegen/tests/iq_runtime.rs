@@ -11,7 +11,7 @@ fn generated_pilot_requests_and_responses_execute() {
     let upstream_create = ir
         .stanzas
         .iter()
-        .find(|s| s.module_name == "WASmaxOutGroupsCreateRequest")
+        .find(|s| s.module_name == "WASmaxGroupsCreateRPC")
         .unwrap()
         .request
         .children[0]
@@ -19,7 +19,7 @@ fn generated_pilot_requests_and_responses_execute() {
     ir.stanzas.retain(|op| {
         matches!(
             op.module_name.as_str(),
-            "WASmaxOutGroupsSetSubjectRequest" | "WASmaxOutGroupsAcceptGroupAddRequest"
+            "WASmaxGroupsSetSubjectRPC" | "WASmaxGroupsAcceptGroupAddRPC"
         )
     });
     assert_eq!(ir.stanzas.len(), 2);
@@ -214,7 +214,7 @@ fn generated_pilot_requests_and_responses_execute() {
             .unwrap()
             .stanzas
             .into_iter()
-            .find(|s| s.module_name == "WASmaxOutBlocklistsGetBlockListRequest")
+            .find(|s| s.module_name == "WASmaxBlocklistsGetBlockListRPC")
             .unwrap()
             .request;
     ir.stanzas.push(op);

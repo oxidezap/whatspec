@@ -6,8 +6,11 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { authorizationOracle } from './authorization.mjs';
 import { eligibilityOracle } from './eligibility.mjs';
-const baseline = JSON.parse(fs.readFileSync(new URL('./capture/audit.json', import.meta.url)));
-const audit = process.argv[2] && process.argv[2] !== '--write' ? JSON.parse(fs.readFileSync(process.argv[2])) : baseline;
+const historical = JSON.parse(fs.readFileSync(new URL('./capture/audit.json', import.meta.url)));
+const audit = process.argv[2] && process.argv[2] !== '--write' ? JSON.parse(fs.readFileSync(process.argv[2])) : historical;
+const latest = audit.waVersion === '2.3000.1052559453';
+const baseline = latest ? JSON.parse(fs.readFileSync(new URL('./capture/2.3000.1052559453/audit.json', import.meta.url))) : historical;
+const fixturePath = name => new URL(latest ? `./capture/2.3000.1052559453/${name}` : `./${name}`, import.meta.url);
 assert.deepEqual(audit, baseline, 'retry source/inventory drift requires review; no automatic policy adoption');
 const record = audit.modules.find(m => m.module === 'WAWebUpdateLocalSignalSession');
 assert.equal(record.sourceSha256, crypto.createHash('sha256').update(record.source).digest('hex'));
@@ -122,18 +125,18 @@ for(let retryCount=0;retryCount<=6;retryCount++)for(const isStateless of [false,
   keyCases.push({retryCount,isStateless,includeKeys});
 }
 const eligibility=eligibilityOracle(audit);
-const eligibilityPath=new URL('./eligibility-cases.json',import.meta.url);
+const eligibilityPath=fixturePath('eligibility-cases.json');
 if(process.argv.includes('--write'))fs.writeFileSync(eligibilityPath,JSON.stringify(eligibility,null,2)+'\n');
 else assert.deepEqual(JSON.parse(fs.readFileSync(eligibilityPath)),eligibility);
 const authorization=authorizationOracle(audit);
 const exportCases=cases.map(c=>({name:c.name,retryCount:c.count,savedRegId:c.saved===undefined?7:c.saved,receivedRegId:7,bundleHandled:!!c.handled,sameBaseKey:!!c.same,peer:!!c.peer,chatKind:c.kind||'user',sessionScope:c.scope||'default',effects:c.expected,terminal:c.terminal||'return'}));
-if(process.argv.includes('--write'))fs.writeFileSync(new URL('./session-cases.json',import.meta.url),JSON.stringify({formatVersion:1,sourceSha256:record.sourceSha256,receiptSourceSha256:receipt.sourceSha256,authorization,keyCases,cases:exportCases},null,2)+'\n');
+if(process.argv.includes('--write'))fs.writeFileSync(fixturePath('session-cases.json'),JSON.stringify({formatVersion:1,sourceSha256:record.sourceSha256,receiptSourceSha256:receipt.sourceSha256,authorization,keyCases,cases:exportCases},null,2)+'\n');
 else {
-  const fixture=JSON.parse(fs.readFileSync(new URL('./session-cases.json',import.meta.url)));
+  const fixture=JSON.parse(fs.readFileSync(fixturePath('session-cases.json')));
   assert.deepEqual(fixture.cases,exportCases);
   assert.deepEqual(fixture.authorization,authorization);
   assert.deepEqual(fixture.keyCases,keyCases);
   assert.equal(fixture.sourceSha256,record.sourceSha256);
   assert.equal(fixture.receiptSourceSha256,receipt.sourceSha256);
 }
-console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; 18 semantic mutations detected`);
+console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; ${latest ? 27 : 18} semantic mutations detected`);

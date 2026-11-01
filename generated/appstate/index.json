@@ -1,6 +1,6 @@
 {
-  "schemaVersion": "4.4.0",
-  "waVersion": "2.3000.1047483476",
+  "schemaVersion": "4.5.0",
+  "waVersion": "2.3000.1052559453",
   "collections": [
     "regular",
     "regular_low",
@@ -189,6 +189,28 @@
         }
       ]
     },
+    "BBProPendingCustomerBaseAction": {
+      "module": "WAWebBizBroadcastProPendingActionSync",
+      "name": "bb_pro_pending_customer_base_action",
+      "collection": "regular_low",
+      "version": 7,
+      "scope": "account",
+      "baseClass": "AccountSyncdActionBase",
+      "valueField": "bbProPendingCustomerBaseAction",
+      "valueProtoType": "SyncActionValue.BBProPendingCustomerBaseAction",
+      "valueEnumFields": null,
+      "chatJidIndex": null,
+      "indexParts": [
+        {
+          "type": "literal",
+          "value": "bb_pro_pending_customer_base_action"
+        },
+        {
+          "type": "string",
+          "name": "action"
+        }
+      ]
+    },
     "BizAiSettingsNudge": {
       "module": "WAWebBizAiSettingsNudgeSync",
       "name": "biz_ai_settings_nudge",
@@ -252,7 +274,7 @@
         },
         {
           "type": "string",
-          "name": "campaign"
+          "name": "campaignId"
         }
       ]
     },
@@ -438,6 +460,24 @@
         {
           "type": "string",
           "name": "id"
+        }
+      ]
+    },
+    "ContactManagerMetadata": {
+      "module": "WAWebContactManagerMetadataSync",
+      "name": "contact_manager_metadata",
+      "collection": "regular_low",
+      "version": 1,
+      "scope": "account",
+      "baseClass": "AccountSyncdActionBase",
+      "valueField": "contactManagerMetadataAction",
+      "valueProtoType": "SyncActionValue.ContactManagerMetadataAction",
+      "valueEnumFields": null,
+      "chatJidIndex": null,
+      "indexParts": [
+        {
+          "type": "literal",
+          "value": "contact_manager_metadata"
         }
       ]
     },
@@ -632,6 +672,30 @@
         {
           "type": "literal",
           "value": "favorites"
+        }
+      ]
+    },
+    "GroupHistoryToggle": {
+      "module": "WAWebGroupHistoryToggleSync",
+      "name": "group_history_toggle",
+      "collection": "regular_low",
+      "version": 1,
+      "scope": "chat",
+      "baseClass": "ChatSyncdActionBase",
+      "valueField": "groupHistoryToggleAction",
+      "valueProtoType": "SyncActionValue.GroupHistoryToggleAction",
+      "valueEnumFields": {
+        "groupHistoryToggleMode": "GroupHistoryToggleAction.GroupHistoryToggleMode"
+      },
+      "chatJidIndex": 1,
+      "indexParts": [
+        {
+          "type": "literal",
+          "value": "group_history_toggle"
+        },
+        {
+          "type": "jid",
+          "name": "chatJid"
         }
       ]
     },
@@ -970,7 +1034,9 @@
       "baseClass": "AccountSyncdActionBase",
       "valueField": "noteEditAction",
       "valueProtoType": "SyncActionValue.NoteEditAction",
-      "valueEnumFields": null,
+      "valueEnumFields": {
+        "type": "NoteEditAction.NoteType"
+      },
       "chatJidIndex": null,
       "indexParts": [
         {
@@ -1240,6 +1306,7 @@
       "valueProtoType": "SyncActionValue.SettingsSyncAction",
       "valueEnumFields": {
         "bannerNotificationDisplayMode": "SettingsSyncAction.DisplayMode",
+        "mediaAutoDownloadQuality": "SettingsSyncAction.MediaAutoDownloadQualitySetting",
         "mediaUploadQuality": "SettingsSyncAction.MediaQualitySetting",
         "unreadCounterBadgeDisplayMode": "SettingsSyncAction.DisplayMode"
       },

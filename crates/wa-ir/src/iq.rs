@@ -535,6 +535,10 @@ pub struct IqRequestDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_arg_path: Option<WapArgPath>,
     pub children: Vec<WapChildNode>,
+    /// Mutually exclusive payload alternatives at the IQ root. Each mandatory
+    /// group selects exactly one arm; children here are not simultaneous siblings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variant_groups: Vec<WapVariantGroup>,
 }
 
 // ─── Response stanza model ───────────────────────────────────────────────────────
@@ -1351,6 +1355,7 @@ mod tests {
             exported_function: None,
             all_exports: vec![],
             request: IqRequestDef {
+                variant_groups: Vec::new(),
                 target_arg_path: None,
                 namespace: "w:foo".into(),
                 iq_type: IqType::Get,
