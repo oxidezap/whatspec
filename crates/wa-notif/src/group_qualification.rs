@@ -82,10 +82,8 @@ pub(crate) fn unknown_type_warning(
     ))
 }
 static CURRENT: LazyLock<CurrentProfile> = LazyLock::new(|| {
-    serde_json::from_str(include_str!(
-        "qualified-group-1052559453.json"
-    ))
-    .expect("qualified group profile")
+    serde_json::from_str(include_str!("qualified-group-1052559453.json"))
+        .expect("qualified group profile")
 });
 const LEGACY_FRAME: &str = "dcec3eb8a54f58e659c37f922dac88bd35db7f9a75630eba74c91269deed9593";
 
