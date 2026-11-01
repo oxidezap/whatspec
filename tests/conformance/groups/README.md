@@ -1,7 +1,10 @@
 # Group notification qualification
 
-These isolated contracts qualify WA Web 2.3000.1047483476 from the exact bundle
-set recorded in evidence.json. They supplement the existing notification shape
+The generated experimental contracts qualify WA Web 2.3000.1052559453 from the
+exact bundle set recorded in `versions/2.3000.1052559453/evidence.json`.
+The original sources and top-level oracle scripts still qualify the historical
+2.3000.1047483476 set in `evidence.json`, using contracts preserved under
+`versions/2.3000.1047483476/`. Both suites remain active in CI. They supplement the existing notification shape
 catalog without changing its schema/pin or declaring a new complete manifest
 domain.
 
@@ -9,6 +12,17 @@ domain.
   local PN diagnostic recovery, the external action boundary and final projection.
 - `group-link.json` preserves dynamic LINK actions and hidden-subgroup omission.
 - `group-unlink.json` preserves parent/subgroup/sibling and integrity decisions.
+
+Current unknown LINK/UNLINK types have a `nullResult` warning descriptor. LINK
+warns and returns before group payload reads; UNLINK reads every group with
+`attrGroupJid("jid")`, `attrString("subject")`, and `attrInt("s_t")` first.
+The current full-callback CREATE oracle also covers `isNewGroup`,
+`memberShareGroupHistoryMode` and participant history without the historical gate.
+Its versioned evidence includes all 18 complete modules, duplicate occurrences,
+UTF-8 byte spans and hashes. `capture-1052559453.cjs` independently recaptures these
+with Acorn and verifies the entire supplied bundle index against the snapshot
+lock before emitting qualification data. Native profile pins live in
+`crates/wa-notif/src/qualified-group-1052559453.json`.
 
 The native examples `group_envelope_contract`, `group_link_contract` and
 `unlink_contract` accept complete Metro modules from the restored bundle set.
@@ -46,7 +60,8 @@ node tests/conformance/groups/unlink.cjs --mutations &&
 node tests/conformance/groups/link.cjs --mutations &&
 node tests/conformance/groups/create.cjs &&
 node tests/conformance/groups/envelope.cjs &&
-node tests/conformance/groups/actions.cjs
+node tests/conformance/groups/actions.cjs &&
+node tests/conformance/groups/versions/2.3000.1052559453/verify.cjs
 ```
 
 The scripts verify module/helper hashes and execute isolated original functions
@@ -77,8 +92,10 @@ against the preserved supplier hashes, including initialization, helper code and
 export wiring. The group-specific constant resolver refuses unknown suppliers;
 the generic notification catalogue resolver retains its existing behavior.
 A changed supplier requires requalification even if its literal table is intact.
-The regression matrix mutates all 16 preserved suppliers (aliases, getters,
+The historical regression matrix mutates all 16 preserved suppliers (aliases, getters,
 closures, Object.assign and intrinsic replacement) across all three entry points.
+The current matrix additionally rejects changes to all 17 current suppliers and
+mixing changed suppliers from the historical snapshot.
 The independent provider-effects suite executes four changed complete constant
 factories and confirms that the original UNLINK helper returns changed actions.
 
