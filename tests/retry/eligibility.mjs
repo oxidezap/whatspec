@@ -19,7 +19,7 @@ const cases=[
 function run(source,c,{failAt,cancelAt}={}){
  const effects=[],completed=[];
  const key={toString:()=>'synthetic-primary-key'},alternate={toString:()=>'synthetic-alternate-key'};
- const record={deviceNotDelivered:c.delivered?[]:[c.device||0],delivery:c.delivery??null};
+ const record={deviceNotDelivered:c.delivered?[]:[c.device||0],delivery:c.delivery??null,hasAdditionalRetryTargets:!!c.additional};
  const deps={
   WAWebWidFactory:{asUserWidOrThrow:x=>({toString:()=>x.user})},WAJids:{DEFAULT_DEVICE_ID:0},WALogger:{LOG(){}},
   WAWebSchemaMessageInfo:{getMessageInfoTable:()=>({get:query=>{effects.push({name:'infoLookup',query});return {name:'infoLookup',result:query[0]==='synthetic-alternate-key'?(c.alternateMissing?null:record):(c.missing?null:record)};}})},
@@ -38,7 +38,8 @@ function run(source,c,{failAt,cancelAt}={}){
  }}catch(e){return {effects,completed,terminal:'throw',error:e.message};}
 }
 function assertCase(source,c){
- const t=run(source,c);assert.equal(t.terminal,'return',c.name);assert.equal(t.decision,c.expected,c.name);
+ const t=run(source,c);assert.equal(t.terminal,'return',c.name);if(source.includes('hasAdditionalRetryTargets'))assert.deepEqual({...t.decision},{hasAdditionalRetryTargets:!!c.additional && (!c.missing || !!c.alternate && !c.alternateMissing),retryEligibility:c.expected},c.name);
+ else assert.equal(t.decision,c.expected,c.name);
  const expected=c.missing?['infoLookup','alternateMsgKey',...(c.alternate?['infoLookup']:[])]:['infoLookup'];
  assert.deepEqual(t.effects.map(e=>e.name),expected,c.name);
  for(const [index,call] of t.effects.filter(e=>e.name==='infoLookup').entries())assert.deepEqual(Array.from(call.query),[index===0?'synthetic-primary-key':'synthetic-alternate-key','fictional-receiver'],c.name);
@@ -56,7 +57,9 @@ export function eligibilityOracle(audit){
   const length=point===0?1:3;
   assert.deepEqual(cut.effects.map(e=>e.name),t.effects.slice(0,length).map(e=>e.name));
  }}
- const mutations=[['n>=t','n>t','identity-row-boundary'],['n>=t','n<=t','identity-row-order'],['m.delivery!=null','m.delivery==null','primary-delivery-guard'],['if(!m)','if(m)','alternate-record-guard']];
- for(const[from,to,name]of [...mutations,['[r.toString(),i]','["WRONG-MESSAGE",i]','primary-message-key'],['[_.toString(),i]','["WRONG-MESSAGE",i]','alternate-message-key']]){assert.ok(source.includes(from),`missing eligibility mutation ${name}`);let caught=false;for(const c of cases)try{assertCase(source.replace(from,to),c)}catch{caught=true;break;}assert.ok(caught,`undetected eligibility mutation ${name}`);}
+ const metadata=source.includes('hasAdditionalRetryTargets');
+ if(metadata)for(const c of cases)assertCase(source,{...c,additional:true});
+ const mutations=metadata?[['r>=n','r>n','identity-row-boundary'],['r>=n','r<=n','identity-row-order'],['_.delivery!=null','_.delivery==null','primary-delivery-guard'],['if(!_)','if(_)','alternate-record-guard']]:[['n>=t','n>t','identity-row-boundary'],['n>=t','n<=t','identity-row-order'],['m.delivery!=null','m.delivery==null','primary-delivery-guard'],['if(!m)','if(m)','alternate-record-guard']];
+ for(const[from,to,name]of [...mutations,[metadata?'[a.toString(),l]':'[r.toString(),i]','["WRONG-MESSAGE",i]','primary-message-key'],[metadata?'[f.toString(),l]':'[_.toString(),i]','["WRONG-MESSAGE",i]','alternate-message-key']]){assert.ok(source.includes(from),`missing eligibility mutation ${name}`);let caught=false;for(const c of cases)try{assertCase(source.replace(from,to),c)}catch{caught=true;break;}assert.ok(caught,`undetected eligibility mutation ${name}`);}
  return {formatVersion:1,sourceSha256:record.sourceSha256,cases:cases.map(c=>({...c,effects:assertCase(source,c).effects.map(e=>e.name)})),mutations:mutations.map(m=>m[2])};
 }

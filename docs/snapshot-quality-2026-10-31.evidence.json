@@ -2999,5 +2999,119 @@
         "verification": "Published asset restored with whatspec restore --wasm; all 24 payload hashes/sizes verified."
       }
     }
+  },
+  "retrySemanticReview": {
+    "waVersion": "2.3000.1052559453",
+    "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf",
+    "capture": "tests/retry/capture/2.3000.1052559453/audit.json",
+    "preservedHistoricalCapture": "tests/retry/capture/audit.json",
+    "moduleEvidence": [
+      {
+        "module": "WAWebApiMessageInfoStore",
+        "previousSourceSha256": "52a01ee3cbaee1b32f366275bc4e3c3f77144448fcf7f5834b2fef10c770aede",
+        "sourceSha256": "3d3c93c8f99132027c41cbd2c53d68cc196c3dc4284ede7e2326467fe7cfe666",
+        "previousGenerators": 5,
+        "generators": 7,
+        "definitions": [
+          {
+            "bundleSha256": "33f068d88cd48d1bc584bc03a3f68aa9a2332fa698616c0975d4aa84d69f04d8",
+            "end": 919032,
+            "start": 910846
+          }
+        ]
+      },
+      {
+        "module": "WAWebHandleRetryRequest",
+        "previousSourceSha256": "de5655e0bf0080f16bc8425b1048f427c64297c0632f5ead44d831de3364eafa",
+        "sourceSha256": "00b5514d19c37b98cdcbbabb87920098547137f92c954805410bce6995652ee5",
+        "previousGenerators": 5,
+        "generators": 9,
+        "definitions": [
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "end": 4588065,
+            "start": 4576263
+          },
+          {
+            "bundleSha256": "5bb049289dddc84e67c07ee789c1463f1d051d1b936776b48753aff989ec6e1b",
+            "end": 219994,
+            "start": 208192
+          }
+        ]
+      },
+      {
+        "module": "WAWebProcessRetryKeyBundle",
+        "previousSourceSha256": "a513da03b1ecc4aa02c8d95e13a85da5ab2d77bb7af9104db3ea98fbbb00a3f8",
+        "sourceSha256": "0de160721b3b03eee5945b9de8f1fe4154b516825dff9adf34ef8f61aff7b1f3",
+        "previousGenerators": 2,
+        "generators": 5,
+        "definitions": [
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "end": 4548476,
+            "start": 4540999
+          },
+          {
+            "bundleSha256": "5bb049289dddc84e67c07ee789c1463f1d051d1b936776b48753aff989ec6e1b",
+            "end": 180405,
+            "start": 172928
+          }
+        ]
+      },
+      {
+        "module": "WAWebSendRetryReceiptJob",
+        "previousSourceSha256": "39a97ce6c6cfddc3d3f3ed61136dd2cebc30a6b9f55d0f8646eb5edb6f7c2a63",
+        "sourceSha256": "feadec59db2abd83467fcd56c9d73745d6f2c32402a248c36a19d862a9e2873b",
+        "previousGenerators": 3,
+        "generators": 3,
+        "definitions": [
+          {
+            "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+            "end": 5006055,
+            "start": 4999040
+          }
+        ]
+      },
+      {
+        "module": "WAWebUpdateLocalSignalSession",
+        "previousSourceSha256": "d68c5f1c5a7556dadd9d107734a1bc2fc992b392151eb5b51e3e33d5045f417e",
+        "sourceSha256": "3c4418a228d3b85068c921c08e257ba73568533c80c7f96d88c21eccb2b53b9d",
+        "previousGenerators": 1,
+        "generators": 1,
+        "definitions": [
+          {
+            "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+            "end": 4576261,
+            "start": 4573895
+          },
+          {
+            "bundleSha256": "5bb049289dddc84e67c07ee789c1463f1d051d1b936776b48753aff989ec6e1b",
+            "end": 208190,
+            "start": 205824
+          }
+        ]
+      }
+    ],
+    "findings": [
+      "Session reset/save-base-key decisions retain their count=2 / count>2 boundaries, registration mismatch behavior and status session scope; all 11 original scenarios and suspension cuts pass on current code.",
+      "Identity eligibility now returns {hasAdditionalRetryTargets,retryEligibility}; row ordering, primary delivery and alternate-key guards remain checked with 12 original scenarios, additional-target metadata variants, and semantic mutations.",
+      "Sent message lookup is factored into a separate generator. It checks primary/alternate addon records before primary/alternate message rows and preserves revoked protocol row IDs. Six isolated loader scenarios and four loader mutations check its exact selection.",
+      "getMsgIfAuthorized now accepts loadedSentMessage/isPq and returns {msgRecord,retryContext:{hasAdditionalRetryTargets},isIdentityChangedSinceSend}. Coex precedence, alternate-device fallback, deny reasons, addon handling, revoked conversion and PQ reject metrics are checked by 18 current-version scenarios plus yield failure/cancellation and six main authorization mutations.",
+      "Receipt key inclusion still starts at stateless || retryCount>=2. Fourteen combinations qualify the first suspension; later PQ key upload and crypto operations remain outside this oracle boundary."
+    ],
+    "antiDrift": "Exact full source/inventory equality with the reviewed version-specific capture remains mandatory. Unknown revisions or any changed captured source fail before execution. Both preserved historical and current oracles run in CI.",
+    "validation": {
+      "captureGateScenarios": 10,
+      "sessionScenarios": 11,
+      "eligibilityScenarios": 12,
+      "authorizationScenarios": 18,
+      "loaderScenarios": 6,
+      "semanticMutations": 22,
+      "mutatedCurrentCapture": "rejected before execution"
+    },
+    "limits": [
+      "No library retry policy or server protocol decision is changed by this update; the oracle executes selected preserved upstream generator bodies against synthetic facts.",
+      "The HandleRetryRequest source inventory records new AEA/PQ-related orchestration and additional helpers. Queue scheduling, callee behavior, crypto, storage, transport and complete resend/AEA enforcement are not claimed executable by this partial oracle."
+    ]
   }
 }

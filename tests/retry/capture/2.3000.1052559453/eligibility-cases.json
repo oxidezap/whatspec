@@ -1,0 +1,146 @@
+{
+  "formatVersion": 1,
+  "sourceSha256": "3d3c93c8f99132027c41cbd2c53d68cc196c3dc4284ede7e2326467fe7cfe666",
+  "cases": [
+    {
+      "name": "companion-current-identity",
+      "device": 7,
+      "identity": 71,
+      "message": 101,
+      "expected": "ELGIBLE",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "equal-row-boundary",
+      "device": 7,
+      "identity": 71,
+      "message": 71,
+      "expected": "ELGIBLE",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "companion-changed-identity",
+      "device": 7,
+      "identity": 71,
+      "message": 70,
+      "expected": "INELIGIBLE_CHANGED_IDENTITY",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "companion-missing-identity",
+      "device": 7,
+      "identity": null,
+      "message": 101,
+      "expected": "INELIGIBLE_CHANGED_IDENTITY",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "primary-changed-before-delivery",
+      "device": 0,
+      "identity": 71,
+      "message": 70,
+      "expected": "ELGIBLE",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "primary-changed-after-delivery",
+      "device": 0,
+      "identity": 71,
+      "message": 70,
+      "delivery": [],
+      "expected": "INELIGIBLE_CHANGED_IDENTITY",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "implicit-primary-before-delivery",
+      "identity": null,
+      "message": 101,
+      "expected": "ELGIBLE",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "implicit-primary-after-delivery",
+      "identity": null,
+      "message": 101,
+      "delivery": [
+        1
+      ],
+      "expected": "INELIGIBLE_CHANGED_IDENTITY",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "already-delivered",
+      "device": 7,
+      "identity": 71,
+      "message": 101,
+      "delivered": true,
+      "expected": "INELIGIBLE_ALREADY_DELIVERED",
+      "effects": [
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "missing-record",
+      "device": 7,
+      "identity": 71,
+      "message": 101,
+      "missing": true,
+      "expected": "INELIGIBLE_RECORD_MISSING",
+      "effects": [
+        "infoLookup",
+        "alternateMsgKey"
+      ]
+    },
+    {
+      "name": "alternate-record",
+      "device": 7,
+      "identity": 71,
+      "message": 101,
+      "missing": true,
+      "alternate": true,
+      "expected": "ELGIBLE",
+      "effects": [
+        "infoLookup",
+        "alternateMsgKey",
+        "infoLookup"
+      ]
+    },
+    {
+      "name": "alternate-record-missing",
+      "device": 7,
+      "identity": 71,
+      "message": 101,
+      "missing": true,
+      "alternate": true,
+      "alternateMissing": true,
+      "expected": "INELIGIBLE_RECORD_MISSING",
+      "effects": [
+        "infoLookup",
+        "alternateMsgKey",
+        "infoLookup"
+      ]
+    }
+  ],
+  "mutations": [
+    "identity-row-boundary",
+    "identity-row-order",
+    "primary-delivery-guard",
+    "alternate-record-guard"
+  ]
+}
