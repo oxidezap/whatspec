@@ -5,6 +5,7 @@ const fs = require('node:fs'),
   os = require('node:os'),
   assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
+require('./qualification-regressions.cjs');
 const root = path.resolve(__dirname, '../../../../..');
 const env = {
   ...process.env,
@@ -94,11 +95,18 @@ try {
       encoding: 'utf8',
       env: { ...env, ['GROUP_' + family.toUpperCase() + '_CONTRACT']: target }
     });
-    assert.notEqual(result.status, 0, 'normalization oracle accepted mutation ' + index);
+    assert.equal(result.error, undefined, 'mutation subprocess failed to spawn');
+    assert.equal(result.signal, null, 'mutation subprocess terminated by signal');
+    assert.equal(result.status, 1, 'normalization oracle accepted mutation ' + index);
+    assert.match(
+      result.stderr,
+      /AssertionError/,
+      'mutation failed without an oracle assertion ' + index
+    );
   }
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 console.log(
-  'Current captures reproduced: 64 actions, 29 envelope, 12 CREATE, 204 normalization cases; 8 IR mutations rejected'
+  'Current captures reproduced: 64 actions, 29 envelope, 13 CREATE, 204 normalization cases; 8 IR mutations rejected'
 );

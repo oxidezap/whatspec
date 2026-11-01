@@ -303,6 +303,21 @@ fn project_case(
         if argument != kind_name.as_str() {
             return Err("LINK warning argument changed".into());
         }
+        // Matching warning bytes is insufficient when a var declaration changes
+        // resolution of the factory cache, importer or template helper.
+        let captures =
+            crate::group_qualification::warning_captures(&condition.consequent, &argument);
+        for binding in [
+            kind_name.as_str(),
+            table_name.as_str(),
+            name.as_str(),
+            dispatched_child,
+        ] {
+            if captures.contains(binding) {
+                return Err("LINK binding shadows qualified warning dependency".into());
+            }
+        }
+
         let Expression::ObjectExpression(output) = condition.alternate.without_parentheses() else {
             return Err("non-object LINK success".into());
         };

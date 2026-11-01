@@ -29,6 +29,11 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Capture-tool rejection checks
+        run: |
+          npm install --prefix "$RUNNER_TEMP/group-capture-tools" --ignore-scripts --no-audit --no-fund acorn@8.19.0
+          NODE_PATH="$RUNNER_TEMP/group-capture-tools/node_modules" node tests/conformance/groups/capture-1052559453.cjs --self-test
+
       - name: Official group notification differentials
         run: |
           node tests/conformance/groups/provider-effects.cjs

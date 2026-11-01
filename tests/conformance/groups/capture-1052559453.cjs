@@ -3,6 +3,7 @@ const fs = require('node:fs'),
   path = require('node:path'),
   crypto = require('node:crypto'),
   acorn = require('acorn');
+if (acorn.version !== '8.19.0') throw Error('capture requires Acorn 8.19.0');
 const hash = (x) => crypto.createHash('sha256').update(x).digest('hex');
 const fingerprint = (chunks) =>
   hash(
@@ -82,9 +83,74 @@ function profile(root) {
     }
   };
 }
+function collectBindings(callback) {
+  const rootLocals = callback.params.map((param) => {
+      if (param.type !== 'Identifier') throw Error('unqualified callback parameter');
+      return param.name;
+    }),
+    helperLocals = [];
+  function bindings(node, direct = false) {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'FunctionDeclaration') {
+      if (!direct || node.id?.type !== 'Identifier') throw Error('unqualified block helper');
+      rootLocals.push(node.id.name);
+      helperLocals.push(node.id.name);
+      return;
+    }
+    if (['FunctionExpression', 'ArrowFunctionExpression'].includes(node.type)) return;
+    if (node.type === 'VariableDeclaration' && node.kind !== 'var')
+      throw Error('unqualified lexical binding');
+    if (node.type === 'VariableDeclarator') {
+      if (node.id.type !== 'Identifier') throw Error('unqualified destructuring');
+      rootLocals.push(node.id.name);
+    }
+    for (const value of Object.values(node))
+      if (Array.isArray(value)) value.forEach((n) => bindings(n));
+      else if (value && typeof value === 'object') bindings(value);
+  }
+  for (const statement of callback.body.body) bindings(statement, true);
+  return { rootLocals: [...new Set(rootLocals)], helperLocals: [...new Set(helperLocals)] };
+}
+function prepareOutput(dir) {
+  if (fs.existsSync(dir)) throw Error('output directory must not exist: ' + dir);
+  fs.mkdirSync(path.join(dir, 'sources'), { recursive: true });
+}
+if (process.argv.includes('--self-test')) {
+  const assert = require('node:assert/strict'),
+    os = require('node:os');
+  const parse = (source) => acorn.parseExpressionAt(source, 0, { ecmaVersion: 'latest' });
+  for (const source of [
+    'function({x}){}',
+    'function(x=1){}',
+    'function(...x){}',
+    'function(x){var {y}=x}',
+    'function(x){if(x){function nested(){}}}'
+  ])
+    assert.throws(() => collectBindings(parse(source)), /unqualified/);
+  assert.deepEqual(
+    collectBindings(
+      parse(
+        'function(e){var x;function helper(){var privateLocal}if(e){var y}var alias=function(z){var inner}}'
+      )
+    ),
+    { rootLocals: ['e', 'x', 'helper', 'y', 'alias'], helperLocals: ['helper'] }
+  );
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'group-capture-check-'));
+  try {
+    const output = path.join(temp, 'capture');
+    prepareOutput(output);
+    fs.writeFileSync(path.join(output, 'sources', 'stale.js'), 'preserve');
+    assert.throws(() => prepareOutput(output), /must not exist/);
+    assert.equal(fs.readFileSync(path.join(output, 'sources', 'stale.js'), 'utf8'), 'preserve');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+  console.log('Capture binding and fresh-output rejection checks passed');
+  process.exit(0);
+}
 const [index, dir] = process.argv.slice(2);
 if (!index || !dir) throw Error('usage: node capture-1052559453.cjs modules.tsv output-directory');
-fs.mkdirSync(path.join(dir, 'sources'), { recursive: true });
+prepareOutput(dir);
 const lock = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '../../../generated/bundles.lock.json'))
 );
@@ -150,12 +216,14 @@ if (JSON.stringify(old.pins) !== JSON.stringify(expected))
   throw Error('Independent old region selection does not reproduce existing pins');
 const records = inputRecords;
 const modules = [];
-for (const file of fs.readdirSync(input).sort()) {
-  const source = fs.readFileSync(path.join(input, file));
+const files = fs.readdirSync(input).sort();
+if (files.length !== wanted.size || files.some((file) => !wanted.has(file.slice(0, -3))))
+  throw Error('unexpected source capture files');
+for (const file of files) {
   const name = file.slice(0, -3);
-  fs.writeFileSync(path.join(dir, 'sources', file), source);
   const matching = records.filter((m) => m.name === name),
     record = matching[0];
+  if (!record) throw Error('missing module provenance ' + name);
   modules.push({
     ...record,
     definitions: matching.map(({ bundleSha256, startByte, endByte }) => ({
@@ -170,23 +238,7 @@ const callbackAst = acorn.parseExpressionAt(
   Buffer.from(current.source).subarray(0, current.regions.callback.startByte).toString().length,
   { ecmaVersion: 'latest' }
 );
-const rootLocals = callbackAst.params.map((p) => p.name);
-function rootBindings(node) {
-  if (
-    !node ||
-    typeof node !== 'object' ||
-    ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(node.type)
-  )
-    return;
-  if (node.type === 'VariableDeclarator') {
-    if (node.id.type !== 'Identifier') throw Error('unqualified destructuring');
-    rootLocals.push(node.id.name);
-  }
-  for (const value of Object.values(node))
-    if (Array.isArray(value)) value.forEach(rootBindings);
-    else if (value && typeof value === 'object') rootBindings(value);
-}
-rootBindings(callbackAst.body);
+const { rootLocals, helperLocals } = collectBindings(callbackAst);
 const warnings = {};
 visit(acorn.parse(current.source, { ecmaVersion: 'latest' }), (node) => {
   if (
@@ -243,7 +295,8 @@ fs.writeFileSync(
           .filter((m) => m.name !== 'WAWebHandleGroupNotification')
           .map((m) => [m.name, m.moduleSha256])
       ),
-      rootLocals: [...new Set(rootLocals)],
+      rootLocals,
+      helperLocals,
       ...warnings
     },
     null,

@@ -1,4 +1,4 @@
-// Synthetic inputs shared by the independently qualified historical and current parsers.
+// Current-only synthetic inputs; historical CREATE cases remain inline and unchanged.
 const p = (attrs = {}) => ({ tag: 'participant', attrs, content: undefined });
 const group = (attrs = {}, children = []) => ({
   tag: 'group',
@@ -23,7 +23,7 @@ const cases = [
     node: create({}, [group({ creator: 'bad' }, [p({ type: 'future_role' })])])
   },
   {
-    name: 'disabled-country-and-history-gates',
+    name: 'invalid-participant-join-time-error',
     flags: {},
     node: create({}, [
       group({ creator_country_code: 'future', creator_username: 'gated', s_o_username: 'gated' }, [

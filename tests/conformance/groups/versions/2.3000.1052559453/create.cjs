@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { createHarness, encodeNode, plain } = require('../../harness.cjs');
 const harness = createHarness('evidence.json', { fixtureRoot: __dirname });
-const cases = require('../../create-cases.cjs').slice();
+const cases = require('./create-cases.cjs').slice();
 const n = (tag, attrs = {}, content) => ({
   tag,
   attrs,
@@ -30,6 +30,23 @@ cases.push({
         group_history_sent_state: 'HISTORY_SENT'
       })
     ])
+  ])
+});
+cases.push({
+  name: 'disabled-creator-country-and-username-success',
+  flags: { username: false },
+  node: n('create', {}, [
+    n(
+      'group',
+      {
+        subject: 'synthetic',
+        creation: '123',
+        creator_country_code: 'future',
+        creator_username: 'gated',
+        s_o_username: 'gated'
+      },
+      [n('participant', { jid: '100001@lid', join_time: '123' })]
+    )
   ])
 });
 const outcomes = [];
@@ -70,7 +87,7 @@ assert.equal(
   'unknown_groups'
 );
 assert.match(byName['unknown-role-precedes-creator'].error, /type.*future_role/);
-assert.match(byName['disabled-country-and-history-gates'].error, /join_time/);
+assert.match(byName['invalid-participant-join-time-error'].error, /join_time/);
 assert.equal(action('parent-mode-flags-and-reason').groupInfo.parentGroup, '123456@g.us');
 assert.equal(action('parent-mode-flags-and-reason').groupInfo.limitSharingEnabled, false);
 assert.equal(action('time-cast-wraps-before-normalization').groupInfo.creation, 1);
@@ -78,7 +95,15 @@ assert.equal(
   action('time-cast-wraps-before-normalization').groupInfo.participants[0].joinTime,
   -2147483647
 );
-assert.match(byName['empty-byte-description-still-requires-id-before-creator'].error, /id/);
+assert.equal(
+  byName['empty-byte-description-still-requires-id-before-creator'].error,
+  'XmppParsingFailure: synthetic: expected <description> to have attribute "id"'
+);
+const gated = action('disabled-creator-country-and-username-success').groupInfo;
+assert.equal(gated.creatorCountryCode, null);
+assert.equal(gated.creatorUsername, null);
+assert.equal(gated.subjectOwnerUsername, undefined);
+assert.equal(gated.participants[0].joinTime, 123);
 for (const mode of ['admin_share', 'all_member_share'])
   assert.equal(action('history-share-mode-' + mode).groupInfo.memberShareGroupHistoryMode, mode);
 assert.equal(

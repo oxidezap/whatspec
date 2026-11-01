@@ -47,9 +47,21 @@ struct Eval<'a> {
     vars: HashMap<String, Value>,
     kind: String,
     reason: Option<String>,
+    reads: Vec<&'static str>,
 }
 impl Eval<'_> {
-    fn expr(&self, expr: &Expression<'_>) -> Result<Value, String> {
+    fn require_payload_reads(&self) -> Result<(), String> {
+        let expected: &[&str] = if self.reason.is_some() {
+            &["type", "hasReason", "reason", "groups"]
+        } else {
+            &["type", "hasReason", "groups"]
+        };
+        if self.reads != expected {
+            return Err("changed UNLINK payload read order".into());
+        }
+        Ok(())
+    }
+    fn expr(&mut self, expr: &Expression<'_>) -> Result<Value, String> {
         let expr = expr.without_parentheses();
         if let Some((argument, warning)) =
             crate::group_qualification::unknown_type_warning(self.source, expr, "UNLINK")
@@ -62,6 +74,7 @@ impl Eval<'_> {
             if self.vars.get(&argument) != Some(&expected) {
                 return Err("UNLINK warning no longer receives wire type".into());
             }
+            self.require_payload_reads()?;
             return Ok(Value::RejectedType(warning));
         }
         if let Some(text) = as_string_lit(expr) {
@@ -145,6 +158,7 @@ impl Eval<'_> {
                 Ok(Value::Object(values))
             }
             Expression::ComputedMemberExpression(m) => {
+                self.require_payload_reads()?;
                 let Value::Object(obj) = self.expr(&m.object)? else {
                     return Err("lookup on non-object".into());
                 };
@@ -175,6 +189,13 @@ impl Eval<'_> {
                 if c.arguments.len() != if method == "mapChildrenWithTag" { 2 } else { 1 } {
                     return Err("unsupported accessor arity".into());
                 }
+                self.reads.push(match (method, attr) {
+                    ("attrString", "unlink_type") => "type",
+                    ("hasAttr", "unlink_reason") => "hasReason",
+                    ("attrString", "unlink_reason") => "reason",
+                    ("mapChildrenWithTag", "group") if valid_groups(c) => "groups",
+                    _ => return Err(format!("unsupported accessor {method}({attr})")),
+                });
                 match (method, attr) {
                     ("attrString", "unlink_type") => Ok(if self.kind == UNKNOWN_INPUT {
                         Value::UnknownKind
@@ -609,6 +630,40 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
     for statement in &body.statements {
         validate_structure(source, statement, param.as_str(), &resolver)?;
     }
+    // A byte-identical warning must still resolve its captured cache/imports
+    // in the qualified factory scope, not in a newly introduced helper local.
+    struct WarningScope<'s> {
+        source: &'s str,
+        bindings: BTreeSet<String>,
+        captures: BTreeSet<String>,
+    }
+    impl<'a> Visit<'a> for WarningScope<'_> {
+        fn visit_function(&mut self, _: &Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
+        fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+            self.bindings.insert(id.name.to_string());
+        }
+        fn visit_expression(&mut self, expression: &Expression<'a>) {
+            if let Some((argument, _)) =
+                crate::group_qualification::unknown_type_warning(self.source, expression, "UNLINK")
+            {
+                self.captures
+                    .extend(crate::group_qualification::warning_captures(
+                        expression, &argument,
+                    ));
+            }
+            walk::walk_expression(self, expression);
+        }
+    }
+    let mut scope = WarningScope {
+        source,
+        bindings: BTreeSet::new(),
+        captures: BTreeSet::new(),
+    };
+    scope.visit_function_body(body);
+    scope.bindings.insert(param.to_string());
+    if !scope.bindings.is_disjoint(&scope.captures) {
+        return Err("UNLINK local shadows warning dependency".into());
+    }
     // Reject calls on any receiver except the actual helper parameter. Alias it
     // through an AST-independent binding in the expression evaluator.
     struct Literals<'r, 's> {
@@ -661,10 +716,12 @@ fn evaluate(f: &Function<'_>, slices: &HashMap<&str, &str>) -> Result<GroupUnlin
                 vars,
                 kind: kind.clone(),
                 reason: reason.clone(),
+                reads: vec![],
             };
             let value = eval
                 .statements(&body.statements)?
                 .ok_or("helper has no return")?;
+            eval.require_payload_reads()?;
             let (action_type, unsupported_action, null_result) = match value {
                 Value::RejectedType(warning) => (None, false, Some(warning)),
                 Value::Object(mut obj) => {
@@ -892,7 +949,7 @@ mod tests {
         assert_eq!(rows, extract(GROUP).unwrap().rows);
     }
     #[test]
-    fn official_projection_is_reproducible() {
+    fn historical_projection_is_reproducible() {
         let expected: GroupUnlinkContract = serde_json::from_str(include_str!(
             "../../../tests/conformance/groups/versions/2.3000.1047483476/group-unlink.json"
         ))

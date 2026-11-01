@@ -41,8 +41,12 @@
     "h",
     "y",
     "C",
+    "v",
     "R",
     "$"
+  ],
+  "helperLocals": [
+    "v"
   ],
   "unlinkWarningNull": {
     "sha256": "5d62a41d4a1beb06b2ebb70d0154c06850f0771c2dce0e79a715e70e1c66071b",

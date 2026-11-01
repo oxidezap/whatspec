@@ -13,6 +13,8 @@ pub struct GroupUnlinkContract {
     pub rows: Vec<GroupUnlinkRow>,
 }
 
+/// Every row first reads every `group` child with `attrGroupJid("jid")`,
+/// `attrString("subject")`, and `attrInt("s_t")`, before deciding the action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -23,10 +25,8 @@ pub struct GroupUnlinkRow {
     /// The official plain-object lookup returned an inherited non-string value.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsupported_action: bool,
-    /// Read every `group` child first with `attrGroupJid("jid")`,
-    /// `attrString("subject")`, and `attrInt("s_t")`, in that order.
-    /// Then look up the action; on this branch, warn and return null.
-    /// LINK instead warns and returns before reading group children.
+    /// An ordinary unknown type warns and returns null after the payload reads
+    /// documented on this row. LINK instead returns before group children.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub null_result: Option<GroupUnknownTypeWarning>,
 }

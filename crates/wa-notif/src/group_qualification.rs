@@ -37,6 +37,7 @@ struct CurrentProfile {
     diagnostic_cache: String,
     providers: BTreeMap<String, String>,
     root_locals: Vec<String>,
+    helper_locals: Vec<String>,
     link_warning_null: WarningNull,
     unlink_warning_null: WarningNull,
 }
@@ -80,6 +81,24 @@ pub(crate) fn unknown_type_warning(
             event: qualified.event.clone(),
         },
     ))
+}
+/// Captured names of the already-qualified warning expression, excluding its
+/// explicit wire-type argument. Binding changes must not redirect these reads.
+pub(crate) fn warning_captures(
+    expression: &oxc_ast::ast::Expression<'_>,
+    argument: &str,
+) -> BTreeSet<String> {
+    #[derive(Default)]
+    struct Names(BTreeSet<String>);
+    impl<'a> Visit<'a> for Names {
+        fn visit_identifier_reference(&mut self, id: &IdentifierReference<'a>) {
+            self.0.insert(id.name.to_string());
+        }
+    }
+    let mut names = Names::default();
+    names.visit_expression(expression);
+    names.0.remove(argument);
+    names.0
 }
 static CURRENT: LazyLock<CurrentProfile> = LazyLock::new(|| {
     serde_json::from_str(include_str!("qualified-group-1052559453.json"))
@@ -473,7 +492,12 @@ pub(crate) fn validate_prefix_bindings<'a>(
         "e", "t", "n", "a", "i", "l", "s", "u", "c", "d", "p", "_", "f", "g", "h", "C", "D", "x",
     ];
     let original: BTreeSet<&str> = if current_handler(source)? {
-        CURRENT.root_locals.iter().map(String::as_str).collect()
+        CURRENT
+            .root_locals
+            .iter()
+            .filter(|name| !CURRENT.helper_locals.contains(name))
+            .map(String::as_str)
+            .collect()
     } else {
         ORIGINAL_ROOT_LOCALS.iter().copied().collect()
     };
@@ -837,6 +861,86 @@ mod current_tests {
             *source = changed;
             rejected(&sources);
         }
+    }
+    #[test]
+    fn unlink_cannot_skip_duplicate_or_reorder_payload_reads() {
+        let original = sources();
+        let source = &original["WAWebHandleGroupNotification"];
+        let begin = source.find("function D(e){").unwrap();
+        let end = source[begin..].find("function x(").unwrap() + begin;
+        let helper = &source[begin..end];
+        for (old, new) in [
+            (
+                "r=e.mapChildrenWithTag",
+                "r=t===\"future_type\"?null:e.mapChildrenWithTag",
+            ),
+            (
+                "var a={",
+                "var duplicate=e.mapChildrenWithTag(\"group\",function(e){return{id:o(\"WAWebJidToWid\").groupJidToWid(e.attrGroupJid(\"jid\")),subject:e.attrString(\"subject\"),subjectTime:e.attrInt(\"s_t\")}}),a={",
+            ),
+            ("var a={", "var m=\"wrong cache\",a={"),
+        ] {
+            let changed = helper.replacen(old, new, 1);
+            assert_ne!(changed, helper, "{old}");
+            let mut sources = original.clone();
+            sources.insert(
+                "WAWebHandleGroupNotification".into(),
+                source.replacen(helper, &changed, 1),
+            );
+            assert!(
+                crate::group_normalization::extract_unlink(&borrowed(&sources)).is_err(),
+                "{new}"
+            );
+        }
+    }
+    #[test]
+    fn unlink_payload_cannot_move_before_reason_reads() {
+        let mut sources = sources();
+        let source = sources.get_mut("WAWebHandleGroupNotification").unwrap();
+        let begin = source.find("function D(e){").unwrap();
+        let rest = &source[begin..];
+        let reason = rest.find("n=e.hasAttr(\"unlink_reason\")").unwrap();
+        let groups = rest.find(",r=e.mapChildrenWithTag").unwrap();
+        let end = rest.find(");if(t===").unwrap() + 1;
+        let changed = format!(
+            "{}{},{}{}",
+            &rest[..reason],
+            &rest[groups + 1..end],
+            &rest[reason..groups],
+            &rest[end..]
+        );
+        *source = format!("{}{}", &source[..begin], changed);
+        assert!(crate::group_normalization::extract_unlink(&borrowed(&sources)).is_err());
+    }
+    #[test]
+    fn link_case_locals_cannot_shadow_warning_captures() {
+        let original = sources();
+        let source = &original["WAWebHandleGroupNotification"];
+        for name in ["_", "o", "babelHelpers"] {
+            let changed = source
+                .replacen("l={sub_group:", &format!("{name}={{sub_group:"), 1)
+                .replacen("s=l[i]", &format!("s={name}[i]"), 1);
+            assert_ne!(&changed, source);
+            let mut sources = original.clone();
+            sources.insert("WAWebHandleGroupNotification".into(), changed);
+            assert!(
+                crate::group_link::extract_link(&borrowed(&sources)).is_err(),
+                "{name}"
+            );
+        }
+    }
+    #[test]
+    fn modeled_prefix_cannot_replace_a_qualified_local_helper() {
+        let mut sources = sources();
+        let source = sources.get_mut("WAWebHandleGroupNotification").unwrap();
+        let changed = source.replacen(
+            "var f=o(\"WAWebUsernameGatingUtils\")",
+            "var v=null,f=o(\"WAWebUsernameGatingUtils\")",
+            1,
+        );
+        assert_ne!(*source, changed);
+        *source = changed;
+        rejected(&sources);
     }
     #[test]
     fn warning_effect_cannot_hide_in_a_discarded_initializer() {

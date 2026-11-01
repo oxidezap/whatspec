@@ -125,7 +125,7 @@
       "error": "XmppParsingFailure: synthetic: expected <participant> to have \"type\"={superadmin|admin|participant} but has value \"future_role\""
     },
     {
-      "name": "disabled-country-and-history-gates",
+      "name": "invalid-participant-join-time-error",
       "flags": {
         "history": false,
         "username": false,
@@ -773,6 +773,80 @@
               "username": null,
               "joinTime": 123,
               "groupHistorySentState": 2
+            }
+          ],
+          "support": false,
+          "isParentGroup": false,
+          "isParentGroupClosed": false,
+          "defaultSubgroup": false,
+          "generalSubgroup": false,
+          "membershipApprovalMode": false,
+          "allowNonAdminSubGroupCreation": false,
+          "generalChatAutoAddDisabled": false,
+          "hiddenSubgroup": false,
+          "groupSafetyCheck": false,
+          "hasCapi": false,
+          "limitSharingEnabled": false
+        },
+        "isNewGroup": false
+      }
+    },
+    {
+      "name": "disabled-creator-country-and-username-success",
+      "flags": {
+        "history": false,
+        "username": false,
+        "opus": false
+      },
+      "input": {
+        "tag": "create",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "group",
+            "attrs": {
+              "subject": "synthetic",
+              "creation": "123",
+              "creator_country_code": "future",
+              "creator_username": "gated",
+              "s_o_username": "gated"
+            },
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": {
+                  "jid": "100001@lid",
+                  "join_time": "123"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "success": {
+        "actionType": "create",
+        "reason": null,
+        "contextGroupId": null,
+        "groupInfo": {
+          "subject": "synthetic",
+          "restrict": false,
+          "announce": false,
+          "noFrequentlyForwarded": false,
+          "creatorPn": null,
+          "creatorCountryCode": null,
+          "creatorUsername": null,
+          "creation": 123,
+          "participants": [
+            {
+              "displayName": null,
+              "id": "100001@lid",
+              "isSuperAdmin": false,
+              "isAdmin": false,
+              "lid": null,
+              "phoneNumber": null,
+              "username": null,
+              "joinTime": 123,
+              "groupHistorySentState": null
             }
           ],
           "support": false,
