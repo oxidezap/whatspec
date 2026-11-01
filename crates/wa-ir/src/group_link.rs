@@ -13,11 +13,13 @@ pub struct GroupLinkContract {
     pub wire_tag: String,
     pub link_type_attribute: String,
     pub group_child_tag: String,
-    /// Required group payload reads, in JavaScript evaluation order.
+    /// Group payload reads, in JavaScript evaluation order, when an action
+    /// payload is constructed (not on an early `nullResult` branch).
     pub group_fields: Vec<GroupLinkField>,
     /// `linkType: null` is the ordinary unknown-string fallback, excluding
     /// rows marked `unsupportedAction`. The wire attribute itself
-    /// is still required. An unknown type produces an undefined action upstream.
+    /// is still required. Historically an unknown type produced an undefined
+    /// action; a row with `nullResult` instead warns and returns null.
     pub rows: Vec<GroupLinkRow>,
 }
 
