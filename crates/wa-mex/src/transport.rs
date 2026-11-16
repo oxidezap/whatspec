@@ -169,6 +169,9 @@ fn forwards<'a>(
     transports: &Transports,
     visiting: &mut HashSet<String>,
 ) -> bool {
+    if function.generator {
+        return false;
+    }
     let Some(body) = &function.body else {
         return false;
     };
@@ -180,7 +183,7 @@ fn forwards<'a>(
     if visiting.len() >= 32 || !visiting.insert(name.clone()) {
         return false;
     }
-    let result = (!function.generator && direct(function, transports))
+    let result = direct(function, transports)
         || (|| {
             let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
                 return false;
@@ -520,4 +523,12 @@ fn suspended_lazy_rebound_and_shadowed_wrappers_are_not_transports() {
             "{functions}"
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn generator_apply_forwarders_do_not_run_when_called() {
+    let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function next(op,vars){return o("Relay").fetchQuery(op,vars)}function* send(op,vars){return next.apply(this,arguments)}l.custom=send;});"#;
+    let definitions = wa_transform::extract_module_definitions(source);
+    assert!(Transports::build(source, &definitions).0.is_empty());
 }
