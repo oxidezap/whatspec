@@ -2623,3 +2623,38 @@ fn tag_dispatch_accepts_equivalent_branch_forms_and_rejects_unknown_wrappers() {
         assert!(dispatch_actions(&source("var tag=child.tag();", dispatch, "")).is_empty());
     }
 }
+
+#[test]
+fn writes_inside_selected_arms_do_not_invalidate_the_dispatch_tag() {
+    let source = r#"
+        __d("Tags",[],function(t,n,r,o,a,i,l){l.TAGS={A:"a",B:"b"};});
+        __d("Handler",[],function(t,n,r,o,a,i,l){
+            function parse(child){var tag=child.tag();switch(tag){
+                case o("Tags").TAGS.A:tag="used";return {actionType:"one"};
+                case o("Tags").TAGS.B:return {actionType:"two"};
+            }}
+        });
+    "#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 2);
+    assert_eq!(actions[0].wire_tag, "a");
+    assert_eq!(actions[1].wire_tag, "b");
+    let branches = source.replace("switch(tag){\n                case o(\"Tags\").TAGS.A:tag=\"used\";return {actionType:\"one\"};\n                case o(\"Tags\").TAGS.B:return {actionType:\"two\"};\n            }", "if(tag===o(\"Tags\").TAGS.A){tag=\"used\";return {actionType:\"one\"}}if(tag===o(\"Tags\").TAGS.B)return {actionType:\"two\"};");
+    assert_ne!(source, branches);
+    assert_eq!(dispatch_actions(&branches), actions);
+}
+
+#[test]
+fn tag_aliases_follow_statement_order_and_branch_continuations() {
+    for body in [
+        r#"if(tag==="a")return {actionType:"wrong"};var tag=child.tag();"#,
+        r#"var tag=child.tag();if(flag){tag="other"}if(tag==="a")return {actionType:"wrong"};"#,
+        r#"var tag=child.tag();{tag="other"}switch(tag){case "a":return {actionType:"wrong"};}"#,
+        r#"var tag=child.tag();switch(tag){case "a":tag="other";break;}switch(tag){case "a":return {actionType:"wrong"};}"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{body}}}}});"#
+        );
+        assert!(dispatch_actions(&source).is_empty(), "{body}");
+    }
+}

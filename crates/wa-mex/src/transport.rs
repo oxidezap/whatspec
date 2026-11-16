@@ -242,12 +242,23 @@ fn apply_target<'b>(expression: &'b Expression<'_>) -> Option<&'b str> {
 }
 
 fn direct(function: &Function, transports: &Transports) -> bool {
-    let params: Vec<_> = function
+    if function.params.items.len() != 2 {
+        return false;
+    }
+    let params = function
         .params
         .items
         .iter()
-        .filter_map(|p| p.pattern.get_identifier_name())
-        .collect();
+        .map(|parameter| match &parameter.pattern {
+            oxc_ast::ast::BindingPattern::BindingIdentifier(identifier)
+                if parameter.initializer.is_none() =>
+            {
+                Some(identifier.name)
+            }
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(params) = params else { return false };
     if params.len() != 2 || function.params.rest.is_some() {
         return false;
     }
@@ -423,6 +434,26 @@ fn rewritten_helpers_and_exports_cannot_qualify_a_transport() {
         assert!(
             Transports::build(&source, &definitions).0.is_empty(),
             "{tail}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn destructuring_cannot_shift_transport_parameter_positions() {
+    for parameters in [
+        "op,{meta},vars",
+        "op,vars={input:1}",
+        "op,{vars}",
+        "op,...vars",
+    ] {
+        let source = format!(
+            r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{function send({parameters}){{return o("Relay").fetchQuery(op,vars)}}l.custom=send;}});"#
+        );
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{parameters}"
         );
     }
 }

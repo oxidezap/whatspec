@@ -440,6 +440,7 @@ pub(crate) fn extract_actions(
         ctx: &ctx,
         best: None,
         tag_locals: Default::default(),
+        if_actions: Default::default(),
     };
     finder.visit_program(&ret.program);
     finder.best.filter(|v| !v.is_empty())
@@ -543,7 +544,8 @@ struct SwitchFinder<'c, 'a> {
     /// Locals bound to a child's TAG in the function currently being walked
     /// (`var a = t.tag()`), so a switch can be identified by what it dispatches ON
     /// rather than by how many arms it happens to have.
-    tag_locals: std::collections::HashSet<String>,
+    tag_locals: HashMap<String, u32>,
+    if_actions: std::collections::BTreeMap<(String, Option<u32>), Vec<NotifActionDef>>,
 }
 
 /// Whether `e` reads a node's tag — `t.tag()` or `t.tag`.
@@ -596,6 +598,15 @@ impl SwitchFinder<'_, '_> {
                 }
                 walk::walk_assignment_expression(self, assignment);
             }
+            fn visit_variable_declarator(
+                &mut self,
+                declaration: &oxc_ast::ast::VariableDeclarator<'a>,
+            ) {
+                for identifier in declaration.id.get_binding_identifiers() {
+                    self.0.insert(identifier.name.to_string());
+                }
+                walk::walk_variable_declarator(self, declaration);
+            }
             fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
                 if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
                     &update.argument
@@ -609,66 +620,45 @@ impl SwitchFinder<'_, '_> {
         for statement in statements {
             writes.visit_statement(statement);
         }
-        self.tag_locals.retain(|name| !writes.0.contains(name));
+        self.tag_locals.retain(|name, _| !writes.0.contains(name));
     }
 
-    fn scan_if_dispatch(&mut self, statements: &[Statement]) {
-        fn collect<'b, 'a>(
-            statement: &'b Statement<'a>,
-            out: &mut Vec<&'b oxc_ast::ast::IfStatement<'a>>,
-        ) {
-            if let Statement::IfStatement(branch) = statement {
-                out.push(branch);
-                if let Some(other) = &branch.alternate {
-                    collect(other, out);
-                }
-            }
+    fn record_if_dispatch(&mut self, branch: &oxc_ast::ast::IfStatement) {
+        let Expression::BinaryExpression(test) = branch.test.without_parentheses() else {
+            return;
+        };
+        if test.operator != oxc_syntax::operator::BinaryOperator::StrictEquality {
+            return;
         }
-        let mut groups: std::collections::BTreeMap<String, Vec<NotifActionDef>> =
-            std::collections::BTreeMap::new();
-        for statement in statements {
-            let mut branches = Vec::new();
-            collect(statement, &mut branches);
-            for branch in branches {
-                let Expression::BinaryExpression(test) = branch.test.without_parentheses() else {
-                    continue;
-                };
-                if test.operator != oxc_syntax::operator::BinaryOperator::StrictEquality {
-                    continue;
-                }
-                let pair = [(&test.left, &test.right), (&test.right, &test.left)]
-                    .into_iter()
-                    .find_map(|(value, label)| {
-                        let on_tag = self.reads_tag(value)
-                            || as_identifier(value)
-                                .is_some_and(|name| self.tag_locals.contains(name));
-                        on_tag
-                            .then(|| dispatch_tag(label, self.ctx.consts))
-                            .flatten()
-                            .map(|tag| (value, tag))
-                    });
-                let Some((value, tag)) = pair else { continue };
-                let run = match &branch.consequent {
-                    Statement::BlockStatement(block) => as_refs(&block.body),
-                    statement => vec![statement],
-                };
-                if !list_exits_refs(&run, false) {
-                    continue;
-                }
-                let span = oxc_span::GetSpan::span(value);
-                let key = self.ctx.source[span.start as usize..span.end as usize].to_string();
-                groups
-                    .entry(key)
-                    .or_default()
-                    .extend(extract_action_arm(&tag, &run, self.ctx));
-            }
+        let pair = [(&test.left, &test.right), (&test.right, &test.left)]
+            .into_iter()
+            .find_map(|(value, label)| {
+                let on_tag = self.reads_tag(value)
+                    || as_identifier(value).is_some_and(|name| self.tag_locals.contains_key(name));
+                on_tag
+                    .then(|| dispatch_tag(label, self.ctx.consts))
+                    .flatten()
+                    .map(|tag| (value, tag))
+            });
+        let Some((value, tag)) = pair else { return };
+        let run = match &branch.consequent {
+            Statement::BlockStatement(block) => as_refs(&block.body),
+            statement => vec![statement],
+        };
+        if !list_exits_refs(&run, false) {
+            return;
         }
-        for actions in groups.into_values() {
-            if actions.iter().any(is_meaningful)
-                && actions.len() > self.best.as_ref().map_or(0, Vec::len)
-            {
-                self.best = Some(actions);
-            }
+        let span = oxc_span::GetSpan::span(value);
+        let name = self.ctx.source[span.start as usize..span.end as usize].to_string();
+        let origin = as_identifier(value)
+            .and_then(|name| self.tag_locals.get(name))
+            .copied();
+        let actions = self.if_actions.entry((name, origin)).or_default();
+        actions.extend(extract_action_arm(&tag, &run, self.ctx));
+        if actions.iter().any(is_meaningful)
+            && actions.len() > self.best.as_ref().map_or(0, Vec::len)
+        {
+            self.best = Some(actions.clone());
         }
     }
 }
@@ -769,7 +759,8 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
-            tag_locals: HashSet::new(),
+            tag_locals: HashMap::new(),
+            if_actions: Default::default(),
         };
         if let Some(body) = &function.body {
             nested.visit_function_body(body);
@@ -814,7 +805,8 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
-            tag_locals: HashSet::new(),
+            tag_locals: HashMap::new(),
+            if_actions: Default::default(),
         };
         nested.visit_function_body(&function.body);
         if let Some(best) = nested.best
@@ -870,22 +862,41 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             ctx: &ctx,
             best: None,
             tag_locals: self.tag_locals.clone(),
+            if_actions: Default::default(),
         };
+        // Lexical bindings hide inherited aliases before their initialization too.
         for statement in &block.body {
-            if let Statement::VariableDeclaration(declaration) = statement {
+            if let Statement::VariableDeclaration(declaration) = statement
+                && !declaration.kind.is_var()
+            {
                 for binding in &declaration.declarations {
-                    if let (Some(name), Some(init)) =
-                        (binding.id.get_identifier_name(), binding.init.as_ref())
-                        && nested.reads_tag(init)
-                    {
-                        nested.tag_locals.insert(name.to_string());
+                    for name in binding.id.get_binding_identifiers() {
+                        nested.tag_locals.remove(name.name.as_str());
                     }
                 }
             }
         }
-        nested.discard_rewritten_tags(&block.body);
-        nested.scan_if_dispatch(&block.body);
         walk::walk_block_statement(&mut nested, block);
+        let mut outgoing = nested.tag_locals;
+        for statement in &block.body {
+            if let Statement::VariableDeclaration(declaration) = statement
+                && !declaration.kind.is_var()
+            {
+                for binding in &declaration.declarations {
+                    for name in binding.id.get_binding_identifiers() {
+                        match self.tag_locals.get(name.name.as_str()) {
+                            Some(origin) => {
+                                outgoing.insert(name.name.to_string(), *origin);
+                            }
+                            None => {
+                                outgoing.remove(name.name.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.tag_locals = outgoing;
         if let Some(best) = nested.best
             && self
                 .best
@@ -896,8 +907,6 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
     }
 
-    /// Record this function's `var x = child.tag()` bindings before walking its body,
-    /// so a switch inside it can be checked against them.
     fn visit_function_body(&mut self, body: &oxc_ast::ast::FunctionBody<'a>) {
         let mut declarations = LocalFns::default();
         declarations.visit_function_body(body);
@@ -917,22 +926,9 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
-            tag_locals: HashSet::new(),
+            tag_locals: HashMap::new(),
+            if_actions: Default::default(),
         };
-        for statement in &body.statements {
-            if let Statement::VariableDeclaration(declaration) = statement {
-                for binding in &declaration.declarations {
-                    if let (Some(name), Some(init)) =
-                        (binding.id.get_identifier_name(), binding.init.as_ref())
-                        && nested.reads_tag(init)
-                    {
-                        nested.tag_locals.insert(name.to_string());
-                    }
-                }
-            }
-        }
-        nested.discard_rewritten_tags(&body.statements);
-        nested.scan_if_dispatch(&body.statements);
         walk::walk_function_body(&mut nested, body);
         if let Some(best) = nested.best
             && self
@@ -944,15 +940,73 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
     }
 
+    fn visit_variable_declarator(&mut self, declaration: &oxc_ast::ast::VariableDeclarator<'a>) {
+        walk::walk_variable_declarator(self, declaration);
+        if let Some(name) = declaration.id.get_identifier_name() {
+            if let Some(init) = &declaration.init
+                && self.reads_tag(init)
+            {
+                self.tag_locals
+                    .insert(name.to_string(), oxc_span::GetSpan::span(init).start);
+            } else if declaration.init.is_some() {
+                self.tag_locals.remove(name.as_str());
+            }
+        }
+    }
+
+    fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
+        walk::walk_assignment_expression(self, assignment);
+        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
+            self.tag_locals.remove(name);
+        }
+    }
+
+    fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
+        walk::walk_update_expression(self, update);
+        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
+            &update.argument
+        {
+            self.tag_locals.remove(id.name.as_str());
+        }
+    }
+
+    fn visit_if_statement(&mut self, branch: &oxc_ast::ast::IfStatement<'a>) {
+        self.record_if_dispatch(branch);
+        self.visit_expression(&branch.test);
+        let incoming = self.tag_locals.clone();
+        self.visit_statement(&branch.consequent);
+        let consequent = self.tag_locals.clone();
+        self.tag_locals = incoming;
+        if let Some(alternate) = &branch.alternate {
+            self.visit_statement(alternate);
+        }
+        let consequent_exits = list_exits_refs(&[&branch.consequent], false);
+        let alternate_exits = branch
+            .alternate
+            .as_ref()
+            .is_some_and(|statement| list_exits_refs(&[statement], false));
+        if !consequent_exits {
+            if alternate_exits {
+                self.tag_locals = consequent;
+            } else {
+                self.tag_locals
+                    .retain(|name, origin| consequent.get(name) == Some(origin));
+            }
+        }
+    }
+
     fn visit_switch_statement(&mut self, switch: &SwitchStatement<'a>) {
         // Identified by what it dispatches ON, not by size. The payload union switches on
         // a mapped child's TAG (`var a = t.tag(); switch (a)`); an unrelated const-keyed
         // switch in the same module — with more returning arms — would otherwise win the
         // "most arms" tie-break and publish non-wire constants as `wireTag`s.
         let on_tag = self.reads_tag(&switch.discriminant)
-            || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains(n));
+            || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains_key(n));
         if !on_tag {
             walk::walk_switch_statement(self, switch);
+            for case in &switch.cases {
+                self.discard_rewritten_tags(&case.consequent);
+            }
             return;
         }
         let actions = extract_switch(switch, self.ctx);
@@ -969,6 +1023,9 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             self.best = Some(actions);
         }
         walk::walk_switch_statement(self, switch);
+        for case in &switch.cases {
+            self.discard_rewritten_tags(&case.consequent);
+        }
     }
 }
 
