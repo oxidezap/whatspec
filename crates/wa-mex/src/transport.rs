@@ -462,6 +462,14 @@ impl Transports {
                         self.visit_block_statement(&clause.body);
                         self.shadowed = outer;
                     }
+                    fn visit_unary_expression(
+                        &mut self,
+                        expression: &oxc_ast::ast::UnaryExpression<'a>,
+                    ) {
+                        self.opaque |=
+                            expression.operator == oxc_syntax::operator::UnaryOperator::Delete;
+                        walk::walk_unary_expression(self, expression);
+                    }
                     fn visit_new_expression(&mut self, _: &oxc_ast::ast::NewExpression<'a>) {
                         self.opaque = true;
                     }
@@ -1319,6 +1327,8 @@ fn strict_block_functions_do_not_hide_outer_helper_replacements() {
 fn review_dynamic_exports_and_sloppy_block_functions_cannot_qualify() {
     for body in [
         r#"l.custom=send;l[key]=changed;"#,
+        r#"l.custom=send;delete l.custom;"#,
+        r#"l.custom=send;delete l[key];"#,
         r#"(function(){{function send(){}}l.custom=send})();"#,
     ] {
         let source = format!(
