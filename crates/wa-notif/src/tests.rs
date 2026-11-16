@@ -3233,3 +3233,72 @@ fn property_updates_and_named_captured_writes_invalidate_saved_values() {
         );
     }
 }
+
+#[test]
+fn ordered_conditional_writes_and_arm_closures_withhold_stale_sources() {
+    for body in [
+        r#"var ignored=(id=child.attrString("jid"),flag&&(id=child.attrString("lid")));"#,
+        r#"(()=>{id=child.attrString("lid")})();"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("jid");if(child.tag()==="a"){{{body}return {{actionType:"one",id}};}}}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)[0]
+                .fields
+                .iter()
+                .all(|field| field.wire_name != "jid"),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn destructuring_and_block_declarations_hide_saved_wire_values() {
+    for declaration in [
+        "var {id}=other;",
+        "var [id]=other;",
+        "class id {}",
+        "function id(){}",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("id");{{{declaration}if(child.tag()==="a")return {{actionType:"one",id}};}}}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)[0].fields.is_empty(),
+            "{declaration}"
+        );
+    }
+}
+
+#[test]
+fn arm_closure_effects_do_not_change_earlier_returns() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");if(child.tag()==="a"){if(flag)return {actionType:"one",id};(()=>{id=child.attrString("lid")})();return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    let earlier = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("one"))
+        .unwrap();
+    assert_eq!(earlier.fields[0].wire_name, "jid");
+    let later = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("two"))
+        .unwrap();
+    assert!(later.fields.is_empty());
+}
+
+#[test]
+fn block_class_masking_applies_inside_arms_and_restores_outer_values() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");if(child.tag()==="a"){{class id{}if(flag)return {actionType:"one",id};}return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    let hidden = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("one"))
+        .unwrap();
+    assert!(hidden.fields.is_empty());
+    let restored = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("two"))
+        .unwrap();
+    assert_eq!(restored.fields[0].wire_name, "id");
+}

@@ -1232,6 +1232,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
         let mut locals = std::borrow::Cow::Borrowed(self.ctx.locals);
         let mut formals = self.ctx.formals.clone();
+        formals.extend(wa_oxc::block_bindings(&block.body));
         for statement in &block.body {
             if let Statement::VariableDeclaration(declaration) = statement {
                 for binding in &declaration.declarations {
@@ -1278,23 +1279,15 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             bindings: self.bindings.clone(),
             constraints: self.constraints.clone(),
         };
-        // Lexical bindings hide inherited aliases before their initialization too.
-        for statement in &block.body {
-            if let Statement::VariableDeclaration(declaration) = statement
-                && !declaration.kind.is_var()
-            {
-                for binding in &declaration.declarations {
-                    for name in binding.id.get_binding_identifiers() {
-                        nested.tag_locals.remove(name.name.as_str());
-                        nested.bindings.insert(
-                            name.name.to_string(),
-                            SavedBinding::Unknown {
-                                origin: name.span.start,
-                            },
-                        );
-                    }
-                }
-            }
+        let block_bindings = wa_oxc::block_bindings(&block.body);
+        for name in &block_bindings {
+            nested.tag_locals.remove(name);
+            nested.bindings.insert(
+                name.clone(),
+                SavedBinding::Unknown {
+                    origin: block.span.start,
+                },
+            );
         }
         let mut exited = false;
         for statement in &block.body {
@@ -1305,29 +1298,21 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
         let mut outgoing = nested.tag_locals;
         let mut outgoing_bindings = nested.bindings;
-        for statement in &block.body {
-            if let Statement::VariableDeclaration(declaration) = statement
-                && !declaration.kind.is_var()
-            {
-                for binding in &declaration.declarations {
-                    for name in binding.id.get_binding_identifiers() {
-                        match self.bindings.get(name.name.as_str()) {
-                            Some(span) => {
-                                outgoing_bindings.insert(name.name.to_string(), span.clone());
-                            }
-                            None => {
-                                outgoing_bindings.remove(name.name.as_str());
-                            }
-                        }
-                        match self.tag_locals.get(name.name.as_str()) {
-                            Some(origin) => {
-                                outgoing.insert(name.name.to_string(), *origin);
-                            }
-                            None => {
-                                outgoing.remove(name.name.as_str());
-                            }
-                        }
-                    }
+        for name in &block_bindings {
+            match self.bindings.get(name) {
+                Some(value) => {
+                    outgoing_bindings.insert(name.clone(), value.clone());
+                }
+                None => {
+                    outgoing_bindings.remove(name);
+                }
+            }
+            match self.tag_locals.get(name) {
+                Some(origin) => {
+                    outgoing.insert(name.clone(), *origin);
+                }
+                None => {
+                    outgoing.remove(name);
                 }
             }
         }
@@ -1401,6 +1386,10 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                     .insert(name.to_string(), oxc_span::GetSpan::span(init).start);
             } else if declaration.init.is_some() {
                 self.tag_locals.remove(name.as_str());
+            }
+        } else if declaration.init.is_some() {
+            for id in declaration.id.get_binding_identifiers() {
+                self.invalidate_binding(id.name.as_str());
             }
         }
     }
@@ -2147,23 +2136,21 @@ fn collect_returns_into<'b, 'a>(
     scope: &mut Scope<'b, 'a>,
     out: &mut Vec<Shape<'b, 'a>>,
 ) {
+    for name in block_scoped_names(stmts) {
+        scope.remove(name);
+    }
     for s in stmts.iter().copied() {
         match s {
             Statement::VariableDeclaration(decl) => {
                 for d in &decl.declarations {
                     if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
                     {
-                        for written in conditional_writes(init) {
-                            scope.remove(written);
-                        }
-                        let mut assignments = Vec::new();
-                        flatten_sequence(init, &mut assignments);
-                        for assignment in assignments {
-                            if let Some(written) = assignment.left.get_identifier_name() {
-                                scope.insert(written, &assignment.right);
-                            }
-                        }
+                        apply_expression_effects(init, scope);
                         scope.insert(name.as_str(), init);
+                    } else if d.init.is_some() {
+                        for id in d.id.get_binding_identifiers() {
+                            scope.remove(id.name.as_str());
+                        }
                     }
                 }
             }
@@ -2179,29 +2166,7 @@ fn collect_returns_into<'b, 'a>(
             // (`a = t.attrString("jid"), b = t.attrInt("n")`), which arrives as a
             // `SequenceExpression`; matching only a bare assignment skipped those
             // entirely and left the stale initializer installed.
-            Statement::ExpressionStatement(e) => {
-                // A write buried in a short-circuit or ternary runs on SOME paths only:
-                // `cond && (x = attrString("lid"))` leaves `x` holding either value, so
-                // the name no longer has one known source and is tombstoned. Ignoring it
-                // left the pre-expression binding installed and published it as fact.
-                for name in conditional_writes(&e.expression) {
-                    scope.remove(name);
-                }
-                let mut ops = Vec::new();
-                flatten_sequence(&e.expression, &mut ops);
-                for a in ops {
-                    if let Some(name) = a.left.get_identifier_name() {
-                        // The binding now holds the new right-hand side, whatever it is.
-                        // Requiring it to resolve to a wire accessor dropped the minifier's
-                        // `var x; x = {actionType: A, id: attr("jid")}; return x` — a fully
-                        // static shape — and published an empty action. Pointing the name at
-                        // what it now holds satisfies the "never report an overwritten
-                        // value" rule better than forgetting it: if the new value is not
-                        // interpretable, the field simply does not resolve.
-                        scope.insert(name, &a.right);
-                    }
-                }
-            }
+            Statement::ExpressionStatement(e) => apply_expression_effects(&e.expression, scope),
             Statement::ReturnStatement(r) => {
                 if let Some(arg) = r.argument.as_ref() {
                     let mut branches = Vec::new();
@@ -2218,10 +2183,11 @@ fn collect_returns_into<'b, 'a>(
                 // `var` writes escape a bare block (function scope); `let`/`const` do not.
                 // Propagating everything let an inner `let x` shadow the outer `x` for the
                 // rest of the function — the runtime reads the OUTER value after the block.
-                let shadowed: Vec<(&str, Option<&'b Expression<'a>>)> = block_scoped_names(&b.body)
-                    .into_iter()
-                    .map(|n| (n, scope.get(n).copied()))
-                    .collect();
+                let shadowed: Vec<(&str, Option<&'b Expression<'a>>)> =
+                    block_scoped_names(&as_refs(&b.body))
+                        .into_iter()
+                        .map(|n| (n, scope.get(n).copied()))
+                        .collect();
                 collect_returns_into(&as_refs(&b.body), scope, out);
                 for (name, prior) in shadowed {
                     match prior {
@@ -2364,13 +2330,7 @@ fn collect_returns_into<'b, 'a>(
                         }
                         Some(init) => {
                             if let Some(e) = init.as_expression() {
-                                let mut ops = Vec::new();
-                                flatten_sequence(e, &mut ops);
-                                for a in ops {
-                                    if let Some(n) = a.left.get_identifier_name() {
-                                        entry.insert(n, &a.right);
-                                    }
-                                }
+                                apply_expression_effects(e, &mut entry);
                             }
                         }
                         None => {}
@@ -2394,19 +2354,32 @@ fn collect_returns_into<'b, 'a>(
 
 /// The names a statement list declares with `let`/`const` — bindings that die with their
 /// block, unlike `var`.
-fn block_scoped_names<'b, 'a>(stmts: &'b [Statement<'a>]) -> Vec<&'b str> {
-    use oxc_ast::ast::VariableDeclarationKind as K;
+fn block_scoped_names<'b, 'a>(stmts: &[&'b Statement<'a>]) -> Vec<&'b str> {
     let mut out = Vec::new();
-    for s in stmts {
-        if let Statement::VariableDeclaration(d) = s
-            && matches!(d.kind, K::Let | K::Const)
-        {
-            out.extend(
-                d.declarations
-                    .iter()
-                    .filter_map(|x| x.id.get_identifier_name())
-                    .map(|n| n.as_str()),
-            );
+    for statement in stmts {
+        match statement {
+            Statement::VariableDeclaration(declaration) if !declaration.kind.is_var() => {
+                for binding in &declaration.declarations {
+                    out.extend(
+                        binding
+                            .id
+                            .get_binding_identifiers()
+                            .into_iter()
+                            .map(|id| id.name.as_str()),
+                    );
+                }
+            }
+            Statement::ClassDeclaration(class) => {
+                if let Some(id) = &class.id {
+                    out.push(id.name.as_str());
+                }
+            }
+            Statement::FunctionDeclaration(function) => {
+                if let Some(id) = &function.id {
+                    out.push(id.name.as_str());
+                }
+            }
+            _ => {}
         }
     }
     out
@@ -2424,62 +2397,56 @@ fn loop_body<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b Statement<'a>> {
     }
 }
 
-/// The assignment operands of an expression, flattening the minifier's comma sequences.
-fn flatten_sequence<'b, 'a>(
-    e: &'b Expression<'a>,
-    out: &mut Vec<&'b oxc_ast::ast::AssignmentExpression<'a>>,
-) {
-    match e {
-        Expression::AssignmentExpression(a) => out.push(a),
-        Expression::SequenceExpression(seq) => {
-            for sub in &seq.expressions {
-                flatten_sequence(sub, out);
+fn apply_expression_effects<'b, 'a>(expression: &'b Expression<'a>, scope: &mut Scope<'b, 'a>) {
+    match expression.without_parentheses() {
+        Expression::AssignmentExpression(assignment) => {
+            apply_expression_effects(&assignment.right, scope);
+            if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
+                if assignment.operator == oxc_syntax::operator::AssignmentOperator::Assign {
+                    scope.insert(name, &assignment.right);
+                } else {
+                    scope.remove(name);
+                }
+            } else {
+                for name in wa_oxc::assignment_target_names(&assignment.left) {
+                    scope.remove(name.as_str());
+                }
             }
         }
-        Expression::ParenthesizedExpression(p) => flatten_sequence(&p.expression, out),
+        Expression::SequenceExpression(sequence) => {
+            for expression in &sequence.expressions {
+                apply_expression_effects(expression, scope);
+            }
+        }
         Expression::BinaryExpression(binary) => {
-            flatten_sequence(&binary.left, out);
-            flatten_sequence(&binary.right, out);
+            apply_expression_effects(&binary.left, scope);
+            apply_expression_effects(&binary.right, scope);
         }
-        Expression::ConditionalExpression(conditional) => flatten_sequence(&conditional.test, out),
-        Expression::LogicalExpression(logical) => flatten_sequence(&logical.left, out),
-        _ => {}
-    }
-}
-
-/// Names assigned inside a CONDITIONAL part of an expression — an operand of `&&`/`||`
-/// or either arm of a ternary. Definite top-level writes are excluded; [`flatten_sequence`]
-/// handles those.
-fn conditional_writes<'b>(e: &'b Expression) -> Vec<&'b str> {
-    fn walk<'b>(e: &'b Expression, guarded: bool, out: &mut Vec<&'b str>) {
-        match e {
-            Expression::AssignmentExpression(a) => {
-                if guarded && let Some(n) = a.left.get_identifier_name() {
-                    out.push(n);
-                }
-                walk(&a.right, guarded, out);
+        Expression::LogicalExpression(logical) => {
+            apply_expression_effects(&logical.left, scope);
+            let mut writes = WriteNames::default();
+            writes.visit_expression(&logical.right);
+            for name in writes.names {
+                scope.remove(name.as_str());
             }
-            Expression::LogicalExpression(l) => {
-                walk(&l.left, guarded, out);
-                walk(&l.right, true, out);
+        }
+        Expression::ConditionalExpression(conditional) => {
+            apply_expression_effects(&conditional.test, scope);
+            let mut writes = WriteNames::default();
+            writes.visit_expression(&conditional.consequent);
+            writes.visit_expression(&conditional.alternate);
+            for name in writes.names {
+                scope.remove(name.as_str());
             }
-            Expression::ConditionalExpression(c) => {
-                walk(&c.test, guarded, out);
-                walk(&c.consequent, true, out);
-                walk(&c.alternate, true, out);
+        }
+        _ => {
+            let mut writes = WriteNames::default();
+            writes.visit_expression(expression);
+            for name in writes.names {
+                scope.remove(name.as_str());
             }
-            Expression::SequenceExpression(seq) => {
-                for sub in &seq.expressions {
-                    walk(sub, guarded, out);
-                }
-            }
-            Expression::ParenthesizedExpression(p) => walk(&p.expression, guarded, out),
-            _ => {}
         }
     }
-    let mut out = Vec::new();
-    walk(e, false, &mut out);
-    out
 }
 
 /// Re-apply the writes a statement list performs, for a construct that runs on EVERY
@@ -2497,15 +2464,7 @@ fn replay_writes<'b, 'a>(stmts: &'b [Statement<'a>], scope: &mut Scope<'b, 'a>) 
                     }
                 }
             }
-            Statement::ExpressionStatement(e) => {
-                let mut ops = Vec::new();
-                flatten_sequence(&e.expression, &mut ops);
-                for a in ops {
-                    if let Some(n) = a.left.get_identifier_name() {
-                        scope.insert(n, &a.right);
-                    }
-                }
-            }
+            Statement::ExpressionStatement(e) => apply_expression_effects(&e.expression, scope),
             _ => {}
         }
     }
@@ -2514,81 +2473,8 @@ fn replay_writes<'b, 'a>(stmts: &'b [Statement<'a>], scope: &mut Scope<'b, 'a>) 
 /// Drop every binding a conditional construct may have reassigned, so statements after
 /// the rejoin do not read a value that only one path wrote.
 fn tombstone_branch_writes(s: &Statement, scope: &mut Scope) {
-    let mut names = Vec::new();
-    assigned_names(s, &mut names);
-    for n in names {
-        scope.remove(n);
-    }
-}
-
-/// Every identifier assigned anywhere inside `s`, not descending into nested functions
-/// (whose assignments belong to their own scope, not this one).
-fn assigned_names<'a>(s: &'a Statement, out: &mut Vec<&'a str>) {
-    fn expr<'a>(e: &'a Expression, out: &mut Vec<&'a str>) {
-        match e {
-            Expression::AssignmentExpression(a) => {
-                if let Some(n) = a.left.get_identifier_name() {
-                    out.push(n);
-                }
-                expr(&a.right, out);
-            }
-            Expression::SequenceExpression(seq) => {
-                seq.expressions.iter().for_each(|e| expr(e, out))
-            }
-            Expression::ParenthesizedExpression(p) => expr(&p.expression, out),
-            Expression::ConditionalExpression(c) => {
-                expr(&c.test, out);
-                expr(&c.consequent, out);
-                expr(&c.alternate, out);
-            }
-            Expression::LogicalExpression(l) => {
-                expr(&l.left, out);
-                expr(&l.right, out);
-            }
-            _ => {}
-        }
-    }
-    match s {
-        Statement::ExpressionStatement(e) => expr(&e.expression, out),
-        Statement::VariableDeclaration(d) => {
-            for decl in &d.declarations {
-                if let (Some(n), Some(_)) = (decl.id.get_identifier_name(), decl.init.as_ref()) {
-                    out.push(n.as_str());
-                }
-            }
-        }
-        Statement::BlockStatement(b) => b.body.iter().for_each(|s| assigned_names(s, out)),
-        Statement::IfStatement(i) => {
-            expr(&i.test, out);
-            assigned_names(&i.consequent, out);
-            if let Some(a) = &i.alternate {
-                assigned_names(a, out);
-            }
-        }
-        s if loop_body(s).is_some() => {
-            if let Some(b) = loop_body(s) {
-                assigned_names(b, out);
-            }
-        }
-        Statement::TryStatement(t) => {
-            t.block.body.iter().for_each(|s| assigned_names(s, out));
-            if let Some(h) = &t.handler {
-                h.body.body.iter().for_each(|s| assigned_names(s, out));
-            }
-            if let Some(f) = &t.finalizer {
-                f.body.iter().for_each(|s| assigned_names(s, out));
-            }
-        }
-        Statement::SwitchStatement(sw) => sw
-            .cases
-            .iter()
-            .for_each(|c| c.consequent.iter().for_each(|s| assigned_names(s, out))),
-        Statement::ReturnStatement(r) => {
-            if let Some(a) = r.argument.as_ref() {
-                expr(a, out);
-            }
-        }
-        _ => {}
+    for name in written_names(std::slice::from_ref(s)) {
+        scope.remove(name.as_str());
     }
 }
 
