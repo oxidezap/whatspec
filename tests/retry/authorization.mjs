@@ -83,7 +83,7 @@ function assertCase(source,c){
   return t;
 }
 export function authorizationOracle(audit){
-  if(audit.waVersion==='2.3000.1052559453')return authorizationLatestOracle(audit);
+  if(['2.3000.1052559453','2.3000.1054751086'].includes(audit.waVersion))return authorizationLatestOracle(audit);
   const record=audit.modules.find(m=>m.module==='WAWebProcessRetryKeyBundle');
   assert.equal(record.inventory.generators.length,2);
   const source=record.inventory.generators[0].source;

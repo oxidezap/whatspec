@@ -8355,11 +8355,24 @@
         "input"
       ],
       "variablesShape": {
-        "input": "string"
+        "input": {
+          "event_id": "string",
+          "invited_user_lids": [
+            "string"
+          ]
+        }
       },
       "variablesPresence": {
         "input": {
-          "presence": "undetermined"
+          "presence": "always",
+          "fields": {
+            "event_id": {
+              "presence": "conditional"
+            },
+            "invited_user_lids": {
+              "presence": "undetermined"
+            }
+          }
         }
       },
       "response": {
@@ -8409,7 +8422,7 @@
       },
       "variablesPresence": {
         "input": {
-          "presence": "undetermined"
+          "presence": "conditional"
         }
       },
       "response": {
@@ -8508,11 +8521,26 @@
         "input"
       ],
       "variablesShape": {
-        "input": "string"
+        "input": {
+          "event_id": "string",
+          "event_last_updated_ts_usec": "string",
+          "invitation_last_updated_ts_usec": "string"
+        }
       },
       "variablesPresence": {
         "input": {
-          "presence": "undetermined"
+          "presence": "always",
+          "fields": {
+            "event_id": {
+              "presence": "conditional"
+            },
+            "event_last_updated_ts_usec": {
+              "presence": "conditional"
+            },
+            "invitation_last_updated_ts_usec": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -8675,11 +8703,18 @@
         "input"
       ],
       "variablesShape": {
-        "input": "string"
+        "input": {
+          "link_token": "string"
+        }
       },
       "variablesPresence": {
         "input": {
-          "presence": "undetermined"
+          "presence": "always",
+          "fields": {
+            "link_token": {
+              "presence": "conditional"
+            }
+          }
         }
       },
       "response": {
@@ -8755,11 +8790,39 @@
         "input"
       ],
       "variablesShape": {
-        "input": "string"
+        "input": {
+          "categories": [
+            "string"
+          ],
+          "page_size": "number",
+          "time_range": {
+            "end_ts_sec": "string",
+            "start_ts_sec": "string"
+          }
+        }
       },
       "variablesPresence": {
         "input": {
-          "presence": "undetermined"
+          "presence": "always",
+          "fields": {
+            "categories": {
+              "presence": "always"
+            },
+            "page_size": {
+              "presence": "always"
+            },
+            "time_range": {
+              "presence": "always",
+              "fields": {
+                "end_ts_sec": {
+                  "presence": "always"
+                },
+                "start_ts_sec": {
+                  "presence": "always"
+                }
+              }
+            }
+          }
         }
       },
       "response": {
@@ -9037,11 +9100,24 @@
         "input"
       ],
       "variablesShape": {
-        "input": "string"
+        "input": {
+          "event_id": "string",
+          "invited_user_lids": [
+            "string"
+          ]
+        }
       },
       "variablesPresence": {
         "input": {
-          "presence": "undetermined"
+          "presence": "always",
+          "fields": {
+            "event_id": {
+              "presence": "conditional"
+            },
+            "invited_user_lids": {
+              "presence": "undetermined"
+            }
+          }
         }
       },
       "response": {
@@ -9084,7 +9160,7 @@
       },
       "variablesPresence": {
         "input": {
-          "presence": "undetermined"
+          "presence": "conditional"
         }
       },
       "response": {

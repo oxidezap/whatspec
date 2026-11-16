@@ -293,6 +293,8 @@ pub(crate) struct VarScope {
     bundled_rpc: bool,
     guard_optional_descendants: bool,
     local_merges: std::collections::HashSet<(usize, usize)>,
+    non_sync_functions: std::collections::HashSet<(usize, usize)>,
+    destructured_writes: HashMap<String, Vec<(usize, usize)>>,
     vars: HashMap<String, Vec<VarInit>>,
     /// Every function as `(body_start, body_end, parameter_names)` — all of them, not
     /// only the ones shaped like a builder.
@@ -319,10 +321,40 @@ impl VarScope {
         if self.bundled_rpc { 32 } else { MAX_FN_DEPTH }
     }
 
+    fn has_destructured_write(&self, name: &str, offset: Option<usize>) -> bool {
+        let Some(offset) = offset else {
+            return false;
+        };
+        let binding_width = self
+            .vars
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter(|init| {
+                init.owner_fn
+                    .is_none_or(|(start, end)| start <= offset && offset < end)
+            })
+            .map(|init| {
+                init.owner_fn
+                    .map(|(start, end)| end - start)
+                    .unwrap_or(usize::MAX)
+            })
+            .min()
+            .unwrap_or(usize::MAX);
+        self.destructured_writes
+            .get(name)
+            .into_iter()
+            .flatten()
+            .any(|(start, end)| *start <= offset && offset < *end && end - start <= binding_width)
+    }
+
     /// Resolve the closest visible binding before asking whether it is a function.
     /// A nearer variable or formal shadows an outer helper too.
     fn visible_function(&self, name: &str, ref_off: Option<usize>) -> Option<(usize, usize)> {
         let offset = ref_off?;
+        if self.has_destructured_write(name, ref_off) {
+            return None;
+        }
         let initializers = self.vars.get(name)?;
         let visible = |init: &&VarInit| {
             init.owner_fn
@@ -349,7 +381,8 @@ impl VarScope {
             .filter(|init| init.owner_fn == owner)
             .filter_map(|init| init.fn_body);
         let function = functions.next()?;
-        functions.all(|other| other == function).then_some(function)
+        (functions.all(|other| other == function) && !self.non_sync_functions.contains(&function))
+            .then_some(function)
     }
 
     fn callable_spans(&self, name: &str, ref_off: Option<usize>) -> Vec<(usize, usize)> {
@@ -522,6 +555,9 @@ impl<'a> Visit<'a> for ScopeBuilder {
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
         let pushed = fn_body_span(func);
         if let Some(span) = pushed {
+            if func.generator || func.r#async {
+                self.scope.non_sync_functions.insert(span);
+            }
             self.fn_stack.push(span);
             // The parameter list lives in the header, outside the body span the
             // resolver later re-parses in isolation, so it must be captured here.
@@ -537,6 +573,9 @@ impl<'a> Visit<'a> for ScopeBuilder {
 
     fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
         let span = (arrow.body.span.start as usize, arrow.body.span.end as usize);
+        if arrow.r#async {
+            self.scope.non_sync_functions.insert(span);
+        }
         self.fn_stack.push(span);
         // An arrow is the same argument-object shape as the `function` form above and
         // gets the same treatment, so the two spellings cannot diverge. Today's bundle is
@@ -557,6 +596,17 @@ impl<'a> Visit<'a> for ScopeBuilder {
         // scope would resolve `x` to just its `null` seed and drop the real child. Record
         // plain-identifier assignments too; child resolution already unions every recorded
         // init and keeps the first non-empty (member-expression targets stay excluded).
+        if let Some(owner) = self.fn_stack.last()
+            && wa_oxc::assignment_target_name(&a.left).is_none()
+        {
+            for name in wa_oxc::assignment_target_names(&a.left) {
+                self.scope
+                    .destructured_writes
+                    .entry(name)
+                    .or_default()
+                    .push(*owner);
+            }
+        }
         if let Some(name) = wa_oxc::assignment_target_name(&a.left) {
             let fn_body = match &a.right {
                 Expression::FunctionExpression(f) => fn_body_span(f),
@@ -1292,6 +1342,9 @@ pub(crate) fn resolve_child_node(
 
     // Case 2: variable reference — try every initializer (re-parsing its slice).
     if let Some(name) = as_identifier(node) {
+        if scope.has_destructured_write(name, ref_off) {
+            return Vec::new();
+        }
         if let Some(inits) = scope.vars.get(name) {
             for init in inits {
                 // A function-scoped initializer (`owner_fn`, i.e. a declaration or
@@ -2049,6 +2102,26 @@ fn resolve_function_returns_each(
     let parsed = wa_oxc::parse_cjs(&alloc, body);
     let mut merged = build_scoped_var_scope(&parsed.program);
     merged.local_merges = scope.local_merges.clone();
+    for owners in merged.destructured_writes.values_mut() {
+        for (start, end) in owners {
+            *start += body_start;
+            *end += body_start;
+        }
+    }
+    for (name, owners) in &scope.destructured_writes {
+        merged
+            .destructured_writes
+            .entry(name.clone())
+            .or_default()
+            .extend(owners.iter().copied());
+    }
+
+    merged.non_sync_functions = merged
+        .non_sync_functions
+        .into_iter()
+        .map(|(start, end)| (start + body_start, end + body_start))
+        .chain(scope.non_sync_functions.iter().copied())
+        .collect();
     merged.bundled_rpc = scope.bundled_rpc;
     merged.guard_optional_descendants = scope.guard_optional_descendants;
     for inits in merged.vars.values_mut() {
@@ -2215,9 +2288,99 @@ pub(crate) fn bundled_rpc_requests_from_program(
     let exports = finder.out;
     scope.local_merges = exports
         .iter()
-        .filter(|(name, _)| name.starts_with("merge"))
+        .filter(|(name, span)| {
+            name.starts_with("merge") && !scope.non_sync_functions.contains(span)
+        })
         .map(|(_, span)| *span)
         .collect();
+    // Export pruning must not erase the destination/arguments contract of local mixins.
+    loop {
+        let before = scope.local_merges.len();
+        for (start, end, params) in &scope.fn_params {
+            if scope.non_sync_functions.contains(&(*start, *end)) {
+                continue;
+            }
+            let Some(destination) = params.first() else {
+                continue;
+            };
+            let writes = scope
+                .vars
+                .get(destination)
+                .into_iter()
+                .flatten()
+                .filter_map(|write| write.owner_fn)
+                .chain(
+                    scope
+                        .destructured_writes
+                        .get(destination)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
+                );
+            if writes.into_iter().any(|(owner_start, owner_end)| {
+                *start <= owner_start
+                    && owner_end <= *end
+                    && !scope
+                        .lexical_params
+                        .iter()
+                        .any(|(shadow_start, shadow_end, parameters)| {
+                            *start < *shadow_start
+                                && *shadow_end <= *end
+                                && *shadow_start <= owner_start
+                                && owner_end <= *shadow_end
+                                && parameters.contains(destination)
+                        })
+            }) {
+                continue;
+            }
+            let returns = collect_return_arg_sources(&source[*start..*end]);
+            if returns.is_empty() {
+                continue;
+            }
+            let local_aliases = scoped_aliases(&scope, source, *start, &aliases);
+            let valid = returns.iter().all(|expression| {
+                let allocator = Allocator::default();
+                let owned = format!("({expression});");
+                let parsed = wa_oxc::parse_cjs(&allocator, &owned);
+                let Some(call) = first_expression(&parsed.program)
+                    .map(Expression::without_parentheses)
+                    .and_then(as_call)
+                else {
+                    return false;
+                };
+                if call
+                    .arguments
+                    .first()
+                    .and_then(arg_expr)
+                    .and_then(as_identifier)
+                    != Some(destination.as_str())
+                {
+                    return false;
+                }
+                if callee_method(call) == Some("mergeStanzas") {
+                    return callee_object(call)
+                        .and_then(|owner| resolve_owner(owner, &local_aliases))
+                        == Some("WASmaxMixins")
+                        && call.arguments.len() == 2;
+                }
+                if let Some((module, method)) = require_member_call(&call.callee)
+                    && method.starts_with("merge")
+                    && contributions.contains_key(&module)
+                {
+                    return true;
+                }
+                as_identifier(&call.callee)
+                    .and_then(|name| scope.visible_function(name, Some(*start)))
+                    .is_some_and(|span| scope.local_merges.contains(&span))
+            });
+            if valid {
+                scope.local_merges.insert((*start, *end));
+            }
+        }
+        if scope.local_merges.len() == before {
+            break;
+        }
+    }
     exports
         .into_iter()
         .filter(|(name, _)| name.starts_with("make") && name.ends_with("Request"))
@@ -4194,6 +4357,88 @@ mod bundled_merge_tests {
     use super::*;
 
     #[test]
+    fn destructuring_does_not_assign_the_whole_array_to_each_child() {
+        let source = r#"__d("WASmaxPrivateRPC",[],function(g,r,d,o,e,i,l){function make(args){var chosen,unused;[chosen,unused]=[o("WASmaxJsx").smax("item",null),o("WASmaxJsx").smax("debug",null)];return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get"},chosen)}l.makeProbeRequest=make;});"#;
+        let requests =
+            bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .2
+                .children
+                .iter()
+                .all(|child| child.tag != "debug")
+        );
+    }
+
+    #[test]
+    fn private_merge_keeps_namespace_type_and_argument_paths() {
+        let source = r#"
+        __d("WASmaxPrivateRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return compose(o("WASmaxJsx").smax("iq",{xmlns:"probe"},o("WASmaxJsx").smax("item",{id:o("WAWap").CUSTOM_STRING(args.id)}))); }
+            function base() { return o("WASmaxJsx").smax("iq",{type:"get"}); }
+            function compose(dst) { var fragment=base();return o("WASmaxMixins").mergeStanzas(dst,fragment); }
+            l.makePrivateRequest=make;
+        });"#;
+        let requests =
+            bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        assert_eq!(requests.len(), 1);
+        let replaced = source.replace(
+            "var fragment=base();",
+            r#"[dst]=[o("WASmaxJsx").smax("iq",{xmlns:"actual"})];var fragment=base();"#,
+        );
+        let replaced_requests = bundled_rpc_requests(
+            &replaced,
+            &HelperIndex::default(),
+            &MixinContributions::new(),
+        );
+        assert!(replaced_requests.iter().all(|(_, _, root)| {
+            !root
+                .attrs
+                .iter()
+                .any(|attr| attr.name == "xmlns" && attr.value.as_deref() == Some("probe"))
+        }));
+        let asynchronous = source.replace("function compose(dst)", "async function compose(dst)");
+        assert!(
+            bundled_rpc_requests(
+                &asynchronous,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            )
+            .is_empty()
+        );
+        let helper_replaced =
+            source.replace("return compose(", "[compose]=[changed];return compose(");
+        assert!(
+            bundled_rpc_requests(
+                &helper_replaced,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            )
+            .is_empty()
+        );
+        let generator = source.replace("function compose(dst)", "function* compose(dst)");
+        assert!(
+            bundled_rpc_requests(
+                &generator,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            )
+            .is_empty()
+        );
+        let root = &requests[0].2;
+        assert!(
+            root.attrs
+                .iter()
+                .any(|attr| attr.name == "type" && attr.value.as_deref() == Some("get"))
+        );
+        assert_eq!(
+            root.children[0].attrs[0].arg_path.as_ref().unwrap()[0].key,
+            "id"
+        );
+    }
+
+    #[test]
     fn local_optional_merge_rebases_value_and_presence_paths() {
         let source = r#"
         __d("WASmaxOptionalRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
@@ -4208,6 +4453,15 @@ mod bundled_merge_tests {
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
         assert_eq!(requests.len(), 1);
+        let private = source.replace(",l.mergeExtraMixin=merge", "");
+        assert_eq!(
+            bundled_rpc_requests(
+                &private,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            ),
+            requests
+        );
         let marker = requests[0]
             .2
             .attrs
@@ -4242,6 +4496,16 @@ mod bundled_merge_tests {
         });"#;
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        let private = source.replace(",l.mergeLeftMixin=mergeLeft,l.mergeRightMixin=mergeRight,l.mergeChoiceMixinGroup=choose", "");
+        assert_eq!(
+            bundled_rpc_requests(
+                &private,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            ),
+            requests
+        );
+
         let root = &requests[0].2;
         assert!(
             !root
@@ -4299,4 +4563,43 @@ mod optional_descendant_tests {
             ["extra", "protocol"]
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn a_parameter_shadowing_the_merge_alias_cannot_qualify_a_private_merge() {
+    let source = r#"__d("WASmaxShadowRPC",["WASmaxJsx","WASmaxMixins"],function(t,n,r,o,a,i,l){
+        var M=o("WASmaxMixins");
+        function make(args){return compose(o("WASmaxJsx").smax("iq",{type:"get",xmlns:"probe"}),args)}
+        function compose(dst,M){return M.mergeStanzas(dst,fragment)}
+        l.makeShadowRequest=make;
+    });"#;
+    assert!(
+        bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new())
+            .is_empty()
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn nested_parameter_writes_do_not_invalidate_the_outer_merge_destination() {
+    let source = r#"__d("WASmaxNestedRPC",["WASmaxJsx","WASmaxMixins"],function(t,n,r,o,a,i,l){
+        function make(args){return compose(o("WASmaxJsx").smax("iq",{xmlns:"probe"}))}
+        function compose(dst){function unrelated(dst){dst=0;return dst;}var fragment=o("WASmaxJsx").smax("iq",{type:"get"});return o("WASmaxMixins").mergeStanzas(dst,fragment)}
+        l.makeNestedRequest=make;
+    });"#;
+    let requests =
+        bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]
+            .2
+            .attrs
+            .iter()
+            .any(|attribute| attribute.name == "xmlns")
+    );
+    let captured = source
+        .replace("function unrelated(dst)", "function unrelated(other)")
+        .replace("var fragment=", "unrelated(1);var fragment=");
+    assert!(crate::scan_iq_stanzas(&captured).stanzas.is_empty());
 }

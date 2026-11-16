@@ -434,12 +434,19 @@ pub(crate) fn extract_actions(
         consts,
         source: handler_slice,
         locals: &locals,
+        own_helpers: &no_formals,
         formals: &no_formals,
     };
     let mut finder = SwitchFinder {
         ctx: &ctx,
         best: None,
+        best_other: None,
+        mode: AnalysisMode::Contracts,
+        rewrites: Default::default(),
         tag_locals: Default::default(),
+        if_actions: Default::default(),
+        bindings: Default::default(),
+        constraints: Default::default(),
     };
     finder.visit_program(&ret.program);
     finder.best.filter(|v| !v.is_empty())
@@ -450,6 +457,7 @@ pub(crate) fn extract_actions(
 struct ArmCtx<'c, 'a> {
     consts: &'c ConstResolver<'a>,
     locals: &'c HashMap<String, String>,
+    own_helpers: &'c HashSet<String>,
     /// The source THIS context's spans index into, so an inlined helper can be given the
     /// TEXT of the arguments it was called with. The helper is re-parsed in its own
     /// allocator, so a call-site AST reference cannot cross into it — its source can.
@@ -475,6 +483,7 @@ impl<'c, 'a> ArmCtx<'c, 'a> {
         ArmCtx {
             consts: self.consts,
             locals: self.locals,
+            own_helpers: self.own_helpers,
             source,
             formals,
         }
@@ -535,15 +544,186 @@ impl<'a> Visit<'a> for LocalFns {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SavedValueKind {
+    Primitive,
+    Allocation,
+    Unknown,
+}
+
+fn saved_value_kind(expression: &Expression) -> SavedValueKind {
+    match expression.without_parentheses() {
+        Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::BigIntLiteral(_) => SavedValueKind::Primitive,
+        Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_) => SavedValueKind::Allocation,
+        Expression::CallExpression(call)
+            if callee_method(call).is_some_and(|method| {
+                wap::is_attr_method(method)
+                    && matches!(
+                        wap::method_field_type(method),
+                        wa_ir::ParsedFieldType::Jid
+                            | wa_ir::ParsedFieldType::UserJid
+                            | wa_ir::ParsedFieldType::LidUserJid
+                            | wa_ir::ParsedFieldType::DeviceJid
+                            | wa_ir::ParsedFieldType::LidDeviceJid
+                            | wa_ir::ParsedFieldType::GroupJid
+                            | wa_ir::ParsedFieldType::NewsletterJid
+                            | wa_ir::ParsedFieldType::CallJid
+                            | wa_ir::ParsedFieldType::BroadcastJid
+                            | wa_ir::ParsedFieldType::StatusJid
+                    )
+            }) =>
+        {
+            SavedValueKind::Primitive
+        }
+        Expression::CallExpression(call)
+            if matches!(
+                callee_method(call),
+                Some(
+                    wap::ATTR_STRING
+                        | wap::MAYBE_ATTR_STRING
+                        | wap::ATTR_INT
+                        | wap::MAYBE_ATTR_INT
+                        | wap::ATTR_TIME
+                        | wap::MAYBE_ATTR_TIME
+                        | wap::HAS_ATTR
+                        | wap::CONTENT_STRING
+                        | wap::CONTENT_INT
+                        | "contentUint"
+                        | "attrIntRange"
+                        | "attrFutureTime"
+                )
+            ) =>
+        {
+            SavedValueKind::Primitive
+        }
+        _ => SavedValueKind::Unknown,
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum SavedBinding {
+    Unknown {
+        origin: u32,
+    },
+    Expression {
+        start: u32,
+        end: u32,
+        dependencies: HashSet<String>,
+        kind: SavedValueKind,
+    },
+}
+
+impl SavedBinding {
+    fn origin(&self) -> u32 {
+        match self {
+            Self::Unknown { origin } => *origin,
+            Self::Expression { start, .. } => *start,
+        }
+    }
+    fn depends_on(&self, name: &str) -> bool {
+        matches!(self, Self::Expression { dependencies, .. } if dependencies.contains(name))
+    }
+}
+
+type Bindings = std::collections::BTreeMap<String, SavedBinding>;
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DispatchKey {
+    expression: String,
+    origins: Vec<(String, Option<u32>)>,
+}
+
+#[derive(Clone)]
+enum TagConstraint {
+    Including(HashSet<String>),
+    Excluding(HashSet<String>),
+}
+
+type TagConstraints = std::collections::BTreeMap<DispatchKey, TagConstraint>;
+
+fn joined_constraints(left: &TagConstraints, right: &TagConstraints) -> TagConstraints {
+    let mut joined = TagConstraints::new();
+    for (key, left) in left {
+        let Some(right) = right.get(key) else {
+            continue;
+        };
+        let constraint = match (left, right) {
+            (TagConstraint::Including(left), TagConstraint::Including(right)) => Some(
+                TagConstraint::Including(left.union(right).cloned().collect()),
+            ),
+            (TagConstraint::Excluding(left), TagConstraint::Excluding(right)) => {
+                let excluded: HashSet<_> = left.intersection(right).cloned().collect();
+                (!excluded.is_empty()).then_some(TagConstraint::Excluding(excluded))
+            }
+            (TagConstraint::Including(values), TagConstraint::Excluding(excluded))
+            | (TagConstraint::Excluding(excluded), TagConstraint::Including(values)) => {
+                let excluded: HashSet<_> = excluded.difference(values).cloned().collect();
+                (!excluded.is_empty()).then_some(TagConstraint::Excluding(excluded))
+            }
+        };
+        if let Some(constraint) = constraint {
+            joined.insert(key.clone(), constraint);
+        }
+    }
+    joined
+}
+
+#[derive(Clone)]
+struct DispatchState {
+    tags: HashMap<String, u32>,
+    bindings: Bindings,
+    constraints: TagConstraints,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnalysisMode {
+    Contracts,
+    Prune,
+    Flow,
+}
+
+#[derive(Clone)]
+enum Replacement {
+    Statement {
+        test: oxc_span::Span,
+        selected: Option<oxc_span::Span>,
+    },
+    Expression {
+        test: oxc_span::Span,
+        selected: oxc_span::Span,
+    },
+}
+
+#[derive(Clone)]
+struct SourceRewrite {
+    span: oxc_span::Span,
+    replacement: Replacement,
+}
+
+type Rewrites = std::collections::BTreeMap<u32, SourceRewrite>;
+
 struct SwitchFinder<'c, 'a> {
     ctx: &'c ArmCtx<'c, 'a>,
     /// The richest action union seen so far (a module can hold more than one
     /// const-keyed switch; the payload union is the one with the most arms).
     best: Option<Vec<NotifActionDef>>,
+    best_other: Option<Vec<NotifActionDef>>,
+    mode: AnalysisMode,
+    rewrites: Rewrites,
     /// Locals bound to a child's TAG in the function currently being walked
     /// (`var a = t.tag()`), so a switch can be identified by what it dispatches ON
     /// rather than by how many arms it happens to have.
-    tag_locals: std::collections::HashSet<String>,
+    tag_locals: HashMap<String, u32>,
+    if_actions: std::collections::BTreeMap<DispatchKey, Vec<BranchFold>>,
+    bindings: Bindings,
+    constraints: TagConstraints,
 }
 
 /// Whether `e` reads a node's tag — `t.tag()` or `t.tag`.
@@ -552,6 +732,414 @@ fn is_tag_read(e: &Expression) -> bool {
         return callee_method(call) == Some("tag") && call.arguments.is_empty();
     }
     as_member(e).is_some_and(|(_, name)| name == "tag")
+}
+
+impl SwitchFinder<'_, '_> {
+    fn state(&self) -> DispatchState {
+        DispatchState {
+            tags: self.tag_locals.clone(),
+            bindings: self.bindings.clone(),
+            constraints: self.constraints.clone(),
+        }
+    }
+
+    fn restore_state(&mut self, state: DispatchState) {
+        self.tag_locals = state.tags;
+        self.bindings = state.bindings;
+        self.constraints = state.constraints;
+    }
+
+    fn join_state(&mut self, other: &DispatchState) {
+        self.tag_locals
+            .retain(|name, origin| other.tags.get(name) == Some(origin));
+        self.bindings
+            .retain(|name, value| other.bindings.get(name) == Some(value));
+        self.constraints = joined_constraints(&self.constraints, &other.constraints);
+    }
+
+    fn constrain_tag(&mut self, key: &DispatchKey, tag: &str, equal: bool) -> bool {
+        if self.constraints.values().any(|constraint| matches!(constraint, TagConstraint::Including(values) if values.is_empty())) { return false; }
+        match self.constraints.get_mut(key) {
+            Some(TagConstraint::Including(known)) => {
+                if equal {
+                    known.retain(|value| value == tag);
+                } else {
+                    known.remove(tag);
+                }
+                !known.is_empty()
+            }
+            Some(TagConstraint::Excluding(excluded)) => {
+                if equal {
+                    if excluded.contains(tag) {
+                        return false;
+                    }
+                    self.constraints.insert(
+                        key.clone(),
+                        TagConstraint::Including(HashSet::from([tag.to_string()])),
+                    );
+                } else {
+                    excluded.insert(tag.to_string());
+                }
+                true
+            }
+            None => {
+                self.constraints.insert(
+                    key.clone(),
+                    if equal {
+                        TagConstraint::Including(HashSet::from([tag.to_string()]))
+                    } else {
+                        TagConstraint::Excluding(HashSet::from([tag.to_string()]))
+                    },
+                );
+                true
+            }
+        }
+    }
+
+    fn tag_condition(&self, expression: &Expression) -> Option<(DispatchKey, String)> {
+        let Expression::BinaryExpression(test) = expression.without_parentheses() else {
+            return None;
+        };
+        if test.operator != oxc_syntax::operator::BinaryOperator::StrictEquality {
+            return None;
+        }
+        [(&test.left, &test.right), (&test.right, &test.left)]
+            .into_iter()
+            .find_map(|(value, label)| {
+                let on_tag = self.reads_tag(value)
+                    || as_identifier(value).is_some_and(|name| self.tag_locals.contains_key(name));
+                if !on_tag {
+                    return None;
+                }
+                Some((
+                    self.dispatch_key(value),
+                    dispatch_tag(label, self.ctx.consts)?,
+                ))
+            })
+    }
+
+    fn invalidate_binding(&mut self, name: &str) {
+        self.tag_locals.remove(name);
+        let mut pending = vec![name.to_string()];
+        while let Some(name) = pending.pop() {
+            pending.extend(
+                self.bindings
+                    .iter()
+                    .filter(|(_, value)| value.depends_on(&name))
+                    .map(|(name, _)| name.clone()),
+            );
+            self.bindings.remove(&name);
+        }
+    }
+
+    fn invalidate_object(&mut self, receiver: &Expression) {
+        let saved_tags = self.tag_locals.clone();
+        let name = as_identifier(receiver.without_parentheses());
+        let allocation = name
+            .and_then(|name| self.bindings.get(name))
+            .filter(|value| {
+                matches!(
+                    value,
+                    SavedBinding::Expression {
+                        kind: SavedValueKind::Allocation,
+                        ..
+                    }
+                )
+            })
+            .map(SavedBinding::origin);
+        if let Some(origin) = allocation {
+            let aliases: Vec<_> = self
+                .bindings
+                .iter()
+                .filter(|(_, value)| value.origin() == origin)
+                .map(|(name, _)| name.clone())
+                .collect();
+            for alias in aliases {
+                self.invalidate_binding(&alias);
+            }
+        } else {
+            let affected: Vec<_> = self
+                .bindings
+                .iter()
+                .filter(|(_, value)| {
+                    !matches!(
+                        value,
+                        SavedBinding::Unknown { .. }
+                            | SavedBinding::Expression {
+                                kind: SavedValueKind::Primitive,
+                                ..
+                            }
+                    )
+                })
+                .map(|(name, _)| name.clone())
+                .collect();
+            for name in affected {
+                self.invalidate_binding(&name);
+            }
+        }
+        self.tag_locals = saved_tags;
+        self.constraints.retain(|key, _| {
+            self.tag_locals.contains_key(&key.expression)
+                || allocation.is_some_and(|origin| {
+                    !key.origins.iter().any(|(_, value)| *value == Some(origin))
+                })
+        });
+    }
+
+    fn save_binding(&mut self, name: &str, expression: &Expression) {
+        let span = oxc_span::GetSpan::span(expression);
+        let value = if let Some(alias) = as_identifier(expression.without_parentheses()) {
+            self.bindings
+                .get(alias)
+                .cloned()
+                .unwrap_or(SavedBinding::Unknown { origin: span.start })
+        } else {
+            let dependencies = expression_references(expression);
+            if dependencies.contains(name) {
+                SavedBinding::Unknown { origin: span.start }
+            } else {
+                SavedBinding::Expression {
+                    start: span.start,
+                    end: span.end,
+                    dependencies,
+                    kind: saved_value_kind(expression),
+                }
+            }
+        };
+        let value = if value.depends_on(name) {
+            SavedBinding::Unknown { origin: span.start }
+        } else {
+            value
+        };
+        self.invalidate_binding(name);
+        self.bindings.insert(name.to_string(), value);
+    }
+
+    fn dispatch_key(&self, value: &Expression) -> DispatchKey {
+        let span = oxc_span::GetSpan::span(value);
+        let origins = if let Some(name) = as_identifier(value) {
+            vec![(name.to_string(), self.tag_locals.get(name).copied())]
+        } else {
+            let read = if is_tag_read(value) {
+                value
+            } else {
+                as_call(value)
+                    .and_then(|call| call.arguments.first())
+                    .and_then(arg_expr)
+                    .unwrap_or(value)
+            };
+            let receiver = as_call(read)
+                .and_then(wa_oxc::callee_object)
+                .or_else(|| as_member(read).map(|(receiver, _)| receiver));
+            let mut names: Vec<_> = receiver
+                .map(expression_references)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+            names.sort();
+            names
+                .into_iter()
+                .map(|name| {
+                    let origin = self.bindings.get(&name).map(SavedBinding::origin);
+                    (name, origin)
+                })
+                .collect()
+        };
+        DispatchKey {
+            expression: as_identifier(value).map(str::to_string).unwrap_or_else(|| {
+                self.ctx.source[span.start as usize..span.end as usize].to_string()
+            }),
+            origins,
+        }
+    }
+
+    fn refresh_best(&mut self) {
+        if self.mode != AnalysisMode::Contracts {
+            self.best = None;
+            return;
+        }
+        self.best = self.best_other.clone();
+        for folds in self.if_actions.values() {
+            let actions: Vec<_> = folds.iter().cloned().map(BranchFold::finish).collect();
+            if actions.iter().any(is_meaningful)
+                && actions.len() > self.best.as_ref().map_or(0, Vec::len)
+            {
+                self.best = Some(actions);
+            }
+        }
+    }
+
+    fn consider_other(&mut self, actions: Vec<NotifActionDef>) {
+        if self.mode != AnalysisMode::Contracts {
+            return;
+        }
+        if actions.iter().any(is_meaningful)
+            && actions.len() > self.best_other.as_ref().map_or(0, Vec::len)
+        {
+            self.best_other = Some(actions);
+        }
+        self.refresh_best();
+    }
+
+    fn reads_tag(&self, expression: &Expression) -> bool {
+        if is_tag_read(expression) {
+            return true;
+        }
+        let Some(call) = as_call(expression) else {
+            return false;
+        };
+        let Some(name) = as_identifier(&call.callee) else {
+            return false;
+        };
+        if call.arguments.len() != 1 || self.ctx.formals.contains(name) {
+            return false;
+        }
+        let Some(source) = self.ctx.locals.get(name) else {
+            return false;
+        };
+        call.arguments
+            .first()
+            .and_then(arg_expr)
+            .is_some_and(is_tag_read)
+            && identity_find_helper(source)
+    }
+
+    fn discard_rewritten_tags(&mut self, statements: &[Statement]) {
+        let writes = written_names(statements);
+        for name in writes {
+            self.invalidate_binding(&name);
+        }
+    }
+
+    fn record_if_dispatch(&mut self, branch: &oxc_ast::ast::IfStatement) {
+        if self.mode != AnalysisMode::Contracts {
+            return;
+        }
+        let Expression::BinaryExpression(test) = branch.test.without_parentheses() else {
+            return;
+        };
+        if test.operator != oxc_syntax::operator::BinaryOperator::StrictEquality {
+            return;
+        }
+        let pair = [(&test.left, &test.right), (&test.right, &test.left)]
+            .into_iter()
+            .find_map(|(value, label)| {
+                let on_tag = self.reads_tag(value)
+                    || as_identifier(value).is_some_and(|name| self.tag_locals.contains_key(name));
+                on_tag
+                    .then(|| dispatch_tag(label, self.ctx.consts))
+                    .flatten()
+                    .map(|tag| (value, tag))
+            });
+        let Some((value, tag)) = pair else { return };
+        let run = match &branch.consequent {
+            Statement::BlockStatement(block) => as_refs(&block.body),
+            statement => vec![statement],
+        };
+        if !list_exits_refs(&run, true) {
+            return;
+        }
+        let key = self.dispatch_key(value);
+        let state = self.state();
+        let actions = extract_scoped_action_arm(&tag, &run, self.ctx, &state);
+        let folds = self.if_actions.entry(key).or_default();
+        for action in actions {
+            if let Some(fold) = folds.iter_mut().find(|fold| {
+                fold.def.wire_tag == action.def.wire_tag
+                    && fold.def.action_type == action.def.action_type
+            }) {
+                fold.absorb_fold(action);
+            } else {
+                folds.push(action);
+            }
+        }
+        self.refresh_best();
+    }
+}
+
+fn identity_find_helper(source: &str) -> bool {
+    let allocator = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&allocator, source);
+    let [Statement::FunctionDeclaration(function)] = parsed.program.body.as_slice() else {
+        return false;
+    };
+    if function.r#async
+        || function.generator
+        || function
+            .params
+            .items
+            .iter()
+            .any(|p| p.initializer.is_some())
+    {
+        return false;
+    }
+    let Some(input) = function
+        .params
+        .items
+        .first()
+        .and_then(|p| p.pattern.get_identifier_name())
+    else {
+        return false;
+    };
+    if function.params.items.len() != 1 || function.params.rest.is_some() {
+        return false;
+    }
+    let Some(body) = &function.body else {
+        return false;
+    };
+    let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
+        return false;
+    };
+    let Some(call) = ret.argument.as_ref().and_then(as_call) else {
+        return false;
+    };
+    if callee_method(call) != Some("find") || call.arguments.len() != 1 {
+        return false;
+    }
+    let Some(Expression::FunctionExpression(callback)) = call.arguments.first().and_then(arg_expr)
+    else {
+        return false;
+    };
+    if callback.r#async
+        || callback.generator
+        || callback.params.rest.is_some()
+        || callback
+            .params
+            .items
+            .iter()
+            .any(|p| p.initializer.is_some())
+    {
+        return false;
+    }
+    let Some(element) = callback
+        .params
+        .items
+        .first()
+        .and_then(|p| p.pattern.get_identifier_name())
+    else {
+        return false;
+    };
+    if callback.params.items.len() != 1 || element == input {
+        return false;
+    }
+    let Some(body) = &callback.body else {
+        return false;
+    };
+    let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
+        return false;
+    };
+    let Some(Expression::BinaryExpression(test)) = &ret.argument else {
+        return false;
+    };
+    test.operator == oxc_syntax::operator::BinaryOperator::StrictEquality
+        && [
+            (input.as_str(), element.as_str()),
+            (element.as_str(), input.as_str()),
+        ]
+        .into_iter()
+        .any(|(left, right)| {
+            as_identifier(&test.left) == Some(left) && as_identifier(&test.right) == Some(right)
+        })
 }
 
 impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
@@ -586,18 +1174,19 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
-            tag_locals: HashSet::new(),
+            best_other: None,
+            mode: self.mode,
+            rewrites: Default::default(),
+            tag_locals: HashMap::new(),
+            if_actions: Default::default(),
+            bindings: parameter_bindings(&function.params),
+            constraints: Default::default(),
         };
         if let Some(body) = &function.body {
             nested.visit_function_body(body);
         }
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
-        {
-            self.best = Some(best);
+        if let Some(best) = nested.best {
+            self.consider_other(best);
         }
     }
 
@@ -631,16 +1220,17 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
-            tag_locals: HashSet::new(),
+            best_other: None,
+            mode: self.mode,
+            rewrites: Default::default(),
+            tag_locals: HashMap::new(),
+            if_actions: Default::default(),
+            bindings: parameter_bindings(&function.params),
+            constraints: Default::default(),
         };
         nested.visit_function_body(&function.body);
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
-        {
-            self.best = Some(best);
+        if let Some(best) = nested.best {
+            self.consider_other(best);
         }
     }
 
@@ -649,8 +1239,10 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         for statement in &block.body {
             declarations.visit_statement(statement);
         }
+        let mut own_helpers = self.ctx.own_helpers.clone();
         let mut locals = std::borrow::Cow::Borrowed(self.ctx.locals);
         let mut formals = self.ctx.formals.clone();
+        formals.extend(wa_oxc::block_bindings(&block.body));
         for statement in &block.body {
             if let Statement::VariableDeclaration(declaration) = statement {
                 for binding in &declaration.declarations {
@@ -673,87 +1265,461 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             }
         }
         for (name, (start, end)) in declarations.spans {
+            own_helpers.insert(name.clone());
             formals.remove(&name);
             locals
                 .to_mut()
                 .insert(name, self.ctx.source[start..end].to_string());
         }
+        for name in replaced_helpers(&block.body, self.ctx.source, &locals) {
+            locals.to_mut().remove(&name);
+        }
         let ctx = ArmCtx {
             locals: &locals,
+            own_helpers: &own_helpers,
             formals: &formals,
             ..*self.ctx
         };
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
+            best_other: self.best_other.clone(),
+            mode: self.mode,
+            rewrites: self.rewrites.clone(),
             tag_locals: self.tag_locals.clone(),
+            if_actions: self.if_actions.clone(),
+            bindings: self.bindings.clone(),
+            constraints: self.constraints.clone(),
         };
+        let block_bindings = wa_oxc::block_bindings(&block.body);
+        for name in &block_bindings {
+            nested.tag_locals.remove(name);
+            nested.bindings.insert(
+                name.clone(),
+                SavedBinding::Unknown {
+                    origin: block.span.start,
+                },
+            );
+        }
+        let mut exited = false;
         for statement in &block.body {
-            if let Statement::VariableDeclaration(declaration) = statement {
-                for binding in &declaration.declarations {
-                    if let (Some(name), Some(init)) =
-                        (binding.id.get_identifier_name(), binding.init.as_ref())
-                        && is_tag_read(init)
-                    {
-                        nested.tag_locals.insert(name.to_string());
-                    }
+            if !exited || matches!(statement, Statement::FunctionDeclaration(_)) {
+                nested.visit_statement(statement);
+            }
+            exited |= list_exits_refs(&[statement], false);
+        }
+        let mut outgoing = nested.tag_locals;
+        let mut outgoing_bindings = nested.bindings;
+        for name in &block_bindings {
+            match self.bindings.get(name) {
+                Some(value) => {
+                    outgoing_bindings.insert(name.clone(), value.clone());
+                }
+                None => {
+                    outgoing_bindings.remove(name);
+                }
+            }
+            match self.tag_locals.get(name) {
+                Some(origin) => {
+                    outgoing.insert(name.clone(), *origin);
+                }
+                None => {
+                    outgoing.remove(name);
                 }
             }
         }
-        walk::walk_block_statement(&mut nested, block);
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
-        {
-            self.best = Some(best);
-        }
+        self.tag_locals = outgoing;
+        self.bindings = outgoing_bindings;
+        self.constraints = nested.constraints;
+        self.rewrites = nested.rewrites;
+        self.if_actions = nested.if_actions;
+        self.best_other = nested.best_other;
+        self.refresh_best();
     }
 
-    /// Record this function's `var x = child.tag()` bindings before walking its body,
-    /// so a switch inside it can be checked against them.
     fn visit_function_body(&mut self, body: &oxc_ast::ast::FunctionBody<'a>) {
         let mut declarations = LocalFns::default();
         declarations.visit_function_body(body);
+        let mut own_helpers = HashSet::new();
         let mut locals = std::borrow::Cow::Borrowed(self.ctx.locals);
         let mut formals = self.ctx.formals.clone();
         for (name, (start, end)) in declarations.spans {
+            own_helpers.insert(name.clone());
             formals.remove(&name);
             locals
                 .to_mut()
                 .insert(name, self.ctx.source[start..end].to_string());
         }
+        for name in replaced_helpers(&body.statements, self.ctx.source, &locals) {
+            locals.to_mut().remove(&name);
+        }
         let ctx = ArmCtx {
             locals: &locals,
+            own_helpers: &own_helpers,
             formals: &formals,
             ..*self.ctx
         };
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
-            tag_locals: HashSet::new(),
+            best_other: None,
+            mode: self.mode,
+            rewrites: Default::default(),
+            tag_locals: HashMap::new(),
+            if_actions: Default::default(),
+            bindings: self.bindings.clone(),
+            constraints: self.constraints.clone(),
         };
+        let mut exited = false;
         for statement in &body.statements {
-            if let Statement::VariableDeclaration(declaration) = statement {
-                for binding in &declaration.declarations {
-                    if let (Some(name), Some(init)) =
-                        (binding.id.get_identifier_name(), binding.init.as_ref())
-                        && is_tag_read(init)
-                    {
-                        nested.tag_locals.insert(name.to_string());
-                    }
-                }
+            if !exited || matches!(statement, Statement::FunctionDeclaration(_)) {
+                nested.visit_statement(statement);
+            }
+            exited |= list_exits_refs(&[statement], false);
+        }
+        if let Some(best) = nested.best {
+            self.consider_other(best);
+        }
+    }
+
+    fn visit_variable_declarator(&mut self, declaration: &oxc_ast::ast::VariableDeclarator<'a>) {
+        walk::walk_variable_declarator(self, declaration);
+        if let Some(name) = declaration.id.get_identifier_name() {
+            if let Some(init) = &declaration.init {
+                self.save_binding(name.as_str(), init);
+            } else {
+                self.bindings
+                    .entry(name.to_string())
+                    .or_insert(SavedBinding::Unknown {
+                        origin: declaration.span.start,
+                    });
+            }
+            if let Some(init) = &declaration.init
+                && self.reads_tag(init)
+            {
+                self.tag_locals
+                    .insert(name.to_string(), oxc_span::GetSpan::span(init).start);
+            } else if declaration.init.is_some() {
+                self.tag_locals.remove(name.as_str());
+            }
+        } else if declaration.init.is_some() {
+            for id in declaration.id.get_binding_identifiers() {
+                self.invalidate_binding(id.name.as_str());
             }
         }
-        walk::walk_function_body(&mut nested, body);
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
+    }
+
+    fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
+        walk::walk_assignment_expression(self, assignment);
+        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
+            if assignment.operator == oxc_syntax::operator::AssignmentOperator::Assign {
+                self.save_binding(name, &assignment.right);
+                if self.reads_tag(&assignment.right) {
+                    self.tag_locals.insert(
+                        name.to_string(),
+                        oxc_span::GetSpan::span(&assignment.right).start,
+                    );
+                }
+            } else {
+                self.invalidate_binding(name);
+            }
+        } else if let Some(member) = assignment.left.as_member_expression() {
+            self.invalidate_object(member.object());
+        } else {
+            for name in wa_oxc::assignment_target_names(&assignment.left) {
+                self.invalidate_binding(&name);
+            }
+        }
+    }
+
+    fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+        walk::walk_call_expression(self, call);
+        for argument in &call.arguments {
+            if let Some(expression) = arg_expr(argument)
+                && let Some(name) = as_identifier(expression.without_parentheses())
+                && matches!(
+                    self.bindings.get(name),
+                    Some(SavedBinding::Expression {
+                        kind: SavedValueKind::Allocation | SavedValueKind::Unknown,
+                        ..
+                    })
+                )
+            {
+                self.invalidate_object(expression);
+            }
+        }
+        if wa_oxc::directly_invoked_function(call).is_some()
+            || as_identifier(&call.callee).is_some_and(|name| {
+                !self.ctx.formals.contains(name) && self.ctx.own_helpers.contains(name)
+            })
         {
-            self.best = Some(best);
+            let mut writes = WriteNames {
+                helpers: Some(self.ctx.locals),
+                helper_scope: Some(self.ctx.own_helpers),
+                ..Default::default()
+            };
+            writes.visit_call_expression(call);
+            if writes.objects {
+                self.invalidate_object(&call.callee);
+            }
+            for name in writes.names {
+                self.invalidate_binding(&name);
+            }
+        }
+    }
+
+    fn visit_unary_expression(&mut self, expression: &oxc_ast::ast::UnaryExpression<'a>) {
+        walk::walk_unary_expression(self, expression);
+        if expression.operator == oxc_syntax::operator::UnaryOperator::Delete
+            && let Some(member) = expression
+                .argument
+                .without_parentheses()
+                .as_member_expression()
+        {
+            self.invalidate_object(member.object());
+        }
+    }
+
+    fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
+        walk::walk_update_expression(self, update);
+        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
+            &update.argument
+        {
+            self.invalidate_binding(id.name.as_str());
+        } else if let Some(member) = update.argument.as_member_expression() {
+            self.invalidate_object(member.object());
+        }
+    }
+
+    fn visit_logical_expression(&mut self, expression: &oxc_ast::ast::LogicalExpression<'a>) {
+        self.visit_expression(&expression.left);
+        let incoming = self.state();
+        self.visit_expression(&expression.right);
+        self.join_state(&incoming);
+    }
+
+    fn visit_conditional_expression(
+        &mut self,
+        expression: &oxc_ast::ast::ConditionalExpression<'a>,
+    ) {
+        self.visit_expression(&expression.test);
+        let incoming = self.state();
+        let condition = self.tag_condition(&expression.test);
+        let yes = condition
+            .as_ref()
+            .is_none_or(|(key, tag)| self.constrain_tag(key, tag, true));
+        let consequent = if yes {
+            self.visit_expression(&expression.consequent);
+            Some(self.state())
+        } else {
+            None
+        };
+        self.restore_state(incoming);
+        let no = condition
+            .as_ref()
+            .is_none_or(|(key, tag)| self.constrain_tag(key, tag, false));
+        if no {
+            self.visit_expression(&expression.alternate);
+        }
+        if let Some(consequent) = consequent {
+            if no {
+                self.join_state(&consequent);
+            } else {
+                self.restore_state(consequent);
+            }
+        }
+        if self.mode == AnalysisMode::Prune && condition.is_some() && yes != no {
+            let selected = if yes {
+                &expression.consequent
+            } else {
+                &expression.alternate
+            };
+            self.rewrites.insert(
+                expression.span.start,
+                SourceRewrite {
+                    span: expression.span,
+                    replacement: Replacement::Expression {
+                        test: oxc_span::GetSpan::span(&expression.test),
+                        selected: oxc_span::GetSpan::span(selected),
+                    },
+                },
+            );
+        }
+    }
+
+    fn visit_try_statement(&mut self, statement: &oxc_ast::ast::TryStatement<'a>) {
+        let entry = self.state();
+        let try_writes = written_names(&statement.block.body);
+        let prior_candidates = statement
+            .finalizer
+            .as_ref()
+            .is_some_and(|block| terminates(&block.body))
+            .then(|| (self.if_actions.clone(), self.best_other.clone()));
+        self.visit_block_statement(&statement.block);
+        let normal = self.state();
+        let mut catch_writes = HashSet::new();
+        if let Some(handler) = &statement.handler {
+            self.restore_state(entry.clone());
+            for name in &try_writes {
+                self.invalidate_binding(name);
+            }
+            self.visit_catch_clause(handler);
+            let mut writes = WriteNames::default();
+            writes.visit_catch_clause(handler);
+            catch_writes = writes.names;
+            for name in &catch_writes {
+                self.invalidate_binding(name);
+            }
+            self.join_state(&normal);
+        }
+        if let Some(finalizer) = &statement.finalizer {
+            if self.mode == AnalysisMode::Flow {
+                self.visit_block_statement(finalizer);
+                return;
+            }
+            let continuing = self.state();
+            self.restore_state(entry);
+            for name in try_writes.iter().chain(&catch_writes) {
+                self.invalidate_binding(name);
+            }
+            if let Some((actions, other)) = prior_candidates {
+                self.if_actions = actions;
+                self.best_other = other;
+                self.refresh_best();
+            }
+            self.visit_block_statement(finalizer);
+            let mut flow = SwitchFinder {
+                ctx: self.ctx,
+                best: None,
+                best_other: None,
+                mode: AnalysisMode::Flow,
+                rewrites: Default::default(),
+                tag_locals: continuing.tags,
+                bindings: continuing.bindings,
+                constraints: continuing.constraints,
+                if_actions: Default::default(),
+            };
+            flow.visit_block_statement(finalizer);
+            self.restore_state(flow.state());
+        }
+    }
+
+    fn visit_catch_clause(&mut self, handler: &oxc_ast::ast::CatchClause<'a>) {
+        let mut formals = self.ctx.formals.clone();
+        let mut locals = self.ctx.locals.clone();
+        let mut bindings = self.bindings.clone();
+        let mut tags = self.tag_locals.clone();
+        if let Some(parameter) = &handler.param {
+            for identifier in parameter.pattern.get_binding_identifiers() {
+                let name = identifier.name.to_string();
+                formals.insert(name.clone());
+                locals.remove(&name);
+                tags.remove(&name);
+                bindings.insert(
+                    name,
+                    SavedBinding::Unknown {
+                        origin: identifier.span.start,
+                    },
+                );
+            }
+        }
+        let ctx = ArmCtx {
+            formals: &formals,
+            locals: &locals,
+            ..*self.ctx
+        };
+        let mut nested = SwitchFinder {
+            ctx: &ctx,
+            best: None,
+            best_other: self.best_other.clone(),
+            mode: self.mode,
+            rewrites: self.rewrites.clone(),
+            tag_locals: tags,
+            if_actions: self.if_actions.clone(),
+            bindings,
+            constraints: self.constraints.clone(),
+        };
+        nested.visit_block_statement(&handler.body);
+        self.rewrites = nested.rewrites;
+        self.if_actions = nested.if_actions;
+        self.best_other = nested.best_other;
+        self.refresh_best();
+    }
+
+    fn visit_statement(&mut self, statement: &Statement<'a>) {
+        let loop_constraints = loop_body(statement).map(|_| self.constraints.clone());
+        if self.mode == AnalysisMode::Prune && loop_constraints.is_some() {
+            for name in written_names(std::slice::from_ref(statement)) {
+                self.invalidate_binding(&name);
+            }
+        }
+        walk::walk_statement(self, statement);
+        if let Some(constraints) = loop_constraints {
+            self.constraints = constraints;
+            for name in written_names(std::slice::from_ref(statement)) {
+                self.invalidate_binding(&name);
+            }
+        }
+    }
+
+    fn visit_if_statement(&mut self, branch: &oxc_ast::ast::IfStatement<'a>) {
+        self.visit_expression(&branch.test);
+        let incoming = self.state();
+        let condition = self.tag_condition(&branch.test);
+        let consequent_possible = condition
+            .as_ref()
+            .is_none_or(|(key, tag)| self.constrain_tag(key, tag, true));
+        let mut continuations = Vec::new();
+        if consequent_possible {
+            self.record_if_dispatch(branch);
+            self.visit_statement(&branch.consequent);
+            if !list_exits_refs(&[&branch.consequent], false) {
+                continuations.push(self.state());
+            }
+        }
+        self.restore_state(incoming);
+        let alternate_possible = condition
+            .as_ref()
+            .is_none_or(|(key, tag)| self.constrain_tag(key, tag, false));
+        if alternate_possible {
+            if let Some(alternate) = &branch.alternate {
+                self.visit_statement(alternate);
+            }
+            if !branch
+                .alternate
+                .as_ref()
+                .is_some_and(|statement| list_exits_refs(&[statement], false))
+            {
+                continuations.push(self.state());
+            }
+        }
+        if self.mode == AnalysisMode::Prune
+            && condition.is_some()
+            && (!consequent_possible || !alternate_possible)
+        {
+            let selected = if consequent_possible {
+                Some(oxc_span::GetSpan::span(&branch.consequent))
+            } else if alternate_possible {
+                branch.alternate.as_ref().map(oxc_span::GetSpan::span)
+            } else {
+                None
+            };
+            self.rewrites.insert(
+                branch.span.start,
+                SourceRewrite {
+                    span: branch.span,
+                    replacement: Replacement::Statement {
+                        test: oxc_span::GetSpan::span(&branch.test),
+                        selected,
+                    },
+                },
+            );
+        }
+        if let Some(first) = continuations.pop() {
+            self.restore_state(first);
+            for continuation in continuations {
+                self.join_state(&continuation);
+            }
         }
     }
 
@@ -762,26 +1728,98 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         // a mapped child's TAG (`var a = t.tag(); switch (a)`); an unrelated const-keyed
         // switch in the same module — with more returning arms — would otherwise win the
         // "most arms" tie-break and publish non-wire constants as `wireTag`s.
-        let on_tag = is_tag_read(&switch.discriminant)
-            || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains(n));
-        if !on_tag {
-            walk::walk_switch_statement(self, switch);
-            return;
+        let on_tag = self.reads_tag(&switch.discriminant)
+            || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains_key(n));
+        let mut actions = Vec::new();
+        let mut seen_tags = HashSet::new();
+        self.visit_expression(&switch.discriminant);
+        let switch_key = on_tag.then(|| self.dispatch_key(&switch.discriminant));
+        let incoming_tags = self.tag_locals.clone();
+        let incoming_bindings = self.bindings.clone();
+        let incoming_constraints = self.constraints.clone();
+        let mut labels = DispatchState {
+            tags: incoming_tags.clone(),
+            bindings: incoming_bindings.clone(),
+            constraints: self.constraints.clone(),
+        };
+        let label_writes: HashSet<String> = switch
+            .cases
+            .iter()
+            .filter_map(|case| case.test.as_ref())
+            .flat_map(expression_writes)
+            .collect();
+        let mut fallthrough: Option<DispatchState> = None;
+        for (index, case) in switch.cases.iter().enumerate() {
+            self.tag_locals = labels.tags.clone();
+            self.bindings = labels.bindings.clone();
+            self.constraints = labels.constraints.clone();
+            if let Some(test) = &case.test {
+                self.visit_expression(test);
+            }
+            labels = DispatchState {
+                tags: self.tag_locals.clone(),
+                bindings: self.bindings.clone(),
+                constraints: self.constraints.clone(),
+            };
+            if case.test.is_none() {
+                for name in &label_writes {
+                    self.invalidate_binding(name);
+                }
+            }
+            if self.mode == AnalysisMode::Contracts
+                && on_tag
+                && let Some(wire_tag) = case
+                    .test
+                    .as_ref()
+                    .and_then(|test| dispatch_tag(test, self.ctx.consts))
+                && seen_tags.insert(wire_tag.clone())
+            {
+                let run = fall_through_body(&switch.cases[index..])
+                    .unwrap_or_else(|| as_refs(&case.consequent));
+                let before = self.state();
+                let possible = switch_key
+                    .as_ref()
+                    .is_none_or(|key| self.constrain_tag(key, &wire_tag, true));
+                if possible {
+                    actions.extend(extract_scoped_action_arm(
+                        &wire_tag,
+                        &run,
+                        self.ctx,
+                        &self.state(),
+                    ));
+                }
+                self.restore_state(before);
+            }
+            if let Some(state) = &fallthrough {
+                self.tag_locals
+                    .retain(|name, origin| state.tags.get(name) == Some(origin));
+                self.bindings
+                    .retain(|name, value| state.bindings.get(name) == Some(value));
+                self.constraints = joined_constraints(&self.constraints, &state.constraints);
+            }
+            for statement in &case.consequent {
+                self.visit_statement(statement);
+            }
+            fallthrough = if terminates(&case.consequent) {
+                None
+            } else {
+                Some(DispatchState {
+                    tags: self.tag_locals.clone(),
+                    bindings: self.bindings.clone(),
+                    constraints: self.constraints.clone(),
+                })
+            };
         }
-        let actions = extract_switch(switch, self.ctx);
-        // A const-keyed switch whose arms only cause side effects is not a payload action
-        // union — it is an ordinary child dispatch, already described by the
-        // notification's `content` and sub-discriminants. `account_sync` has one, and
-        // cataloguing it minted 11 phantom actions with no action type, field, constant
-        // or child, inflating the count with entries a consumer can do nothing with. An
-        // individual empty arm is still kept (knowing a tag is dispatched beats omitting
-        // it); a switch where EVERY arm is empty is rejected whole.
-        if actions.iter().any(is_meaningful)
-            && actions.len() > self.best.as_ref().map_or(0, Vec::len)
-        {
-            self.best = Some(actions);
+        self.consider_other(actions.into_iter().map(BranchFold::finish).collect());
+        self.tag_locals = incoming_tags;
+        self.bindings = incoming_bindings;
+        self.constraints = incoming_constraints;
+        for name in &label_writes {
+            self.invalidate_binding(name);
         }
-        walk::walk_switch_statement(self, switch);
+        for case in &switch.cases {
+            self.discard_rewritten_tags(&case.consequent);
+        }
     }
 }
 
@@ -791,56 +1829,6 @@ fn is_meaningful(a: &NotifActionDef) -> bool {
         || !a.fields.is_empty()
         || !a.constant_fields.is_empty()
         || !a.children.is_empty()
-}
-
-/// Read every arm of a const-keyed child-tag switch into [`NotifActionDef`]s.
-fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef> {
-    let mut out = Vec::new();
-    for (i, case) in switch.cases.iter().enumerate() {
-        let Some(wire_tag) = case.test.as_ref().and_then(|t| ctx.consts.resolve(t)) else {
-            continue;
-        };
-        // `case TAG_A: case TAG_B: return {…}` — a fall-through label runs the next case
-        // that actually produces something. Stopping at the first NON-EMPTY consequent is
-        // not enough: a label may do setup or log first (`case TAG_A: log();`) and still
-        // fall through, and treating that as its own arm loses the action type and every
-        // field of a legally dispatched tag. Search forward for the first case that
-        // yields a result shape instead.
-        // …but the chain ENDS at a terminating statement. `case A: log(); break; case B:
-        // return {…}` does not fall through, and scanning past the `break` would publish
-        // B's action type and fields under A's wire tag — a shape that tag never produces.
-        let run: Vec<&Statement> =
-            fall_through_body(&switch.cases[i..]).unwrap_or_else(|| as_refs(&case.consequent));
-        let shapes = arm_result_shapes_of(&run);
-        if shapes.is_empty() {
-            // A recognised tag whose arm returns no shape (a bare flag set, an early
-            // break). Still catalogued: knowing the tag is dispatched at all beats
-            // omitting it.
-            out.push(empty_action(wire_tag));
-            continue;
-        }
-        // An arm can branch into more than one shape. Which of the two it is matters:
-        // `description` branches into two DIFFERENT actions (`desc_remove` when the
-        // child has a `<delete>`, else `desc_add`), while `ephemeral` branches into the
-        // SAME action behind a feature flag, differing only in extra optional fields.
-        // So branches are grouped by `actionType`: different ones stay separate arms of
-        // the union, identical ones merge into one (a field only some branches read is
-        // optional in the merge).
-        let mut grouped: Vec<BranchFold> = Vec::new();
-        for (shape, scope) in shapes {
-            for action in expand_shape(&wire_tag, shape, &scope, ctx, 0) {
-                match grouped
-                    .iter_mut()
-                    .find(|g| g.def.action_type == action.action_type)
-                {
-                    Some(fold) => fold.absorb(action),
-                    None => grouped.push(BranchFold::new(action)),
-                }
-            }
-        }
-        out.extend(grouped.into_iter().map(BranchFold::finish));
-    }
-    out
 }
 
 /// The body a case actually runs, following the fall-through chain.
@@ -907,21 +1895,20 @@ fn list_exits_refs(stmts: &[&Statement], nested: bool) -> bool {
     false
 }
 
-/// Whether some path through `s` reaches a `break` that leaves the construct we are
-/// analysing rather than ending the case. Only meaningful inside a nested breakable
-/// construct — at case level a `break` *is* the exit.
+/// Whether a path reaches a loop-local `break` or `continue` instead of leaving
+/// the caller. At case level a `break` ends the case.
 fn can_escape(s: &Statement, nested: bool) -> bool {
     if !nested {
         return false;
     }
     match s {
-        Statement::BreakStatement(_) => true,
+        Statement::BreakStatement(_) | Statement::ContinueStatement(_) => true,
         Statement::BlockStatement(b) => b.body.iter().any(|s| can_escape(s, nested)),
         Statement::IfStatement(i) => {
             can_escape(&i.consequent, nested)
                 || i.alternate.as_ref().is_some_and(|a| can_escape(a, nested))
         }
-        // A deeper switch or loop consumes the `break` itself, so it cannot reach us.
+        // A deeper construct is checked by its own exit analysis.
         _ => false,
     }
 }
@@ -1007,6 +1994,7 @@ fn empty_action(wire_tag: String) -> NotifActionDef {
 /// reads is refused, because reporting one of them describes the other branch's payload
 /// wrongly. Distinct from composition *within* one shape (`babelHelpers.extends`, a
 /// duplicate object key), where the last write simply wins — see [`merge_into`].
+#[derive(Clone)]
 struct BranchFold {
     def: NotifActionDef,
     /// Scalar keys two branches disagreed on.
@@ -1025,6 +2013,18 @@ impl BranchFold {
             dead_children: Conflicts::new(),
             dead_child_fields: HashMap::new(),
         }
+    }
+
+    fn absorb_fold(&mut self, from: BranchFold) {
+        self.dead.extend(from.dead);
+        self.dead_children.extend(from.dead_children);
+        for (name, conflicts) in from.dead_child_fields {
+            self.dead_child_fields
+                .entry(name)
+                .or_default()
+                .extend(conflicts);
+        }
+        self.absorb(from.def);
     }
 
     /// Fold one more branch of the same action into the union.
@@ -1167,13 +2167,21 @@ fn collect_returns_into<'b, 'a>(
     scope: &mut Scope<'b, 'a>,
     out: &mut Vec<Shape<'b, 'a>>,
 ) {
+    for name in block_scoped_names(stmts) {
+        scope.remove(name);
+    }
     for s in stmts.iter().copied() {
         match s {
             Statement::VariableDeclaration(decl) => {
                 for d in &decl.declarations {
                     if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
                     {
-                        scope.insert(name.as_str(), init);
+                        apply_expression_effects(init, scope);
+                        scope.insert(name.as_str(), deref_ident(init, scope));
+                    } else if d.init.is_some() {
+                        for id in d.id.get_binding_identifiers() {
+                            scope.remove(id.name.as_str());
+                        }
                     }
                 }
             }
@@ -1189,29 +2197,7 @@ fn collect_returns_into<'b, 'a>(
             // (`a = t.attrString("jid"), b = t.attrInt("n")`), which arrives as a
             // `SequenceExpression`; matching only a bare assignment skipped those
             // entirely and left the stale initializer installed.
-            Statement::ExpressionStatement(e) => {
-                // A write buried in a short-circuit or ternary runs on SOME paths only:
-                // `cond && (x = attrString("lid"))` leaves `x` holding either value, so
-                // the name no longer has one known source and is tombstoned. Ignoring it
-                // left the pre-expression binding installed and published it as fact.
-                for name in conditional_writes(&e.expression) {
-                    scope.remove(name);
-                }
-                let mut ops = Vec::new();
-                flatten_sequence(&e.expression, &mut ops);
-                for a in ops {
-                    if let Some(name) = a.left.get_identifier_name() {
-                        // The binding now holds the new right-hand side, whatever it is.
-                        // Requiring it to resolve to a wire accessor dropped the minifier's
-                        // `var x; x = {actionType: A, id: attr("jid")}; return x` — a fully
-                        // static shape — and published an empty action. Pointing the name at
-                        // what it now holds satisfies the "never report an overwritten
-                        // value" rule better than forgetting it: if the new value is not
-                        // interpretable, the field simply does not resolve.
-                        scope.insert(name, &a.right);
-                    }
-                }
-            }
+            Statement::ExpressionStatement(e) => apply_expression_effects(&e.expression, scope),
             Statement::ReturnStatement(r) => {
                 if let Some(arg) = r.argument.as_ref() {
                     let mut branches = Vec::new();
@@ -1228,10 +2214,11 @@ fn collect_returns_into<'b, 'a>(
                 // `var` writes escape a bare block (function scope); `let`/`const` do not.
                 // Propagating everything let an inner `let x` shadow the outer `x` for the
                 // rest of the function — the runtime reads the OUTER value after the block.
-                let shadowed: Vec<(&str, Option<&'b Expression<'a>>)> = block_scoped_names(&b.body)
-                    .into_iter()
-                    .map(|n| (n, scope.get(n).copied()))
-                    .collect();
+                let shadowed: Vec<(&str, Option<&'b Expression<'a>>)> =
+                    block_scoped_names(&as_refs(&b.body))
+                        .into_iter()
+                        .map(|n| (n, scope.get(n).copied()))
+                        .collect();
                 collect_returns_into(&as_refs(&b.body), scope, out);
                 for (name, prior) in shadowed {
                     match prior {
@@ -1266,6 +2253,9 @@ fn collect_returns_into<'b, 'a>(
                     // masking it makes the handler's `e` resolve to nothing, which is the
                     // truth.
                     let mut catch_scope = scope.clone();
+                    for name in written_names(&t.block.body) {
+                        catch_scope.remove(name.as_str());
+                    }
                     if let Some(param) = h.param.as_ref()
                         && let Some(name) = param.pattern.get_identifier_name()
                     {
@@ -1371,13 +2361,7 @@ fn collect_returns_into<'b, 'a>(
                         }
                         Some(init) => {
                             if let Some(e) = init.as_expression() {
-                                let mut ops = Vec::new();
-                                flatten_sequence(e, &mut ops);
-                                for a in ops {
-                                    if let Some(n) = a.left.get_identifier_name() {
-                                        entry.insert(n, &a.right);
-                                    }
-                                }
+                                apply_expression_effects(e, &mut entry);
                             }
                         }
                         None => {}
@@ -1401,19 +2385,32 @@ fn collect_returns_into<'b, 'a>(
 
 /// The names a statement list declares with `let`/`const` — bindings that die with their
 /// block, unlike `var`.
-fn block_scoped_names<'b, 'a>(stmts: &'b [Statement<'a>]) -> Vec<&'b str> {
-    use oxc_ast::ast::VariableDeclarationKind as K;
+fn block_scoped_names<'b, 'a>(stmts: &[&'b Statement<'a>]) -> Vec<&'b str> {
     let mut out = Vec::new();
-    for s in stmts {
-        if let Statement::VariableDeclaration(d) = s
-            && matches!(d.kind, K::Let | K::Const)
-        {
-            out.extend(
-                d.declarations
-                    .iter()
-                    .filter_map(|x| x.id.get_identifier_name())
-                    .map(|n| n.as_str()),
-            );
+    for statement in stmts {
+        match statement {
+            Statement::VariableDeclaration(declaration) if !declaration.kind.is_var() => {
+                for binding in &declaration.declarations {
+                    out.extend(
+                        binding
+                            .id
+                            .get_binding_identifiers()
+                            .into_iter()
+                            .map(|id| id.name.as_str()),
+                    );
+                }
+            }
+            Statement::ClassDeclaration(class) => {
+                if let Some(id) = &class.id {
+                    out.push(id.name.as_str());
+                }
+            }
+            Statement::FunctionDeclaration(function) => {
+                if let Some(id) = &function.id {
+                    out.push(id.name.as_str());
+                }
+            }
+            _ => {}
         }
     }
     out
@@ -1431,56 +2428,103 @@ fn loop_body<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b Statement<'a>> {
     }
 }
 
-/// The assignment operands of an expression, flattening the minifier's comma sequences.
-fn flatten_sequence<'b, 'a>(
-    e: &'b Expression<'a>,
-    out: &mut Vec<&'b oxc_ast::ast::AssignmentExpression<'a>>,
-) {
-    match e {
-        Expression::AssignmentExpression(a) => out.push(a),
-        Expression::SequenceExpression(seq) => {
-            for sub in &seq.expressions {
-                flatten_sequence(sub, out);
+fn invalidate_scope_objects(scope: &mut Scope, receiver: Option<&Expression>) {
+    let target = receiver
+        .map(|receiver| deref_ident(receiver, scope))
+        .filter(|value| saved_value_kind(value) == SavedValueKind::Allocation);
+    let mut dependents: HashMap<String, Vec<&str>> = HashMap::new();
+    let mut removed = HashSet::new();
+    for (name, value) in scope.iter() {
+        let resolved = deref_ident(value, scope);
+        if target
+            .map(|target| std::ptr::eq(target, resolved))
+            .unwrap_or_else(|| {
+                saved_value_kind(resolved) != SavedValueKind::Primitive
+                    && as_identifier(resolved).is_none()
+            })
+        {
+            removed.insert(*name);
+        }
+        for dependency in expression_references(value) {
+            dependents.entry(dependency).or_default().push(*name);
+        }
+    }
+    let mut pending: Vec<_> = removed.iter().copied().collect();
+    while let Some(name) = pending.pop() {
+        for dependent in dependents.get(name).into_iter().flatten() {
+            if removed.insert(*dependent) {
+                pending.push(*dependent);
             }
         }
-        Expression::ParenthesizedExpression(p) => flatten_sequence(&p.expression, out),
-        _ => {}
+    }
+    scope.retain(|name, _| !removed.contains(name));
+}
+
+fn apply_unknown_writes(writes: WriteNames<'_>, scope: &mut Scope) {
+    if writes.objects {
+        if writes.opaque_mutation {
+            invalidate_scope_objects(scope, None);
+        } else {
+            for receiver in &writes.receivers {
+                let target = scope.get(receiver.as_str()).copied();
+                invalidate_scope_objects(scope, target);
+            }
+        }
+    }
+    for name in writes.names {
+        scope.remove(name.as_str());
     }
 }
 
-/// Names assigned inside a CONDITIONAL part of an expression — an operand of `&&`/`||`
-/// or either arm of a ternary. Definite top-level writes are excluded; [`flatten_sequence`]
-/// handles those.
-fn conditional_writes<'b>(e: &'b Expression) -> Vec<&'b str> {
-    fn walk<'b>(e: &'b Expression, guarded: bool, out: &mut Vec<&'b str>) {
-        match e {
-            Expression::AssignmentExpression(a) => {
-                if guarded && let Some(n) = a.left.get_identifier_name() {
-                    out.push(n);
+fn apply_expression_effects<'b, 'a>(expression: &'b Expression<'a>, scope: &mut Scope<'b, 'a>) {
+    match expression.without_parentheses() {
+        Expression::AssignmentExpression(assignment) => {
+            apply_expression_effects(&assignment.right, scope);
+            if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
+                if assignment.operator == oxc_syntax::operator::AssignmentOperator::Assign {
+                    scope.insert(name, deref_ident(&assignment.right, scope));
+                } else {
+                    scope.remove(name);
                 }
-                walk(&a.right, guarded, out);
-            }
-            Expression::LogicalExpression(l) => {
-                walk(&l.left, guarded, out);
-                walk(&l.right, true, out);
-            }
-            Expression::ConditionalExpression(c) => {
-                walk(&c.test, guarded, out);
-                walk(&c.consequent, true, out);
-                walk(&c.alternate, true, out);
-            }
-            Expression::SequenceExpression(seq) => {
-                for sub in &seq.expressions {
-                    walk(sub, guarded, out);
+            } else {
+                if let Some(member) = assignment.left.as_member_expression() {
+                    invalidate_scope_objects(scope, Some(member.object()));
+                } else if wa_oxc::assignment_target_has_member(&assignment.left) {
+                    invalidate_scope_objects(scope, None);
+                }
+                for name in wa_oxc::assignment_target_names(&assignment.left) {
+                    scope.remove(name.as_str());
                 }
             }
-            Expression::ParenthesizedExpression(p) => walk(&p.expression, guarded, out),
-            _ => {}
+        }
+        Expression::SequenceExpression(sequence) => {
+            for expression in &sequence.expressions {
+                apply_expression_effects(expression, scope);
+            }
+        }
+        Expression::BinaryExpression(binary) => {
+            apply_expression_effects(&binary.left, scope);
+            apply_expression_effects(&binary.right, scope);
+        }
+        Expression::LogicalExpression(logical) => {
+            apply_expression_effects(&logical.left, scope);
+            let mut writes = WriteNames::default();
+            writes.visit_expression(&logical.right);
+            apply_unknown_writes(writes, scope);
+        }
+        Expression::ConditionalExpression(conditional) => {
+            apply_expression_effects(&conditional.test, scope);
+            let mut writes = WriteNames::default();
+            writes.visit_expression(&conditional.consequent);
+            writes.visit_expression(&conditional.alternate);
+            apply_unknown_writes(writes, scope);
+        }
+        _ => {
+            let mut writes = WriteNames::default();
+            writes.visit_expression(expression);
+            apply_unknown_writes(writes, scope);
         }
     }
-    let mut out = Vec::new();
-    walk(e, false, &mut out);
-    out
 }
 
 /// Re-apply the writes a statement list performs, for a construct that runs on EVERY
@@ -1498,15 +2542,7 @@ fn replay_writes<'b, 'a>(stmts: &'b [Statement<'a>], scope: &mut Scope<'b, 'a>) 
                     }
                 }
             }
-            Statement::ExpressionStatement(e) => {
-                let mut ops = Vec::new();
-                flatten_sequence(&e.expression, &mut ops);
-                for a in ops {
-                    if let Some(n) = a.left.get_identifier_name() {
-                        scope.insert(n, &a.right);
-                    }
-                }
-            }
+            Statement::ExpressionStatement(e) => apply_expression_effects(&e.expression, scope),
             _ => {}
         }
     }
@@ -1515,82 +2551,9 @@ fn replay_writes<'b, 'a>(stmts: &'b [Statement<'a>], scope: &mut Scope<'b, 'a>) 
 /// Drop every binding a conditional construct may have reassigned, so statements after
 /// the rejoin do not read a value that only one path wrote.
 fn tombstone_branch_writes(s: &Statement, scope: &mut Scope) {
-    let mut names = Vec::new();
-    assigned_names(s, &mut names);
-    for n in names {
-        scope.remove(n);
-    }
-}
-
-/// Every identifier assigned anywhere inside `s`, not descending into nested functions
-/// (whose assignments belong to their own scope, not this one).
-fn assigned_names<'a>(s: &'a Statement, out: &mut Vec<&'a str>) {
-    fn expr<'a>(e: &'a Expression, out: &mut Vec<&'a str>) {
-        match e {
-            Expression::AssignmentExpression(a) => {
-                if let Some(n) = a.left.get_identifier_name() {
-                    out.push(n);
-                }
-                expr(&a.right, out);
-            }
-            Expression::SequenceExpression(seq) => {
-                seq.expressions.iter().for_each(|e| expr(e, out))
-            }
-            Expression::ParenthesizedExpression(p) => expr(&p.expression, out),
-            Expression::ConditionalExpression(c) => {
-                expr(&c.test, out);
-                expr(&c.consequent, out);
-                expr(&c.alternate, out);
-            }
-            Expression::LogicalExpression(l) => {
-                expr(&l.left, out);
-                expr(&l.right, out);
-            }
-            _ => {}
-        }
-    }
-    match s {
-        Statement::ExpressionStatement(e) => expr(&e.expression, out),
-        Statement::VariableDeclaration(d) => {
-            for decl in &d.declarations {
-                if let (Some(n), Some(_)) = (decl.id.get_identifier_name(), decl.init.as_ref()) {
-                    out.push(n.as_str());
-                }
-            }
-        }
-        Statement::BlockStatement(b) => b.body.iter().for_each(|s| assigned_names(s, out)),
-        Statement::IfStatement(i) => {
-            expr(&i.test, out);
-            assigned_names(&i.consequent, out);
-            if let Some(a) = &i.alternate {
-                assigned_names(a, out);
-            }
-        }
-        s if loop_body(s).is_some() => {
-            if let Some(b) = loop_body(s) {
-                assigned_names(b, out);
-            }
-        }
-        Statement::TryStatement(t) => {
-            t.block.body.iter().for_each(|s| assigned_names(s, out));
-            if let Some(h) = &t.handler {
-                h.body.body.iter().for_each(|s| assigned_names(s, out));
-            }
-            if let Some(f) = &t.finalizer {
-                f.body.iter().for_each(|s| assigned_names(s, out));
-            }
-        }
-        Statement::SwitchStatement(sw) => sw
-            .cases
-            .iter()
-            .for_each(|c| c.consequent.iter().for_each(|s| assigned_names(s, out))),
-        Statement::ReturnStatement(r) => {
-            if let Some(a) = r.argument.as_ref() {
-                expr(a, out);
-            }
-        }
-        _ => {}
-    }
+    let mut writes = WriteNames::default();
+    writes.visit_statement(s);
+    apply_unknown_writes(writes, scope);
 }
 
 fn collect_branches<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>>) {
@@ -1657,7 +2620,7 @@ fn expand_shape(
     scope: &Scope,
     ctx: &ArmCtx,
     depth: u8,
-) -> Vec<NotifActionDef> {
+) -> Vec<BranchFold> {
     if depth <= MAX_INLINE_DEPTH
         && let Some(src) = local_call_source(deref_ident(result, scope), ctx, scope)
     {
@@ -1764,7 +2727,7 @@ fn expand_helper(
     arg_srcs: &[String],
     ctx: &ArmCtx,
     depth: u8,
-) -> Vec<NotifActionDef> {
+) -> Vec<BranchFold> {
     let alloc = Allocator::default();
     let wrapped = apply_args(fn_src, arg_srcs);
     let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
@@ -1789,14 +2752,14 @@ fn expand_helper(
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
             match merged
                 .iter_mut()
-                .find(|g| g.def.action_type == action.action_type)
+                .find(|g| g.def.action_type == action.def.action_type)
             {
-                Some(fold) => fold.absorb(action),
-                None => merged.push(BranchFold::new(action)),
+                Some(fold) => fold.absorb_fold(action),
+                None => merged.push(action),
             }
         }
     }
-    merged.into_iter().map(BranchFold::finish).collect()
+    merged
 }
 
 /// Read one arm result shape into a [`NotifActionDef`].
@@ -1810,10 +2773,10 @@ fn read_action<'b, 'a>(
     scope: &Scope<'b, 'a>,
     ctx: &ArmCtx,
     depth: u8,
-) -> NotifActionDef {
-    let mut def = empty_action(wire_tag);
+) -> BranchFold {
+    let mut def = BranchFold::new(empty_action(wire_tag));
     fold_shape(result, scope, &mut def, ctx, depth);
-    def.constant_fields.sort_by(|a, b| a.name.cmp(&b.name));
+    def.def.constant_fields.sort_by(|a, b| a.name.cmp(&b.name));
     def
 }
 
@@ -1821,7 +2784,7 @@ fn read_action<'b, 'a>(
 fn fold_shape<'b, 'a>(
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
-    def: &mut NotifActionDef,
+    def: &mut BranchFold,
     ctx: &ArmCtx,
     depth: u8,
 ) {
@@ -1846,7 +2809,11 @@ fn fold_shape<'b, 'a>(
             // child.mapChildrenWithTag("participant", …)` — where every participant
             // list lives). The caller names it after the key it was bound to.
             if let Some(child) = mapped_child("", e, scope, ctx) {
-                def.children.push(child);
+                def.dead_child_fields
+                    .entry(child.def.name.clone())
+                    .or_default()
+                    .extend(child.dead_fields);
+                def.def.children.push(child.def);
             } else if let Some(src) = local_call_source(e, ctx, scope) {
                 inline_local(&src.0, &src.1, def, ctx, depth);
             }
@@ -1915,13 +2882,7 @@ fn local_call_source<'b, 'a>(
 ///
 /// The inlining happens inside this parse's own allocator, so no AST reference escapes
 /// it — the helper's contribution is accumulated straight into `def`.
-fn inline_local(
-    fn_src: &str,
-    arg_srcs: &[String],
-    def: &mut NotifActionDef,
-    ctx: &ArmCtx,
-    depth: u8,
-) {
+fn inline_local(fn_src: &str, arg_srcs: &[String], def: &mut BranchFold, ctx: &ArmCtx, depth: u8) {
     let alloc = Allocator::default();
     // Wrapped in parens so a `function name(…){…}` declaration parses as an expression,
     // and IMMEDIATELY APPLIED to the call site's argument text. A helper that only reads
@@ -1953,17 +2914,16 @@ fn inline_local(
     // carry — the same rule the switch arms use.
     let mut branches: Vec<BranchFold> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &bound) {
-        let mut one = empty_action(String::new());
+        let mut one = BranchFold::new(empty_action(String::new()));
         fold_shape(shape, &scope, &mut one, ctx, depth + 1);
         match branches
             .iter_mut()
-            .find(|b| b.def.action_type == one.action_type)
+            .find(|b| b.def.action_type == one.def.action_type)
         {
-            Some(fold) => fold.absorb(one),
-            None => branches.push(BranchFold::new(one)),
+            Some(fold) => fold.absorb_fold(one),
+            None => branches.push(one),
         }
     }
-    let branches: Vec<NotifActionDef> = branches.into_iter().map(BranchFold::finish).collect();
     // Distinct action types cannot arise here (a value-position helper contributes
     // fields, it does not pick the action), so folding the merged branches in is safe.
     for b in branches {
@@ -1978,9 +2938,14 @@ fn inline_local(
 /// The three collections are three *representations* of one namespace — a shape's keys —
 /// not three independent namespaces. Modelling them separately is what let a key exist
 /// twice in different forms.
+struct ChildShape {
+    def: NotifActionChild,
+    dead_fields: Conflicts,
+}
+
 enum KeyValue {
     Field(NotifActionField),
-    Child(NotifActionChild),
+    Child(ChildShape),
     Const(NotifConstValue),
 }
 
@@ -1991,14 +2956,20 @@ enum KeyValue {
 /// runtime — published a wire-read field *and* a constant both named `id`, and the
 /// reverse order left the stale constant behind. A later write does not merely shadow an
 /// earlier one; it replaces it, whatever form the earlier one took.
-fn write_key(def: &mut NotifActionDef, key: &str, value: KeyValue) {
-    def.fields.retain(|x| x.name != key);
-    def.children.retain(|x| x.name != key);
-    def.constant_fields.retain(|x| x.name != key);
+fn write_key(def: &mut BranchFold, key: &str, value: KeyValue) {
+    def.dead.remove(key);
+    def.dead_children.remove(key);
+    def.dead_child_fields.remove(key);
+    def.def.fields.retain(|x| x.name != key);
+    def.def.children.retain(|x| x.name != key);
+    def.def.constant_fields.retain(|x| x.name != key);
     match value {
-        KeyValue::Field(f) => def.fields.push(f),
-        KeyValue::Child(c) => def.children.push(c),
-        KeyValue::Const(v) => def.constant_fields.push(NotifActionConstant {
+        KeyValue::Field(f) => def.def.fields.push(f),
+        KeyValue::Child(c) => {
+            def.dead_child_fields.insert(key.to_string(), c.dead_fields);
+            def.def.children.push(c.def);
+        }
+        KeyValue::Const(v) => def.def.constant_fields.push(NotifActionConstant {
             name: key.to_string(),
             value: v,
         }),
@@ -2011,24 +2982,56 @@ fn write_key(def: &mut NotifActionDef, key: &str, value: KeyValue) {
 /// `actionType` included — overrides what an earlier operand wrote, the same last-write
 /// rule an object literal follows. Keeping `actionType` on first-write meant
 /// `extends({actionType: A}, helper())` where the helper returns `B` dispatched as `A`.
-fn merge_into(def: &mut NotifActionDef, from: NotifActionDef) {
+fn merge_into(def: &mut BranchFold, from: BranchFold) {
+    let BranchFold {
+        def: from,
+        dead,
+        dead_children,
+        mut dead_child_fields,
+    } = from;
     if from.action_type.is_some() {
-        def.action_type = from.action_type;
+        def.def.action_type = from.action_type;
     }
-    for f in from.fields {
-        let key = f.name.clone();
-        write_key(def, &key, KeyValue::Field(f));
+    for field in from.fields {
+        let name = field.name.clone();
+        if !dead.contains(&name) {
+            write_key(def, &name, KeyValue::Field(field));
+        }
     }
-    for c in from.children {
-        let key = c.name.clone();
-        write_key(def, &key, KeyValue::Child(c));
+    for child in from.children {
+        let name = child.name.clone();
+        if !dead_children.contains(&name) {
+            let conflicts = dead_child_fields.remove(&name).unwrap_or_default();
+            write_key(
+                def,
+                &name,
+                KeyValue::Child(ChildShape {
+                    def: child,
+                    dead_fields: conflicts,
+                }),
+            );
+        }
     }
-    for c in from.constant_fields {
-        write_key(def, &c.name.clone(), KeyValue::Const(c.value));
+    for constant in from.constant_fields {
+        write_key(def, &constant.name, KeyValue::Const(constant.value));
+    }
+    for name in dead.union(&dead_children) {
+        def.def.fields.retain(|field| field.name != *name);
+        def.def.children.retain(|child| child.name != *name);
+        def.def
+            .constant_fields
+            .retain(|constant| constant.name != *name);
+    }
+    def.dead.extend(dead);
+    def.dead_children.extend(dead_children);
+    for (name, conflicts) in dead_child_fields {
+        def.dead_child_fields
+            .entry(name)
+            .or_default()
+            .extend(conflicts);
     }
 }
 
-/// The statement list of a function expression / declaration.
 fn function_body_of<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b [Statement<'a>]> {
     match e {
         Expression::ParenthesizedExpression(p) => function_body_of(&p.expression),
@@ -2042,7 +3045,7 @@ fn function_body_of<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b [Statement<'a>]
 fn fold_object<'b, 'a>(
     obj: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
-    def: &mut NotifActionDef,
+    def: &mut BranchFold,
     ctx: &ArmCtx,
     depth: u8,
 ) {
@@ -2074,7 +3077,7 @@ fn fold_object<'b, 'a>(
             // `o("Mod").OBJECT.MEMBER`, so a fully static literal came back `None` and the
             // arm published no `actionType` at all — indistinguishable from an identity
             // the arm genuinely computes.
-            def.action_type = as_string_lit(value)
+            def.def.action_type = as_string_lit(value)
                 .map(str::to_string)
                 .or_else(|| ctx.consts.resolve(value));
             continue;
@@ -2092,7 +3095,7 @@ fn fold_object<'b, 'a>(
         if let Some(src) = local_call_source(strip_guard(value), ctx, scope)
             && depth < MAX_INLINE_DEPTH
         {
-            let mut nested = empty_action(String::new());
+            let mut nested = BranchFold::new(empty_action(String::new()));
             inline_local(&src.0, &src.1, &mut nested, ctx, depth);
             // A helper that yields nothing is a helper the inliner cannot see through —
             // typically because the value arrives through a PARAMETER
@@ -2104,7 +3107,19 @@ fn fold_object<'b, 'a>(
             // Falling through to `read_field` recovers it: the wire read is in the CALL's
             // arguments, which `find_accessor` already descends into — and it refuses the
             // key outright if two arguments disagree.
-            if nested.children.is_empty() && nested.fields.is_empty() {
+            let shape = nested.clone().finish();
+            let conflicted = !nested.dead.is_empty()
+                || !nested.dead_children.is_empty()
+                || nested
+                    .dead_child_fields
+                    .values()
+                    .any(|conflicts| !conflicts.is_empty());
+            if shape.children.is_empty()
+                && shape.fields.is_empty()
+                && shape.constant_fields.is_empty()
+                && shape.action_type.is_none()
+                && !conflicted
+            {
                 if let Some(field) = read_field(key, value, scope, ctx.consts) {
                     write_key(def, key, KeyValue::Field(field));
                 }
@@ -2119,19 +3134,41 @@ fn fold_object<'b, 'a>(
             // sees an unguarded map — reporting a collection as always present when the
             // falsy path produces none. The guard belongs to the key, not to the helper.
             let outer_absent = guard_admits_absence(value);
-            for mut c in nested.children {
+            for mut c in shape.children {
+                let conflicts = nested.dead_child_fields.remove(&c.name).unwrap_or_default();
                 c.name = key.to_string();
                 c.required &= !outer_absent;
-                write_key(def, key, KeyValue::Child(c));
+                write_key(
+                    def,
+                    key,
+                    KeyValue::Child(ChildShape {
+                        def: c,
+                        dead_fields: conflicts,
+                    }),
+                );
             }
             // Fields carry the same guard as children above. A helper whose branches
             // yield a mapped collection in one and a flat object in the other contributes
             // both kinds under `cond && helper(node)`, and only the collection was being
             // weakened — leaving a genuinely optional field marked required.
-            for mut f in nested.fields {
+            for mut f in shape.fields {
                 f.required &= !outer_absent;
                 let fkey = f.name.clone();
                 write_key(def, &fkey, KeyValue::Field(f));
+            }
+            for name in &nested.dead {
+                def.def.fields.retain(|field| field.name != *name);
+            }
+            def.dead.extend(nested.dead);
+            if !nested.dead_children.is_empty() {
+                def.def.children.retain(|child| child.name != key);
+                def.dead_children.insert(key.to_string());
+            }
+            for conflicts in nested.dead_child_fields.into_values() {
+                def.dead_child_fields
+                    .entry(key.to_string())
+                    .or_default()
+                    .extend(conflicts);
             }
             continue;
         }
@@ -2166,7 +3203,7 @@ fn mapped_child<'b, 'a>(
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
     ctx: &ArmCtx,
-) -> Option<NotifActionChild> {
+) -> Option<ChildShape> {
     // Either branch may carry the map. `strip_guard` always follows the consequent, so
     // `disabled ? 0 : node.mapChildrenWithTag(…)` — the same shape written the other way
     // round — dropped the child entirely, while the absence check beside it already looks
@@ -2181,28 +3218,32 @@ fn mapped_child<'b, 'a>(
     let call = find_mapped_call(e)?;
     let wire_tag = arg_expr(call.arguments.first()?).and_then(as_string_lit)?;
     let mut fields = Vec::new();
+    let mut dead_fields = Conflicts::new();
     for arg in &call.arguments {
         if let Some(e) = arg_expr(arg) {
-            collect_accessor_fields(e, scope, ctx, &mut fields);
+            collect_accessor_fields(e, scope, ctx, &mut fields, &mut dead_fields);
         }
     }
-    Some(NotifActionChild {
-        // `strip_guard` above deliberately reaches THROUGH a guard to find the map call,
-        // so `participants: enabled && node.mapChildrenWithTag(…)` is recovered — and on
-        // that path there is a legal execution with no collection at all. Reporting it
-        // required regardless promised a consumer a collection that may never arrive,
-        // and `BranchFold` cannot correct it: the guard sits inside one object shape
-        // rather than splitting the arm into branches it could merge.
-        //
-        // What it is NOT is `!is_guarded(e)`. `read_field` runs `value_selection` before
-        // consulting the guard precisely because a ternary between two REAL values is a
-        // choice of source, not an absence — and the one live case here is exactly that:
-        // `requests: t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]` always
-        // yields a collection. Only a literal absence on the far side makes it optional.
-        required: !guard_admits_absence(e),
-        name: key.to_string(),
-        wire_tag: wire_tag.to_string(),
-        fields,
+    Some(ChildShape {
+        dead_fields,
+        def: NotifActionChild {
+            // `strip_guard` above deliberately reaches THROUGH a guard to find the map call,
+            // so `participants: enabled && node.mapChildrenWithTag(…)` is recovered — and on
+            // that path there is a legal execution with no collection at all. Reporting it
+            // required regardless promised a consumer a collection that may never arrive,
+            // and `BranchFold` cannot correct it: the guard sits inside one object shape
+            // rather than splitting the arm into branches it could merge.
+            //
+            // What it is NOT is `!is_guarded(e)`. `read_field` runs `value_selection` before
+            // consulting the guard precisely because a ternary between two REAL values is a
+            // choice of source, not an absence — and the one live case here is exactly that:
+            // `requests: t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]` always
+            // yields a collection. Only a literal absence on the far side makes it optional.
+            required: !guard_admits_absence(e),
+            name: key.to_string(),
+            wire_tag: wire_tag.to_string(),
+            fields,
+        },
     })
 }
 
@@ -2639,6 +3680,7 @@ fn collect_accessor_fields<'b, 'a>(
     outer: &Scope<'b, 'a>,
     ctx: &ArmCtx,
     out: &mut Vec<NotifActionField>,
+    conflicts: &mut Conflicts,
 ) {
     let consts = ctx.consts;
     // No whole-body pre-pass. `collect_returns` installs the callback's own `var`
@@ -2681,10 +3723,10 @@ fn collect_accessor_fields<'b, 'a>(
             // child its whole field list. Scope still binding the name is what separates
             // the two — a terminal module name is not bound by the caller, a cycle's is.
             match as_identifier(resolved) {
-                None => collect_accessor_fields(resolved, outer, ctx, out),
+                None => collect_accessor_fields(resolved, outer, ctx, out, conflicts),
                 Some(inner) if outer.get(inner).is_none() => {
                     if let Some(src) = ctx.locals.get(inner) {
-                        collect_named_callback_fields(src, ctx, out);
+                        collect_named_callback_fields(src, ctx, out, conflicts);
                     }
                 }
                 Some(_) => {}
@@ -2695,7 +3737,7 @@ fn collect_accessor_fields<'b, 'a>(
             .filter(|n| outer.get(n).is_none())
             .and_then(|n| ctx.locals.get(n))
         {
-            collect_named_callback_fields(src, ctx, out);
+            collect_named_callback_fields(src, ctx, out, conflicts);
         }
         return;
     }
@@ -2744,6 +3786,7 @@ fn collect_accessor_fields<'b, 'a>(
         }
         apply_conflicts(&mut merged, &dead);
     }
+    conflicts.extend(dead);
     for f in merged {
         if !out.iter().any(|x| x.name == f.name) {
             out.push(f);
@@ -2755,7 +3798,12 @@ fn collect_accessor_fields<'b, 'a>(
 /// allocator the way the value-position helpers are inlined.
 ///
 /// The returned fields are owned, so nothing from that parse escapes it.
-fn collect_named_callback_fields(fn_src: &str, ctx: &ArmCtx, out: &mut Vec<NotifActionField>) {
+fn collect_named_callback_fields(
+    fn_src: &str,
+    ctx: &ArmCtx,
+    out: &mut Vec<NotifActionField>,
+    conflicts: &mut Conflicts,
+) {
     let alloc = Allocator::default();
     let wrapped = format!("({fn_src})");
     let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
@@ -2775,7 +3823,7 @@ fn collect_named_callback_fields(fn_src: &str, ctx: &ArmCtx, out: &mut Vec<Notif
         other => other,
     };
     let mut fields = Vec::new();
-    collect_accessor_fields(func, &Scope::new(), ctx, &mut fields);
+    collect_accessor_fields(func, &Scope::new(), ctx, &mut fields, conflicts);
     for f in fields {
         if !out.iter().any(|x| x.name == f.name) {
             out.push(f);
@@ -2881,4 +3929,471 @@ fn same_wire_read(a: &NotifActionField, b: &NotifActionField) -> bool {
         // it out of the identity merged them and kept whichever policy came first, so the
         // action table would state the opposite behaviour for one of the two branches.
         && a.unknown_value == b.unknown_value
+}
+
+fn extract_action_arm(wire_tag: &str, run: &[&Statement], ctx: &ArmCtx) -> Vec<BranchFold> {
+    extract_action_shapes(wire_tag, arm_result_shapes_of(run), ctx)
+}
+
+fn extract_action_shapes(
+    wire_tag: &str,
+    shapes: Vec<Shape<'_, '_>>,
+    ctx: &ArmCtx,
+) -> Vec<BranchFold> {
+    let mut out = Vec::new();
+    if shapes.is_empty() {
+        // A recognised tag whose arm returns no shape (a bare flag set, an early
+        // break). Still catalogued: knowing the tag is dispatched at all beats
+        // omitting it.
+        out.push(BranchFold::new(empty_action(wire_tag.to_string())));
+        return out;
+    }
+    // An arm can branch into more than one shape. Which of the two it is matters:
+    // `description` branches into two DIFFERENT actions (`desc_remove` when the
+    // child has a `<delete>`, else `desc_add`), while `ephemeral` branches into the
+    // SAME action behind a feature flag, differing only in extra optional fields.
+    // So branches are grouped by `actionType`: different ones stay separate arms of
+    // the union, identical ones merge into one (a field only some branches read is
+    // optional in the merge).
+    let mut grouped: Vec<BranchFold> = Vec::new();
+    for (shape, scope) in shapes {
+        for action in expand_shape(wire_tag, shape, &scope, ctx, 0) {
+            match grouped
+                .iter_mut()
+                .find(|g| g.def.action_type == action.def.action_type)
+            {
+                Some(fold) => fold.absorb_fold(action),
+                None => grouped.push(action),
+            }
+        }
+    }
+    out.extend(grouped);
+    out
+}
+
+fn dispatch_tag(expression: &Expression, consts: &ConstResolver) -> Option<String> {
+    if let Expression::SequenceExpression(sequence) = expression.without_parentheses() {
+        return sequence
+            .expressions
+            .last()
+            .and_then(|last| dispatch_tag(last, consts));
+    }
+    as_string_lit(expression.without_parentheses())
+        .map(str::to_string)
+        .or_else(|| consts.resolve(expression))
+}
+
+struct HelperDefinitions<'s> {
+    source: &'s str,
+    functions: &'s HashMap<String, String>,
+}
+
+#[derive(Default)]
+struct WriteNames<'s> {
+    names: HashSet<String>,
+    objects: bool,
+    receivers: HashSet<String>,
+    opaque_mutation: bool,
+    originals: Option<HelperDefinitions<'s>>,
+    helpers: Option<&'s HashMap<String, String>>,
+    helper_scope: Option<&'s HashSet<String>>,
+    visiting: HashSet<String>,
+    shadowed: HashSet<String>,
+    mode: wa_oxc::StrictMode,
+}
+
+impl WriteNames<'_> {
+    fn object_write(&mut self, receiver: &Expression) {
+        if let Some(name) = as_identifier(receiver.without_parentheses()) {
+            if !self.shadowed.contains(name) {
+                self.objects = true;
+                self.receivers.insert(name.to_string());
+            }
+        } else {
+            self.objects = true;
+            self.opaque_mutation = true;
+        }
+    }
+}
+
+impl<'a> Visit<'a> for WriteNames<'_> {
+    fn visit_function(&mut self, _: &oxc_ast::ast::Function<'a>, _: oxc_syntax::scope::ScopeFlags) {
+    }
+    fn visit_arrow_function_expression(&mut self, _: &oxc_ast::ast::ArrowFunctionExpression<'a>) {}
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        let outer = self.shadowed.clone();
+        self.shadowed.extend(wa_oxc::block_bindings(&block.body));
+        walk::walk_block_statement(self, block);
+        self.shadowed = outer;
+    }
+    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+        let outer = self.shadowed.clone();
+        if let Some(parameter) = &clause.param {
+            self.shadowed.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        self.visit_block_statement(&clause.body);
+        self.shadowed = outer;
+    }
+    fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+        walk::walk_call_expression(self, call);
+        let Some(function) = wa_oxc::directly_invoked_function(call) else {
+            if let Some(name) = as_identifier(&call.callee)
+                && !self.shadowed.contains(name)
+                && self.visiting.len() < MAX_INLINE_DEPTH as usize
+                && self.helper_scope.is_none_or(|scope| scope.contains(name))
+                && let Some(source) = self.helpers.and_then(|helpers| helpers.get(name)).cloned()
+                && self.visiting.insert(name.to_string())
+            {
+                let allocator = Allocator::default();
+                let wrapped = format!("({source})();");
+                let parsed = wa_oxc::parse_cjs(&allocator, &wrapped);
+                if parsed.errors.is_empty() {
+                    self.visit_program(&parsed.program);
+                }
+                self.visiting.remove(name);
+            }
+            return;
+        };
+        let (parameters, body, name, generator): (
+            &oxc_ast::ast::FormalParameters<'a>,
+            Option<&oxc_ast::ast::FunctionBody<'a>>,
+            Option<&str>,
+            bool,
+        ) = match function {
+            Expression::FunctionExpression(function) => (
+                &function.params,
+                function.body.as_ref().map(|body| body.as_ref()),
+                function.id.as_ref().map(|id| id.name.as_str()),
+                function.generator,
+            ),
+            Expression::ArrowFunctionExpression(function) => {
+                (&function.params, Some(&function.body), None, false)
+            }
+            _ => return,
+        };
+        let outer = self.shadowed.clone();
+        let outer_mode = self.mode;
+        if let Some(body) = body {
+            self.mode = self.mode.for_body(body);
+        }
+        if let Some(name) = name {
+            self.shadowed.insert(name.to_string());
+        }
+        for parameter in &parameters.items {
+            self.shadowed.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        if let Some(rest) = &parameters.rest {
+            self.shadowed.extend(
+                rest.rest
+                    .argument
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        self.visit_formal_parameters(parameters);
+        if !generator && let Some(body) = body {
+            self.shadowed
+                .extend(wa_oxc::function_body_bindings(body, self.mode));
+            self.visit_function_body(body);
+        }
+        self.shadowed = outer;
+        self.mode = outer_mode;
+    }
+    fn visit_for_statement_left(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>) {
+        if let Some(target) = left.as_assignment_target() {
+            for name in wa_oxc::assignment_target_names(target) {
+                if !self.shadowed.contains(&name) {
+                    self.names.insert(name);
+                }
+            }
+        } else if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = left
+            && declaration.kind.is_var()
+        {
+            for binding in &declaration.declarations {
+                for id in binding.id.get_binding_identifiers() {
+                    if !self.shadowed.contains(id.name.as_str()) {
+                        self.names.insert(id.name.to_string());
+                    }
+                }
+            }
+        }
+        walk::walk_for_statement_left(self, left);
+    }
+    fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
+        for name in wa_oxc::assignment_target_names(&assignment.left) {
+            if !self.shadowed.contains(&name) {
+                self.names.insert(name);
+            }
+        }
+        if let Some(member) = assignment.left.as_member_expression() {
+            self.object_write(member.object());
+        } else if wa_oxc::assignment_target_has_member(&assignment.left) {
+            self.objects = true;
+            self.opaque_mutation = true;
+        }
+        walk::walk_assignment_expression(self, assignment);
+    }
+    fn visit_variable_declarator(&mut self, declaration: &oxc_ast::ast::VariableDeclarator<'a>) {
+        if let Some(init) = &declaration.init {
+            let span = oxc_span::GetSpan::span(init);
+            for identifier in declaration.id.get_binding_identifiers() {
+                let original = self.originals.as_ref().is_some_and(|originals| {
+                    originals
+                        .functions
+                        .get(identifier.name.as_str())
+                        .is_some_and(|source| {
+                            source == &originals.source[span.start as usize..span.end as usize]
+                        })
+                });
+                if !original && !self.shadowed.contains(identifier.name.as_str()) {
+                    self.names.insert(identifier.name.to_string());
+                }
+            }
+        }
+        walk::walk_variable_declarator(self, declaration);
+    }
+    fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
+        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
+            &update.argument
+            && !self.shadowed.contains(id.name.as_str())
+        {
+            self.names.insert(id.name.to_string());
+        }
+        if let Some(member) = update.argument.as_member_expression() {
+            self.object_write(member.object());
+        }
+        walk::walk_update_expression(self, update);
+    }
+    fn visit_unary_expression(&mut self, expression: &oxc_ast::ast::UnaryExpression<'a>) {
+        if expression.operator == oxc_syntax::operator::UnaryOperator::Delete
+            && let Some(member) = expression
+                .argument
+                .without_parentheses()
+                .as_member_expression()
+        {
+            self.object_write(member.object());
+        }
+        walk::walk_unary_expression(self, expression);
+    }
+}
+
+fn written_names(statements: &[Statement]) -> HashSet<String> {
+    let mut writes = WriteNames::default();
+    for statement in statements {
+        writes.visit_statement(statement);
+    }
+    writes.names
+}
+
+fn replaced_helpers(
+    statements: &[Statement],
+    source: &str,
+    functions: &HashMap<String, String>,
+) -> HashSet<String> {
+    let mut writes = WriteNames {
+        originals: Some(HelperDefinitions { source, functions }),
+        ..Default::default()
+    };
+    for statement in statements {
+        writes.visit_statement(statement);
+    }
+    writes.names
+}
+
+fn expression_writes(expression: &Expression) -> HashSet<String> {
+    let mut writes = WriteNames::default();
+    writes.visit_expression(expression);
+    writes.names
+}
+
+fn expression_references(expression: &Expression) -> HashSet<String> {
+    #[derive(Default)]
+    struct References(HashSet<String>);
+    impl<'a> Visit<'a> for References {
+        fn visit_function(
+            &mut self,
+            _: &oxc_ast::ast::Function<'a>,
+            _: oxc_syntax::scope::ScopeFlags,
+        ) {
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+        fn visit_identifier_reference(
+            &mut self,
+            identifier: &oxc_ast::ast::IdentifierReference<'a>,
+        ) {
+            self.0.insert(identifier.name.to_string());
+        }
+    }
+    let mut references = References::default();
+    references.visit_expression(expression);
+    references.0
+}
+
+fn parameter_bindings(parameters: &oxc_ast::ast::FormalParameters) -> Bindings {
+    let mut bindings = Bindings::new();
+    for parameter in &parameters.items {
+        for identifier in parameter.pattern.get_binding_identifiers() {
+            bindings.insert(
+                identifier.name.to_string(),
+                SavedBinding::Unknown {
+                    origin: identifier.span.start,
+                },
+            );
+        }
+    }
+    if let Some(rest) = &parameters.rest {
+        for identifier in rest.rest.argument.get_binding_identifiers() {
+            bindings.insert(
+                identifier.name.to_string(),
+                SavedBinding::Unknown {
+                    origin: identifier.span.start,
+                },
+            );
+        }
+    }
+    bindings
+}
+
+// Binding expressions and arm nodes must share the source their spans index.
+fn extract_scoped_action_arm(
+    wire_tag: &str,
+    run: &[&Statement],
+    ctx: &ArmCtx,
+    state: &DispatchState,
+) -> Vec<BranchFold> {
+    let mut analysis = SwitchFinder {
+        ctx,
+        best: None,
+        best_other: None,
+        mode: AnalysisMode::Prune,
+        rewrites: Default::default(),
+        tag_locals: state.tags.clone(),
+        if_actions: Default::default(),
+        bindings: state.bindings.clone(),
+        constraints: state.constraints.clone(),
+    };
+    for statement in run {
+        analysis.visit_statement(statement);
+    }
+    let mut source = String::from("(async function*(){");
+    let mut allocations: HashMap<u32, &str> = HashMap::new();
+    for (name, value) in &state.bindings {
+        let SavedBinding::Expression { start, end, .. } = value else {
+            continue;
+        };
+        source.push_str("var ");
+        source.push_str(name);
+        source.push('=');
+        if matches!(
+            value,
+            SavedBinding::Expression {
+                kind: SavedValueKind::Allocation,
+                ..
+            }
+        ) {
+            if let Some(alias) = allocations.get(start) {
+                source.push_str(alias);
+            } else {
+                source.push_str(&ctx.source[*start as usize..*end as usize]);
+                allocations.insert(*start, name);
+            }
+        } else {
+            source.push_str(&ctx.source[*start as usize..*end as usize]);
+        }
+        source.push(';');
+    }
+    let arm_start = source.len();
+    for statement in run {
+        render_rewritten(
+            ctx.source,
+            oxc_span::GetSpan::span(*statement),
+            &analysis.rewrites,
+            &mut source,
+        );
+        source.push(';');
+    }
+    source.push_str("});");
+    let allocator = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&allocator, &source);
+    if parsed.panicked || !parsed.errors.is_empty() {
+        return extract_action_arm(wire_tag, run, ctx);
+    }
+    let [Statement::ExpressionStatement(statement)] = parsed.program.body.as_slice() else {
+        return Vec::new();
+    };
+    let Expression::FunctionExpression(function) = statement.expression.without_parentheses()
+    else {
+        return Vec::new();
+    };
+    let Some(body) = &function.body else {
+        return Vec::new();
+    };
+    let split = body.statements.partition_point(|statement| {
+        (oxc_span::GetSpan::span(statement).start as usize) < arm_start
+    });
+    let (prefix, arm) = body.statements.split_at(split);
+    let mut scope = Scope::new();
+    collect_returns_into(&as_refs(prefix), &mut scope, &mut Vec::new());
+    let writes = written_names(arm);
+    for (name, value) in &state.bindings {
+        if writes.iter().any(|written| value.depends_on(written)) {
+            scope.remove(name.as_str());
+        }
+    }
+    let nested = ArmCtx {
+        source: &source,
+        ..*ctx
+    };
+    extract_action_shapes(
+        wire_tag,
+        arm_result_shapes_in(&as_refs(arm), &scope),
+        &nested,
+    )
+}
+
+fn render_rewritten(source: &str, span: oxc_span::Span, rewrites: &Rewrites, output: &mut String) {
+    let mut cursor = span.start;
+    for (start, rewrite) in rewrites.range(span.start..span.end) {
+        if *start < cursor || rewrite.span.end > span.end {
+            continue;
+        }
+        output.push_str(&source[cursor as usize..*start as usize]);
+        match &rewrite.replacement {
+            Replacement::Statement { test, selected } => {
+                output.push_str("{(");
+                render_rewritten(source, *test, rewrites, output);
+                output.push_str(");");
+                if let Some(selected) = selected {
+                    render_rewritten(source, *selected, rewrites, output);
+                }
+                output.push('}');
+            }
+            Replacement::Expression { test, selected } => {
+                output.push('(');
+                render_rewritten(source, *test, rewrites, output);
+                output.push(',');
+                render_rewritten(source, *selected, rewrites, output);
+                output.push(')');
+            }
+        }
+        cursor = rewrite.span.end;
+    }
+    output.push_str(&source[cursor as usize..span.end as usize]);
 }

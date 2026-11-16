@@ -2487,3 +2487,905 @@ fn block_local_tag_alias_still_selects_actions() {
         assert!(action.fields.iter().any(|field| field.name == "alpha"));
     }
 }
+
+#[test]
+fn if_dispatch_recovers_the_same_actions_as_switch() {
+    let prefix = r#"__d("Tags",[],function(g,r,d,o,e,i,l){l.TAGS={A:"a",B:"b"};});"#;
+    let handler = |dispatch: &str| {
+        format!(
+            r#"{prefix}__d("Handler",[],function(g,r,d,o,e,i,l){{function parse(child){{var tag=child.tag();{dispatch}}}}});"#
+        )
+    };
+    let switch = handler(
+        r#"switch(tag){case o("Tags").TAGS.A:return {actionType:"one",id:child.attrString("id")};case o("Tags").TAGS.B:return {actionType:"two",duration:0};}"#,
+    );
+    let branches = handler(
+        r#"if(tag===o("Tags").TAGS.A)return {actionType:"one",id:child.attrString("id")};if(o("Tags").TAGS.B===tag)return {actionType:"two",duration:0};"#,
+    );
+    let expected = dispatch_actions(&switch);
+    assert_eq!(expected.len(), 2);
+    assert_eq!(dispatch_actions(&branches), expected);
+}
+
+#[test]
+fn current_bundle_if_dispatch_preserves_action_fields() {
+    let source = [
+        include_str!("../../../tests/fixtures/bundles-1054751086/WAWebHandleGroupNotification.js"),
+        include_str!(
+            "../../../tests/fixtures/bundles-1054751086/WAWebHandleGroupNotificationConst.js"
+        ),
+        include_str!("../../../tests/fixtures/bundles-1054751086/WAWebGroupType.js"),
+        include_str!("../../../tests/fixtures/bundles-1054751086/WAWebGroupApiConst.js"),
+    ]
+    .join("\n");
+    let defs = wa_transform::extract_module_definitions(&source);
+    let slices = module_slice_index(&source, &defs);
+    let actions = super::actions::extract_actions(
+        slices["WAWebHandleGroupNotification"],
+        &super::actions::ConstResolver::new(&slices),
+    )
+    .unwrap();
+    let expected: Vec<wa_ir::NotifActionDef> = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/bundles-1054751086/actions.json"
+    ))
+    .unwrap();
+    assert_eq!(actions, expected);
+}
+
+fn dispatch_actions(source: &str) -> Vec<wa_ir::NotifActionDef> {
+    let defs = wa_transform::extract_module_definitions(source);
+    let slices = module_slice_index(source, &defs);
+    super::actions::extract_actions(
+        slices["Handler"],
+        &super::actions::ConstResolver::new(&slices),
+    )
+    .unwrap_or_default()
+}
+
+#[test]
+fn tag_dispatch_accepts_equivalent_branch_forms_and_rejects_unknown_wrappers() {
+    let source = |binding: &str, dispatch: &str, helper: &str| {
+        format!(
+            r#"
+        __d("Tags",[],function(g,r,d,o,e,i,l){{l.TAGS={{A:"a",B:"b"}};}});
+        __d("Handler",[],function(g,r,d,o,e,i,l){{
+            {helper}
+            function parse(child){{{binding}{dispatch}}}
+        }});
+    "#
+        )
+    };
+    let helper =
+        r#"function select(value){return values.find(function(item){return item===value})}"#;
+    let expected = dispatch_actions(&source(
+        "var tag=child.tag();",
+        r#"switch(tag){case o("Tags").TAGS.A:return {actionType:"one"};case o("Tags").TAGS.B:return {actionType:"two"};}"#,
+        "",
+    ));
+    for (binding, dispatch, helper) in [
+        (
+            "var tag=child.tag;",
+            r#"if(tag==="a")return {actionType:"one"};else if("b"===tag)return {actionType:"two"};"#,
+            "",
+        ),
+        (
+            "var tag=child.tag();",
+            r#"switch(tag){case "a":return {actionType:"one"};case "b":return {actionType:"two"};}"#,
+            "",
+        ),
+        (
+            "var tag=child.tag();",
+            r#"if(tag===o("Tags").TAGS.A){return {actionType:"one"}}else if(o("Tags").TAGS.B===tag){return {actionType:"two"}}"#,
+            "",
+        ),
+        (
+            "",
+            r#"if(child.tag()===o("Tags").TAGS.A)return {actionType:"one"};if(child.tag()===o("Tags").TAGS.B)return {actionType:"two"};"#,
+            "",
+        ),
+        (
+            "var tag=select(child.tag());",
+            r#"switch(tag){case o("Tags").TAGS.A:return {actionType:"one"};case o("Tags").TAGS.B:return {actionType:"two"};}"#,
+            helper,
+        ),
+        (
+            "var tag=select(child.tag());",
+            r#"if(tag===o("Tags").TAGS.A)return {actionType:"one"};if(tag===o("Tags").TAGS.B)return {actionType:"two"};"#,
+            helper,
+        ),
+    ] {
+        assert_eq!(
+            dispatch_actions(&source(binding, dispatch, helper)),
+            expected
+        );
+    }
+    for helper in [
+        r#"function select(value){return values.find(function(item){return item!==value})}"#,
+        r#"function select(value){return "a"}"#,
+        r#"function select(value){return values.find(function(value){return value===value})}"#,
+    ] {
+        assert!(
+            dispatch_actions(&source(
+                "var tag=select(child.tag());",
+                r#"if(tag===o("Tags").TAGS.A)return {actionType:"one"};"#,
+                helper
+            ))
+            .is_empty()
+        );
+    }
+    for dispatch in [
+        r#"tag=other;if(tag===o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"tag++;if(tag===o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"if(other===o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"if(tag==o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"if(tag===o("Tags").TAGS.A){if(flag)return {actionType:"one"}}"#,
+    ] {
+        assert!(dispatch_actions(&source("var tag=child.tag();", dispatch, "")).is_empty());
+    }
+}
+
+#[test]
+fn writes_inside_selected_arms_do_not_invalidate_the_dispatch_tag() {
+    let source = r#"
+        __d("Tags",[],function(t,n,r,o,a,i,l){l.TAGS={A:"a",B:"b"};});
+        __d("Handler",[],function(t,n,r,o,a,i,l){
+            function parse(child){var tag=child.tag();switch(tag){
+                case o("Tags").TAGS.A:tag="used";return {actionType:"one"};
+                case o("Tags").TAGS.B:return {actionType:"two"};
+            }}
+        });
+    "#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 2);
+    assert_eq!(actions[0].wire_tag, "a");
+    assert_eq!(actions[1].wire_tag, "b");
+    let branches = source.replace("switch(tag){\n                case o(\"Tags\").TAGS.A:tag=\"used\";return {actionType:\"one\"};\n                case o(\"Tags\").TAGS.B:return {actionType:\"two\"};\n            }", "if(tag===o(\"Tags\").TAGS.A){tag=\"used\";return {actionType:\"one\"}}if(tag===o(\"Tags\").TAGS.B)return {actionType:\"two\"};");
+    assert_ne!(source, branches);
+    assert_eq!(dispatch_actions(&branches), actions);
+}
+
+#[test]
+fn tag_aliases_follow_statement_order_and_branch_continuations() {
+    for body in [
+        r#"if(tag==="a")return {actionType:"wrong"};var tag=child.tag();"#,
+        r#"var tag=child.tag();if(flag){tag="other"}if(tag==="a")return {actionType:"wrong"};"#,
+        r#"var tag=child.tag();{tag="other"}switch(tag){case "a":return {actionType:"wrong"};}"#,
+        r#"var tag=child.tag();switch(tag){case "a":tag="other";break;}switch(tag){case "a":return {actionType:"wrong"};}"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{body}}}}});"#
+        );
+        assert!(dispatch_actions(&source).is_empty(), "{body}");
+    }
+}
+
+#[test]
+fn replaced_and_async_tag_helpers_cannot_invent_actions() {
+    for helper in [
+        r#"async function select(value){return values.find(function(item){return item===value})}"#,
+        r#"function select(value){return values.find(async function(item){return item===value})}"#,
+        r#"function select(value){return values.find(function(item){return item===value})}select=function(){return "b"};"#,
+        r#"function select(value){return values.find(function(item){return item===value})}var select=unknown;"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{{helper}function parse(child){{var tag=select(child.tag());if(tag==="a")return {{actionType:"wrong"}};}}}});"#
+        );
+        assert!(dispatch_actions(&source).is_empty(), "{helper}");
+    }
+}
+
+#[test]
+fn if_dispatch_resolves_preceding_bindings_and_drops_ambiguous_sources() {
+    for (setup, expected) in [
+        (r#"var id=child.attrString("id");"#, Some("id")),
+        (
+            r#"var id=child.attrString("id");id=child.attrString("other");"#,
+            Some("other"),
+        ),
+        (
+            r#"var id=child.attrString("id");if(flag)id=child.attrString("other");"#,
+            None,
+        ),
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{setup}if(child.tag()==="a")return {{actionType:"one",id}};}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            actions[0]
+                .fields
+                .iter()
+                .find(|field| field.name == "id")
+                .map(|field| field.wire_name.as_str()),
+            expected
+        );
+    }
+}
+
+#[test]
+fn bare_blocks_preserve_accumulated_actions_for_the_same_tag_binding() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();{if(tag==="a")return {actionType:"one"};}if(tag==="b")return {actionType:"two"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 2);
+    assert_eq!(
+        actions
+            .iter()
+            .map(|action| action.wire_tag.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+}
+
+#[test]
+fn switch_case_entries_cannot_borrow_tag_bindings_from_other_cases() {
+    for separation in ["break;", ""] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var tag="a";switch(mode){{case 0:var tag=child.tag();{separation}case 1:if(tag==="a")return {{actionType:"wrong"}};}}}}}});"#
+        );
+        assert!(dispatch_actions(&source).is_empty(), "{separation}");
+    }
+}
+
+#[test]
+fn saved_action_aliases_keep_the_value_seen_at_assignment() {
+    for setup in [
+        r#"var id=child.attrString("id");var original=id;id=child.attrString("other");"#,
+        r#"var id=child.attrString("id"),original=id;id=child.attrString("other");"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{setup}if(child.tag()==="a")return {{actionType:"one",original}};}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(
+            actions[0]
+                .fields
+                .iter()
+                .find(|field| field.name == "original")
+                .map(|field| field.wire_name.as_str()),
+            Some("id")
+        );
+    }
+}
+
+#[test]
+fn conditional_initializer_writes_do_not_become_definite_wire_reads() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");var ignored=flag&&(id=child.attrString("other"));if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn initialized_action_helpers_are_equivalent_to_declarations() {
+    let module = |helper: &str| {
+        format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{{helper}function parse(child){{switch(child.tag()){{case "a":return build(child);}}}}}});"#
+        )
+    };
+    let expected = dispatch_actions(&module(
+        r#"function build(child){return {actionType:"one",id:child.attrString("id")}}"#,
+    ));
+    assert_eq!(expected.len(), 1);
+    for helper in [
+        r#"var build=function(child){return {actionType:"one",id:child.attrString("id")}};"#,
+        r#"var build=child=>({actionType:"one",id:child.attrString("id")});"#,
+    ] {
+        assert_eq!(dispatch_actions(&module(helper)), expected, "{helper}");
+    }
+}
+
+#[test]
+fn evaluated_case_labels_invalidate_tag_provenance_before_later_cases() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();switch(mode){case(tag="a"):break;case 1:if(tag==="a")return {actionType:"wrong"};}}});"#;
+    assert!(dispatch_actions(source).is_empty());
+}
+
+#[test]
+fn shadowed_receivers_do_not_share_direct_tag_dispatch_actions() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,other){if(child.tag()==="a")return {actionType:"one"};{let child=other;if(child.tag()==="b")return {actionType:"two"};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].wire_tag, "a");
+}
+
+#[test]
+fn aliases_with_unstable_dependencies_are_withheld_instead_of_retargeted() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrUserJid("jid");var original=o("WAWebJidToWid").userJidToUserWid(id);id=child.attrUserJid("lid");if(child.tag()==="a")return {actionType:"one",original};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(
+        actions[0]
+            .fields
+            .iter()
+            .all(|field| field.name != "original")
+    );
+}
+
+#[test]
+fn conditional_writes_are_invalidated_in_every_expression_position() {
+    for expression in [
+        r#"var ignored=flag?(id=child.attrString("other")):0;"#,
+        r#"var ignored=call(flag&&(id=child.attrString("other")));"#,
+        r#"var ignored=[flag&&(id=child.attrString("other"))];"#,
+        r#"if(flag&&(id=child.attrString("other"))){}"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("id");{expression}if(child.tag()==="a")return {{actionType:"one",id}};}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(actions.len(), 1);
+        assert!(
+            actions[0].fields.iter().all(|field| field.name != "id"),
+            "{expression}"
+        );
+    }
+}
+
+#[test]
+fn block_helper_initialization_survives_but_replacement_does_not() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){{var build=function(child){return {actionType:"one",id:child.attrString("id")}};switch(child.tag()){case "a":return build(child);}}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].fields[0].wire_name, "id");
+    let replaced = source.replace(";switch", ";build=unknown;switch");
+    assert!(dispatch_actions(&replaced).is_empty());
+}
+
+#[test]
+fn default_case_checks_include_writes_from_later_labels() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();switch(mode){default:if(tag==="a")return {actionType:"wrong"};break;case(tag="a"):break;}}});"#;
+    assert!(dispatch_actions(source).is_empty());
+}
+
+#[test]
+fn unshadowed_receivers_share_actions_across_blocks_with_other_declarations() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,other){if(child.tag()==="a")return {actionType:"one"};{let unrelated=other;if(child.tag()==="b")return {actionType:"two"};}}});"#;
+    assert_eq!(dispatch_actions(source).len(), 2);
+}
+
+#[test]
+fn a_saved_tag_value_survives_reassignment_of_its_receiver() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,other){var tag=child.tag();child=other;if(tag==="a")return {actionType:"one"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].wire_tag, "a");
+}
+
+#[test]
+fn later_definite_writes_survive_earlier_conditional_writes_in_sequences() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id,ignored=(flag&&(id=child.attrString("old")),id=child.attrString("id"));if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions[0].fields[0].wire_name, "id");
+}
+
+#[test]
+fn catch_parameters_shadow_outer_wire_bindings_and_helpers() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");try{mayThrow()}catch(id){if(child.tag()==="a")return {actionType:"one",id};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn feature_branches_fold_matching_if_arms_like_switch_arms() {
+    let module = |body: &str| {
+        format!(r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{body}}}}});"#)
+    };
+    let switch = module(
+        r#"switch(child.tag()){case "a":if(flag)return {actionType:"one",id:child.attrString("id")};return {actionType:"one"};}"#,
+    );
+    let branches = module(
+        r#"if(flag){if(child.tag()==="a")return {actionType:"one",id:child.attrString("id")};}else{if(child.tag()==="a")return {actionType:"one"};}"#,
+    );
+    let expected = dispatch_actions(&switch);
+    assert_eq!(expected.len(), 1);
+    assert!(!expected[0].fields[0].required);
+    assert_eq!(dispatch_actions(&branches), expected);
+}
+
+#[test]
+fn captured_objects_with_dependencies_rewritten_in_an_arm_are_withheld() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");var result={actionType:"one",id};if(child.tag()==="a"){id=child.attrString("lid");return result;}}});"#;
+    assert!(
+        dispatch_actions(source)
+            .iter()
+            .all(|action| action.fields.iter().all(|field| field.wire_name != "lid"))
+    );
+    let unchanged = source.replace("id=child.attrString(\"lid\");", "");
+    assert_eq!(dispatch_actions(&unchanged)[0].fields[0].wire_name, "jid");
+}
+
+#[test]
+fn an_alternate_cannot_dispatch_a_tag_excluded_by_its_first_condition() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();if(tag==="a")return {actionType:"one"};else if(tag==="a")return {actionType:"wrong"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn switch_arm_fields_use_the_evaluated_label_prefix() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");switch(child.tag()){case(id=child.attrString("lid"),"skip"):break;case "b":return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    let action = actions
+        .iter()
+        .find(|action| action.wire_tag == "b")
+        .unwrap();
+    assert_eq!(action.fields[0].wire_name, "lid");
+}
+
+#[test]
+fn catch_tag_parameters_do_not_reuse_outer_tag_provenance() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();try{mayThrow()}catch(tag){if(tag==="a")return {actionType:"wrong"};}}});"#;
+    assert!(dispatch_actions(source).is_empty());
+}
+
+#[test]
+fn repeated_if_arms_cannot_revive_conflicting_fields() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(first){if(child.tag()==="a")return {actionType:"one",id:child.attrString("id")};}else if(second){if(child.tag()==="a")return {actionType:"one",id:child.attrString("other")};}else{if(child.tag()==="a")return {actionType:"one",id:child.attrString("id")};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn shadowing_a_helper_in_a_nested_block_does_not_replace_it() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function build(child){return {actionType:"one",id:child.attrString("id")}}{let build=unknown;}function parse(child){switch(child.tag()){case "a":return build(child);}}});"#;
+    assert_eq!(dispatch_actions(source)[0].fields[0].wire_name, "id");
+}
+
+#[test]
+fn catch_entry_cannot_assume_the_try_body_finished() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");try{mayThrow();id=child.attrString("other")}catch(error){if(child.tag()==="a")return {actionType:"one",id};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn switch_arm_catch_scopes_withhold_values_written_in_try() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){switch(child.tag()){case "a":var id=child.attrString("id");try{id=child.attrString("other");throw marker}catch(error){return {actionType:"one",id};}}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn joining_finite_tag_paths_does_not_admit_unreachable_tags() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();if(flag){if(tag==="a"){}else{return null}}else{if(tag==="b"){}else{return null}}if(tag==="c")return {actionType:"wrong"};if(tag==="a")return {actionType:"one"};if(tag==="b")return {actionType:"two"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(
+        actions
+            .iter()
+            .map(|action| action.wire_tag.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+}
+
+#[test]
+fn breaking_or_skipping_a_loop_does_not_exclude_its_tested_tag_afterward() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();while(flag){if(tag==="a")break;}if(tag==="a")return {actionType:"one"};}});"#;
+    assert_eq!(dispatch_actions(source).len(), 1);
+}
+
+#[test]
+fn inner_conflicts_survive_outer_dispatch_merges() {
+    for action in [
+        r#"if(inner)return {actionType:"one",id:child.attrString("jid")};return {actionType:"one",id:child.attrString("lid")};"#,
+        r#"return choose(child);"#,
+        r#"return babelHelpers.extends({actionType:"one"},fields(child));"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function choose(child){{if(inner)return {{actionType:"one",id:child.attrString("jid")}};return {{actionType:"one",id:child.attrString("lid")}}}}function fields(child){{if(inner)return {{id:child.attrString("jid")}};return {{id:child.attrString("lid")}}}}function parse(child){{if(feature){{if(child.tag()==="a"){{{action}}}}}else{{if(child.tag()==="a")return {{actionType:"one",id:child.attrString("jid")}};}}}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(actions.len(), 1);
+        assert!(
+            actions[0].fields.iter().all(|field| field.name != "id"),
+            "{action}"
+        );
+    }
+}
+
+#[test]
+fn callback_field_conflicts_survive_parent_action_merges() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(feature){if(child.tag()==="a")return {actionType:"one",people:child.mapChildrenWithTag("p",p=>inner?{id:p.attrString("jid")}:{id:p.attrString("lid")})};}else{if(child.tag()==="a")return {actionType:"one",people:child.mapChildrenWithTag("p",p=>({id:p.attrString("jid")}))};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(
+        actions[0].children[0]
+            .fields
+            .iter()
+            .all(|field| field.name != "id")
+    );
+}
+
+#[test]
+fn a_later_definite_property_overrides_an_ambiguous_helper_contribution() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function fields(child){if(inner)return {id:child.attrString("jid")};return {id:child.attrString("lid")}}function parse(child){if(child.tag()==="a")return babelHelpers.extends(fields(child),{actionType:"one",id:child.attrString("jid")});}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].fields[0].wire_name, "jid");
+    assert!(actions[0].fields[0].required);
+}
+
+#[test]
+fn finally_analysis_does_not_restore_tags_excluded_on_continuing_paths() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();try{if(tag==="a")return {actionType:"one"};}finally{cleanup()}if(tag==="a")return {actionType:"wrong"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn continuing_paths_keep_finalizer_writes_without_reviving_returned_tags() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag(),id=child.attrString("id");try{if(tag==="a")return {actionType:"one"};}finally{id=child.attrString("other")}if(tag==="a")return {actionType:"wrong"};if(tag==="b")return {actionType:"two",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 2);
+    assert!(
+        actions
+            .iter()
+            .all(|action| action.action_type.as_deref() != Some("wrong"))
+    );
+    assert_eq!(
+        actions
+            .iter()
+            .find(|action| action.wire_tag == "b")
+            .unwrap()
+            .fields[0]
+            .wire_name,
+        "other"
+    );
+}
+
+#[test]
+fn finalizer_returns_prevent_later_dispatch_but_preserve_hoisted_helpers() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){try{cleanup()}finally{return null}if(child.tag()==="a")return {actionType:"wrong"};}});"#;
+    assert!(dispatch_actions(source).is_empty());
+    let hoisted = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){return helper(child);function helper(child){switch(child.tag()){case "a":return {actionType:"one"};}}}});"#;
+    assert_eq!(dispatch_actions(hoisted).len(), 1);
+}
+
+#[test]
+fn saved_object_property_mutations_do_not_publish_stale_fields() {
+    for mutation in [
+        "result.id=child.attrString(\"other\")",
+        "alias.id=child.attrString(\"other\")",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var result={{actionType:"one",id:child.attrString("id")}},alias=result;{mutation};if(child.tag()==="a")return result;}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.iter().all(|field| field.wire_name != "id")),
+            "{mutation}"
+        );
+    }
+}
+
+#[test]
+fn known_tag_conditions_prune_contradictory_returns_inside_the_arm() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();if(tag==="a"){if(tag==="b")return {actionType:"wrong"};return {actionType:"one"};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn immediate_closure_writes_invalidate_outer_wire_bindings() {
+    for invocation in [
+        "(function(){id=child.attrString(\"other\")})()",
+        "(()=>{id=child.attrString(\"other\")})()",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("id");{invocation};if(child.tag()==="a")return {{actionType:"one",id}};}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)[0]
+                .fields
+                .iter()
+                .all(|field| field.name != "id")
+        );
+    }
+    let pure = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");(()=>{var local=0})();if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    assert_eq!(dispatch_actions(pure)[0].fields[0].wire_name, "id");
+}
+
+#[test]
+fn loop_local_continue_keeps_following_dispatch_reachable() {
+    for body in ["do{continue;}while(false);", "{do{continue;}while(false);}"] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{body}switch(child.tag()){{case "a":return {{actionType:"one"}};}}}}}});"#
+        );
+        assert_eq!(dispatch_actions(&source).len(), 1, "{body}");
+    }
+}
+
+#[test]
+fn unrelated_property_writes_preserve_captured_scalar_fields() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,meta){var id=child.attrString("id"),count=child.attrInt("count"),alias=child;meta.seen=true;if(alias.tag()==="a")return {actionType:"one",id,count};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].fields.len(), 2);
+    assert!(
+        actions[0]
+            .fields
+            .iter()
+            .any(|field| field.wire_name == "id")
+    );
+    assert!(
+        actions[0]
+            .fields
+            .iter()
+            .any(|field| field.wire_name == "count")
+    );
+}
+
+#[test]
+fn review_helper_calls_cannot_publish_mutated_object_initializers() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var result={actionType:"one",id:child.attrString("id")};function mutate(x){x.id=child.attrString("other")}mutate(result);if(child.tag()==="a")return result;}});"#;
+    assert!(
+        dispatch_actions(source)
+            .iter()
+            .all(|action| action.fields.iter().all(|field| field.wire_name != "id"))
+    );
+}
+
+#[test]
+fn review_loop_headers_cannot_establish_definite_wire_bindings() {
+    for header in [
+        "for(;flag;id=child.attrString(\"other\")){}",
+        "for(id of things){}",
+        "for(id in things){}",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("id");{header}if(child.tag()==="a")return {{actionType:"one",id}};}}}});"#
+        );
+        assert!(dispatch_actions(&source)[0].fields.is_empty(), "{header}");
+    }
+}
+
+#[test]
+fn review_reassigned_tag_reads_keep_their_provenance() {
+    let source = r#"__d("Tags",[],function(g,r,d,o,e,i,l){l.TAGS={A:"a"};});__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();tag=child.tag();switch(tag){case o("Tags").TAGS.A:return {actionType:"one"};}}});"#;
+    assert_eq!(dispatch_actions(source).len(), 1);
+}
+
+#[test]
+fn review_pruned_tests_preserve_their_assignment_effects() {
+    for arm in [
+        r#"if(tag===(id=child.attrString("lid"),"a")){}return {actionType:"one",id};"#,
+        r#"var ignored=tag===(id=child.attrString("lid"),"a")?1:0;return {actionType:"one",id};"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var tag=child.tag(),id=child.attrString("jid");if(tag==="a"){{{arm}}}}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert!(
+            actions[0]
+                .fields
+                .iter()
+                .all(|field| field.wire_name != "jid"),
+            "{arm}"
+        );
+    }
+}
+
+#[test]
+fn review_await_initializers_do_not_discard_tag_constraints() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){async function parse(child){var tag=child.tag();var ignored=await load();if(tag==="a"){if(tag==="b")return {actionType:"wrong"};return {actionType:"one"};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn captured_content_cannot_lose_its_receiver_source() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,meta){var body=child.child("body"),text=body.contentString();meta.seen=true;if(child.tag()==="a")return {actionType:"one",text};}});"#;
+    let actions = dispatch_actions(source);
+    assert!(
+        actions[0]
+            .fields
+            .iter()
+            .all(|field| !field.content || field.wire_name == "body")
+    );
+}
+
+#[test]
+fn jid_conversion_keeps_its_captured_wire_read() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var jid=child.attrUserJid("jid");var id=o("WAWebJidToWid").userJidToUserWid(jid);if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions[0].fields.len(), 1);
+    assert_eq!(actions[0].fields[0].wire_name, "jid");
+}
+
+#[test]
+fn later_arm_writes_preserve_earlier_return_bindings() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");if(child.tag()==="a"){if(flag)return {actionType:"one",id};id=child.attrString("lid");return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    for (name, wire) in [("one", "jid"), ("two", "lid")] {
+        let action = actions
+            .iter()
+            .find(|action| action.action_type.as_deref() == Some(name))
+            .unwrap();
+        assert_eq!(action.fields.len(), 1);
+        assert_eq!(action.fields[0].wire_name, wire);
+    }
+}
+
+#[test]
+fn property_updates_and_named_captured_writes_invalidate_saved_values() {
+    for setup in [
+        r#"var result={actionType:"one",id:child.attrInt("id")};result.id++;"#,
+        r#"var id=child.attrString("id");function mutate(){id=child.attrString("other")}mutate();var result={actionType:"one",id};"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{setup}if(child.tag()==="a")return result;}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.iter().all(|field| field.wire_name != "id")),
+            "{setup}"
+        );
+    }
+}
+
+#[test]
+fn ordered_conditional_writes_and_arm_closures_withhold_stale_sources() {
+    for body in [
+        r#"var ignored=(id=child.attrString("jid"),flag&&(id=child.attrString("lid")));"#,
+        r#"(()=>{id=child.attrString("lid")})();"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("jid");if(child.tag()==="a"){{{body}return {{actionType:"one",id}};}}}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)[0]
+                .fields
+                .iter()
+                .all(|field| field.wire_name != "jid"),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn destructuring_and_block_declarations_hide_saved_wire_values() {
+    for declaration in [
+        "var {id}=other;",
+        "var [id]=other;",
+        "class id {}",
+        "function id(){}",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("id");{{{declaration}if(child.tag()==="a")return {{actionType:"one",id}};}}}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)[0].fields.is_empty(),
+            "{declaration}"
+        );
+    }
+}
+
+#[test]
+fn arm_closure_effects_do_not_change_earlier_returns() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");if(child.tag()==="a"){if(flag)return {actionType:"one",id};(()=>{id=child.attrString("lid")})();return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    let earlier = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("one"))
+        .unwrap();
+    assert_eq!(earlier.fields[0].wire_name, "jid");
+    let later = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("two"))
+        .unwrap();
+    assert!(later.fields.is_empty());
+}
+
+#[test]
+fn block_class_masking_applies_inside_arms_and_restores_outer_values() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");if(child.tag()==="a"){{class id{}if(flag)return {actionType:"one",id};}return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    let hidden = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("one"))
+        .unwrap();
+    assert!(hidden.fields.is_empty());
+    let restored = actions
+        .iter()
+        .find(|action| action.action_type.as_deref() == Some("two"))
+        .unwrap();
+    assert_eq!(restored.fields[0].wire_name, "id");
+}
+
+#[test]
+fn module_helper_writes_do_not_replace_parser_local_bindings() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){var id;function touch(){id=0}function parse(child){var id=child.attrString("jid");touch();if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions[0].fields.len(), 1);
+    assert_eq!(actions[0].fields[0].wire_name, "jid");
+}
+
+#[test]
+fn deleted_action_properties_cannot_remain_required() {
+    for mutation in ["delete result.id", "delete alias.id"] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var result={{actionType:"one",id:child.attrString("id")}},alias=result;{mutation};if(child.tag()==="a")return result;}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.iter().all(|field| field.wire_name != "id"))
+        );
+    }
+}
+
+#[test]
+fn arm_local_object_mutations_and_destructured_branches_do_not_keep_stale_fields() {
+    for mutation in [
+        "delete result.id",
+        "result.id++",
+        "result.id=child.attrInt(\"other\")",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{if(child.tag()==="a"){{var result={{actionType:"one",id:child.attrInt("id")}};{mutation};return result;}}}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.is_empty()),
+            "{mutation}"
+        );
+    }
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id"),count=child.attrInt("count");if(child.tag()==="a"){if(flag)({id,count}=other);return {actionType:"one",id,count};}}});"#;
+    assert!(dispatch_actions(source)[0].fields.is_empty());
+}
+
+#[test]
+fn receiver_mutations_separate_fresh_reads_from_captured_tags() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(child.tag==="a"){child.tag="b";if(child.tag==="b")return {actionType:"one"};return {actionType:"wrong"};}}});"#;
+    let actions = dispatch_actions(source);
+    assert!(
+        actions
+            .iter()
+            .any(|action| action.action_type.as_deref() == Some("one"))
+    );
+    let captured = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag;if(tag==="a"){child.tag="b";if(tag==="b")return {actionType:"wrong"};return {actionType:"one"};}}});"#;
+    let actions = dispatch_actions(captured);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn fresh_object_writes_preserve_unrelated_actions_and_tag_constraints() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var meta={};if(child.tag()==="a")return {actionType:"one"};meta.seen=true;if(child.tag()==="a")return {actionType:"wrong"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(child.tag()==="a"){var result={actionType:"one",id:child.attrString("id")},meta={};meta.seen=true;return result;}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+    assert_eq!(actions[0].fields[0].wire_name, "id");
+    for (mutation, expected) in [
+        ("delete alias.id", false),
+        ("alias={};delete alias.id", true),
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var result={{actionType:"one",id:child.attrString("id")}},alias=result;if(child.tag()==="a"){{{mutation};return result;}}}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(
+            actions
+                .iter()
+                .any(|action| action.fields.iter().any(|field| field.wire_name == "id")),
+            expected,
+            "{mutation}"
+        );
+    }
+}

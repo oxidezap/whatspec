@@ -7,7 +7,7 @@ const MODULES: &[&str] = &[
     "WASmaxGroupsJoinLinkedGroupRPC",
     "WASmaxGroupsDeleteParentGroupRPC",
     "WASmaxPassiveModeActiveIQRPC",
-    "WASmaxOutMdGetCountryCodeRequest",
+    "WASmaxMdGetCountryCodeRPC",
 ];
 
 #[test]

@@ -68,7 +68,8 @@ BASELINE = {
     # only if those builders stop existing or start being read.
     # Two departed legacy attrs, one new positional USync common_gid: 49 - 2 + 1.
     "iq builder attribute with no argument path": 48,
-    "iq builder content with no argument path": 23,
+    # 1054751086 removes the positional WAWebSetAboutJob payload from the bundle set.
+    "iq builder content with no argument path": 22,
     # USync now conditionally emits a tctoken from getTcToken().
     "iq builder child with no argument path": 11,
     # A request whose addressee is supplied at runtime — a group's own JID, a newsletter's
@@ -96,7 +97,9 @@ BASELINE = {
     # design. The third is held at zero: a written key that names no field of the event
     # means a write was attributed to the wrong construction, and none currently is.
     # Source-site arithmetic for departed/new Windows versions and loggers is in the review.
-    "wam construction with an unread argument": 74,
+    # 1054751086 removes two Windows sites and adds seven sites using identifier arguments.
+    # Exact source sites are in docs/snapshot-quality-2026-11-16.evidence.json.
+    "wam construction with an unread argument": 79,
     "wam construction of an event with no catalog entry": 16,
     "wam written key naming no field of the event": 0,
     # Variable keys whose presence the mex extractor did not establish: a value expression
@@ -126,7 +129,9 @@ BASELINE = {
     # not followed that far. That module now departs; six departed keys and four new
     # unresolved nodes account for 108 -> 106 (see the snapshot evidence ledger).
     # 54 new declared keys, three retained keys now judged: 106 + 54 - 3.
-    "mex variable with an undetermined presence": 157,
+    # 1054751086 adds ten unresolved nodes, removes one, and changes four SMS-invite
+    # nodes to helper/map expressions. The event wrappers are recovered separately.
+    "mex variable with an undetermined presence": 170,
     # Operations where the verdict is `undetermined` for EVERY variable - no call site
     # was recovered, or the one that was writes nothing this classifier reads. Pinned
     # beside the per-key count because a single key regaining a verdict moves that number
@@ -140,7 +145,8 @@ BASELINE = {
     # four wholly undetermined operations and adds SmartComposer's unsupported
     # useMutation alias (the previous snapshot's exact pin was 10).
     # Four new operations; no retained key loses its established judgement.
-    "mex operation with no established variable presence": 14,
+    # CustomerProfileCustomFieldCreate, FetchLinkedGroupInfo and SharableEventJoinViaLink.
+    "mex operation with no established variable presence": 17,
     # A `defineGlobal` entry whose channel list is written and unreadable. Held at zero
     # because the alternative to dropping it is publishing `["regular"]` over a policy WA
     # stated and we failed to read — so a rise here is a channel rule going missing, not
@@ -172,7 +178,6 @@ FLATTENED_KEYS = {
     "incoming/incoming/tag=receipt;module=WAWebHandleMsgReceiptParser/shape/fields/name=participants/children/name=user/children|type": 1,
     "incoming/incoming/tag=receipt;module=WAWebHandleMsgReceiptParser/shape/fields/name=participants/children|user": 1,
     "notif/notifications/type=picture;handlerModule=WAWebHandleProfilePicNotification;handlerFunction=handleProfilePicNotificationJob/content/fields|from,t": 2,
-    "notif/notifications/type=status;handlerModule=WAWebHandleAboutNotification;handlerFunction=handleAboutNotification/content/fields|from": 1,
     "notif/notifications/type=w:gp2;handlerModule=WAWebHandleGroupNotification;handlerFunction=handleGroupNotification/content/fields/name=children/children|body,group,reason,sub_group_suggestion": 4,
     "notif/notifications/type=contacts;handlerModule=WAWebHandleContactNotification;handlerFunction=None/content/fields/name=modify/children|new_lid,old_lid": 2,
     "notif/notifications/type=contacts;handlerModule=WAWebHandleContactNotification;handlerFunction=None/content/fields|t": 1

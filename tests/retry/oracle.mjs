@@ -8,9 +8,12 @@ import { authorizationOracle } from './authorization.mjs';
 import { eligibilityOracle } from './eligibility.mjs';
 const historical = JSON.parse(fs.readFileSync(new URL('./capture/audit.json', import.meta.url)));
 const audit = process.argv[2] && process.argv[2] !== '--write' ? JSON.parse(fs.readFileSync(process.argv[2])) : historical;
-const latest = audit.waVersion === '2.3000.1052559453';
-const baseline = latest ? JSON.parse(fs.readFileSync(new URL('./capture/2.3000.1052559453/audit.json', import.meta.url))) : historical;
-const fixturePath = name => new URL(latest ? `./capture/2.3000.1052559453/${name}` : `./${name}`, import.meta.url);
+const reviewedVersions = new Set(['2.3000.1047483476', '2.3000.1052559453', '2.3000.1054751086']);
+assert.ok(reviewedVersions.has(audit.waVersion), `unreviewed retry version ${audit.waVersion}`);
+const latest = audit.waVersion !== historical.waVersion;
+const current = audit.waVersion === '2.3000.1054751086';
+const baseline = latest ? JSON.parse(fs.readFileSync(new URL(`./capture/${audit.waVersion}/audit.json`, import.meta.url))) : historical;
+const fixturePath = name => new URL(latest ? `./capture/${audit.waVersion}/${name}` : `./${name}`, import.meta.url);
 assert.deepEqual(audit, baseline, 'retry source/inventory drift requires review; no automatic policy adoption');
 const record = audit.modules.find(m => m.module === 'WAWebUpdateLocalSignalSession');
 assert.equal(record.sourceSha256, crypto.createHash('sha256').update(record.source).digest('hex'));
@@ -32,12 +35,12 @@ const cases = [
 function checkArgs(c,name,args,requester,bundle) {
   const scope=c.scope??'default';
   const expected={remoteRegId:[requester,scope],saveBaseKey:[requester,'SYNTHETIC-RETRY',scope],sameBaseKey:[requester,'SYNTHETIC-RETRY',scope],
-    deleteSession:c.name==='mismatch-continues-at-two'?[requester]:[requester,c.scope==='status'?'status':undefined],
+    deleteSession:current?[requester,c.name==='mismatch-continues-at-two'?{reason:'registration_mismatch'}:{reason:'unchanged_base_key',sessionScope:scope}]:c.name==='mismatch-continues-at-two'?[requester]:[requester,c.scope==='status'?'status':undefined],
     forgetGroup:['group',[requester]],forgetStatus:[[requester]],forgetBroadcast:[requester,'fictional-chat']};
   if(name==='processBundle') {
     assert.equal(args.length,1);
     assert.deepEqual({...args[0]},{is1on1:!c.kind&&!c.peer,keyBundle:bundle,offline:false,remoteRegId:7,requester,savedRegId:c.saved===undefined?7:c.saved,sessionScope:scope});
-  } else assert.deepEqual(args.map(a=>Array.isArray(a)?Array.from(a):a),expected[name],`${c.name}: ${name} arguments`);
+  } else assert.deepEqual(args.map(a=>Array.isArray(a)?Array.from(a):a?.reason?{...a}:a),expected[name],`${c.name}: ${name} arguments`);
 }
 function run(c, {failAt, cancelAt} = {}, body = source) {
   const effects = [], completions = [];
@@ -57,7 +60,8 @@ function run(c, {failAt, cancelAt} = {}, body = source) {
     WAWebUserPrefsStatus:{markForgetStatusSenderKey:(...a)=>effect('forgetStatus',undefined,...a)},
     WAWebBroadcastSenderKeyManager:{markForgetBroadcastSenderKey:(...a)=>{checkArgs(c,'forgetBroadcast',a,requester,bundle);effects.push({name:'forgetBroadcast',args:a});}},
     WAWebWidFactory:{asUserWidOrThrow:x=>x,createDeviceWidFromWidOrThrow:x=>x},
-    WAWebSignal:{Session:session}, WAWebUserPrefsMeUser:{isMeAccount:()=>!!c.peer},
+    WAWebSignal:{Session:session}, WAWebUserPrefsMeUser:{isMeAccount:()=>!!c.peer}, WAWebUserUtils:{isMeAccount:()=>!!c.peer},
+    WAWebDeleteRetrySessions:{deleteRetrySessions:(...args)=>{checkArgs(c,'deleteSession',args,requester,bundle);effects.push({name:'deleteSession',args});return {effect:'deleteSession',result:undefined};}},
     WAWebProcessRetryKeyBundle:{processKeyBundle:x=>effect('processBundle',!!c.handled,x)},
     err:message=>new Error(message),
   };
@@ -94,11 +98,13 @@ for(const c of cases) {
       assert.deepEqual(interrupted.effects.map(e=>e.name),c.expected.slice(0,c.expected.indexOf(point)+1));
     }
   }
-  if(c.scope==='status' && c.same) assert.equal(trace.effects.at(-1).args[1],'status');
-  if(c.name==='same-base') assert.equal(trace.effects.at(-1).args[1],undefined);
+  if(c.scope==='status' && c.same) assert.equal(current?trace.effects.at(-1).args[1].sessionScope:trace.effects.at(-1).args[1],'status');
+  if(c.name==='same-base') assert.equal(current?trace.effects.at(-1).args[1].sessionScope:trace.effects.at(-1).args[1],current?'default':undefined);
 }
 // Mutation tests demonstrate that the reviewed scenarios detect policy drift.
-for(const [from,to,name] of [['_===S','_!==S','two-guard'],['_>S','_<S','collision-guard'],['if(R)','if(!R)','collision-result'],['getRemoteRegId(f,g)','getRemoteRegId(f)','registration-scope'],['saveSessionBaseKey(f,d,g)','saveSessionBaseKey(f,"WRONG",g)','base-message-id'],['remoteRegId:p','remoteRegId:99','bundle-registration']]) {
+const sessionMutations=[['_===S','_!==S','two-guard'],['_>S','_<S','collision-guard'],['if(R)','if(!R)','collision-result'],['getRemoteRegId(f,g)','getRemoteRegId(f)','registration-scope'],['saveSessionBaseKey(f,d,g)','saveSessionBaseKey(f,"WRONG",g)','base-message-id'],['remoteRegId:p','remoteRegId:99','bundle-registration']];
+if(current)sessionMutations.push(['reason:"registration_mismatch"','reason:"wrong"','registration-delete-reason'],['reason:"unchanged_base_key"','reason:"wrong"','collision-delete-reason'],['reason:"unchanged_base_key",sessionScope:g','reason:"unchanged_base_key",sessionScope:"wrong"','collision-delete-scope']);
+for(const [from,to,name] of sessionMutations) {
   assert.ok(source.includes(from),`mutation anchor ${name}`);
   const mutated=source.replace(from,to);
   assert.ok(cases.some(c=>JSON.stringify([run(c).terminal,run(c).effects.map(e=>e.name)])!==JSON.stringify([run(c,{},mutated).terminal,run(c,{},mutated).effects.map(e=>e.name)])),`undetected mutation ${name}`);
@@ -139,4 +145,4 @@ else {
   assert.equal(fixture.sourceSha256,record.sourceSha256);
   assert.equal(fixture.receiptSourceSha256,receipt.sourceSha256);
 }
-console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; ${latest ? 27 : 18} semantic mutations detected`);
+console.log(`${cases.length} reviewed session scenarios; rejection/cancellation at each yield; ${authorization.cases.length} authorization scenarios; ${eligibility.cases.length} eligibility scenarios; ${current ? 33 : latest ? 27 : 18} semantic mutations detected`);

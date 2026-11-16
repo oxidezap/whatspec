@@ -66,9 +66,9 @@ Run from the root:
 
 ```sh
 cargo test -p wa-transform --example retry_audit
-cargo run -p whatspec -- restore --from-lock generated/bundles.lock.json --out /tmp/retry-inputs
-cargo run -p wa-transform --example retry_audit -- generated/bundles.lock.json /tmp/retry-inputs /tmp/retry-audit
-node tests/retry/oracle.mjs /tmp/retry-audit/audit.json
+cargo run -p whatspec -- restore --from-lock generated/bundles.lock.json --out .wa-cache/retry-inputs
+cargo run -p wa-transform --example retry_audit -- generated/bundles.lock.json .wa-cache/retry-inputs .wa-cache/retry-audit
+node tests/retry/oracle.mjs .wa-cache/retry-audit/audit.json
 ```
 
 The output directory must not already exist. Updating a capture requires source
@@ -80,3 +80,27 @@ after building the native example. Synthetic controls accept all five modules
 and identical duplicate definitions. Removing each selected module, changing a
 duplicate body, invalid syntax or modified locked bytes must fail before output
 is created. The retry CI workflow runs these gates as well as locked recapture.
+
+## Reviewed snapshot 2.3000.1054751086
+
+The current 730-bundle capture is stored under `capture/2.3000.1054751086`.
+Capture format 2 adds AST-selected named helpers with exact source spans.
+Historical captures and their consumer fixture pins remain unchanged. The oracle
+selects an explicitly reviewed version and compares the entire audit before
+executing a generator. Unknown versions and changed captures also fail with
+`--write`; that option only serializes scenarios after their assertions pass.
+
+The current session oracle checks the arguments passed to `deleteRetrySessions`,
+including registration-mismatch and unchanged-base-key reasons and session scope.
+The deletion implementation remains a dependency stub.
+
+The authorization oracle executes the captured status sender guard alongside the
+selected generator. Its 27 cases cover remote and locally sent statuses, the
+rollout gate, revoked messages, addons, coex eligibility, device-not-recipient
+rejection and admin revocation. Runtime flag values are synthetic inputs. The
+AEA, PQ and retry orchestration additions have syntax coverage only.
+There are 33 semantic mutations across session, authorization, lookup and
+eligibility checks, including deletion reasons, deletion scope and status guards.
+
+`node tests/retry/review-gates.mjs` verifies that an unknown version, a changed
+bundle set and a missing helper fail before scenario files can be written.
