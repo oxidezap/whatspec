@@ -1459,6 +1459,18 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
     }
 
+    fn visit_unary_expression(&mut self, expression: &oxc_ast::ast::UnaryExpression<'a>) {
+        walk::walk_unary_expression(self, expression);
+        if expression.operator == oxc_syntax::operator::UnaryOperator::Delete
+            && let Some(member) = expression
+                .argument
+                .without_parentheses()
+                .as_member_expression()
+        {
+            self.invalidate_object(member.object());
+        }
+    }
+
     fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
         walk::walk_update_expression(self, update);
         if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =

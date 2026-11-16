@@ -562,14 +562,18 @@ impl<'a> Visit<'a> for ScopeBuilder {
         // scope would resolve `x` to just its `null` seed and drop the real child. Record
         // plain-identifier assignments too; child resolution already unions every recorded
         // init and keeps the first non-empty (member-expression targets stay excluded).
-        if let Some(name) = wa_oxc::assignment_target_name(&a.left) {
+        for name in wa_oxc::assignment_target_names(&a.left) {
             let fn_body = match &a.right {
-                Expression::FunctionExpression(f) => fn_body_span(f),
+                Expression::FunctionExpression(f)
+                    if wa_oxc::assignment_target_name(&a.left).is_some() =>
+                {
+                    fn_body_span(f)
+                }
                 _ => None,
             };
             let span = a.right.span();
             self.scope.push(
-                name,
+                &name,
                 VarInit {
                     init_start: span.start as usize,
                     init_end: span.end as usize,
@@ -4293,6 +4297,21 @@ mod bundled_merge_tests {
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
         assert_eq!(requests.len(), 1);
+        let replaced = source.replace(
+            "var fragment=base();",
+            r#"[dst]=[o("WASmaxJsx").smax("iq",{xmlns:"actual"})];var fragment=base();"#,
+        );
+        let replaced_requests = bundled_rpc_requests(
+            &replaced,
+            &HelperIndex::default(),
+            &MixinContributions::new(),
+        );
+        assert!(replaced_requests.iter().all(|(_, _, root)| {
+            !root
+                .attrs
+                .iter()
+                .any(|attr| attr.name == "xmlns" && attr.value.as_deref() == Some("probe"))
+        }));
         let generator = source.replace("function compose(dst)", "function* compose(dst)");
         assert!(
             bundled_rpc_requests(

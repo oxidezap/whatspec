@@ -8,185 +8,175 @@ use wa_transform::ModuleDefinition;
 
 const METHODS: &[&str] = &["fetchQuery", "commitMutation", "fetchSubscription"];
 
-pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSet<u32> {
-    fn loop_bindings(statement: &Statement<'_>) -> Option<HashSet<String>> {
-        let declaration = match statement {
-            Statement::ForStatement(statement) => match &statement.init {
-                Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(declaration)) => {
-                    Some(declaration)
-                }
-                _ => None,
-            },
-            Statement::ForOfStatement(statement) => match &statement.left {
-                oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
-                    Some(declaration)
-                }
-                _ => None,
-            },
-            Statement::ForInStatement(statement) => match &statement.left {
-                oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
-                    Some(declaration)
-                }
-                _ => None,
-            },
+fn loop_bindings(statement: &Statement<'_>) -> Option<HashSet<String>> {
+    let declaration = match statement {
+        Statement::ForStatement(statement) => match &statement.init {
+            Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(declaration)) => {
+                Some(declaration)
+            }
             _ => None,
-        }?;
-        (!declaration.kind.is_var()).then(|| {
-            declaration
-                .declarations
-                .iter()
-                .flat_map(|binding| binding.id.get_binding_identifiers())
-                .map(|id| id.name.to_string())
-                .collect()
-        })
-    }
-    #[derive(Default)]
-    struct Writes {
-        names: HashSet<String>,
-        shadowed: HashSet<String>,
-        mode: wa_oxc::StrictMode,
-    }
-    impl Writes {
-        fn mask(
-            &mut self,
-            params: &oxc_ast::ast::FormalParameters<'_>,
-            body: Option<&oxc_ast::ast::FunctionBody<'_>>,
-        ) {
-            for parameter in &params.items {
-                self.shadowed.extend(
-                    parameter
-                        .pattern
-                        .get_binding_identifiers()
-                        .iter()
-                        .map(|id| id.name.to_string()),
-                );
-            }
-            if let Some(rest) = &params.rest {
-                self.shadowed.extend(
-                    rest.rest
-                        .argument
-                        .get_binding_identifiers()
-                        .iter()
-                        .map(|id| id.name.to_string()),
-                );
-            }
-            if let Some(body) = body {
-                self.shadowed
-                    .extend(wa_oxc::function_body_bindings(body, self.mode));
-            }
+        },
+        Statement::ForOfStatement(statement) => match &statement.left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => Some(declaration),
+            _ => None,
+        },
+        Statement::ForInStatement(statement) => match &statement.left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => Some(declaration),
+            _ => None,
+        },
+        _ => None,
+    }?;
+    (!declaration.kind.is_var()).then(|| {
+        declaration
+            .declarations
+            .iter()
+            .flat_map(|binding| binding.id.get_binding_identifiers())
+            .map(|id| id.name.to_string())
+            .collect()
+    })
+}
+#[derive(Default)]
+struct BindingWrites {
+    names: HashSet<String>,
+    shadowed: HashSet<String>,
+    mode: wa_oxc::StrictMode,
+}
+impl BindingWrites {
+    fn mask(
+        &mut self,
+        params: &oxc_ast::ast::FormalParameters<'_>,
+        body: Option<&oxc_ast::ast::FunctionBody<'_>>,
+    ) {
+        for parameter in &params.items {
+            self.shadowed.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        if let Some(rest) = &params.rest {
+            self.shadowed.extend(
+                rest.rest
+                    .argument
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        if let Some(body) = body {
+            self.shadowed
+                .extend(wa_oxc::function_body_bindings(body, self.mode));
         }
     }
-    impl<'a> Visit<'a> for Writes {
-        fn visit_for_statement_left(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>) {
-            if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = left
-                && declaration.kind.is_var()
-            {
-                for binding in &declaration.declarations {
-                    for id in binding.id.get_binding_identifiers() {
-                        if !self.shadowed.contains(id.name.as_str()) {
-                            self.names.insert(id.name.to_string());
-                        }
-                    }
-                }
-            }
-            walk::walk_for_statement_left(self, left);
-        }
-        fn visit_statement(&mut self, statement: &Statement<'a>) {
-            let declared = match statement {
-                Statement::FunctionDeclaration(function) => {
-                    function.id.as_ref().map(|id| id.name.as_str())
-                }
-                Statement::ClassDeclaration(class) => class.id.as_ref().map(|id| id.name.as_str()),
-                _ => None,
-            };
-            if let Some(name) = declared
-                && !self.shadowed.contains(name)
-            {
-                self.names.insert(name.to_string());
-            }
-            if let Some(names) = loop_bindings(statement) {
-                let outer = self.shadowed.clone();
-                self.shadowed.extend(names);
-                walk::walk_statement(self, statement);
-                self.shadowed = outer;
-            } else {
-                walk::walk_statement(self, statement);
-            }
-        }
-        fn visit_variable_declarator(
-            &mut self,
-            declaration: &oxc_ast::ast::VariableDeclarator<'a>,
-        ) {
-            if declaration.init.is_some() {
-                for id in declaration.id.get_binding_identifiers() {
+}
+impl<'a> Visit<'a> for BindingWrites {
+    fn visit_for_statement_left(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>) {
+        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = left
+            && declaration.kind.is_var()
+        {
+            for binding in &declaration.declarations {
+                for id in binding.id.get_binding_identifiers() {
                     if !self.shadowed.contains(id.name.as_str()) {
                         self.names.insert(id.name.to_string());
                     }
                 }
             }
-            walk::walk_variable_declarator(self, declaration);
         }
-        fn visit_simple_assignment_target(
-            &mut self,
-            target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
-        ) {
-            if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target
-                && !self.shadowed.contains(id.name.as_str())
-            {
-                self.names.insert(id.name.to_string());
+        walk::walk_for_statement_left(self, left);
+    }
+    fn visit_statement(&mut self, statement: &Statement<'a>) {
+        let declared = match statement {
+            Statement::FunctionDeclaration(function) => {
+                function.id.as_ref().map(|id| id.name.as_str())
             }
+            Statement::ClassDeclaration(class) => class.id.as_ref().map(|id| id.name.as_str()),
+            _ => None,
+        };
+        if let Some(name) = declared
+            && !self.shadowed.contains(name)
+        {
+            self.names.insert(name.to_string());
         }
-        fn visit_function(
-            &mut self,
-            function: &Function<'a>,
-            flags: oxc_syntax::scope::ScopeFlags,
-        ) {
+        if let Some(names) = loop_bindings(statement) {
             let outer = self.shadowed.clone();
-            let mode = self.mode;
-            if let Some(body) = &function.body {
-                self.mode = self.mode.for_body(body);
-            }
-            self.mask(&function.params, function.body.as_deref());
-            if let Some(id) = &function.id {
-                self.shadowed.insert(id.name.to_string());
-            }
-            walk::walk_function(self, function, flags);
+            self.shadowed.extend(names);
+            walk::walk_statement(self, statement);
             self.shadowed = outer;
-            self.mode = mode;
-        }
-        fn visit_arrow_function_expression(
-            &mut self,
-            function: &oxc_ast::ast::ArrowFunctionExpression<'a>,
-        ) {
-            let outer = self.shadowed.clone();
-            let mode = self.mode;
-            self.mode = self.mode.for_body(&function.body);
-            self.mask(&function.params, Some(&function.body));
-            walk::walk_arrow_function_expression(self, function);
-            self.shadowed = outer;
-            self.mode = mode;
-        }
-        fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
-            let outer = self.shadowed.clone();
-            self.shadowed.extend(wa_oxc::block_bindings(&block.body));
-            walk::walk_block_statement(self, block);
-            self.shadowed = outer;
-        }
-        fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
-            let outer = self.shadowed.clone();
-            if let Some(parameter) = &clause.param {
-                self.shadowed.extend(
-                    parameter
-                        .pattern
-                        .get_binding_identifiers()
-                        .iter()
-                        .map(|id| id.name.to_string()),
-                );
-            }
-            walk::walk_catch_clause(self, clause);
-            self.shadowed = outer;
+        } else {
+            walk::walk_statement(self, statement);
         }
     }
+    fn visit_variable_declarator(&mut self, declaration: &oxc_ast::ast::VariableDeclarator<'a>) {
+        if declaration.init.is_some() {
+            for id in declaration.id.get_binding_identifiers() {
+                if !self.shadowed.contains(id.name.as_str()) {
+                    self.names.insert(id.name.to_string());
+                }
+            }
+        }
+        walk::walk_variable_declarator(self, declaration);
+    }
+    fn visit_simple_assignment_target(
+        &mut self,
+        target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
+    ) {
+        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target
+            && !self.shadowed.contains(id.name.as_str())
+        {
+            self.names.insert(id.name.to_string());
+        }
+    }
+    fn visit_function(&mut self, function: &Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
+        let outer = self.shadowed.clone();
+        let mode = self.mode;
+        if let Some(body) = &function.body {
+            self.mode = self.mode.for_body(body);
+        }
+        self.mask(&function.params, function.body.as_deref());
+        if let Some(id) = &function.id {
+            self.shadowed.insert(id.name.to_string());
+        }
+        walk::walk_function(self, function, flags);
+        self.shadowed = outer;
+        self.mode = mode;
+    }
+    fn visit_arrow_function_expression(
+        &mut self,
+        function: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        let outer = self.shadowed.clone();
+        let mode = self.mode;
+        self.mode = self.mode.for_body(&function.body);
+        self.mask(&function.params, Some(&function.body));
+        walk::walk_arrow_function_expression(self, function);
+        self.shadowed = outer;
+        self.mode = mode;
+    }
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        let outer = self.shadowed.clone();
+        self.shadowed.extend(wa_oxc::block_bindings(&block.body));
+        walk::walk_block_statement(self, block);
+        self.shadowed = outer;
+    }
+    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+        let outer = self.shadowed.clone();
+        if let Some(parameter) = &clause.param {
+            self.shadowed.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        walk::walk_catch_clause(self, clause);
+        self.shadowed = outer;
+    }
+}
+
+pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSet<u32> {
     #[derive(Default)]
     struct Loaders {
         names: HashSet<String>,
@@ -220,7 +210,7 @@ pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSe
             } else {
                 wa_oxc::function_body_bindings(body, self.mode)
             };
-            let mut writes = Writes {
+            let mut writes = BindingWrites {
                 mode: self.mode,
                 ..Default::default()
             };
@@ -757,7 +747,7 @@ fn forwards<'a>(
     if visiting.len() >= 32 || !visiting.insert(name.clone()) {
         return false;
     }
-    let result = direct(function, transports, loaders)
+    let result = direct(function, transports, loaders, functions)
         || (|| {
             let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
                 return false;
@@ -817,7 +807,7 @@ fn forwards<'a>(
             else {
                 return false;
             };
-            !generator.r#async && direct(generator, transports, loaders)
+            !generator.r#async && direct(generator, transports, loaders, functions)
         })();
     visiting.remove(&name);
     result
@@ -844,7 +834,23 @@ fn apply_target<'b>(expression: &'b Expression<'_>) -> Option<&'b str> {
     as_identifier(target)
 }
 
-fn direct(function: &Function, transports: &Transports, loaders: &HashSet<u32>) -> bool {
+fn direct(
+    function: &Function,
+    transports: &Transports,
+    loaders: &HashSet<u32>,
+    functions: &HashMap<&str, &Function>,
+) -> bool {
+    if let Some(body) = &function.body {
+        let mut writes = BindingWrites {
+            mode: wa_oxc::StrictMode::Unknown.for_body(body),
+            ..Default::default()
+        };
+        writes.mask(&function.params, Some(body));
+        writes.visit_function_body(body);
+        if functions.keys().any(|name| writes.names.contains(*name)) {
+            return false;
+        }
+    }
     if function.params.items.len() != 2 {
         return false;
     }
@@ -1353,4 +1359,12 @@ fn module_loaders_respect_nested_bindings_and_captured_writes() {
         let at = source.find("o(\"Transport\")").unwrap() as u32;
         assert_eq!(calls.contains(&at), expected, "{setup}");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn apply_forwarders_cannot_replace_reachable_module_helpers() {
+    let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function invoke(op,vars){return next.apply(this,arguments)}function next(op,vars){next=changed;return o("Relay").fetchQuery(op,vars)}function changed(op,vars){return o("Relay").fetchQuery(op,{wrapped:vars})}l.send=invoke;});"#;
+    let definitions = wa_transform::extract_module_definitions(source);
+    assert!(Transports::build(source, &definitions).0.is_empty());
 }

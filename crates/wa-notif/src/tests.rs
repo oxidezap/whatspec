@@ -3310,3 +3310,17 @@ fn module_helper_writes_do_not_replace_parser_local_bindings() {
     assert_eq!(actions[0].fields.len(), 1);
     assert_eq!(actions[0].fields[0].wire_name, "jid");
 }
+
+#[test]
+fn deleted_action_properties_cannot_remain_required() {
+    for mutation in ["delete result.id", "delete alias.id"] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var result={{actionType:"one",id:child.attrString("id")}},alias=result;{mutation};if(child.tag()==="a")return result;}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.iter().all(|field| field.wire_name != "id"))
+        );
+    }
+}
