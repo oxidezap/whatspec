@@ -878,8 +878,12 @@ impl SwitchFinder<'_, '_> {
             }
         }
         self.tag_locals = saved_tags;
-        self.constraints
-            .retain(|key, _| self.tag_locals.contains_key(&key.expression));
+        self.constraints.retain(|key, _| {
+            self.tag_locals.contains_key(&key.expression)
+                || allocation.is_some_and(|origin| {
+                    !key.origins.iter().any(|(_, value)| *value == Some(origin))
+                })
+        });
     }
 
     fn save_binding(&mut self, name: &str, expression: &Expression) {
@@ -2173,7 +2177,7 @@ fn collect_returns_into<'b, 'a>(
                     if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
                     {
                         apply_expression_effects(init, scope);
-                        scope.insert(name.as_str(), init);
+                        scope.insert(name.as_str(), deref_ident(init, scope));
                     } else if d.init.is_some() {
                         for id in d.id.get_binding_identifiers() {
                             scope.remove(id.name.as_str());
@@ -2424,13 +2428,20 @@ fn loop_body<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b Statement<'a>> {
     }
 }
 
-fn invalidate_scope_objects(scope: &mut Scope) {
+fn invalidate_scope_objects(scope: &mut Scope, receiver: Option<&Expression>) {
+    let target = receiver
+        .map(|receiver| deref_ident(receiver, scope))
+        .filter(|value| saved_value_kind(value) == SavedValueKind::Allocation);
     let mut dependents: HashMap<String, Vec<&str>> = HashMap::new();
     let mut removed = HashSet::new();
     for (name, value) in scope.iter() {
         let resolved = deref_ident(value, scope);
-        if saved_value_kind(resolved) != SavedValueKind::Primitive
-            && as_identifier(resolved).is_none()
+        if target
+            .map(|target| std::ptr::eq(target, resolved))
+            .unwrap_or_else(|| {
+                saved_value_kind(resolved) != SavedValueKind::Primitive
+                    && as_identifier(resolved).is_none()
+            })
         {
             removed.insert(*name);
         }
@@ -2451,7 +2462,14 @@ fn invalidate_scope_objects(scope: &mut Scope) {
 
 fn apply_unknown_writes(writes: WriteNames<'_>, scope: &mut Scope) {
     if writes.objects {
-        invalidate_scope_objects(scope);
+        if writes.opaque_mutation {
+            invalidate_scope_objects(scope, None);
+        } else {
+            for receiver in &writes.receivers {
+                let target = scope.get(receiver.as_str()).copied();
+                invalidate_scope_objects(scope, target);
+            }
+        }
     }
     for name in writes.names {
         scope.remove(name.as_str());
@@ -2464,13 +2482,15 @@ fn apply_expression_effects<'b, 'a>(expression: &'b Expression<'a>, scope: &mut 
             apply_expression_effects(&assignment.right, scope);
             if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
                 if assignment.operator == oxc_syntax::operator::AssignmentOperator::Assign {
-                    scope.insert(name, &assignment.right);
+                    scope.insert(name, deref_ident(&assignment.right, scope));
                 } else {
                     scope.remove(name);
                 }
             } else {
-                if wa_oxc::assignment_target_has_member(&assignment.left) {
-                    invalidate_scope_objects(scope);
+                if let Some(member) = assignment.left.as_member_expression() {
+                    invalidate_scope_objects(scope, Some(member.object()));
+                } else if wa_oxc::assignment_target_has_member(&assignment.left) {
+                    invalidate_scope_objects(scope, None);
                 }
                 for name in wa_oxc::assignment_target_names(&assignment.left) {
                     scope.remove(name.as_str());
@@ -3972,6 +3992,8 @@ struct HelperDefinitions<'s> {
 struct WriteNames<'s> {
     names: HashSet<String>,
     objects: bool,
+    receivers: HashSet<String>,
+    opaque_mutation: bool,
     originals: Option<HelperDefinitions<'s>>,
     helpers: Option<&'s HashMap<String, String>>,
     helper_scope: Option<&'s HashSet<String>>,
@@ -3982,8 +4004,15 @@ struct WriteNames<'s> {
 
 impl WriteNames<'_> {
     fn object_write(&mut self, receiver: &Expression) {
-        self.objects |= !as_identifier(receiver.without_parentheses())
-            .is_some_and(|name| self.shadowed.contains(name));
+        if let Some(name) = as_identifier(receiver.without_parentheses()) {
+            if !self.shadowed.contains(name) {
+                self.objects = true;
+                self.receivers.insert(name.to_string());
+            }
+        } else {
+            self.objects = true;
+            self.opaque_mutation = true;
+        }
     }
 }
 
@@ -4111,8 +4140,9 @@ impl<'a> Visit<'a> for WriteNames<'_> {
         }
         if let Some(member) = assignment.left.as_member_expression() {
             self.object_write(member.object());
-        } else {
-            self.objects |= wa_oxc::assignment_target_has_member(&assignment.left);
+        } else if wa_oxc::assignment_target_has_member(&assignment.left) {
+            self.objects = true;
+            self.opaque_mutation = true;
         }
         walk::walk_assignment_expression(self, assignment);
     }
@@ -4263,6 +4293,7 @@ fn extract_scoped_action_arm(
         analysis.visit_statement(statement);
     }
     let mut source = String::from("(async function*(){");
+    let mut allocations: HashMap<u32, &str> = HashMap::new();
     for (name, value) in &state.bindings {
         let SavedBinding::Expression { start, end, .. } = value else {
             continue;
@@ -4270,7 +4301,22 @@ fn extract_scoped_action_arm(
         source.push_str("var ");
         source.push_str(name);
         source.push('=');
-        source.push_str(&ctx.source[*start as usize..*end as usize]);
+        if matches!(
+            value,
+            SavedBinding::Expression {
+                kind: SavedValueKind::Allocation,
+                ..
+            }
+        ) {
+            if let Some(alias) = allocations.get(start) {
+                source.push_str(alias);
+            } else {
+                source.push_str(&ctx.source[*start as usize..*end as usize]);
+                allocations.insert(*start, name);
+            }
+        } else {
+            source.push_str(&ctx.source[*start as usize..*end as usize]);
+        }
         source.push(';');
     }
     let arm_start = source.len();

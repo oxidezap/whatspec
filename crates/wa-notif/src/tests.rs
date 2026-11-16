@@ -3360,3 +3360,32 @@ fn receiver_mutations_separate_fresh_reads_from_captured_tags() {
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].action_type.as_deref(), Some("one"));
 }
+
+#[test]
+fn fresh_object_writes_preserve_unrelated_actions_and_tag_constraints() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var meta={};if(child.tag()==="a")return {actionType:"one"};meta.seen=true;if(child.tag()==="a")return {actionType:"wrong"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(child.tag()==="a"){var result={actionType:"one",id:child.attrString("id")},meta={};meta.seen=true;return result;}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+    assert_eq!(actions[0].fields[0].wire_name, "id");
+    for (mutation, expected) in [
+        ("delete alias.id", false),
+        ("alias={};delete alias.id", true),
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var result={{actionType:"one",id:child.attrString("id")}},alias=result;if(child.tag()==="a"){{{mutation};return result;}}}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(
+            actions
+                .iter()
+                .any(|action| action.fields.iter().any(|field| field.wire_name == "id")),
+            expected,
+            "{mutation}"
+        );
+    }
+}
