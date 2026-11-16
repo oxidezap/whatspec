@@ -3093,3 +3093,13 @@ fn immediate_closure_writes_invalidate_outer_wire_bindings() {
     let pure = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");(()=>{var local=0})();if(child.tag()==="a")return {actionType:"one",id};}});"#;
     assert_eq!(dispatch_actions(pure)[0].fields[0].wire_name, "id");
 }
+
+#[test]
+fn loop_local_continue_keeps_following_dispatch_reachable() {
+    for body in ["do{continue;}while(false);", "{do{continue;}while(false);}"] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{body}switch(child.tag()){{case "a":return {{actionType:"one"}};}}}}}});"#
+        );
+        assert_eq!(dispatch_actions(&source).len(), 1, "{body}");
+    }
+}

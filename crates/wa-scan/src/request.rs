@@ -293,6 +293,7 @@ pub(crate) struct VarScope {
     bundled_rpc: bool,
     guard_optional_descendants: bool,
     local_merges: std::collections::HashSet<(usize, usize)>,
+    generators: std::collections::HashSet<(usize, usize)>,
     vars: HashMap<String, Vec<VarInit>>,
     /// Every function as `(body_start, body_end, parameter_names)` — all of them, not
     /// only the ones shaped like a builder.
@@ -349,7 +350,8 @@ impl VarScope {
             .filter(|init| init.owner_fn == owner)
             .filter_map(|init| init.fn_body);
         let function = functions.next()?;
-        functions.all(|other| other == function).then_some(function)
+        (functions.all(|other| other == function) && !self.generators.contains(&function))
+            .then_some(function)
     }
 
     fn callable_spans(&self, name: &str, ref_off: Option<usize>) -> Vec<(usize, usize)> {
@@ -522,6 +524,9 @@ impl<'a> Visit<'a> for ScopeBuilder {
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
         let pushed = fn_body_span(func);
         if let Some(span) = pushed {
+            if func.generator {
+                self.scope.generators.insert(span);
+            }
             self.fn_stack.push(span);
             // The parameter list lives in the header, outside the body span the
             // resolver later re-parses in isolation, so it must be captured here.
@@ -2049,6 +2054,12 @@ fn resolve_function_returns_each(
     let parsed = wa_oxc::parse_cjs(&alloc, body);
     let mut merged = build_scoped_var_scope(&parsed.program);
     merged.local_merges = scope.local_merges.clone();
+    merged.generators = merged
+        .generators
+        .into_iter()
+        .map(|(start, end)| (start + body_start, end + body_start))
+        .chain(scope.generators.iter().copied())
+        .collect();
     merged.bundled_rpc = scope.bundled_rpc;
     merged.guard_optional_descendants = scope.guard_optional_descendants;
     for inits in merged.vars.values_mut() {
@@ -2215,13 +2226,16 @@ pub(crate) fn bundled_rpc_requests_from_program(
     let exports = finder.out;
     scope.local_merges = exports
         .iter()
-        .filter(|(name, _)| name.starts_with("merge"))
+        .filter(|(name, span)| name.starts_with("merge") && !scope.generators.contains(span))
         .map(|(_, span)| *span)
         .collect();
     // Export pruning must not erase the destination/arguments contract of local mixins.
     loop {
         let before = scope.local_merges.len();
         for (start, end, params) in &scope.fn_params {
+            if scope.generators.contains(&(*start, *end)) {
+                continue;
+            }
             let Some(destination) = params.first() else {
                 continue;
             };
@@ -4279,6 +4293,15 @@ mod bundled_merge_tests {
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
         assert_eq!(requests.len(), 1);
+        let generator = source.replace("function compose(dst)", "function* compose(dst)");
+        assert!(
+            bundled_rpc_requests(
+                &generator,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            )
+            .is_empty()
+        );
         let root = &requests[0].2;
         assert!(
             root.attrs

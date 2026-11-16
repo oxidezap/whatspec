@@ -939,6 +939,7 @@ fn declarations_and_factory_effects_cannot_replace_forwarders_silently() {
         r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}for(send of [changed]){}"#,
         r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}for(send in values){}"#,
         r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}[send]=[changed];"#,
+        r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}l={};"#,
     ] {
         let source =
             format!(r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{{setup}l.custom=send;}});"#);

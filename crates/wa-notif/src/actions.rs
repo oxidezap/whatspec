@@ -1762,21 +1762,20 @@ fn list_exits_refs(stmts: &[&Statement], nested: bool) -> bool {
     false
 }
 
-/// Whether some path through `s` reaches a `break` that leaves the construct we are
-/// analysing rather than ending the case. Only meaningful inside a nested breakable
-/// construct — at case level a `break` *is* the exit.
+/// Whether a path reaches a loop-local `break` or `continue` instead of leaving
+/// the caller. At case level a `break` ends the case.
 fn can_escape(s: &Statement, nested: bool) -> bool {
     if !nested {
         return false;
     }
     match s {
-        Statement::BreakStatement(_) => true,
+        Statement::BreakStatement(_) | Statement::ContinueStatement(_) => true,
         Statement::BlockStatement(b) => b.body.iter().any(|s| can_escape(s, nested)),
         Statement::IfStatement(i) => {
             can_escape(&i.consequent, nested)
                 || i.alternate.as_ref().is_some_and(|a| can_escape(a, nested))
         }
-        // A deeper switch or loop consumes the `break` itself, so it cannot reach us.
+        // A deeper construct is checked by its own exit analysis.
         _ => false,
     }
 }
