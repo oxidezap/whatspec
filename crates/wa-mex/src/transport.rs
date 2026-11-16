@@ -96,6 +96,7 @@ impl Transports {
                     receivers: HashSet<String>,
                     exports: HashMap<String, Option<String>>,
                     rewritten: HashSet<String>,
+                    shadowed: HashSet<String>,
                 }
                 impl<'a> Visit<'a> for Exports {
                     fn visit_function(
@@ -104,13 +105,54 @@ impl Transports {
                         _: oxc_syntax::scope::ScopeFlags,
                     ) {
                     }
+                    fn visit_arrow_function_expression(
+                        &mut self,
+                        _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+                    ) {
+                    }
+                    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+                        let outer = self.shadowed.clone();
+                        for statement in &block.body {
+                            if let Statement::VariableDeclaration(declaration) = statement
+                                && !declaration.kind.is_var()
+                            {
+                                for binding in &declaration.declarations {
+                                    self.shadowed.extend(
+                                        binding
+                                            .id
+                                            .get_binding_identifiers()
+                                            .iter()
+                                            .map(|id| id.name.to_string()),
+                                    );
+                                }
+                            }
+                        }
+                        walk::walk_block_statement(self, block);
+                        self.shadowed = outer;
+                    }
+                    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+                        let outer = self.shadowed.clone();
+                        if let Some(parameter) = &clause.param {
+                            self.shadowed.extend(
+                                parameter
+                                    .pattern
+                                    .get_binding_identifiers()
+                                    .iter()
+                                    .map(|id| id.name.to_string()),
+                            );
+                        }
+                        self.visit_block_statement(&clause.body);
+                        self.shadowed = outer;
+                    }
                     fn visit_variable_declarator(
                         &mut self,
                         binding: &oxc_ast::ast::VariableDeclarator<'a>,
                     ) {
                         if binding.init.is_some() {
                             for identifier in binding.id.get_binding_identifiers() {
-                                self.rewritten.insert(identifier.name.to_string());
+                                if !self.shadowed.contains(identifier.name.as_str()) {
+                                    self.rewritten.insert(identifier.name.to_string());
+                                }
                             }
                         }
                         walk::walk_variable_declarator(self, binding);
@@ -119,15 +161,20 @@ impl Transports {
                         &mut self,
                         assignment: &oxc_ast::ast::AssignmentExpression<'a>,
                     ) {
-                        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
+                        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left)
+                            && !self.shadowed.contains(name)
+                        {
                             self.rewritten.insert(name.to_string());
                         }
                         if let Some(member) = assignment.left.as_member_expression()
                             && let Some(receiver) = member.object().get_identifier_reference()
                             && self.receivers.contains(receiver.name.as_str())
+                            && !self.shadowed.contains(receiver.name.as_str())
                             && let Some(name) = member.static_property_name()
                         {
-                            let local = as_identifier(&assignment.right).map(str::to_string);
+                            let local = as_identifier(&assignment.right)
+                                .filter(|name| !self.shadowed.contains(*name))
+                                .map(str::to_string);
                             self.exports
                                 .entry(name.to_string())
                                 .and_modify(|previous| {
@@ -144,6 +191,7 @@ impl Transports {
                     receivers,
                     exports: HashMap::new(),
                     rewritten: HashSet::new(),
+                    shadowed: HashSet::new(),
                 };
                 exports.visit_function_body(body);
                 functions.retain(|name, _| !exports.rewritten.contains(*name));
@@ -195,11 +243,11 @@ fn forwards<'a>(
                 if function.params.rest.is_some()
                     || function.params.items.iter().any(|parameter| {
                         parameter.initializer.is_some()
-                            || parameter
-                                .pattern
-                                .get_binding_identifiers()
-                                .iter()
-                                .any(|identifier| identifier.name == target)
+                            || parameter.pattern.get_binding_identifiers().iter().any(
+                                |identifier| {
+                                    identifier.name == target || identifier.name == "arguments"
+                                },
+                            )
                     })
                 {
                     return false;
@@ -330,6 +378,25 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             walk::walk_arrow_function_expression(self, function);
             self.suspended = suspended;
             self.invalid |= before != (self.reads, self.sends);
+        }
+        fn visit_statement(&mut self, statement: &Statement<'a>) {
+            let sends = self.sends;
+            walk::walk_statement(self, statement);
+            if matches!(
+                statement,
+                Statement::WhileStatement(_)
+                    | Statement::DoWhileStatement(_)
+                    | Statement::ForStatement(_)
+                    | Statement::ForInStatement(_)
+                    | Statement::ForOfStatement(_)
+            ) && self.sends != sends
+            {
+                self.invalid = true;
+            }
+        }
+        fn visit_for_of_statement(&mut self, statement: &oxc_ast::ast::ForOfStatement<'a>) {
+            walk::walk_for_of_statement(self, statement);
+            self.suspended |= statement.r#await;
         }
         fn visit_await_expression(&mut self, expression: &oxc_ast::ast::AwaitExpression<'a>) {
             walk::walk_await_expression(self, expression);
@@ -531,4 +598,54 @@ fn generator_apply_forwarders_do_not_run_when_called() {
     let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function next(op,vars){return o("Relay").fetchQuery(op,vars)}function* send(op,vars){return next.apply(this,arguments)}l.custom=send;});"#;
     let definitions = wa_transform::extract_module_definitions(source);
     assert!(Transports::build(source, &definitions).0.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn an_explicit_arguments_parameter_cannot_forward_the_implicit_argument_list() {
+    let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function next(op,vars){return o("Relay").fetchQuery(op,vars)}function send(op,vars,arguments){return next.apply(this,arguments)}l.custom=send;});"#;
+    let definitions = wa_transform::extract_module_definitions(source);
+    assert!(Transports::build(source, &definitions).0.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn block_local_helpers_do_not_replace_outer_transports() {
+    let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function send(op,vars){return o("Relay").fetchQuery(op,vars)}{let send=unknown;}l.custom=send;});"#;
+    let definitions = wa_transform::extract_module_definitions(source);
+    assert!(
+        Transports::build(source, &definitions)
+            .0
+            .contains(&("Wrapper".into(), "custom".into()))
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn asynchronous_iteration_and_loop_backedges_cannot_delay_forwarding() {
+    for body in [
+        r#"for await(const value of stream){}return o("Relay").fetchQuery(op,vars)"#,
+        r#"while(again()){o("Relay").fetchQuery(op,vars);await ready()}"#,
+    ] {
+        let source = format!(
+            r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{async function send(op,vars){{{body}}}l.custom=send;}});"#
+        );
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{body}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ordinary_iteration_before_forwarding_remains_synchronous() {
+    let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){async function send(op,vars){for(const value of values){}return o("Relay").fetchQuery(op,vars)}l.custom=send;});"#;
+    let definitions = wa_transform::extract_module_definitions(source);
+    assert!(
+        Transports::build(source, &definitions)
+            .0
+            .contains(&("Wrapper".into(), "custom".into()))
+    );
 }
