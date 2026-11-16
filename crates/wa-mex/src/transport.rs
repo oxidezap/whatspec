@@ -652,6 +652,10 @@ impl Transports {
                             && let Some(name) = member.static_property_name()
                         {
                             let local = as_identifier(&assignment.right)
+                                .filter(|_| {
+                                    assignment.operator
+                                        == oxc_syntax::operator::AssignmentOperator::Assign
+                                })
                                 .filter(|name| !self.shadowed.contains(*name))
                                 .map(str::to_string);
                             self.exports
@@ -1370,6 +1374,8 @@ fn review_dynamic_exports_and_sloppy_block_functions_cannot_qualify() {
     for body in [
         r#"l.custom=send;l[key]=changed;"#,
         r#"l.custom=send;delete l.custom;"#,
+        r#"l.custom=send;l.custom+=send;"#,
+        r#"l.custom=send;l.custom&&=send;"#,
         r#"l.custom=send;delete l[key];"#,
         r#"(function(){{function send(){}}l.custom=send})();"#,
     ] {
