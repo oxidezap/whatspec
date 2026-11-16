@@ -541,6 +541,49 @@ impl<'a> Visit<'a> for LocalFns {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SavedValueKind {
+    Primitive,
+    Allocation,
+    Unknown,
+}
+
+fn saved_value_kind(expression: &Expression) -> SavedValueKind {
+    match expression.without_parentheses() {
+        Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::BigIntLiteral(_) => SavedValueKind::Primitive,
+        Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_) => SavedValueKind::Allocation,
+        Expression::CallExpression(call)
+            if matches!(
+                callee_method(call),
+                Some(
+                    wap::ATTR_STRING
+                        | wap::MAYBE_ATTR_STRING
+                        | wap::ATTR_INT
+                        | wap::MAYBE_ATTR_INT
+                        | wap::ATTR_TIME
+                        | wap::MAYBE_ATTR_TIME
+                        | wap::HAS_ATTR
+                        | wap::CONTENT_STRING
+                        | wap::CONTENT_INT
+                        | "contentUint"
+                        | "attrIntRange"
+                        | "attrFutureTime"
+                )
+            ) =>
+        {
+            SavedValueKind::Primitive
+        }
+        _ => SavedValueKind::Unknown,
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 enum SavedBinding {
     Unknown {
@@ -550,7 +593,7 @@ enum SavedBinding {
         start: u32,
         end: u32,
         dependencies: HashSet<String>,
-        allocation: bool,
+        kind: SavedValueKind,
     },
 }
 
@@ -769,7 +812,7 @@ impl SwitchFinder<'_, '_> {
                 matches!(
                     value,
                     SavedBinding::Expression {
-                        allocation: true,
+                        kind: SavedValueKind::Allocation,
                         ..
                     }
                 )
@@ -786,7 +829,16 @@ impl SwitchFinder<'_, '_> {
                 self.invalidate_binding(&alias);
             }
         } else {
-            self.bindings.clear();
+            self.bindings.retain(|_, value| {
+                matches!(
+                    value,
+                    SavedBinding::Unknown { .. }
+                        | SavedBinding::Expression {
+                            kind: SavedValueKind::Primitive,
+                            ..
+                        }
+                )
+            });
         }
         self.tag_locals = saved_tags;
     }
@@ -807,13 +859,7 @@ impl SwitchFinder<'_, '_> {
                     start: span.start,
                     end: span.end,
                     dependencies,
-                    allocation: matches!(
-                        expression.without_parentheses(),
-                        Expression::ObjectExpression(_)
-                            | Expression::ArrayExpression(_)
-                            | Expression::FunctionExpression(_)
-                            | Expression::ArrowFunctionExpression(_)
-                    ),
+                    kind: saved_value_kind(expression),
                 }
             }
         };

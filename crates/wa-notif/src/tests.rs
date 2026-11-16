@@ -3103,3 +3103,23 @@ fn loop_local_continue_keeps_following_dispatch_reachable() {
         assert_eq!(dispatch_actions(&source).len(), 1, "{body}");
     }
 }
+
+#[test]
+fn unrelated_property_writes_preserve_captured_scalar_fields() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,meta){var id=child.attrString("id"),count=child.attrInt("count"),alias=child;meta.seen=true;if(alias.tag()==="a")return {actionType:"one",id,count};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].fields.len(), 2);
+    assert!(
+        actions[0]
+            .fields
+            .iter()
+            .any(|field| field.wire_name == "id")
+    );
+    assert!(
+        actions[0]
+            .fields
+            .iter()
+            .any(|field| field.wire_name == "count")
+    );
+}
