@@ -835,16 +835,24 @@ impl SwitchFinder<'_, '_> {
                 self.invalidate_binding(&alias);
             }
         } else {
-            self.bindings.retain(|_, value| {
-                matches!(
-                    value,
-                    SavedBinding::Unknown { .. }
-                        | SavedBinding::Expression {
-                            kind: SavedValueKind::Primitive,
-                            ..
-                        }
-                )
-            });
+            let affected: Vec<_> = self
+                .bindings
+                .iter()
+                .filter(|(_, value)| {
+                    !matches!(
+                        value,
+                        SavedBinding::Unknown { .. }
+                            | SavedBinding::Expression {
+                                kind: SavedValueKind::Primitive,
+                                ..
+                            }
+                    )
+                })
+                .map(|(name, _)| name.clone())
+                .collect();
+            for name in affected {
+                self.invalidate_binding(&name);
+            }
         }
         self.tag_locals = saved_tags;
     }

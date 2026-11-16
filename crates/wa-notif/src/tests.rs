@@ -3181,3 +3181,15 @@ fn review_await_initializers_do_not_discard_tag_constraints() {
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].action_type.as_deref(), Some("one"));
 }
+
+#[test]
+fn captured_content_cannot_lose_its_receiver_source() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,meta){var body=child.child("body"),text=body.contentString();meta.seen=true;if(child.tag()==="a")return {actionType:"one",text};}});"#;
+    let actions = dispatch_actions(source);
+    assert!(
+        actions[0]
+            .fields
+            .iter()
+            .all(|field| !field.content || field.wire_name == "body")
+    );
+}
