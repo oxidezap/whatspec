@@ -170,12 +170,145 @@ pub fn obj_props<'b, 'a>(
     })
 }
 
+/// A function literal invoked directly or through its `call`/`apply` method.
+pub fn directly_invoked_function<'b, 'a>(
+    call: &'b CallExpression<'a>,
+) -> Option<&'b Expression<'a>> {
+    let callee = call.callee.without_parentheses();
+    let function = if matches!(
+        callee,
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+    ) {
+        callee
+    } else {
+        let (owner, method) = as_member(callee)?;
+        if !matches!(method, "call" | "apply") {
+            return None;
+        }
+        owner.without_parentheses()
+    };
+    matches!(
+        function,
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+    )
+    .then_some(function)
+}
+
+/// Function-scoped variables and body declarations, excluding nested function interiors.
+pub fn function_body_bindings(
+    body: &oxc_ast::ast::FunctionBody<'_>,
+) -> std::collections::HashSet<String> {
+    use oxc_ast_visit::{Visit, walk};
+    #[derive(Default)]
+    struct Binder {
+        names: std::collections::HashSet<String>,
+        depth: usize,
+    }
+    impl<'a> Visit<'a> for Binder {
+        fn visit_variable_declaration(
+            &mut self,
+            declaration: &oxc_ast::ast::VariableDeclaration<'a>,
+        ) {
+            if declaration.kind.is_var() || self.depth == 0 {
+                for binding in &declaration.declarations {
+                    self.names.extend(
+                        binding
+                            .id
+                            .get_binding_identifiers()
+                            .iter()
+                            .map(|id| id.name.to_string()),
+                    );
+                }
+            }
+            walk::walk_variable_declaration(self, declaration);
+        }
+        fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+            self.depth += 1;
+            walk::walk_block_statement(self, block);
+            self.depth -= 1;
+        }
+        fn visit_for_statement(&mut self, statement: &oxc_ast::ast::ForStatement<'a>) {
+            self.depth += 1;
+            walk::walk_for_statement(self, statement);
+            self.depth -= 1;
+        }
+        fn visit_for_in_statement(&mut self, statement: &oxc_ast::ast::ForInStatement<'a>) {
+            self.depth += 1;
+            walk::walk_for_in_statement(self, statement);
+            self.depth -= 1;
+        }
+        fn visit_for_of_statement(&mut self, statement: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.depth += 1;
+            walk::walk_for_of_statement(self, statement);
+            self.depth -= 1;
+        }
+        fn visit_switch_statement(&mut self, statement: &oxc_ast::ast::SwitchStatement<'a>) {
+            self.depth += 1;
+            walk::walk_switch_statement(self, statement);
+            self.depth -= 1;
+        }
+        fn visit_statement(&mut self, statement: &Statement<'a>) {
+            match statement {
+                Statement::FunctionDeclaration(function) => {
+                    if let Some(id) = &function.id {
+                        self.names.insert(id.name.to_string());
+                    }
+                }
+                Statement::ClassDeclaration(class) => {
+                    if let Some(id) = &class.id {
+                        self.names.insert(id.name.to_string());
+                    }
+                }
+                _ => walk::walk_statement(self, statement),
+            }
+        }
+        fn visit_expression(&mut self, expression: &Expression<'a>) {
+            if matches!(
+                expression,
+                Expression::FunctionExpression(_)
+                    | Expression::ArrowFunctionExpression(_)
+                    | Expression::ClassExpression(_)
+            ) {
+                return;
+            }
+            walk::walk_expression(self, expression);
+        }
+    }
+    let mut binder = Binder::default();
+    binder.visit_function_body(body);
+    binder.names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use oxc_allocator::Allocator;
     use oxc_parser::Parser;
     use oxc_span::SourceType;
+
+    #[test]
+    fn function_bindings_exclude_nested_functions_and_block_lexicals() {
+        let allocator = Allocator::default();
+        let parsed = parse_cjs(
+            &allocator,
+            "(function(parameter){var direct;{let block;var hoisted;}function nested(inner){var hidden;}const root=0;for(let iteration of values){var loop;}});",
+        );
+        assert!(parsed.errors.is_empty());
+        let Statement::ExpressionStatement(statement) = &parsed.program.body[0] else {
+            panic!("function expression")
+        };
+        let Expression::FunctionExpression(function) = statement.expression.without_parentheses()
+        else {
+            panic!("function expression")
+        };
+        let names = function_body_bindings(function.body.as_ref().unwrap());
+        for name in ["direct", "hoisted", "nested", "root", "loop"] {
+            assert!(names.contains(name), "{name}");
+        }
+        for name in ["parameter", "block", "inner", "hidden", "iteration"] {
+            assert!(!names.contains(name), "{name}");
+        }
+    }
 
     #[test]
     fn matchers_work_on_real_ast() {
