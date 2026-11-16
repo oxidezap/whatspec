@@ -3215,3 +3215,21 @@ fn later_arm_writes_preserve_earlier_return_bindings() {
         assert_eq!(action.fields[0].wire_name, wire);
     }
 }
+
+#[test]
+fn property_updates_and_named_captured_writes_invalidate_saved_values() {
+    for setup in [
+        r#"var result={actionType:"one",id:child.attrInt("id")};result.id++;"#,
+        r#"var id=child.attrString("id");function mutate(){id=child.attrString("other")}mutate();var result={actionType:"one",id};"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{setup}if(child.tag()==="a")return result;}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.iter().all(|field| field.wire_name != "id")),
+            "{setup}"
+        );
+    }
+}

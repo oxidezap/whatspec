@@ -2863,6 +2863,7 @@ fn may_reference_module(value: &Value, module: &str, scopes: &Scopes, depth: usi
 /// sends this operation.
 struct CallSiteCollector<'d> {
     transports: &'d crate::transport::Transports,
+    loader_calls: std::collections::HashSet<u32>,
     /// The `<name>.graphql` module whose call sites we want.
     module: String,
     /// Whether the caller depends on exactly one `.graphql` module, in which case
@@ -4023,7 +4024,7 @@ impl CallSiteCollector<'_> {
         // A body walked right here is not one this pass did not read: whatever
         // it does to the object is already in the scopes, so taking the object
         // out of evidence on top of that withdraws keys nothing touched.
-        if !runs_here && !self.transports.is_transport(call) {
+        if !runs_here && !self.transports.is_transport(call, &self.loader_calls) {
             for argument in call.arguments.iter().filter_map(Argument::as_expression) {
                 // `mutate(v.input)` hands over a part of a recovered object,
                 // and what that body does to it is a change to the one object.
@@ -4462,7 +4463,7 @@ impl CallSiteCollector<'_> {
     /// a `require("<module>")`, or the caller has only one operation to send and
     /// so cannot be sending another.
     fn is_operation_call(&self, call: &CallExpression, handle: Option<&Value>) -> bool {
-        if !self.transports.is_transport(call) {
+        if !self.transports.is_transport(call, &self.loader_calls) {
             return false;
         }
         let Some(handle) = handle else {
@@ -4475,7 +4476,7 @@ impl CallSiteCollector<'_> {
     /// A Relay call in a module that sends more than one operation whose handle
     /// this pass could not tie to any module: it may or may not be ours.
     fn is_ambiguous_call(&self, call: &CallExpression, handle: Option<&Value>) -> bool {
-        if !self.transports.is_transport(call) {
+        if !self.transports.is_transport(call, &self.loader_calls) {
             return false;
         }
         let Some(handle) = handle else {
@@ -4596,6 +4597,7 @@ pub(crate) fn variables_presence_with_transports(
         };
         let mut collector = CallSiteCollector {
             transports,
+            loader_calls: crate::transport::module_loader_calls(&ret.program),
             module: module.to_string(),
             sole_operation: *sole_operation,
             scopes,

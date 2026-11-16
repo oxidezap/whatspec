@@ -8,11 +8,254 @@ use wa_transform::ModuleDefinition;
 
 const METHODS: &[&str] = &["fetchQuery", "commitMutation", "fetchSubscription"];
 
+pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSet<u32> {
+    #[derive(Default)]
+    struct Writes {
+        names: HashSet<String>,
+        shadowed: HashSet<String>,
+        mode: wa_oxc::StrictMode,
+    }
+    impl Writes {
+        fn mask(
+            &mut self,
+            params: &oxc_ast::ast::FormalParameters<'_>,
+            body: Option<&oxc_ast::ast::FunctionBody<'_>>,
+        ) {
+            for parameter in &params.items {
+                self.shadowed.extend(
+                    parameter
+                        .pattern
+                        .get_binding_identifiers()
+                        .iter()
+                        .map(|id| id.name.to_string()),
+                );
+            }
+            if let Some(rest) = &params.rest {
+                self.shadowed.extend(
+                    rest.rest
+                        .argument
+                        .get_binding_identifiers()
+                        .iter()
+                        .map(|id| id.name.to_string()),
+                );
+            }
+            if let Some(body) = body {
+                self.shadowed
+                    .extend(wa_oxc::function_body_bindings(body, self.mode));
+            }
+        }
+    }
+    impl<'a> Visit<'a> for Writes {
+        fn visit_simple_assignment_target(
+            &mut self,
+            target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
+        ) {
+            if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target
+                && !self.shadowed.contains(id.name.as_str())
+            {
+                self.names.insert(id.name.to_string());
+            }
+        }
+        fn visit_function(
+            &mut self,
+            function: &Function<'a>,
+            flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+            let outer = self.shadowed.clone();
+            let mode = self.mode;
+            if let Some(body) = &function.body {
+                self.mode = self.mode.for_body(body);
+            }
+            self.mask(&function.params, function.body.as_deref());
+            if let Some(id) = &function.id {
+                self.shadowed.insert(id.name.to_string());
+            }
+            walk::walk_function(self, function, flags);
+            self.shadowed = outer;
+            self.mode = mode;
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            function: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            let outer = self.shadowed.clone();
+            let mode = self.mode;
+            self.mode = self.mode.for_body(&function.body);
+            self.mask(&function.params, Some(&function.body));
+            walk::walk_arrow_function_expression(self, function);
+            self.shadowed = outer;
+            self.mode = mode;
+        }
+        fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+            let outer = self.shadowed.clone();
+            self.shadowed.extend(wa_oxc::block_bindings(&block.body));
+            walk::walk_block_statement(self, block);
+            self.shadowed = outer;
+        }
+        fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+            let outer = self.shadowed.clone();
+            if let Some(parameter) = &clause.param {
+                self.shadowed.extend(
+                    parameter
+                        .pattern
+                        .get_binding_identifiers()
+                        .iter()
+                        .map(|id| id.name.to_string()),
+                );
+            }
+            walk::walk_catch_clause(self, clause);
+            self.shadowed = outer;
+        }
+    }
+    #[derive(Default)]
+    struct Loaders {
+        names: HashSet<String>,
+        calls: HashSet<u32>,
+        factory: Option<u32>,
+        mode: wa_oxc::StrictMode,
+    }
+    impl Loaders {
+        fn mask(
+            &mut self,
+            params: &oxc_ast::ast::FormalParameters<'_>,
+            body: Option<&oxc_ast::ast::FunctionBody<'_>>,
+        ) {
+            for parameter in &params.items {
+                for id in parameter.pattern.get_binding_identifiers() {
+                    self.names.remove(id.name.as_str());
+                }
+            }
+            if let Some(rest) = &params.rest {
+                for id in rest.rest.argument.get_binding_identifiers() {
+                    self.names.remove(id.name.as_str());
+                }
+            }
+            if let Some(body) = body {
+                self.mask_body(body);
+            }
+        }
+        fn mask_body(&mut self, body: &oxc_ast::ast::FunctionBody<'_>) {
+            let bound = wa_oxc::function_body_bindings(body, self.mode);
+            let mut writes = Writes {
+                mode: self.mode,
+                ..Default::default()
+            };
+            writes.visit_function_body(body);
+            self.names
+                .retain(|name| !bound.contains(name) && !writes.names.contains(name));
+        }
+    }
+    impl<'a> Visit<'a> for Loaders {
+        fn visit_function(
+            &mut self,
+            function: &Function<'a>,
+            flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+            let outer = self.names.clone();
+            let mode = self.mode;
+            if let Some(body) = &function.body {
+                self.mode = self.mode.for_body(body);
+            }
+            if self.factory == Some(function.span.start) {
+                self.names = function
+                    .params
+                    .items
+                    .iter()
+                    .skip(1)
+                    .take(4)
+                    .filter(|parameter| parameter.initializer.is_none())
+                    .filter_map(|parameter| {
+                        parameter
+                            .pattern
+                            .get_identifier_name()
+                            .map(|name| name.to_string())
+                    })
+                    .collect();
+                if let Some(body) = &function.body {
+                    self.mask_body(body);
+                }
+            } else {
+                self.mask(&function.params, function.body.as_deref());
+                if let Some(id) = &function.id {
+                    self.names.remove(id.name.as_str());
+                }
+            }
+            walk::walk_function(self, function, flags);
+            self.names = outer;
+            self.mode = mode;
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            function: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            let outer = self.names.clone();
+            let mode = self.mode;
+            self.mode = self.mode.for_body(&function.body);
+            self.mask(&function.params, Some(&function.body));
+            walk::walk_arrow_function_expression(self, function);
+            self.names = outer;
+            self.mode = mode;
+        }
+        fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+            let outer = self.names.clone();
+            let bound = wa_oxc::block_bindings(&block.body);
+            self.names.retain(|name| !bound.contains(name));
+            walk::walk_block_statement(self, block);
+            self.names = outer;
+        }
+        fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+            let outer = self.names.clone();
+            if let Some(parameter) = &clause.param {
+                for id in parameter.pattern.get_binding_identifiers() {
+                    self.names.remove(id.name.as_str());
+                }
+            }
+            walk::walk_catch_clause(self, clause);
+            self.names = outer;
+        }
+        fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+            let outer_factory = self.factory;
+            if as_identifier(&call.callee) == Some(wa_oxc::DEFINE_FN)
+                && let Some(Expression::FunctionExpression(function)) = call
+                    .arguments
+                    .get(2)
+                    .and_then(arg_expr)
+                    .map(Expression::without_parentheses)
+            {
+                self.factory = Some(function.span.start);
+            }
+            if call.arguments.len() == 1
+                && as_identifier(&call.callee).is_some_and(|name| self.names.contains(name))
+                && call
+                    .arguments
+                    .first()
+                    .and_then(arg_expr)
+                    .and_then(as_string_lit)
+                    .is_some()
+            {
+                self.calls.insert(call.span.start);
+            }
+            walk::walk_call_expression(self, call);
+            self.factory = outer_factory;
+        }
+    }
+    let mut loaders = Loaders {
+        mode: if program.has_use_strict_directive() {
+            wa_oxc::StrictMode::Strict
+        } else {
+            wa_oxc::StrictMode::Sloppy
+        },
+        ..Default::default()
+    };
+    loaders.visit_program(program);
+    loaders.calls
+}
+
 #[derive(Default)]
 pub(crate) struct Transports(HashSet<(String, String)>);
 
 impl Transports {
-    pub(crate) fn is_transport(&self, call: &CallExpression) -> bool {
+    pub(crate) fn is_transport(&self, call: &CallExpression, loaders: &HashSet<u32>) -> bool {
         if callee_method(call).is_some_and(|method| METHODS.contains(&method)) {
             return true;
         }
@@ -20,6 +263,7 @@ impl Transports {
             return false;
         };
         let Some(module) = as_call(owner)
+            .filter(|call| loaders.contains(&call.span.start))
             .and_then(|call| call.arguments.first())
             .and_then(arg_expr)
             .and_then(as_string_lit)
@@ -49,6 +293,7 @@ impl Transports {
                 let allocator = Allocator::default();
                 let parsed =
                     wa_oxc::parse_cjs(&allocator, &source[definition.start..definition.end]);
+                let loaders = module_loader_calls(&parsed.program);
                 let Some(factory) = parsed.program.body.iter().find_map(|statement| {
                     let Statement::ExpressionStatement(statement) = statement else {
                         return None;
@@ -378,7 +623,13 @@ impl Transports {
                 for (export, local) in exports.exports {
                     let Some(local) = local else { continue };
                     if functions.get(local.as_str()).is_some_and(|function| {
-                        forwards(function, &functions, &transports, &mut HashSet::new())
+                        forwards(
+                            function,
+                            &functions,
+                            &transports,
+                            &loaders,
+                            &mut HashSet::new(),
+                        )
                     }) {
                         transports.0.insert((definition.name.clone(), export));
                     }
@@ -395,6 +646,7 @@ fn forwards<'a>(
     function: &Function<'a>,
     functions: &HashMap<&str, &Function<'a>>,
     transports: &Transports,
+    loaders: &HashSet<u32>,
     visiting: &mut HashSet<String>,
 ) -> bool {
     if function.generator {
@@ -411,7 +663,7 @@ fn forwards<'a>(
     if visiting.len() >= 32 || !visiting.insert(name.clone()) {
         return false;
     }
-    let result = direct(function, transports)
+    let result = direct(function, transports, loaders)
         || (|| {
             let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
                 return false;
@@ -432,9 +684,9 @@ fn forwards<'a>(
                 {
                     return false;
                 }
-                return functions
-                    .get(target)
-                    .is_some_and(|function| forwards(function, functions, transports, visiting));
+                return functions.get(target).is_some_and(|function| {
+                    forwards(function, functions, transports, loaders, visiting)
+                });
             }
             if !function.params.items.is_empty() || function.params.rest.is_some() {
                 return false;
@@ -471,7 +723,7 @@ fn forwards<'a>(
             else {
                 return false;
             };
-            !generator.r#async && direct(generator, transports)
+            !generator.r#async && direct(generator, transports, loaders)
         })();
     visiting.remove(&name);
     result
@@ -498,7 +750,7 @@ fn apply_target<'b>(expression: &'b Expression<'_>) -> Option<&'b str> {
     as_identifier(target)
 }
 
-fn direct(function: &Function, transports: &Transports) -> bool {
+fn direct(function: &Function, transports: &Transports, loaders: &HashSet<u32>) -> bool {
     if function.params.items.len() != 2 {
         return false;
     }
@@ -533,6 +785,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
         suspended: bool,
         invalid: bool,
         transports: &'s Transports,
+        loaders: &'s HashSet<u32>,
     }
     impl<'a> Visit<'a> for Probe<'_> {
         fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -642,7 +895,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             walk::walk_assignment_expression(self, assignment);
         }
         fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-            let forward = self.transports.is_transport(call)
+            let forward = self.transports.is_transport(call, self.loaders)
                 && call
                     .arguments
                     .first()
@@ -670,6 +923,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
         suspended: false,
         invalid: false,
         transports,
+        loaders,
     };
     if let Some(body) = &function.body {
         probe.visit_function_body(body);
@@ -975,5 +1229,28 @@ fn review_dynamic_exports_and_sloppy_block_functions_cannot_qualify() {
             Transports::build(&source, &definitions).0.is_empty(),
             "{body}"
         );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn module_loaders_respect_nested_bindings_and_captured_writes() {
+    for (setup, expected) in [
+        ("function local(o){o=changed}", true),
+        ("function local(){o=changed}", false),
+        (
+            r#"(function(){"use strict";{function o(){}}o=changed})()"#,
+            false,
+        ),
+        ("", true),
+    ] {
+        let source = format!(
+            r#"__d("Job",[],function(t,n,r,o,a,i,l){{{setup}function run(){{return o("Transport").send(handle,vars)}}}});"#
+        );
+        let allocator = Allocator::default();
+        let parsed = wa_oxc::parse_cjs(&allocator, &source);
+        let calls = module_loader_calls(&parsed.program);
+        let at = source.find("o(\"Transport\")").unwrap() as u32;
+        assert_eq!(calls.contains(&at), expected, "{setup}");
     }
 }

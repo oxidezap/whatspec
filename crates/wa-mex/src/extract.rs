@@ -817,6 +817,12 @@ mod tests {
         let wrapped = format!("{operation}{wrapper}{}", caller.replace("METHOD", "send"));
         let expected = extract_mex(&direct, "test");
         assert_eq!(extract_mex(&wrapped, "test"), expected);
+        let fake = wrapped.replace(
+            "return o(\"Transport\").send",
+            "function fake(){return {send:function(){return null}}}return fake(\"Transport\").send",
+        );
+        assert_ne!(extract_mex(&fake, "test"), expected);
+
         let unqualified = format!("{operation}{}", caller.replace("METHOD", "send"));
         assert_ne!(extract_mex(&unqualified, "test"), expected);
     }

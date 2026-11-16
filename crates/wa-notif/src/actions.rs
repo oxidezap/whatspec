@@ -1444,8 +1444,15 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 self.invalidate_object(expression);
             }
         }
-        if wa_oxc::directly_invoked_function(call).is_some() {
-            let mut writes = WriteNames::default();
+        if wa_oxc::directly_invoked_function(call).is_some()
+            || as_identifier(&call.callee).is_some_and(|name| {
+                !self.ctx.formals.contains(name) && self.ctx.locals.contains_key(name)
+            })
+        {
+            let mut writes = WriteNames {
+                helpers: Some(self.ctx.locals),
+                ..Default::default()
+            };
             writes.visit_call_expression(call);
             for name in writes.names {
                 self.invalidate_binding(&name);
@@ -1459,6 +1466,8 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             &update.argument
         {
             self.invalidate_binding(id.name.as_str());
+        } else if let Some(member) = update.argument.as_member_expression() {
+            self.invalidate_object(member.object());
         }
     }
 
@@ -4019,6 +4028,8 @@ struct HelperDefinitions<'s> {
 struct WriteNames<'s> {
     names: HashSet<String>,
     originals: Option<HelperDefinitions<'s>>,
+    helpers: Option<&'s HashMap<String, String>>,
+    visiting: HashSet<String>,
     shadowed: HashSet<String>,
     mode: wa_oxc::StrictMode,
 }
@@ -4050,6 +4061,20 @@ impl<'a> Visit<'a> for WriteNames<'_> {
     fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
         walk::walk_call_expression(self, call);
         let Some(function) = wa_oxc::directly_invoked_function(call) else {
+            if let Some(name) = as_identifier(&call.callee)
+                && !self.shadowed.contains(name)
+                && self.visiting.len() < MAX_INLINE_DEPTH as usize
+                && let Some(source) = self.helpers.and_then(|helpers| helpers.get(name)).cloned()
+                && self.visiting.insert(name.to_string())
+            {
+                let allocator = Allocator::default();
+                let wrapped = format!("({source})();");
+                let parsed = wa_oxc::parse_cjs(&allocator, &wrapped);
+                if parsed.errors.is_empty() {
+                    self.visit_program(&parsed.program);
+                }
+                self.visiting.remove(name);
+            }
             return;
         };
         let (parameters, body, name, generator): (
