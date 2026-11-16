@@ -326,6 +326,7 @@ impl Transports {
                                 .or_insert(local);
                         }
                         if let Some(member) = assignment.left.as_member_expression() {
+                            self.opaque |= member.static_property_name().is_none();
                             self.opaque |=
                                 !member
                                     .object()
@@ -360,7 +361,7 @@ impl Transports {
                     mode: if parsed.program.has_use_strict_directive() {
                         wa_oxc::StrictMode::Strict
                     } else {
-                        wa_oxc::StrictMode::Unknown
+                        wa_oxc::StrictMode::Sloppy
                     }
                     .for_body(body),
                 };
@@ -957,4 +958,22 @@ fn strict_block_functions_do_not_hide_outer_helper_replacements() {
     let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function send(op,vars){return o("Relay").fetchQuery(op,vars)}(function(){"use strict";{function send(){}}send=changed})();l.custom=send;});"#;
     let definitions = wa_transform::extract_module_definitions(source);
     assert!(Transports::build(source, &definitions).0.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn review_dynamic_exports_and_sloppy_block_functions_cannot_qualify() {
+    for body in [
+        r#"l.custom=send;l[key]=changed;"#,
+        r#"(function(){{function send(){}}l.custom=send})();"#,
+    ] {
+        let source = format!(
+            r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{function send(op,vars){{return o("Relay").fetchQuery(op,vars)}}{body}}});"#
+        );
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{body}"
+        );
+    }
 }

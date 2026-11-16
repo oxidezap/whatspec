@@ -668,8 +668,14 @@ enum AnalysisMode {
 
 #[derive(Clone)]
 enum Replacement {
-    Statement(Option<oxc_span::Span>),
-    Expression(oxc_span::Span),
+    Statement {
+        test: oxc_span::Span,
+        selected: Option<oxc_span::Span>,
+    },
+    Expression {
+        test: oxc_span::Span,
+        selected: oxc_span::Span,
+    },
 }
 
 #[derive(Clone)]
@@ -1376,6 +1382,12 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
             if assignment.operator == oxc_syntax::operator::AssignmentOperator::Assign {
                 self.save_binding(name, &assignment.right);
+                if self.reads_tag(&assignment.right) {
+                    self.tag_locals.insert(
+                        name.to_string(),
+                        oxc_span::GetSpan::span(&assignment.right).start,
+                    );
+                }
             } else {
                 self.invalidate_binding(name);
             }
@@ -1390,6 +1402,20 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
 
     fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
         walk::walk_call_expression(self, call);
+        for argument in &call.arguments {
+            if let Some(expression) = arg_expr(argument)
+                && let Some(name) = as_identifier(expression.without_parentheses())
+                && matches!(
+                    self.bindings.get(name),
+                    Some(SavedBinding::Expression {
+                        kind: SavedValueKind::Allocation | SavedValueKind::Unknown,
+                        ..
+                    })
+                )
+            {
+                self.invalidate_object(expression);
+            }
+        }
         if wa_oxc::directly_invoked_function(call).is_some() {
             let mut writes = WriteNames::default();
             writes.visit_call_expression(call);
@@ -1455,7 +1481,10 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 expression.span.start,
                 SourceRewrite {
                     span: expression.span,
-                    replacement: Replacement::Expression(oxc_span::GetSpan::span(selected)),
+                    replacement: Replacement::Expression {
+                        test: oxc_span::GetSpan::span(&expression.test),
+                        selected: oxc_span::GetSpan::span(selected),
+                    },
                 },
             );
         }
@@ -1570,10 +1599,8 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         walk::walk_statement(self, statement);
         if let Some(constraints) = loop_constraints {
             self.constraints = constraints;
-            let mut names = Vec::new();
-            assigned_names(statement, &mut names);
-            for name in names {
-                self.invalidate_binding(name);
+            for name in written_names(std::slice::from_ref(statement)) {
+                self.invalidate_binding(&name);
             }
         }
     }
@@ -1624,7 +1651,10 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 branch.span.start,
                 SourceRewrite {
                     span: branch.span,
-                    replacement: Replacement::Statement(selected),
+                    replacement: Replacement::Statement {
+                        test: oxc_span::GetSpan::span(&branch.test),
+                        selected,
+                    },
                 },
             );
         }
@@ -2360,6 +2390,10 @@ fn flatten_sequence<'b, 'a>(
             }
         }
         Expression::ParenthesizedExpression(p) => flatten_sequence(&p.expression, out),
+        Expression::BinaryExpression(binary) => {
+            flatten_sequence(&binary.left, out);
+            flatten_sequence(&binary.right, out);
+        }
         _ => {}
     }
 }
@@ -4030,6 +4064,26 @@ impl<'a> Visit<'a> for WriteNames<'_> {
         self.shadowed = outer;
         self.mode = outer_mode;
     }
+    fn visit_for_statement_left(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>) {
+        if let Some(target) = left.as_assignment_target() {
+            for name in wa_oxc::assignment_target_names(target) {
+                if !self.shadowed.contains(&name) {
+                    self.names.insert(name);
+                }
+            }
+        } else if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = left
+            && declaration.kind.is_var()
+        {
+            for binding in &declaration.declarations {
+                for id in binding.id.get_binding_identifiers() {
+                    if !self.shadowed.contains(id.name.as_str()) {
+                        self.names.insert(id.name.to_string());
+                    }
+                }
+            }
+        }
+        walk::walk_for_statement_left(self, left);
+    }
     fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
         if let Some(name) = wa_oxc::assignment_target_name(&assignment.left)
             && !self.shadowed.contains(name)
@@ -4170,7 +4224,7 @@ fn extract_scoped_action_arm(
     for statement in run {
         analysis.visit_statement(statement);
     }
-    let mut source = String::from("(function(){");
+    let mut source = String::from("(async function*(){");
     for (name, value) in &state.bindings {
         let SavedBinding::Expression { start, end, .. } = value else {
             continue;
@@ -4215,7 +4269,7 @@ fn extract_scoped_action_arm(
     collect_returns_into(&as_refs(prefix), &mut scope, &mut Vec::new());
     let writes = written_names(arm);
     for (name, value) in &state.bindings {
-        if writes.iter().any(|written| value.depends_on(written)) {
+        if writes.contains(name) || writes.iter().any(|written| value.depends_on(written)) {
             scope.remove(name.as_str());
         }
     }
@@ -4238,14 +4292,19 @@ fn render_rewritten(source: &str, span: oxc_span::Span, rewrites: &Rewrites, out
         }
         output.push_str(&source[cursor as usize..*start as usize]);
         match &rewrite.replacement {
-            Replacement::Statement(Some(selected)) => {
-                output.push('{');
-                render_rewritten(source, *selected, rewrites, output);
+            Replacement::Statement { test, selected } => {
+                output.push_str("{(");
+                render_rewritten(source, *test, rewrites, output);
+                output.push_str(");");
+                if let Some(selected) = selected {
+                    render_rewritten(source, *selected, rewrites, output);
+                }
                 output.push('}');
             }
-            Replacement::Statement(None) => output.push(';'),
-            Replacement::Expression(selected) => {
+            Replacement::Expression { test, selected } => {
                 output.push('(');
+                render_rewritten(source, *test, rewrites, output);
+                output.push(',');
                 render_rewritten(source, *selected, rewrites, output);
                 output.push(')');
             }

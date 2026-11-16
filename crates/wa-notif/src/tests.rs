@@ -3123,3 +3123,61 @@ fn unrelated_property_writes_preserve_captured_scalar_fields() {
             .any(|field| field.wire_name == "count")
     );
 }
+
+#[test]
+fn review_helper_calls_cannot_publish_mutated_object_initializers() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var result={actionType:"one",id:child.attrString("id")};function mutate(x){x.id=child.attrString("other")}mutate(result);if(child.tag()==="a")return result;}});"#;
+    assert!(
+        dispatch_actions(source)
+            .iter()
+            .all(|action| action.fields.iter().all(|field| field.wire_name != "id"))
+    );
+}
+
+#[test]
+fn review_loop_headers_cannot_establish_definite_wire_bindings() {
+    for header in [
+        "for(;flag;id=child.attrString(\"other\")){}",
+        "for(id of things){}",
+        "for(id in things){}",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("id");{header}if(child.tag()==="a")return {{actionType:"one",id}};}}}});"#
+        );
+        assert!(dispatch_actions(&source)[0].fields.is_empty(), "{header}");
+    }
+}
+
+#[test]
+fn review_reassigned_tag_reads_keep_their_provenance() {
+    let source = r#"__d("Tags",[],function(g,r,d,o,e,i,l){l.TAGS={A:"a"};});__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();tag=child.tag();switch(tag){case o("Tags").TAGS.A:return {actionType:"one"};}}});"#;
+    assert_eq!(dispatch_actions(source).len(), 1);
+}
+
+#[test]
+fn review_pruned_tests_preserve_their_assignment_effects() {
+    for arm in [
+        r#"if(tag===(id=child.attrString("lid"),"a")){}return {actionType:"one",id};"#,
+        r#"var ignored=tag===(id=child.attrString("lid"),"a")?1:0;return {actionType:"one",id};"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var tag=child.tag(),id=child.attrString("jid");if(tag==="a"){{{arm}}}}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert!(
+            actions[0]
+                .fields
+                .iter()
+                .all(|field| field.wire_name != "jid"),
+            "{arm}"
+        );
+    }
+}
+
+#[test]
+fn review_await_initializers_do_not_discard_tag_constraints() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){async function parse(child){var tag=child.tag();var ignored=await load();if(tag==="a"){if(tag==="b")return {actionType:"wrong"};return {actionType:"one"};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
