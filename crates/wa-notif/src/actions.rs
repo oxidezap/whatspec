@@ -440,6 +440,7 @@ pub(crate) fn extract_actions(
         ctx: &ctx,
         best: None,
         best_other: None,
+        collect_actions: true,
         tag_locals: Default::default(),
         if_actions: Default::default(),
         bindings: Default::default(),
@@ -619,6 +620,7 @@ struct SwitchFinder<'c, 'a> {
     /// const-keyed switch; the payload union is the one with the most arms).
     best: Option<Vec<NotifActionDef>>,
     best_other: Option<Vec<NotifActionDef>>,
+    collect_actions: bool,
     /// Locals bound to a child's TAG in the function currently being walked
     /// (`var a = t.tag()`), so a switch can be identified by what it dispatches ON
     /// rather than by how many arms it happens to have.
@@ -801,6 +803,10 @@ impl SwitchFinder<'_, '_> {
     }
 
     fn refresh_best(&mut self) {
+        if !self.collect_actions {
+            self.best = None;
+            return;
+        }
         self.best = self.best_other.clone();
         for folds in self.if_actions.values() {
             let actions: Vec<_> = folds.iter().cloned().map(BranchFold::finish).collect();
@@ -813,6 +819,9 @@ impl SwitchFinder<'_, '_> {
     }
 
     fn consider_other(&mut self, actions: Vec<NotifActionDef>) {
+        if !self.collect_actions {
+            return;
+        }
         if actions.iter().any(is_meaningful)
             && actions.len() > self.best_other.as_ref().map_or(0, Vec::len)
         {
@@ -852,6 +861,9 @@ impl SwitchFinder<'_, '_> {
     }
 
     fn record_if_dispatch(&mut self, branch: &oxc_ast::ast::IfStatement) {
+        if !self.collect_actions {
+            return;
+        }
         let Expression::BinaryExpression(test) = branch.test.without_parentheses() else {
             return;
         };
@@ -1010,6 +1022,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             ctx: &ctx,
             best: None,
             best_other: None,
+            collect_actions: self.collect_actions,
             tag_locals: HashMap::new(),
             if_actions: Default::default(),
             bindings: parameter_bindings(&function.params),
@@ -1054,6 +1067,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             ctx: &ctx,
             best: None,
             best_other: None,
+            collect_actions: self.collect_actions,
             tag_locals: HashMap::new(),
             if_actions: Default::default(),
             bindings: parameter_bindings(&function.params),
@@ -1111,6 +1125,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             ctx: &ctx,
             best: None,
             best_other: self.best_other.clone(),
+            collect_actions: self.collect_actions,
             tag_locals: self.tag_locals.clone(),
             if_actions: self.if_actions.clone(),
             bindings: self.bindings.clone(),
@@ -1134,7 +1149,13 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 }
             }
         }
-        walk::walk_block_statement(&mut nested, block);
+        let mut exited = false;
+        for statement in &block.body {
+            if !exited || matches!(statement, Statement::FunctionDeclaration(_)) {
+                nested.visit_statement(statement);
+            }
+            exited |= list_exits_refs(&[statement], false);
+        }
         let mut outgoing = nested.tag_locals;
         let mut outgoing_bindings = nested.bindings;
         for statement in &block.body {
@@ -1194,12 +1215,19 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             ctx: &ctx,
             best: None,
             best_other: None,
+            collect_actions: self.collect_actions,
             tag_locals: HashMap::new(),
             if_actions: Default::default(),
             bindings: self.bindings.clone(),
             constraints: self.constraints.clone(),
         };
-        walk::walk_function_body(&mut nested, body);
+        let mut exited = false;
+        for statement in &body.statements {
+            if !exited || matches!(statement, Statement::FunctionDeclaration(_)) {
+                nested.visit_statement(statement);
+            }
+            exited |= list_exits_refs(&[statement], false);
+        }
         if let Some(best) = nested.best {
             self.consider_other(best);
         }
@@ -1294,6 +1322,11 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             self.join_state(&normal);
         }
         if let Some(finalizer) = &statement.finalizer {
+            if !self.collect_actions {
+                self.visit_block_statement(finalizer);
+                return;
+            }
+            let continuing = self.state();
             self.restore_state(entry);
             for name in try_writes.iter().chain(&catch_writes) {
                 self.invalidate_binding(name);
@@ -1304,6 +1337,18 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 self.refresh_best();
             }
             self.visit_block_statement(finalizer);
+            let mut flow = SwitchFinder {
+                ctx: self.ctx,
+                best: None,
+                best_other: None,
+                collect_actions: false,
+                tag_locals: continuing.tags,
+                bindings: continuing.bindings,
+                constraints: continuing.constraints,
+                if_actions: Default::default(),
+            };
+            flow.visit_block_statement(finalizer);
+            self.restore_state(flow.state());
         }
     }
 
@@ -1335,6 +1380,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             ctx: &ctx,
             best: None,
             best_other: self.best_other.clone(),
+            collect_actions: self.collect_actions,
             tag_locals: tags,
             if_actions: self.if_actions.clone(),
             bindings,
@@ -1440,7 +1486,8 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                     self.invalidate_binding(name);
                 }
             }
-            if on_tag
+            if self.collect_actions
+                && on_tag
                 && let Some(wire_tag) = case
                     .test
                     .as_ref()

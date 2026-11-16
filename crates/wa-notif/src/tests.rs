@@ -3010,3 +3010,40 @@ fn a_later_definite_property_overrides_an_ambiguous_helper_contribution() {
     assert_eq!(actions[0].fields[0].wire_name, "jid");
     assert!(actions[0].fields[0].required);
 }
+
+#[test]
+fn finally_analysis_does_not_restore_tags_excluded_on_continuing_paths() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();try{if(tag==="a")return {actionType:"one"};}finally{cleanup()}if(tag==="a")return {actionType:"wrong"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn continuing_paths_keep_finalizer_writes_without_reviving_returned_tags() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag(),id=child.attrString("id");try{if(tag==="a")return {actionType:"one"};}finally{id=child.attrString("other")}if(tag==="a")return {actionType:"wrong"};if(tag==="b")return {actionType:"two",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 2);
+    assert!(
+        actions
+            .iter()
+            .all(|action| action.action_type.as_deref() != Some("wrong"))
+    );
+    assert_eq!(
+        actions
+            .iter()
+            .find(|action| action.wire_tag == "b")
+            .unwrap()
+            .fields[0]
+            .wire_name,
+        "other"
+    );
+}
+
+#[test]
+fn finalizer_returns_prevent_later_dispatch_but_preserve_hoisted_helpers() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){try{cleanup()}finally{return null}if(child.tag()==="a")return {actionType:"wrong"};}});"#;
+    assert!(dispatch_actions(source).is_empty());
+    let hoisted = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){return helper(child);function helper(child){switch(child.tag()){case "a":return {actionType:"one"};}}}});"#;
+    assert_eq!(dispatch_actions(hoisted).len(), 1);
+}
