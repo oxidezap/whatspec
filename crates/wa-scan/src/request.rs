@@ -2218,6 +2218,68 @@ pub(crate) fn bundled_rpc_requests_from_program(
         .filter(|(name, _)| name.starts_with("merge"))
         .map(|(_, span)| *span)
         .collect();
+    // Export pruning must not erase the destination/arguments contract of local mixins.
+    loop {
+        let before = scope.local_merges.len();
+        for (start, end, params) in &scope.fn_params {
+            let Some(destination) = params.first() else {
+                continue;
+            };
+            if scope.vars.get(destination).is_some_and(|writes| {
+                writes.iter().any(|write| {
+                    write.owner_fn.is_some_and(|(owner_start, owner_end)| {
+                        *start <= owner_start && owner_end <= *end
+                    })
+                })
+            }) {
+                continue;
+            }
+            let returns = collect_return_arg_sources(&source[*start..*end]);
+            if returns.is_empty() {
+                continue;
+            }
+            let valid = returns.iter().all(|expression| {
+                let allocator = Allocator::default();
+                let owned = format!("({expression});");
+                let parsed = wa_oxc::parse_cjs(&allocator, &owned);
+                let Some(call) = first_expression(&parsed.program)
+                    .map(Expression::without_parentheses)
+                    .and_then(as_call)
+                else {
+                    return false;
+                };
+                if call
+                    .arguments
+                    .first()
+                    .and_then(arg_expr)
+                    .and_then(as_identifier)
+                    != Some(destination.as_str())
+                {
+                    return false;
+                }
+                if callee_method(call) == Some("mergeStanzas") {
+                    return callee_object(call).and_then(|owner| resolve_owner(owner, &aliases))
+                        == Some("WASmaxMixins")
+                        && call.arguments.len() == 2;
+                }
+                if let Some((module, method)) = require_member_call(&call.callee)
+                    && method.starts_with("merge")
+                    && contributions.contains_key(&module)
+                {
+                    return true;
+                }
+                as_identifier(&call.callee)
+                    .and_then(|name| scope.visible_function(name, Some(*start)))
+                    .is_some_and(|span| scope.local_merges.contains(&span))
+            });
+            if valid {
+                scope.local_merges.insert((*start, *end));
+            }
+        }
+        if scope.local_merges.len() == before {
+            break;
+        }
+    }
     exports
         .into_iter()
         .filter(|(name, _)| name.starts_with("make") && name.ends_with("Request"))
@@ -4194,6 +4256,30 @@ mod bundled_merge_tests {
     use super::*;
 
     #[test]
+    fn private_merge_keeps_namespace_type_and_argument_paths() {
+        let source = r#"
+        __d("WASmaxPrivateRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+            function make(args) { return compose(o("WASmaxJsx").smax("iq",{xmlns:"probe"},o("WASmaxJsx").smax("item",{id:o("WAWap").CUSTOM_STRING(args.id)}))); }
+            function base() { return o("WASmaxJsx").smax("iq",{type:"get"}); }
+            function compose(dst) { var fragment=base();return o("WASmaxMixins").mergeStanzas(dst,fragment); }
+            l.makePrivateRequest=make;
+        });"#;
+        let requests =
+            bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        assert_eq!(requests.len(), 1);
+        let root = &requests[0].2;
+        assert!(
+            root.attrs
+                .iter()
+                .any(|attr| attr.name == "type" && attr.value.as_deref() == Some("get"))
+        );
+        assert_eq!(
+            root.children[0].attrs[0].arg_path.as_ref().unwrap()[0].key,
+            "id"
+        );
+    }
+
+    #[test]
     fn local_optional_merge_rebases_value_and_presence_paths() {
         let source = r#"
         __d("WASmaxOptionalRPC",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
@@ -4208,6 +4294,15 @@ mod bundled_merge_tests {
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
         assert_eq!(requests.len(), 1);
+        let private = source.replace(",l.mergeExtraMixin=merge", "");
+        assert_eq!(
+            bundled_rpc_requests(
+                &private,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            ),
+            requests
+        );
         let marker = requests[0]
             .2
             .attrs
@@ -4242,6 +4337,16 @@ mod bundled_merge_tests {
         });"#;
         let requests =
             bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        let private = source.replace(",l.mergeLeftMixin=mergeLeft,l.mergeRightMixin=mergeRight,l.mergeChoiceMixinGroup=choose", "");
+        assert_eq!(
+            bundled_rpc_requests(
+                &private,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            ),
+            requests
+        );
+
         let root = &requests[0].2;
         assert!(
             !root

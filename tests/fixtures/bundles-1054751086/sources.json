@@ -1,0 +1,118 @@
+{
+  "waVersion": "2.3000.1054751086",
+  "setHash": "a2fcddddfcfa3fd73d880c9d6e625923c91ab2da89c9b39f5f060d8fffd955d1",
+  "modules": [
+    {
+      "name": "WASmaxPrivacyGetContactBlacklistRPC",
+      "bundleSha256": "2bb283bc31a21c5a3e47faf8be48fe0225c3058ec6db62ba7a5008138117d6f3",
+      "start": 32011,
+      "end": 41984,
+      "sha256": "d5ac60bfc363f7a0047f89dd9550e8edc33e6bf15ac533d5aab9ff1804997569"
+    },
+    {
+      "name": "WASmaxOutGroupsParentGroupMixin",
+      "bundleSha256": "2bb283bc31a21c5a3e47faf8be48fe0225c3058ec6db62ba7a5008138117d6f3",
+      "start": 1965,
+      "end": 2293,
+      "sha256": "99322b7fcbc4914f9e127a979a103059db837218e746cb58cbd59220a9e9e0d1"
+    },
+    {
+      "name": "WASmaxGroupsGetGroupProfilePicturesRPC",
+      "bundleSha256": "2bb283bc31a21c5a3e47faf8be48fe0225c3058ec6db62ba7a5008138117d6f3",
+      "start": 2294,
+      "end": 13445,
+      "sha256": "f4794d282177f0be930cc40c562239fc9b1b04b592dffdb49f5145bfc76e7c1a"
+    },
+    {
+      "name": "WASmaxOutGroupsBaseGetServerMixin",
+      "bundleSha256": "f13fbf513e0d38084346be1e6b72f69a6ab49a054c7caeef4d1768fc6f8007de",
+      "start": 145867,
+      "end": 146267,
+      "sha256": "6178bdf97a2295df46edc28668b608f4b668fc8e3b8194fb870d7a4b03efe48a"
+    },
+    {
+      "name": "WASmaxStatsSendBufferRPC",
+      "bundleSha256": "0edd2a0c2ccdca93004040ce51dc834e6b8265664c492f769b543e88d61f87db",
+      "start": 4309061,
+      "end": 4314827,
+      "sha256": "886ab22c1a37597c6a1c5f0357de5ef52e30f2a50a902a41feced508dcad42db"
+    },
+    {
+      "name": "WASmaxBizSettingsSetPrivacySettingRPC",
+      "bundleSha256": "0edd2a0c2ccdca93004040ce51dc834e6b8265664c492f769b543e88d61f87db",
+      "start": 4293477,
+      "end": 4296375,
+      "sha256": "32c386033e73bfd52a375fdf23921e1155236d7e606158cbbcaed87bd137c550"
+    },
+    {
+      "name": "WAWebSharableEventListJob",
+      "bundleSha256": "2d6d50c56556f86d23075770942e9377e37b86e519e73c8b6ac933d61bc8bf47",
+      "start": 21379,
+      "end": 24764,
+      "sha256": "96f7221ec996eefc9d74f349d6184411a568c7b1684725f7e1b3eba8b59aac24"
+    },
+    {
+      "name": "WAWebSharableEventListJobQuery.graphql",
+      "bundleSha256": "2d6d50c56556f86d23075770942e9377e37b86e519e73c8b6ac933d61bc8bf47",
+      "start": 15963,
+      "end": 21378,
+      "sha256": "1e40085dd5d91a6d702480b08bc9d77a3551e2aff825d2a6e3a905e28029b63f"
+    },
+    {
+      "name": "WAWebHandleGroupNotification",
+      "bundleSha256": "581d9f49e50e896f381cc221f85eeb9655ab09b5ec2135ef2bc0762f24fde13a",
+      "start": 2576214,
+      "end": 2601241,
+      "sha256": "fa4c0afecb400adcf2eba881f7f73870c236db0ceb0cd9c3be9f01d0ae3d4d1f"
+    },
+    {
+      "name": "WAWebHandleGroupNotificationConst",
+      "bundleSha256": "581d9f49e50e896f381cc221f85eeb9655ab09b5ec2135ef2bc0762f24fde13a",
+      "start": 1592834,
+      "end": 1601742,
+      "sha256": "0a993c0980d6e640576a9e662028e6623a82bd68370cb97d8a20affc74429aca"
+    },
+    {
+      "name": "WAWebGroupApiConst",
+      "bundleSha256": "581d9f49e50e896f381cc221f85eeb9655ab09b5ec2135ef2bc0762f24fde13a",
+      "start": 2560466,
+      "end": 2560623,
+      "sha256": "e4b3a85d1d944f46b55327aa5a81be82e4925d1ef2021bee97f3fec3f41bae51"
+    },
+    {
+      "name": "WASmaxPushConfigSetRPC",
+      "bundleSha256": "581d9f49e50e896f381cc221f85eeb9655ab09b5ec2135ef2bc0762f24fde13a",
+      "start": 856982,
+      "end": 866998,
+      "sha256": "9d9f2a54e40482b4e63cc55569f7262d4efca6eff145f8528193170ef496fcf6"
+    },
+    {
+      "name": "WASmaxOutGroupsBaseGetGroupMixin",
+      "bundleSha256": "581d9f49e50e896f381cc221f85eeb9655ab09b5ec2135ef2bc0762f24fde13a",
+      "start": 1503582,
+      "end": 1504001,
+      "sha256": "892fb03ed207af6b49acc8c4383f69f840a09bf07aeb356514afc91b0dbee5b6"
+    },
+    {
+      "name": "WASmaxOutGroupsBaseIQGetRequestMixin",
+      "bundleSha256": "581d9f49e50e896f381cc221f85eeb9655ab09b5ec2135ef2bc0762f24fde13a",
+      "start": 1503278,
+      "end": 1503581,
+      "sha256": "f2ceba0befdf21f5f74374442e7064194a7f089ff8fdb7fa123143d6de187630"
+    },
+    {
+      "name": "WAWebGroupType",
+      "bundleSha256": "87f2ca19284e93185010d5f2677abd71648fa84ec6059d4ae120654088bedc55",
+      "start": 1861965,
+      "end": 1866220,
+      "sha256": "9cf5939a854d0d7239af6b34788339c7d076b8fad05fc0f5d68c769f96c0ab54"
+    },
+    {
+      "name": "WAWebSharableEventServerClient",
+      "bundleSha256": "acfd5e5135869dd3d79a41702614095082ecdfda4787cecdf1616886ac097192",
+      "start": 55945,
+      "end": 56896,
+      "sha256": "ac5ec716368c7f4ca0209e0ca11672a035555c9ea6874b6695f5d8f9c5a707c1"
+    }
+  ]
+}

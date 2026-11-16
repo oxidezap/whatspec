@@ -1,0 +1,323 @@
+{
+  "old": {
+    "waVersion": "2.3000.1052559453",
+    "setHash": "d6ab7ae601eda281cfac570a68de1d787adde8f4d778f0bb994416f661a21abf"
+  },
+  "new": {
+    "waVersion": "2.3000.1054751086",
+    "setHash": "a2fcddddfcfa3fd73d880c9d6e625923c91ab2da89c9b39f5f060d8fffd955d1"
+  },
+  "previousSnapshotReproducedByteForByte": [
+    "iq/index.json",
+    "notif/index.json",
+    "mex/index.json",
+    "enums/index.json",
+    "manifest.json"
+  ],
+  "groupActions": {
+    "unchangedPreviousActions": 47,
+    "currentActions": 49
+  },
+  "remainingAbsentIqModules": [
+    "WAWebSetAboutJob",
+    "WASmaxGroupsGetLinkedGroupsParticipantsRPC"
+  ],
+  "sourceLocations": {
+    "old": {
+      "WAWebHandleAboutNotification": [
+        {
+          "bundleSha256": "48df69e996b2a993736cb3ee13dde6644881d7eaf08ee9ac00ea26fd6266e9e0",
+          "start": 260365,
+          "end": 262674,
+          "moduleSha256": "6f4b81adbfd3815e97efd4ee0761dc45bb81ef8d27499d82442c9b59b727f420"
+        },
+        {
+          "bundleSha256": "44da2091a0b3af1d003f9555ac45343d3973180371b69521b7152a83d1231c88",
+          "start": 715233,
+          "end": 717542,
+          "moduleSha256": "6f4b81adbfd3815e97efd4ee0761dc45bb81ef8d27499d82442c9b59b727f420"
+        }
+      ],
+      "WAWebSetAboutJob": [
+        {
+          "bundleSha256": "a018f64e2c88a44300ee70b669e4fbfdb09d2491aa0552b48bbad42d39614d42",
+          "start": 1867302,
+          "end": 1868126,
+          "moduleSha256": "c895618d84345757d30d6a1178391250807867edd291be41bc942b01e4dcc4f9"
+        }
+      ],
+      "WASmaxGroupsGetLinkedGroupsParticipantsRPC": [
+        {
+          "bundleSha256": "3cbc15ac4e7b81c22c2aa3302c50d31107e44ba4cf883ee7392e4ad8d72db876",
+          "start": 19,
+          "end": 4743,
+          "moduleSha256": "c20d7ed25648154548d95b91cdf0f85d247b4f3d4938a41332bae35cb6315149"
+        }
+      ],
+      "WAWebMexGroupStoreAndSendInviteSmsJob": [
+        {
+          "bundleSha256": "05662cbc860ced518b48704b4c23d3499671f38da2fc8ace3861e7196c37e79b",
+          "start": 617278,
+          "end": 618093,
+          "moduleSha256": "9079a4f4e302897bfb620de2da51be638f7b696d2c0ea01981bf4ba2bc311e50"
+        }
+      ]
+    },
+    "new": {
+      "WAWebHandleAboutNotification": [
+        {
+          "bundleSha256": "0edd2a0c2ccdca93004040ce51dc834e6b8265664c492f769b543e88d61f87db",
+          "start": 1352440,
+          "end": 1353215,
+          "moduleSha256": "fdbd716c0d5812bf84aeaad03be5b771e1bca31462f412754274c0b47edd03f9"
+        },
+        {
+          "bundleSha256": "e475b3f0484b01b4755447043fd2a8f39ab6629978ca4ed989e4602d31a2abe9",
+          "start": 249332,
+          "end": 250107,
+          "moduleSha256": "fdbd716c0d5812bf84aeaad03be5b771e1bca31462f412754274c0b47edd03f9"
+        }
+      ],
+      "WAWebSetAboutJob": [],
+      "WASmaxGroupsGetLinkedGroupsParticipantsRPC": [],
+      "WAWebMexGroupStoreAndSendInviteSmsJob": [
+        {
+          "bundleSha256": "8e56b1d7a0ca1859b83ac6ab82e20c8ebb21ff6be268a0cf11eed6bda49612f0",
+          "start": 630040,
+          "end": 631872,
+          "moduleSha256": "7087d6585f36ea78e086c3c802ffacd7e04a20d7de6f0791b558289ee9521ee9"
+        }
+      ]
+    }
+  },
+  "unreadWamArguments": {
+    "old": 74,
+    "new": 79,
+    "removedSites": [
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3264,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2633",
+        "moduleSha256": "dc30da993837ae02f3fc304495dce16ddd03173283b9cf4b90f410d2ac04ffc0",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "d9288f05a765e2964e955c4974731a4a65a5ee876cfa9ed50e5005b6fbf8fc35",
+            "end": 216488,
+            "start": 213089
+          }
+        ],
+        "start": 3216
+      },
+      {
+        "constructionSha256": "550a5f1982c4661713da5b9dd172b8bf0bd9cf6dcc3e16e5bda32d25c3abdbbf",
+        "end": 3264,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2634",
+        "moduleSha256": "2a296861dc3fb6890e2d08856e4012927a087553e914990139fea4bf67aaa509",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "d9288f05a765e2964e955c4974731a4a65a5ee876cfa9ed50e5005b6fbf8fc35",
+            "end": 300071,
+            "start": 296672
+          }
+        ],
+        "start": 3216
+      }
+    ],
+    "addedSites": [
+      {
+        "constructionSha256": "277b31ac1d944f6787e6df30c09668cb29fedd7e5832506537a1cfe95669a4a9",
+        "end": 3472,
+        "eventExport": "EventV2DetailsHostUserJourneyWamEvent",
+        "eventModule": "WAWebEventV2DetailsHostUserJourneyWamEvent",
+        "field": null,
+        "module": "WAWebSharableEventHostUserJourneyLogger",
+        "moduleSha256": "02c3246a870d826a31f2f290293775607894ee850bac06097f5a64c0961b900f",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "b38790ebaa8d2bbbcfb03daf970633ff600dc61f5c6da14654a2771a6d89d4c7",
+            "end": 7794,
+            "start": 2797
+          }
+        ],
+        "start": 3379
+      },
+      {
+        "constructionSha256": "5db9135cd2ff8714643bee5855236840841ca74dc957738993ed64707469355e",
+        "end": 2714,
+        "eventExport": "EventV2ContactPickerUserJourneyWamEvent",
+        "eventModule": "WAWebEventV2ContactPickerUserJourneyWamEvent",
+        "field": null,
+        "module": "WAWebSharableEventContactPickerUserJourneyLogger",
+        "moduleSha256": "207366347873d1f49744f7adf734a98dbc86b2e203a9854991f25cdd42739c65",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "fca95976b3694c6c5121a731db4fa8cb5c0f4725f2f01629713c04c7d473ba3f",
+            "end": 19038,
+            "start": 16260
+          }
+        ],
+        "start": 2617
+      },
+      {
+        "constructionSha256": "6a781b6c733400de79935b270b779143ff5753e3039d9a3a0eca4bc1359ccfdc",
+        "end": 2494,
+        "eventExport": "EventV2ListUserJourneyWamEvent",
+        "eventModule": "WAWebEventV2ListUserJourneyWamEvent",
+        "field": null,
+        "module": "WAWebSharableEventListUserJourneyLogger",
+        "moduleSha256": "24cb8a855bac8c124b9978f2f128ed0f7eedb8f479b325b954a6a6e96498c0be",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "2b619b1044a49e8cef754e4378f3e51fda7cbaf2b64a7d0d2650f9f6b114ec14",
+            "end": 5354,
+            "start": 2628
+          }
+        ],
+        "start": 2415
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 3775,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2644",
+        "moduleSha256": "4ca70505da3ecb12dc049a37dcd47b6c3e67b23f79b864442fbf267cdaa828e7",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "b6c4cb60976cd9c408bb974bf92508586cad588aea3a14b6de702b9da54b6115",
+            "end": 1003976,
+            "start": 998435
+          }
+        ],
+        "start": 3727
+      },
+      {
+        "constructionSha256": "7f174a8b5289ec676f2d65a204f7048b351ca31539007a7e02ba505e8d171400",
+        "end": 3775,
+        "eventExport": "RawWamEvent",
+        "eventModule": "WAWebWamCodegenWamEvent",
+        "field": null,
+        "module": "WAWebWindowsHybridBridgeWam.v2645",
+        "moduleSha256": "8aee2d5744d3c5c29cac69d8241eef88ae3e224ceb49039078e2bbf9042febd7",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "b6c4cb60976cd9c408bb974bf92508586cad588aea3a14b6de702b9da54b6115",
+            "end": 1101880,
+            "start": 1096339
+          }
+        ],
+        "start": 3727
+      },
+      {
+        "constructionSha256": "ae3f3569ac136d05fce3082baec13d6eae8092d3049c72623d16e25aae40718f",
+        "end": 3513,
+        "eventExport": "AccountEncryptionAttestationWamEvent",
+        "eventModule": "WAWebAccountEncryptionAttestationWamEvent",
+        "field": null,
+        "module": "WAWebAeaTelemetry",
+        "moduleSha256": "c4af755cd5882052e86510839d0e6b3e945da05044f50603429a5846a4d8bd52",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "87f2ca19284e93185010d5f2677abd71648fa84ec6059d4ae120654088bedc55",
+            "end": 2467202,
+            "start": 2459255
+          }
+        ],
+        "start": 3422
+      },
+      {
+        "constructionSha256": "dbeba58b2cf71ad7917cccff0528e7e13d735865e23cb857f616877ebad05dd4",
+        "end": 2888,
+        "eventExport": "EventV2DetailsInviteeUserJourneyWamEvent",
+        "eventModule": "WAWebEventV2DetailsInviteeUserJourneyWamEvent",
+        "field": null,
+        "module": "WAWebSharableEventInviteeUserJourneyLogger",
+        "moduleSha256": "7394743f3ad4d450705aab25cf3ab8376f46f312b3df0e23865d1f3e0d997b7b",
+        "reason": "unreadConstructionArgument.identifier",
+        "sources": [
+          {
+            "bundleSha256": "acfd5e5135869dd3d79a41702614095082ecdfda4787cecdf1616886ac097192",
+            "end": 44257,
+            "start": 39490
+          }
+        ],
+        "start": 2789
+      }
+    ]
+  },
+  "undeterminedMexNodes": {
+    "old": 157,
+    "new": 170,
+    "operations": [
+      {
+        "operation": "CustomerManagerCustomerProfileCustomFieldCreate",
+        "oldUndetermined": 0,
+        "newUndetermined": 1,
+        "status": "added"
+      },
+      {
+        "operation": "FetchGroupInviteInfo",
+        "oldUndetermined": 0,
+        "newUndetermined": 1,
+        "status": "added"
+      },
+      {
+        "operation": "FetchGroupInviteInfoJobAddRequest",
+        "oldUndetermined": 0,
+        "newUndetermined": 1,
+        "status": "added"
+      },
+      {
+        "operation": "FetchLinkedGroupInfo",
+        "oldUndetermined": 0,
+        "newUndetermined": 3,
+        "status": "added"
+      },
+      {
+        "operation": "FetchMembershipApprovalRequests",
+        "oldUndetermined": 0,
+        "newUndetermined": 2,
+        "status": "added"
+      },
+      {
+        "operation": "FetchMetaOnePromoEligibility",
+        "oldUndetermined": 0,
+        "newUndetermined": 1,
+        "status": "added"
+      },
+      {
+        "operation": "GroupStoreAndSendInviteSms",
+        "oldUndetermined": 0,
+        "newUndetermined": 4,
+        "status": "changed"
+      },
+      {
+        "operation": "InternalDirectoryFetchMembers",
+        "oldUndetermined": 1,
+        "newUndetermined": 0,
+        "status": "removed"
+      },
+      {
+        "operation": "SharableEventJoinViaLink",
+        "oldUndetermined": 0,
+        "newUndetermined": 1,
+        "status": "added"
+      }
+    ]
+  }
+}

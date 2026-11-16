@@ -2487,3 +2487,139 @@ fn block_local_tag_alias_still_selects_actions() {
         assert!(action.fields.iter().any(|field| field.name == "alpha"));
     }
 }
+
+#[test]
+fn if_dispatch_recovers_the_same_actions_as_switch() {
+    let prefix = r#"__d("Tags",[],function(g,r,d,o,e,i,l){l.TAGS={A:"a",B:"b"};});"#;
+    let handler = |dispatch: &str| {
+        format!(
+            r#"{prefix}__d("Handler",[],function(g,r,d,o,e,i,l){{function parse(child){{var tag=child.tag();{dispatch}}}}});"#
+        )
+    };
+    let switch = handler(
+        r#"switch(tag){case o("Tags").TAGS.A:return {actionType:"one",id:child.attrString("id")};case o("Tags").TAGS.B:return {actionType:"two",duration:0};}"#,
+    );
+    let branches = handler(
+        r#"if(tag===o("Tags").TAGS.A)return {actionType:"one",id:child.attrString("id")};if(o("Tags").TAGS.B===tag)return {actionType:"two",duration:0};"#,
+    );
+    let expected = dispatch_actions(&switch);
+    assert_eq!(expected.len(), 2);
+    assert_eq!(dispatch_actions(&branches), expected);
+}
+
+#[test]
+fn current_bundle_if_dispatch_preserves_action_fields() {
+    let source = [
+        include_str!("../../../tests/fixtures/bundles-1054751086/WAWebHandleGroupNotification.js"),
+        include_str!(
+            "../../../tests/fixtures/bundles-1054751086/WAWebHandleGroupNotificationConst.js"
+        ),
+        include_str!("../../../tests/fixtures/bundles-1054751086/WAWebGroupType.js"),
+        include_str!("../../../tests/fixtures/bundles-1054751086/WAWebGroupApiConst.js"),
+    ]
+    .join("\n");
+    let defs = wa_transform::extract_module_definitions(&source);
+    let slices = module_slice_index(&source, &defs);
+    let actions = super::actions::extract_actions(
+        slices["WAWebHandleGroupNotification"],
+        &super::actions::ConstResolver::new(&slices),
+    )
+    .unwrap();
+    let expected: Vec<wa_ir::NotifActionDef> = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/bundles-1054751086/actions.json"
+    ))
+    .unwrap();
+    assert_eq!(actions, expected);
+}
+
+fn dispatch_actions(source: &str) -> Vec<wa_ir::NotifActionDef> {
+    let defs = wa_transform::extract_module_definitions(source);
+    let slices = module_slice_index(source, &defs);
+    super::actions::extract_actions(
+        slices["Handler"],
+        &super::actions::ConstResolver::new(&slices),
+    )
+    .unwrap_or_default()
+}
+
+#[test]
+fn tag_dispatch_accepts_equivalent_branch_forms_and_rejects_unknown_wrappers() {
+    let source = |binding: &str, dispatch: &str, helper: &str| {
+        format!(
+            r#"
+        __d("Tags",[],function(g,r,d,o,e,i,l){{l.TAGS={{A:"a",B:"b"}};}});
+        __d("Handler",[],function(g,r,d,o,e,i,l){{
+            {helper}
+            function parse(child){{{binding}{dispatch}}}
+        }});
+    "#
+        )
+    };
+    let helper =
+        r#"function select(value){return values.find(function(item){return item===value})}"#;
+    let expected = dispatch_actions(&source(
+        "var tag=child.tag();",
+        r#"switch(tag){case o("Tags").TAGS.A:return {actionType:"one"};case o("Tags").TAGS.B:return {actionType:"two"};}"#,
+        "",
+    ));
+    for (binding, dispatch, helper) in [
+        (
+            "var tag=child.tag;",
+            r#"if(tag==="a")return {actionType:"one"};else if("b"===tag)return {actionType:"two"};"#,
+            "",
+        ),
+        (
+            "var tag=child.tag();",
+            r#"switch(tag){case "a":return {actionType:"one"};case "b":return {actionType:"two"};}"#,
+            "",
+        ),
+        (
+            "var tag=child.tag();",
+            r#"if(tag===o("Tags").TAGS.A){return {actionType:"one"}}else if(o("Tags").TAGS.B===tag){return {actionType:"two"}}"#,
+            "",
+        ),
+        (
+            "",
+            r#"if(child.tag()===o("Tags").TAGS.A)return {actionType:"one"};if(child.tag()===o("Tags").TAGS.B)return {actionType:"two"};"#,
+            "",
+        ),
+        (
+            "var tag=select(child.tag());",
+            r#"switch(tag){case o("Tags").TAGS.A:return {actionType:"one"};case o("Tags").TAGS.B:return {actionType:"two"};}"#,
+            helper,
+        ),
+        (
+            "var tag=select(child.tag());",
+            r#"if(tag===o("Tags").TAGS.A)return {actionType:"one"};if(tag===o("Tags").TAGS.B)return {actionType:"two"};"#,
+            helper,
+        ),
+    ] {
+        assert_eq!(
+            dispatch_actions(&source(binding, dispatch, helper)),
+            expected
+        );
+    }
+    for helper in [
+        r#"function select(value){return values.find(function(item){return item!==value})}"#,
+        r#"function select(value){return "a"}"#,
+        r#"function select(value){return values.find(function(value){return value===value})}"#,
+    ] {
+        assert!(
+            dispatch_actions(&source(
+                "var tag=select(child.tag());",
+                r#"if(tag===o("Tags").TAGS.A)return {actionType:"one"};"#,
+                helper
+            ))
+            .is_empty()
+        );
+    }
+    for dispatch in [
+        r#"tag=other;if(tag===o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"tag++;if(tag===o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"if(other===o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"if(tag==o("Tags").TAGS.A)return {actionType:"one"};"#,
+        r#"if(tag===o("Tags").TAGS.A){if(flag)return {actionType:"one"}}"#,
+    ] {
+        assert!(dispatch_actions(&source("var tag=child.tag();", dispatch, "")).is_empty());
+    }
+}

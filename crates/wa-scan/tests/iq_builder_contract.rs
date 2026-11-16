@@ -299,7 +299,7 @@ fn a_pinned_constant_payload_keeps_its_address() {
     let s = ir
         .stanzas
         .iter()
-        .find(|s| s.module_name == "WASmaxOutMdCompanionHelloRequest")
+        .find(|s| s.module_name == "WASmaxMdCompanionHelloRPC")
         .expect("the companion hello request");
     let nonce = request_nodes(s)
         .into_iter()

@@ -554,6 +554,189 @@ fn is_tag_read(e: &Expression) -> bool {
     as_member(e).is_some_and(|(_, name)| name == "tag")
 }
 
+impl SwitchFinder<'_, '_> {
+    fn reads_tag(&self, expression: &Expression) -> bool {
+        if is_tag_read(expression) {
+            return true;
+        }
+        let Some(call) = as_call(expression) else {
+            return false;
+        };
+        let Some(name) = as_identifier(&call.callee) else {
+            return false;
+        };
+        if call.arguments.len() != 1 || self.ctx.formals.contains(name) {
+            return false;
+        }
+        let Some(source) = self.ctx.locals.get(name) else {
+            return false;
+        };
+        call.arguments
+            .first()
+            .and_then(arg_expr)
+            .is_some_and(is_tag_read)
+            && identity_find_helper(source)
+    }
+
+    fn discard_rewritten_tags(&mut self, statements: &[Statement]) {
+        struct Writes(HashSet<String>);
+        impl<'a> Visit<'a> for Writes {
+            fn visit_function(
+                &mut self,
+                _: &oxc_ast::ast::Function<'a>,
+                _: oxc_syntax::scope::ScopeFlags,
+            ) {
+            }
+            fn visit_assignment_expression(
+                &mut self,
+                assignment: &oxc_ast::ast::AssignmentExpression<'a>,
+            ) {
+                if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
+                    self.0.insert(name.to_string());
+                }
+                walk::walk_assignment_expression(self, assignment);
+            }
+            fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
+                if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
+                    &update.argument
+                {
+                    self.0.insert(id.name.to_string());
+                }
+                walk::walk_update_expression(self, update);
+            }
+        }
+        let mut writes = Writes(HashSet::new());
+        for statement in statements {
+            writes.visit_statement(statement);
+        }
+        self.tag_locals.retain(|name| !writes.0.contains(name));
+    }
+
+    fn scan_if_dispatch(&mut self, statements: &[Statement]) {
+        fn collect<'b, 'a>(
+            statement: &'b Statement<'a>,
+            out: &mut Vec<&'b oxc_ast::ast::IfStatement<'a>>,
+        ) {
+            if let Statement::IfStatement(branch) = statement {
+                out.push(branch);
+                if let Some(other) = &branch.alternate {
+                    collect(other, out);
+                }
+            }
+        }
+        let mut groups: std::collections::BTreeMap<String, Vec<NotifActionDef>> =
+            std::collections::BTreeMap::new();
+        for statement in statements {
+            let mut branches = Vec::new();
+            collect(statement, &mut branches);
+            for branch in branches {
+                let Expression::BinaryExpression(test) = branch.test.without_parentheses() else {
+                    continue;
+                };
+                if test.operator != oxc_syntax::operator::BinaryOperator::StrictEquality {
+                    continue;
+                }
+                let pair = [(&test.left, &test.right), (&test.right, &test.left)]
+                    .into_iter()
+                    .find_map(|(value, label)| {
+                        let on_tag = self.reads_tag(value)
+                            || as_identifier(value)
+                                .is_some_and(|name| self.tag_locals.contains(name));
+                        on_tag
+                            .then(|| dispatch_tag(label, self.ctx.consts))
+                            .flatten()
+                            .map(|tag| (value, tag))
+                    });
+                let Some((value, tag)) = pair else { continue };
+                let run = match &branch.consequent {
+                    Statement::BlockStatement(block) => as_refs(&block.body),
+                    statement => vec![statement],
+                };
+                if !list_exits_refs(&run, false) {
+                    continue;
+                }
+                let span = oxc_span::GetSpan::span(value);
+                let key = self.ctx.source[span.start as usize..span.end as usize].to_string();
+                groups
+                    .entry(key)
+                    .or_default()
+                    .extend(extract_action_arm(&tag, &run, self.ctx));
+            }
+        }
+        for actions in groups.into_values() {
+            if actions.iter().any(is_meaningful)
+                && actions.len() > self.best.as_ref().map_or(0, Vec::len)
+            {
+                self.best = Some(actions);
+            }
+        }
+    }
+}
+
+fn identity_find_helper(source: &str) -> bool {
+    let allocator = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&allocator, source);
+    let [Statement::FunctionDeclaration(function)] = parsed.program.body.as_slice() else {
+        return false;
+    };
+    let Some(input) = function
+        .params
+        .items
+        .first()
+        .and_then(|p| p.pattern.get_identifier_name())
+    else {
+        return false;
+    };
+    if function.params.items.len() != 1 || function.params.rest.is_some() {
+        return false;
+    }
+    let Some(body) = &function.body else {
+        return false;
+    };
+    let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
+        return false;
+    };
+    let Some(call) = ret.argument.as_ref().and_then(as_call) else {
+        return false;
+    };
+    if callee_method(call) != Some("find") || call.arguments.len() != 1 {
+        return false;
+    }
+    let Some(Expression::FunctionExpression(callback)) = call.arguments.first().and_then(arg_expr)
+    else {
+        return false;
+    };
+    let Some(element) = callback
+        .params
+        .items
+        .first()
+        .and_then(|p| p.pattern.get_identifier_name())
+    else {
+        return false;
+    };
+    if callback.params.items.len() != 1 || element == input {
+        return false;
+    }
+    let Some(body) = &callback.body else {
+        return false;
+    };
+    let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
+        return false;
+    };
+    let Some(Expression::BinaryExpression(test)) = &ret.argument else {
+        return false;
+    };
+    test.operator == oxc_syntax::operator::BinaryOperator::StrictEquality
+        && [
+            (input.as_str(), element.as_str()),
+            (element.as_str(), input.as_str()),
+        ]
+        .into_iter()
+        .any(|(left, right)| {
+            as_identifier(&test.left) == Some(left) && as_identifier(&test.right) == Some(right)
+        })
+}
+
 impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
     fn visit_function(
         &mut self,
@@ -693,13 +876,15 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 for binding in &declaration.declarations {
                     if let (Some(name), Some(init)) =
                         (binding.id.get_identifier_name(), binding.init.as_ref())
-                        && is_tag_read(init)
+                        && nested.reads_tag(init)
                     {
                         nested.tag_locals.insert(name.to_string());
                     }
                 }
             }
         }
+        nested.discard_rewritten_tags(&block.body);
+        nested.scan_if_dispatch(&block.body);
         walk::walk_block_statement(&mut nested, block);
         if let Some(best) = nested.best
             && self
@@ -739,13 +924,15 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 for binding in &declaration.declarations {
                     if let (Some(name), Some(init)) =
                         (binding.id.get_identifier_name(), binding.init.as_ref())
-                        && is_tag_read(init)
+                        && nested.reads_tag(init)
                     {
                         nested.tag_locals.insert(name.to_string());
                     }
                 }
             }
         }
+        nested.discard_rewritten_tags(&body.statements);
+        nested.scan_if_dispatch(&body.statements);
         walk::walk_function_body(&mut nested, body);
         if let Some(best) = nested.best
             && self
@@ -762,7 +949,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         // a mapped child's TAG (`var a = t.tag(); switch (a)`); an unrelated const-keyed
         // switch in the same module — with more returning arms — would otherwise win the
         // "most arms" tie-break and publish non-wire constants as `wireTag`s.
-        let on_tag = is_tag_read(&switch.discriminant)
+        let on_tag = self.reads_tag(&switch.discriminant)
             || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains(n));
         if !on_tag {
             walk::walk_switch_statement(self, switch);
@@ -797,7 +984,7 @@ fn is_meaningful(a: &NotifActionDef) -> bool {
 fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef> {
     let mut out = Vec::new();
     for (i, case) in switch.cases.iter().enumerate() {
-        let Some(wire_tag) = case.test.as_ref().and_then(|t| ctx.consts.resolve(t)) else {
+        let Some(wire_tag) = case.test.as_ref().and_then(|t| dispatch_tag(t, ctx.consts)) else {
             continue;
         };
         // `case TAG_A: case TAG_B: return {…}` — a fall-through label runs the next case
@@ -811,34 +998,7 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         // B's action type and fields under A's wire tag — a shape that tag never produces.
         let run: Vec<&Statement> =
             fall_through_body(&switch.cases[i..]).unwrap_or_else(|| as_refs(&case.consequent));
-        let shapes = arm_result_shapes_of(&run);
-        if shapes.is_empty() {
-            // A recognised tag whose arm returns no shape (a bare flag set, an early
-            // break). Still catalogued: knowing the tag is dispatched at all beats
-            // omitting it.
-            out.push(empty_action(wire_tag));
-            continue;
-        }
-        // An arm can branch into more than one shape. Which of the two it is matters:
-        // `description` branches into two DIFFERENT actions (`desc_remove` when the
-        // child has a `<delete>`, else `desc_add`), while `ephemeral` branches into the
-        // SAME action behind a feature flag, differing only in extra optional fields.
-        // So branches are grouped by `actionType`: different ones stay separate arms of
-        // the union, identical ones merge into one (a field only some branches read is
-        // optional in the merge).
-        let mut grouped: Vec<BranchFold> = Vec::new();
-        for (shape, scope) in shapes {
-            for action in expand_shape(&wire_tag, shape, &scope, ctx, 0) {
-                match grouped
-                    .iter_mut()
-                    .find(|g| g.def.action_type == action.action_type)
-                {
-                    Some(fold) => fold.absorb(action),
-                    None => grouped.push(BranchFold::new(action)),
-                }
-            }
-        }
-        out.extend(grouped.into_iter().map(BranchFold::finish));
+        out.extend(extract_action_arm(&wire_tag, &run, ctx));
     }
     out
 }
@@ -2881,4 +3041,43 @@ fn same_wire_read(a: &NotifActionField, b: &NotifActionField) -> bool {
         // it out of the identity merged them and kept whichever policy came first, so the
         // action table would state the opposite behaviour for one of the two branches.
         && a.unknown_value == b.unknown_value
+}
+
+fn extract_action_arm(wire_tag: &str, run: &[&Statement], ctx: &ArmCtx) -> Vec<NotifActionDef> {
+    let mut out = Vec::new();
+    let shapes = arm_result_shapes_of(run);
+    if shapes.is_empty() {
+        // A recognised tag whose arm returns no shape (a bare flag set, an early
+        // break). Still catalogued: knowing the tag is dispatched at all beats
+        // omitting it.
+        out.push(empty_action(wire_tag.to_string()));
+        return out;
+    }
+    // An arm can branch into more than one shape. Which of the two it is matters:
+    // `description` branches into two DIFFERENT actions (`desc_remove` when the
+    // child has a `<delete>`, else `desc_add`), while `ephemeral` branches into the
+    // SAME action behind a feature flag, differing only in extra optional fields.
+    // So branches are grouped by `actionType`: different ones stay separate arms of
+    // the union, identical ones merge into one (a field only some branches read is
+    // optional in the merge).
+    let mut grouped: Vec<BranchFold> = Vec::new();
+    for (shape, scope) in shapes {
+        for action in expand_shape(wire_tag, shape, &scope, ctx, 0) {
+            match grouped
+                .iter_mut()
+                .find(|g| g.def.action_type == action.action_type)
+            {
+                Some(fold) => fold.absorb(action),
+                None => grouped.push(BranchFold::new(action)),
+            }
+        }
+    }
+    out.extend(grouped.into_iter().map(BranchFold::finish));
+    out
+}
+
+fn dispatch_tag(expression: &Expression, consts: &ConstResolver) -> Option<String> {
+    as_string_lit(expression.without_parentheses())
+        .map(str::to_string)
+        .or_else(|| consts.resolve(expression))
 }

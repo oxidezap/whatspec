@@ -886,6 +886,46 @@
       "syntheticName": true
     },
     {
+      "name": "ENUM_BRP2PCONSENT_BRPAYPRIVACYPOLICY_BRPAYTOS_BRPAYWATOS",
+      "module": "WASmaxAccountSetPaymentsTOSv3RPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "br_p2p_consent",
+          "value": "br_p2p_consent"
+        },
+        {
+          "name": "br_pay_privacy_policy",
+          "value": "br_pay_privacy_policy"
+        },
+        {
+          "name": "br_pay_tos",
+          "value": "br_pay_tos"
+        },
+        {
+          "name": "br_pay_wa_tos",
+          "value": "br_pay_wa_tos"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_PAYTOSV3_UPIPAYPRIVACYPOLICY",
+      "module": "WASmaxAccountSetPaymentsTOSv3RPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "pay_tos_v3",
+          "value": "pay_tos_v3"
+        },
+        {
+          "name": "upi_pay_privacy_policy",
+          "value": "upi_pay_privacy_policy"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
       "name": "ENUM_FALSE_TRUE",
       "module": "WASmaxBizCtwaActionBannerSuggestionRPC",
       "valueKind": "string",
@@ -918,6 +958,102 @@
       "syntheticName": true
     },
     {
+      "name": "ENUM_EBV_NONE_SBV",
+      "module": "WASmaxBizMarketingMessageGetBusinessEligibilityRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "EBV",
+          "value": "EBV"
+        },
+        {
+          "name": "NONE",
+          "value": "NONE"
+        },
+        {
+          "name": "SBV",
+          "value": "SBV"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ELIGIBLETOONBOARD_NOTELIGIBLE_ONBOARDED",
+      "module": "WASmaxBizMarketingMessageGetBusinessEligibilityRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ELIGIBLE_TO_ONBOARD",
+          "value": "ELIGIBLE_TO_ONBOARD"
+        },
+        {
+          "name": "NOT_ELIGIBLE",
+          "value": "NOT_ELIGIBLE"
+        },
+        {
+          "name": "ONBOARDED",
+          "value": "ONBOARDED"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FAIL_PAUSED_SUCCESS_WARNING",
+      "module": "WASmaxBizMarketingMessageGetBusinessEligibilityRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FAIL",
+          "value": "FAIL"
+        },
+        {
+          "name": "PAUSED",
+          "value": "PAUSED"
+        },
+        {
+          "name": "SUCCESS",
+          "value": "SUCCESS"
+        },
+        {
+          "name": "WARNING",
+          "value": "WARNING"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FAIL_SUCCESS",
+      "module": "WASmaxBizMarketingMessageGetBusinessEligibilityRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FAIL",
+          "value": "FAIL"
+        },
+        {
+          "name": "SUCCESS",
+          "value": "SUCCESS"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxBizMarketingMessageGetBusinessEligibilityRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
       "name": "ENUM_GENERATED_MANUAL",
       "module": "WASmaxBizThreadDataNotifyRPC",
       "valueKind": "string",
@@ -945,6 +1081,74 @@
         {
           "name": "pn",
           "value": "pn"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ALL_CATEGORY_FEATURED",
+      "module": "WASmaxBotBotListRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "all",
+          "value": "all"
+        },
+        {
+          "name": "category",
+          "value": "category"
+        },
+        {
+          "name": "featured",
+          "value": "featured"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_DARK_LIGHT",
+      "module": "WASmaxBotBotListRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "dark",
+          "value": "dark"
+        },
+        {
+          "name": "light",
+          "value": "light"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_HIDDEN_HSCROLL_HSCROLLICEBREAKERS_HSCROLLLARGE_HSCROLLSMALL_LISTVIEW",
+      "module": "WASmaxBotBotListRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "hidden",
+          "value": "hidden"
+        },
+        {
+          "name": "hscroll",
+          "value": "hscroll"
+        },
+        {
+          "name": "hscroll_icebreakers",
+          "value": "hscroll_icebreakers"
+        },
+        {
+          "name": "hscroll_large",
+          "value": "hscroll_large"
+        },
+        {
+          "name": "hscroll_small",
+          "value": "hscroll_small"
+        },
+        {
+          "name": "listview",
+          "value": "listview"
         }
       ],
       "syntheticName": true
@@ -1313,6 +1517,22 @@
         {
           "name": "VERIFIED",
           "value": "VERIFIED"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
         }
       ],
       "syntheticName": true
@@ -2338,6 +2558,74 @@
       "syntheticName": true
     },
     {
+      "name": "ENUM_COVER_IMAGE_PREVIEW",
+      "module": "WASmaxInProfilePictureEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "cover",
+          "value": "cover"
+        },
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "preview",
+          "value": "preview"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxInProfilePictureEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_IMAGE_PREVIEW",
+      "module": "WASmaxInProfilePictureEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "image",
+          "value": "image"
+        },
+        {
+          "name": "preview",
+          "value": "preview"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_BLOCKED_UNBLOCKED",
+      "module": "WASmaxInPsaEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "blocked",
+          "value": "blocked"
+        },
+        {
+          "name": "unblocked",
+          "value": "unblocked"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
       "name": "ENUM_0_1_7",
       "module": "WASmaxInReceiptEnums",
       "valueKind": "string",
@@ -2994,6 +3282,70 @@
         {
           "name": "true",
           "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_ALREADYCLAIMED_EXPIRED_INVALID_NOTFOUND_NOTOWNED_VALID",
+      "module": "WASmaxSmbMeteredMessagingAccountGetSMBMeteredMessagingCheckoutRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "already_claimed",
+          "value": "already_claimed"
+        },
+        {
+          "name": "expired",
+          "value": "expired"
+        },
+        {
+          "name": "invalid",
+          "value": "invalid"
+        },
+        {
+          "name": "not_found",
+          "value": "not_found"
+        },
+        {
+          "name": "not_owned",
+          "value": "not_owned"
+        },
+        {
+          "name": "valid",
+          "value": "valid"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FALSE_TRUE",
+      "module": "WASmaxSmbMeteredMessagingAccountGetSMBMeteredMessagingCheckoutRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "false",
+          "value": "false"
+        },
+        {
+          "name": "true",
+          "value": "true"
+        }
+      ],
+      "syntheticName": true
+    },
+    {
+      "name": "ENUM_FREEMSG_PERCENTAGE",
+      "module": "WASmaxSmbMeteredMessagingAccountGetSMBMeteredMessagingCheckoutRPC",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "free_msg",
+          "value": "free_msg"
+        },
+        {
+          "name": "percentage",
+          "value": "percentage"
         }
       ],
       "syntheticName": true

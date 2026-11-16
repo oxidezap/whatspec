@@ -31,10 +31,6 @@ use wa_ir::{VariablePresence, VariablePresenceNode};
 
 use crate::PresenceDiagnostics;
 
-/// The Relay runtime entry points a persisted operation is sent through. The
-/// same three the shape pass scans for, so both passes read the same call sites.
-const FETCH_METHODS: &[&str] = &["fetchQuery", "commitMutation", "fetchSubscription"];
-
 /// How far an expression is converted and how far a binding chain is followed.
 /// Deep enough for the chains WA's minifier produces (`d` → the object literal,
 /// `c` → `u !== "INVITE"` → the ternary behind `u`) and finite in the presence of
@@ -2866,6 +2862,7 @@ fn may_reference_module(value: &Value, module: &str, scopes: &Scopes, depth: usi
 /// Collects the variables object of every Relay call in a caller module that
 /// sends this operation.
 struct CallSiteCollector<'d> {
+    transports: &'d crate::transport::Transports,
     /// The `<name>.graphql` module whose call sites we want.
     module: String,
     /// Whether the caller depends on exactly one `.graphql` module, in which case
@@ -4026,7 +4023,7 @@ impl CallSiteCollector<'_> {
         // A body walked right here is not one this pass did not read: whatever
         // it does to the object is already in the scopes, so taking the object
         // out of evidence on top of that withdraws keys nothing touched.
-        if !runs_here && !wa_oxc::callee_method(call).is_some_and(|m| FETCH_METHODS.contains(&m)) {
+        if !runs_here && !self.transports.is_transport(call) {
             for argument in call.arguments.iter().filter_map(Argument::as_expression) {
                 // `mutate(v.input)` hands over a part of a recovered object,
                 // and what that body does to it is a change to the one object.
@@ -4465,10 +4462,7 @@ impl CallSiteCollector<'_> {
     /// a `require("<module>")`, or the caller has only one operation to send and
     /// so cannot be sending another.
     fn is_operation_call(&self, call: &CallExpression, handle: Option<&Value>) -> bool {
-        let Some(method) = wa_oxc::callee_method(call) else {
-            return false;
-        };
-        if !FETCH_METHODS.contains(&method) {
+        if !self.transports.is_transport(call) {
             return false;
         }
         let Some(handle) = handle else {
@@ -4481,10 +4475,7 @@ impl CallSiteCollector<'_> {
     /// A Relay call in a module that sends more than one operation whose handle
     /// this pass could not tie to any module: it may or may not be ours.
     fn is_ambiguous_call(&self, call: &CallExpression, handle: Option<&Value>) -> bool {
-        let Some(method) = wa_oxc::callee_method(call) else {
-            return false;
-        };
-        if !FETCH_METHODS.contains(&method) {
+        if !self.transports.is_transport(call) {
             return false;
         }
         let Some(handle) = handle else {
@@ -4578,8 +4569,9 @@ impl CallSiteCollector<'_> {
 /// `variables_shape` is filtered by - so a key a call site writes that the
 /// operation does not declare is not published, and a declared key no site
 /// writes is answered rather than omitted.
-pub(crate) fn variables_presence(
+pub(crate) fn variables_presence_with_transports(
     callers: &[(&str, bool)],
+    transports: &crate::transport::Transports,
     module: &str,
     arg_def_names: &[String],
     diag: &mut PresenceDiagnostics,
@@ -4603,6 +4595,7 @@ pub(crate) fn variables_presence(
             ..Scopes::default()
         };
         let mut collector = CallSiteCollector {
+            transports,
             module: module.to_string(),
             sole_operation: *sole_operation,
             scopes,
@@ -4724,6 +4717,24 @@ pub(crate) fn variables_presence(
             (name.clone(), node)
         })
         .collect()
+}
+
+#[cfg(test)]
+fn variables_presence(
+    callers: &[(&str, bool)],
+    module: &str,
+    arg_def_names: &[String],
+    diag: &mut PresenceDiagnostics,
+    variable_arguments: &mut Vec<(usize, u32)>,
+) -> BTreeMap<String, VariablePresenceNode> {
+    variables_presence_with_transports(
+        callers,
+        &crate::transport::Transports::default(),
+        module,
+        arg_def_names,
+        diag,
+        variable_arguments,
+    )
 }
 
 #[cfg(test)]

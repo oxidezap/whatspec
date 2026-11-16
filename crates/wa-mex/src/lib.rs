@@ -7,6 +7,7 @@
 mod extract;
 mod presence;
 mod shape;
+mod transport;
 
 pub use extract::{
     MexDiagnostics, PresenceDiagnostics, extract_mex, extract_mex_from_modules,

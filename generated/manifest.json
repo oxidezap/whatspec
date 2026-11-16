@@ -10,29 +10,29 @@
     },
     "iq": {
       "builder": {
-        "argPathAttrs": 325,
+        "argPathAttrs": 489,
         "argPathAttrsMissing": 48,
-        "argPathChildren": 128,
+        "argPathChildren": 176,
         "argPathChildrenMissing": 11,
-        "argPathContents": 126,
+        "argPathContents": 142,
         "argPathContentsMissing": 22,
-        "elementValues": 151,
-        "optionalChildren": 54,
-        "presenceFlagChildren": 24,
-        "repeatBounds": 40
+        "elementValues": 170,
+        "optionalChildren": 76,
+        "presenceFlagChildren": 38,
+        "repeatBounds": 52
       },
       "candidateModules": 171,
       "constraints": {
-        "errorArms": 601,
-        "errorTexts": 524,
-        "fieldEnumRefs": 209,
-        "fieldLiterals": 1681,
-        "referenceConstraints": 533,
-        "typedErrorVariants": 105
+        "errorArms": 656,
+        "errorTexts": 588,
+        "fieldEnumRefs": 237,
+        "fieldLiterals": 1837,
+        "referenceConstraints": 602,
+        "typedErrorVariants": 107
       },
       "crossModule": {
-        "fieldsRecovered": 386,
-        "requestsEnriched": 22,
+        "fieldsRecovered": 476,
+        "requestsEnriched": 23,
         "requestsWithMixins": 76
       },
       "degradedResponses": 3,
@@ -40,21 +40,20 @@
         "incompatibleRepeatedRead": 1,
         "iq builder substring present but no AST iq call": 3,
         "mixin fragment (folded into requests, not a standalone stanza)": 35,
-        "namespace/type unresolved (dropped by guard)": 15,
         "shadowedCallbackRead": 5
       },
       "excludedFragments": 35,
-      "stanzas": 125,
+      "stanzas": 139,
       "targets": {
-        "groupJid": 26,
-        "groupServer": 7,
-        "resolved": 120,
-        "server": 87,
-        "unknown": 5,
+        "groupJid": 25,
+        "groupServer": 6,
+        "resolved": 133,
+        "server": 102,
+        "unknown": 6,
         "unset": 0
       },
-      "typedResponses": 122,
-      "unparseable": 18
+      "typedResponses": 136,
+      "unparseable": 3
     },
     "mex": {
       "docIdsFromName": 0,
@@ -62,23 +61,24 @@
       "docIdsInline": 160,
       "dropsByReason": {
         "ambiguousCallSite": 3,
-        "operationWithNoCallSite": 15,
+        "operationWithNoCallSite": 6,
         "unreadableCallArgument": 1,
         "unreadableKey": 0,
         "unreadableSpread": 0
       },
       "operations": 200,
-      "operationsFullyDetermined": 8,
+      "operationsFullyDetermined": 9,
       "operationsWithVariables": 180,
-      "presenceAlways": 151,
-      "presenceConditional": 250,
-      "presenceUndetermined": 175
+      "presenceAlways": 161,
+      "presenceConditional": 258,
+      "presenceUndetermined": 170
     },
     "notif": {
-      "actionShapes": 0,
-      "actions": 0,
+      "actionShapes": 185,
+      "actions": 49,
       "degraded": 5,
       "dropsByReason": {
+        "action enum table not structurally resolvable": 1,
         "attributeNameNotLiteral": 1,
         "contentBytes": 1,
         "shadowedCallbackRead": 1
@@ -131,7 +131,7 @@
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "7bde24094369e1ce5500f2f91f68172d68c7f239cfe067e6e497892c0cc211fc"
+      "sha256": "dd139e969bb73331bf9297a7d6ef13e1ff94609cf60a0006ff5e5704fa0377f3"
     },
     "incoming": {
       "file": "incoming/index.json",
@@ -141,17 +141,17 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "a0caf80978bda3b60e5e51e17957901e942e67ef8e428ea7533f21f7da84ffd9"
+      "sha256": "d3abf969d30c4e0143615e3b5fd1cc4bc11ab9e5c8b358b5447b8af319016cb2"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "aa5dd2615dea808814a10daf3fb671d5ac5fc37b5495ed49269ff9ddb471921e"
+      "sha256": "83dea581aee95959498835f7cac4be911fdb275f21467b702b200a7a9bacab23"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "aa9e2c8a15c849d19e2ad8e62bd59d1f3379d81b9d4806c2855d514fd0ea7286"
+      "sha256": "d42db5ed58e4ed3890a8c058ed0d5e7964e4f955acb1a96728d2c4230b7689ae"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -183,10 +183,10 @@
       "sha256": "d5ecae77046db0e79b7cbd3656c56f9369caf99ac1416774f5ae314d4d15174d"
     }
   },
-  "enumDefs": 424,
+  "enumDefs": 442,
   "generatorVersion": "0.1.0",
   "incomingDefs": 25,
-  "iqModules": 28,
+  "iqModules": 32,
   "mexOperations": 200,
   "notifTypes": 29,
   "protoEntities": 310,

@@ -187,6 +187,7 @@ pub fn extract_mex_from_modules_with_diagnostics(
     module_defs: &[ModuleDefinition],
     wa_version: &str,
 ) -> (MexIr, MexDiagnostics) {
+    let transports = crate::transport::Transports::build(source, module_defs);
     // Map each `.graphql` module to the callers (modules that depend on it) whose
     // bodies hold the `fetchQuery(id, <expr>)` the input variables are read from.
     //
@@ -277,8 +278,9 @@ pub fn extract_mex_from_modules_with_diagnostics(
             // filter drops a third of them, and a diagnostic that counted those
             // would not add up against the document a consumer reads.
             let mut variable_arguments = Vec::new();
-            raw.variables_presence = crate::presence::variables_presence(
+            raw.variables_presence = crate::presence::variables_presence_with_transports(
                 &bodies,
+                &transports,
                 name,
                 &raw.variables,
                 &mut raw.presence,
@@ -804,6 +806,19 @@ mod tests {
         let (_, diag) = extract_mex_with_diagnostics(m, "2.3000.1");
         assert_eq!(diag.doc_ids_from_name, 1);
         assert_eq!(diag.doc_ids_inline, 0);
+    }
+
+    #[test]
+    fn wrapper_call_sites_preserve_variables_shape_and_presence() {
+        let operation = r#"__d("WAWebFlagQuery.graphql",[],function(t,n,r,o,a,i){i.exports={kind:"Request",fragment:{argumentDefinitions:[{kind:"LocalArgument",name:"input"}],name:"WAWebFlagQuery"},operation:{argumentDefinitions:[],name:"WAWebFlagQuery"},params:{id:"7",name:"WAWebFlagQuery",operationKind:"query"}}});"#;
+        let caller = r#"__d("Job",["WAWebFlagQuery.graphql","Transport"],function(t,n,r,o,a,i,l){function run(args){return o("Transport").METHOD(n("WAWebFlagQuery.graphql"),{input:{enabled:!0,optional:args.optional}})}l.run=run;});"#;
+        let direct = format!("{operation}{}", caller.replace("METHOD", "fetchQuery"));
+        let wrapper = r#"__d("Transport",[],function(t,n,r,o,a,i,l){function forward(op,vars){return o("Relay").fetchQuery(op,vars)}l.send=forward;});"#;
+        let wrapped = format!("{operation}{wrapper}{}", caller.replace("METHOD", "send"));
+        let expected = extract_mex(&direct, "test");
+        assert_eq!(extract_mex(&wrapped, "test"), expected);
+        let unqualified = format!("{operation}{}", caller.replace("METHOD", "send"));
+        assert_ne!(extract_mex(&unqualified, "test"), expected);
     }
 
     #[test]
