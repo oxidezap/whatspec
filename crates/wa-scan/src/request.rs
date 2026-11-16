@@ -294,6 +294,7 @@ pub(crate) struct VarScope {
     guard_optional_descendants: bool,
     local_merges: std::collections::HashSet<(usize, usize)>,
     generators: std::collections::HashSet<(usize, usize)>,
+    destructured_writes: HashMap<String, Vec<(usize, usize)>>,
     vars: HashMap<String, Vec<VarInit>>,
     /// Every function as `(body_start, body_end, parameter_names)` — all of them, not
     /// only the ones shaped like a builder.
@@ -562,18 +563,25 @@ impl<'a> Visit<'a> for ScopeBuilder {
         // scope would resolve `x` to just its `null` seed and drop the real child. Record
         // plain-identifier assignments too; child resolution already unions every recorded
         // init and keeps the first non-empty (member-expression targets stay excluded).
-        for name in wa_oxc::assignment_target_names(&a.left) {
+        if let Some(owner) = self.fn_stack.last()
+            && wa_oxc::assignment_target_name(&a.left).is_none()
+        {
+            for name in wa_oxc::assignment_target_names(&a.left) {
+                self.scope
+                    .destructured_writes
+                    .entry(name)
+                    .or_default()
+                    .push(*owner);
+            }
+        }
+        if let Some(name) = wa_oxc::assignment_target_name(&a.left) {
             let fn_body = match &a.right {
-                Expression::FunctionExpression(f)
-                    if wa_oxc::assignment_target_name(&a.left).is_some() =>
-                {
-                    fn_body_span(f)
-                }
+                Expression::FunctionExpression(f) => fn_body_span(f),
                 _ => None,
             };
             let span = a.right.span();
             self.scope.push(
-                &name,
+                name,
                 VarInit {
                     init_start: span.start as usize,
                     init_end: span.end as usize,
@@ -2243,22 +2251,33 @@ pub(crate) fn bundled_rpc_requests_from_program(
             let Some(destination) = params.first() else {
                 continue;
             };
-            if scope.vars.get(destination).is_some_and(|writes| {
-                writes.iter().any(|write| {
-                    write.owner_fn.is_some_and(|(owner_start, owner_end)| {
-                        *start <= owner_start
-                            && owner_end <= *end
-                            && !scope.lexical_params.iter().any(
-                                |(shadow_start, shadow_end, parameters)| {
-                                    *start < *shadow_start
-                                        && *shadow_end <= *end
-                                        && *shadow_start <= owner_start
-                                        && owner_end <= *shadow_end
-                                        && parameters.contains(destination)
-                                },
-                            )
-                    })
-                })
+            let writes = scope
+                .vars
+                .get(destination)
+                .into_iter()
+                .flatten()
+                .filter_map(|write| write.owner_fn)
+                .chain(
+                    scope
+                        .destructured_writes
+                        .get(destination)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
+                );
+            if writes.into_iter().any(|(owner_start, owner_end)| {
+                *start <= owner_start
+                    && owner_end <= *end
+                    && !scope
+                        .lexical_params
+                        .iter()
+                        .any(|(shadow_start, shadow_end, parameters)| {
+                            *start < *shadow_start
+                                && *shadow_end <= *end
+                                && *shadow_start <= owner_start
+                                && owner_end <= *shadow_end
+                                && parameters.contains(destination)
+                        })
             }) {
                 continue;
             }
@@ -4284,6 +4303,21 @@ mod tests {
 #[cfg(test)]
 mod bundled_merge_tests {
     use super::*;
+
+    #[test]
+    fn destructuring_does_not_assign_the_whole_array_to_each_child() {
+        let source = r#"__d("WASmaxPrivateRPC",[],function(g,r,d,o,e,i,l){function make(args){var chosen,unused;[chosen,unused]=[o("WASmaxJsx").smax("item",null),o("WASmaxJsx").smax("debug",null)];return o("WASmaxJsx").smax("iq",{xmlns:"probe",type:"get"},chosen)}l.makeProbeRequest=make;});"#;
+        let requests =
+            bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .2
+                .children
+                .iter()
+                .all(|child| child.tag != "debug")
+        );
+    }
 
     #[test]
     fn private_merge_keeps_namespace_type_and_argument_paths() {
