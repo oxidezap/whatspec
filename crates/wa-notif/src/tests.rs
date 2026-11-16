@@ -3193,3 +3193,25 @@ fn captured_content_cannot_lose_its_receiver_source() {
             .all(|field| !field.content || field.wire_name == "body")
     );
 }
+
+#[test]
+fn jid_conversion_keeps_its_captured_wire_read() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var jid=child.attrUserJid("jid");var id=o("WAWebJidToWid").userJidToUserWid(jid);if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions[0].fields.len(), 1);
+    assert_eq!(actions[0].fields[0].wire_name, "jid");
+}
+
+#[test]
+fn later_arm_writes_preserve_earlier_return_bindings() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");if(child.tag()==="a"){if(flag)return {actionType:"one",id};id=child.attrString("lid");return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    for (name, wire) in [("one", "jid"), ("two", "lid")] {
+        let action = actions
+            .iter()
+            .find(|action| action.action_type.as_deref() == Some(name))
+            .unwrap();
+        assert_eq!(action.fields.len(), 1);
+        assert_eq!(action.fields[0].wire_name, wire);
+    }
+}

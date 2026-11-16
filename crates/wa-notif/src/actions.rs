@@ -560,6 +560,26 @@ fn saved_value_kind(expression: &Expression) -> SavedValueKind {
         | Expression::FunctionExpression(_)
         | Expression::ArrowFunctionExpression(_) => SavedValueKind::Allocation,
         Expression::CallExpression(call)
+            if callee_method(call).is_some_and(|method| {
+                wap::is_attr_method(method)
+                    && matches!(
+                        wap::method_field_type(method),
+                        wa_ir::ParsedFieldType::Jid
+                            | wa_ir::ParsedFieldType::UserJid
+                            | wa_ir::ParsedFieldType::LidUserJid
+                            | wa_ir::ParsedFieldType::DeviceJid
+                            | wa_ir::ParsedFieldType::LidDeviceJid
+                            | wa_ir::ParsedFieldType::GroupJid
+                            | wa_ir::ParsedFieldType::NewsletterJid
+                            | wa_ir::ParsedFieldType::CallJid
+                            | wa_ir::ParsedFieldType::BroadcastJid
+                            | wa_ir::ParsedFieldType::StatusJid
+                    )
+            }) =>
+        {
+            SavedValueKind::Primitive
+        }
+        Expression::CallExpression(call)
             if matches!(
                 callee_method(call),
                 Some(
@@ -2124,6 +2144,16 @@ fn collect_returns_into<'b, 'a>(
                 for d in &decl.declarations {
                     if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
                     {
+                        for written in conditional_writes(init) {
+                            scope.remove(written);
+                        }
+                        let mut assignments = Vec::new();
+                        flatten_sequence(init, &mut assignments);
+                        for assignment in assignments {
+                            if let Some(written) = assignment.left.get_identifier_name() {
+                                scope.insert(written, &assignment.right);
+                            }
+                        }
                         scope.insert(name.as_str(), init);
                     }
                 }
@@ -2402,6 +2432,8 @@ fn flatten_sequence<'b, 'a>(
             flatten_sequence(&binary.left, out);
             flatten_sequence(&binary.right, out);
         }
+        Expression::ConditionalExpression(conditional) => flatten_sequence(&conditional.test, out),
+        Expression::LogicalExpression(logical) => flatten_sequence(&logical.left, out),
         _ => {}
     }
 }
@@ -4277,7 +4309,7 @@ fn extract_scoped_action_arm(
     collect_returns_into(&as_refs(prefix), &mut scope, &mut Vec::new());
     let writes = written_names(arm);
     for (name, value) in &state.bindings {
-        if writes.contains(name) || writes.iter().any(|written| value.depends_on(written)) {
+        if writes.iter().any(|written| value.depends_on(written)) {
             scope.remove(name.as_str());
         }
     }
