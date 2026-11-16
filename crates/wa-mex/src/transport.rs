@@ -9,6 +9,37 @@ use wa_transform::ModuleDefinition;
 const METHODS: &[&str] = &["fetchQuery", "commitMutation", "fetchSubscription"];
 
 pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSet<u32> {
+    fn loop_bindings(statement: &Statement<'_>) -> Option<HashSet<String>> {
+        let declaration = match statement {
+            Statement::ForStatement(statement) => match &statement.init {
+                Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(declaration)) => {
+                    Some(declaration)
+                }
+                _ => None,
+            },
+            Statement::ForOfStatement(statement) => match &statement.left {
+                oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
+                    Some(declaration)
+                }
+                _ => None,
+            },
+            Statement::ForInStatement(statement) => match &statement.left {
+                oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
+                    Some(declaration)
+                }
+                _ => None,
+            },
+            _ => None,
+        }?;
+        (!declaration.kind.is_var()).then(|| {
+            declaration
+                .declarations
+                .iter()
+                .flat_map(|binding| binding.id.get_binding_identifiers())
+                .map(|id| id.name.to_string())
+                .collect()
+        })
+    }
     #[derive(Default)]
     struct Writes {
         names: HashSet<String>,
@@ -46,6 +77,41 @@ pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSe
         }
     }
     impl<'a> Visit<'a> for Writes {
+        fn visit_statement(&mut self, statement: &Statement<'a>) {
+            let declared = match statement {
+                Statement::FunctionDeclaration(function) => {
+                    function.id.as_ref().map(|id| id.name.as_str())
+                }
+                Statement::ClassDeclaration(class) => class.id.as_ref().map(|id| id.name.as_str()),
+                _ => None,
+            };
+            if let Some(name) = declared
+                && !self.shadowed.contains(name)
+            {
+                self.names.insert(name.to_string());
+            }
+            if let Some(names) = loop_bindings(statement) {
+                let outer = self.shadowed.clone();
+                self.shadowed.extend(names);
+                walk::walk_statement(self, statement);
+                self.shadowed = outer;
+            } else {
+                walk::walk_statement(self, statement);
+            }
+        }
+        fn visit_variable_declarator(
+            &mut self,
+            declaration: &oxc_ast::ast::VariableDeclarator<'a>,
+        ) {
+            if declaration.init.is_some() {
+                for id in declaration.id.get_binding_identifiers() {
+                    if !self.shadowed.contains(id.name.as_str()) {
+                        self.names.insert(id.name.to_string());
+                    }
+                }
+            }
+            walk::walk_variable_declarator(self, declaration);
+        }
         fn visit_simple_assignment_target(
             &mut self,
             target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
@@ -131,11 +197,15 @@ pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSe
                 }
             }
             if let Some(body) = body {
-                self.mask_body(body);
+                self.mask_body(body, false);
             }
         }
-        fn mask_body(&mut self, body: &oxc_ast::ast::FunctionBody<'_>) {
-            let bound = wa_oxc::function_body_bindings(body, self.mode);
+        fn mask_body(&mut self, body: &oxc_ast::ast::FunctionBody<'_>, factory: bool) {
+            let bound = if factory {
+                HashSet::new()
+            } else {
+                wa_oxc::function_body_bindings(body, self.mode)
+            };
             let mut writes = Writes {
                 mode: self.mode,
                 ..Default::default()
@@ -146,6 +216,16 @@ pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSe
         }
     }
     impl<'a> Visit<'a> for Loaders {
+        fn visit_statement(&mut self, statement: &Statement<'a>) {
+            if let Some(names) = loop_bindings(statement) {
+                let outer = self.names.clone();
+                self.names.retain(|name| !names.contains(name));
+                walk::walk_statement(self, statement);
+                self.names = outer;
+            } else {
+                walk::walk_statement(self, statement);
+            }
+        }
         fn visit_function(
             &mut self,
             function: &Function<'a>,
@@ -172,7 +252,7 @@ pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSe
                     })
                     .collect();
                 if let Some(body) = &function.body {
-                    self.mask_body(body);
+                    self.mask_body(body, true);
                 }
             } else {
                 self.mask(&function.params, function.body.as_deref());
@@ -1237,6 +1317,10 @@ fn review_dynamic_exports_and_sloppy_block_functions_cannot_qualify() {
 fn module_loaders_respect_nested_bindings_and_captured_writes() {
     for (setup, expected) in [
         ("function local(o){o=changed}", true),
+        ("var o;", true),
+        ("for(let o of values){o=normalize(o)}", true),
+        ("for(let o in values){o=normalize(o)}", true),
+        ("for(let o=0;o<2;o++){o=normalize(o)}", true),
         ("function local(){o=changed}", false),
         (
             r#"(function(){"use strict";{function o(){}}o=changed})()"#,

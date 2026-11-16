@@ -3302,3 +3302,11 @@ fn block_class_masking_applies_inside_arms_and_restores_outer_values() {
         .unwrap();
     assert_eq!(restored.fields[0].wire_name, "id");
 }
+
+#[test]
+fn module_helper_writes_do_not_replace_parser_local_bindings() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){var id;function touch(){id=0}function parse(child){var id=child.attrString("jid");touch();if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions[0].fields.len(), 1);
+    assert_eq!(actions[0].fields[0].wire_name, "jid");
+}

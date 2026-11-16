@@ -434,6 +434,7 @@ pub(crate) fn extract_actions(
         consts,
         source: handler_slice,
         locals: &locals,
+        own_helpers: &no_formals,
         formals: &no_formals,
     };
     let mut finder = SwitchFinder {
@@ -456,6 +457,7 @@ pub(crate) fn extract_actions(
 struct ArmCtx<'c, 'a> {
     consts: &'c ConstResolver<'a>,
     locals: &'c HashMap<String, String>,
+    own_helpers: &'c HashSet<String>,
     /// The source THIS context's spans index into, so an inlined helper can be given the
     /// TEXT of the arguments it was called with. The helper is re-parsed in its own
     /// allocator, so a call-site AST reference cannot cross into it — its source can.
@@ -481,6 +483,7 @@ impl<'c, 'a> ArmCtx<'c, 'a> {
         ArmCtx {
             consts: self.consts,
             locals: self.locals,
+            own_helpers: self.own_helpers,
             source,
             formals,
         }
@@ -1230,6 +1233,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         for statement in &block.body {
             declarations.visit_statement(statement);
         }
+        let mut own_helpers = self.ctx.own_helpers.clone();
         let mut locals = std::borrow::Cow::Borrowed(self.ctx.locals);
         let mut formals = self.ctx.formals.clone();
         formals.extend(wa_oxc::block_bindings(&block.body));
@@ -1255,6 +1259,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             }
         }
         for (name, (start, end)) in declarations.spans {
+            own_helpers.insert(name.clone());
             formals.remove(&name);
             locals
                 .to_mut()
@@ -1265,6 +1270,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
         let ctx = ArmCtx {
             locals: &locals,
+            own_helpers: &own_helpers,
             formals: &formals,
             ..*self.ctx
         };
@@ -1328,9 +1334,11 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
     fn visit_function_body(&mut self, body: &oxc_ast::ast::FunctionBody<'a>) {
         let mut declarations = LocalFns::default();
         declarations.visit_function_body(body);
+        let mut own_helpers = HashSet::new();
         let mut locals = std::borrow::Cow::Borrowed(self.ctx.locals);
         let mut formals = self.ctx.formals.clone();
         for (name, (start, end)) in declarations.spans {
+            own_helpers.insert(name.clone());
             formals.remove(&name);
             locals
                 .to_mut()
@@ -1341,6 +1349,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
         let ctx = ArmCtx {
             locals: &locals,
+            own_helpers: &own_helpers,
             formals: &formals,
             ..*self.ctx
         };
@@ -1435,11 +1444,12 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
         if wa_oxc::directly_invoked_function(call).is_some()
             || as_identifier(&call.callee).is_some_and(|name| {
-                !self.ctx.formals.contains(name) && self.ctx.locals.contains_key(name)
+                !self.ctx.formals.contains(name) && self.ctx.own_helpers.contains(name)
             })
         {
             let mut writes = WriteNames {
                 helpers: Some(self.ctx.locals),
+                helper_scope: Some(self.ctx.own_helpers),
                 ..Default::default()
             };
             writes.visit_call_expression(call);
@@ -3915,6 +3925,7 @@ struct WriteNames<'s> {
     names: HashSet<String>,
     originals: Option<HelperDefinitions<'s>>,
     helpers: Option<&'s HashMap<String, String>>,
+    helper_scope: Option<&'s HashSet<String>>,
     visiting: HashSet<String>,
     shadowed: HashSet<String>,
     mode: wa_oxc::StrictMode,
@@ -3950,6 +3961,7 @@ impl<'a> Visit<'a> for WriteNames<'_> {
             if let Some(name) = as_identifier(&call.callee)
                 && !self.shadowed.contains(name)
                 && self.visiting.len() < MAX_INLINE_DEPTH as usize
+                && self.helper_scope.is_none_or(|scope| scope.contains(name))
                 && let Some(source) = self.helpers.and_then(|helpers| helpers.get(name)).cloned()
                 && self.visiting.insert(name.to_string())
             {
