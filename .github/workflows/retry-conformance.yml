@@ -17,8 +17,10 @@ jobs:
         with:
           node-version: '24'
       - run: cargo test -p wa-transform --example retry_audit
-      - run: cargo run -p whatspec -- restore --from-lock generated/bundles.lock.json --out /tmp/retry-inputs
-      - run: cargo run -p wa-transform --example retry_audit -- generated/bundles.lock.json /tmp/retry-inputs /tmp/retry-audit
+      - run: cargo run -p whatspec -- restore --from-lock generated/bundles.lock.json --out "$RUNNER_TEMP/retry-inputs"
+      - run: cargo run -p wa-transform --example retry_audit -- generated/bundles.lock.json "$RUNNER_TEMP/retry-inputs" "$RUNNER_TEMP/retry-audit"
       - run: node tests/retry/capture-gates.mjs
       - run: node tests/retry/oracle.mjs
-      - run: node tests/retry/oracle.mjs /tmp/retry-audit/audit.json
+      - run: node tests/retry/oracle.mjs tests/retry/capture/2.3000.1052559453/audit.json
+      - run: node tests/retry/review-gates.mjs
+      - run: node tests/retry/oracle.mjs "$RUNNER_TEMP/retry-audit/audit.json"

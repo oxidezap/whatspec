@@ -23,6 +23,7 @@ struct Inventory<'s> {
     source: &'s str,
     nodes: Vec<Value>,
     functions: Vec<Value>,
+    helpers: Vec<Value>,
     guards: Vec<Span>,
 }
 impl Inventory<'_> {
@@ -38,6 +39,11 @@ impl<'a> Visit<'a> for Inventory<'_> {
         let old = std::mem::take(&mut self.guards);
         if it.generator {
             self.functions.push(json!({"start":it.span.start,"end":it.span.end,"source":&self.source[it.span.start as usize..it.span.end as usize]}));
+        }
+        if !it.generator
+            && let Some(name) = &it.id
+        {
+            self.helpers.push(json!({"name":name.name.as_str(),"start":it.span.start,"end":it.span.end,"source":&self.source[it.span.start as usize..it.span.end as usize]}));
         }
         walk::walk_function(self, it, flags);
         self.guards = old;
@@ -77,10 +83,11 @@ fn inventory(source: &str) -> Result<Value> {
         source,
         nodes: vec![],
         functions: vec![],
+        helpers: vec![],
         guards: vec![],
     };
     v.visit_program(&parsed.program);
-    Ok(json!({"nodes":v.nodes,"generators":v.functions}))
+    Ok(json!({"nodes":v.nodes,"generators":v.functions,"helpers":v.helpers}))
 }
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
@@ -127,7 +134,7 @@ fn main() -> Result<()> {
         definitions.sort_by_key(Value::to_string);
         records.push(json!({"module":name,"sourceSha256":wa_text::sha256_hex(source.as_bytes()),"definitions":definitions,"inventory":inventory(&source)?,"source":source}));
     }
-    let output = json!({"formatVersion":1,"waVersion":lock.wa_version,"setHash":lock.set_hash,"bundleCount":lock.bundle_count,
+    let output = json!({"formatVersion":2,"waVersion":lock.wa_version,"setHash":lock.set_hash,"bundleCount":lock.bundle_count,
         "completeness":{"syntax":"complete-for-selected-node-kinds","policy":"partial-not-executable","continuations":"generator-yield-sites-only","excluded":["callee behavior","runtime flags","logical and conditional expression control flow","exception and cancellation semantics","queue scheduling","crypto","storage","transport"]},"modules":records});
     let out = Path::new(&args[2]);
     ensure!(!out.exists(), "output already exists");
@@ -142,6 +149,19 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn helpers_keep_ast_names_and_exact_source_spans() {
+        let source = "function guard(value){return value===1} function* run(){yield guard(1)}";
+        let capture = inventory(source).unwrap();
+        let helpers = capture["helpers"].as_array().unwrap();
+        assert_eq!(helpers.len(), 1);
+        assert_eq!(helpers[0]["name"], "guard");
+        let start = helpers[0]["start"].as_u64().unwrap() as usize;
+        let end = helpers[0]["end"].as_u64().unwrap() as usize;
+        assert_eq!(helpers[0]["source"], &source[start..end]);
+        assert_eq!(capture["generators"].as_array().unwrap().len(), 1);
+    }
+
     #[test]
     fn callbacks_do_not_inherit_caller_guards() {
         let capture = inventory("if(ready){queue(()=>{return value;});queue(function(){return other;});if(local)return done;}").unwrap();
