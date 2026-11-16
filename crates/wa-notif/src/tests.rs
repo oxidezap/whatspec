@@ -2934,3 +2934,79 @@ fn shadowing_a_helper_in_a_nested_block_does_not_replace_it() {
     let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function build(child){return {actionType:"one",id:child.attrString("id")}}{let build=unknown;}function parse(child){switch(child.tag()){case "a":return build(child);}}});"#;
     assert_eq!(dispatch_actions(source)[0].fields[0].wire_name, "id");
 }
+
+#[test]
+fn catch_entry_cannot_assume_the_try_body_finished() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");try{mayThrow();id=child.attrString("other")}catch(error){if(child.tag()==="a")return {actionType:"one",id};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn switch_arm_catch_scopes_withhold_values_written_in_try() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){switch(child.tag()){case "a":var id=child.attrString("id");try{id=child.attrString("other");throw marker}catch(error){return {actionType:"one",id};}}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn joining_finite_tag_paths_does_not_admit_unreachable_tags() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();if(flag){if(tag==="a"){}else{return null}}else{if(tag==="b"){}else{return null}}if(tag==="c")return {actionType:"wrong"};if(tag==="a")return {actionType:"one"};if(tag==="b")return {actionType:"two"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(
+        actions
+            .iter()
+            .map(|action| action.wire_tag.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+}
+
+#[test]
+fn breaking_or_skipping_a_loop_does_not_exclude_its_tested_tag_afterward() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();while(flag){if(tag==="a")break;}if(tag==="a")return {actionType:"one"};}});"#;
+    assert_eq!(dispatch_actions(source).len(), 1);
+}
+
+#[test]
+fn inner_conflicts_survive_outer_dispatch_merges() {
+    for action in [
+        r#"if(inner)return {actionType:"one",id:child.attrString("jid")};return {actionType:"one",id:child.attrString("lid")};"#,
+        r#"return choose(child);"#,
+        r#"return babelHelpers.extends({actionType:"one"},fields(child));"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function choose(child){{if(inner)return {{actionType:"one",id:child.attrString("jid")}};return {{actionType:"one",id:child.attrString("lid")}}}}function fields(child){{if(inner)return {{id:child.attrString("jid")}};return {{id:child.attrString("lid")}}}}function parse(child){{if(feature){{if(child.tag()==="a"){{{action}}}}}else{{if(child.tag()==="a")return {{actionType:"one",id:child.attrString("jid")}};}}}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(actions.len(), 1);
+        assert!(
+            actions[0].fields.iter().all(|field| field.name != "id"),
+            "{action}"
+        );
+    }
+}
+
+#[test]
+fn callback_field_conflicts_survive_parent_action_merges() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(feature){if(child.tag()==="a")return {actionType:"one",people:child.mapChildrenWithTag("p",p=>inner?{id:p.attrString("jid")}:{id:p.attrString("lid")})};}else{if(child.tag()==="a")return {actionType:"one",people:child.mapChildrenWithTag("p",p=>({id:p.attrString("jid")}))};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(
+        actions[0].children[0]
+            .fields
+            .iter()
+            .all(|field| field.name != "id")
+    );
+}
+
+#[test]
+fn a_later_definite_property_overrides_an_ambiguous_helper_contribution() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function fields(child){if(inner)return {id:child.attrString("jid")};return {id:child.attrString("lid")}}function parse(child){if(child.tag()==="a")return babelHelpers.extends(fields(child),{actionType:"one",id:child.attrString("jid")});}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].fields[0].wire_name, "jid");
+    assert!(actions[0].fields[0].required);
+}

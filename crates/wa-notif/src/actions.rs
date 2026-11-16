@@ -573,7 +573,7 @@ struct DispatchKey {
 
 #[derive(Clone)]
 enum TagConstraint {
-    Equal(String),
+    Including(HashSet<String>),
     Excluding(HashSet<String>),
 }
 
@@ -586,18 +586,16 @@ fn joined_constraints(left: &TagConstraints, right: &TagConstraints) -> TagConst
             continue;
         };
         let constraint = match (left, right) {
-            (TagConstraint::Equal(left), TagConstraint::Equal(right)) if left == right => {
-                Some(TagConstraint::Equal(left.clone()))
-            }
-            (TagConstraint::Equal(_), TagConstraint::Equal(_)) => None,
+            (TagConstraint::Including(left), TagConstraint::Including(right)) => Some(
+                TagConstraint::Including(left.union(right).cloned().collect()),
+            ),
             (TagConstraint::Excluding(left), TagConstraint::Excluding(right)) => {
                 let excluded: HashSet<_> = left.intersection(right).cloned().collect();
                 (!excluded.is_empty()).then_some(TagConstraint::Excluding(excluded))
             }
-            (TagConstraint::Equal(value), TagConstraint::Excluding(excluded))
-            | (TagConstraint::Excluding(excluded), TagConstraint::Equal(value)) => {
-                let mut excluded = excluded.clone();
-                excluded.remove(value);
+            (TagConstraint::Including(values), TagConstraint::Excluding(excluded))
+            | (TagConstraint::Excluding(excluded), TagConstraint::Including(values)) => {
+                let excluded: HashSet<_> = excluded.difference(values).cloned().collect();
                 (!excluded.is_empty()).then_some(TagConstraint::Excluding(excluded))
             }
         };
@@ -608,6 +606,7 @@ fn joined_constraints(left: &TagConstraints, right: &TagConstraints) -> TagConst
     joined
 }
 
+#[derive(Clone)]
 struct DispatchState {
     tags: HashMap<String, u32>,
     bindings: Bindings,
@@ -661,15 +660,25 @@ impl SwitchFinder<'_, '_> {
     }
 
     fn constrain_tag(&mut self, key: &DispatchKey, tag: &str, equal: bool) -> bool {
+        if self.constraints.values().any(|constraint| matches!(constraint, TagConstraint::Including(values) if values.is_empty())) { return false; }
         match self.constraints.get_mut(key) {
-            Some(TagConstraint::Equal(known)) => (known == tag) == equal,
+            Some(TagConstraint::Including(known)) => {
+                if equal {
+                    known.retain(|value| value == tag);
+                } else {
+                    known.remove(tag);
+                }
+                !known.is_empty()
+            }
             Some(TagConstraint::Excluding(excluded)) => {
                 if equal {
                     if excluded.contains(tag) {
                         return false;
                     }
-                    self.constraints
-                        .insert(key.clone(), TagConstraint::Equal(tag.to_string()));
+                    self.constraints.insert(
+                        key.clone(),
+                        TagConstraint::Including(HashSet::from([tag.to_string()])),
+                    );
                 } else {
                     excluded.insert(tag.to_string());
                 }
@@ -679,7 +688,7 @@ impl SwitchFinder<'_, '_> {
                 self.constraints.insert(
                     key.clone(),
                     if equal {
-                        TagConstraint::Equal(tag.to_string())
+                        TagConstraint::Including(HashSet::from([tag.to_string()]))
                     } else {
                         TagConstraint::Excluding(HashSet::from([tag.to_string()]))
                     },
@@ -864,18 +873,19 @@ impl SwitchFinder<'_, '_> {
             Statement::BlockStatement(block) => as_refs(&block.body),
             statement => vec![statement],
         };
-        if !list_exits_refs(&run, false) {
+        if !list_exits_refs(&run, true) {
             return;
         }
         let key = self.dispatch_key(value);
         let folds = self.if_actions.entry(key).or_default();
         for action in extract_scoped_action_arm(&tag, &run, self.ctx, &self.bindings) {
             if let Some(fold) = folds.iter_mut().find(|fold| {
-                fold.def.wire_tag == action.wire_tag && fold.def.action_type == action.action_type
+                fold.def.wire_tag == action.def.wire_tag
+                    && fold.def.action_type == action.def.action_type
             }) {
-                fold.absorb(action);
+                fold.absorb_fold(action);
             } else {
-                folds.push(BranchFold::new(action));
+                folds.push(action);
             }
         }
         self.refresh_best();
@@ -1258,6 +1268,45 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         self.join_state(&consequent);
     }
 
+    fn visit_try_statement(&mut self, statement: &oxc_ast::ast::TryStatement<'a>) {
+        let entry = self.state();
+        let try_writes = written_names(&statement.block.body);
+        let prior_candidates = statement
+            .finalizer
+            .as_ref()
+            .is_some_and(|block| terminates(&block.body))
+            .then(|| (self.if_actions.clone(), self.best_other.clone()));
+        self.visit_block_statement(&statement.block);
+        let normal = self.state();
+        let mut catch_writes = HashSet::new();
+        if let Some(handler) = &statement.handler {
+            self.restore_state(entry.clone());
+            for name in &try_writes {
+                self.invalidate_binding(name);
+            }
+            self.visit_catch_clause(handler);
+            let mut writes = WriteNames::default();
+            writes.visit_catch_clause(handler);
+            catch_writes = writes.names;
+            for name in &catch_writes {
+                self.invalidate_binding(name);
+            }
+            self.join_state(&normal);
+        }
+        if let Some(finalizer) = &statement.finalizer {
+            self.restore_state(entry);
+            for name in try_writes.iter().chain(&catch_writes) {
+                self.invalidate_binding(name);
+            }
+            if let Some((actions, other)) = prior_candidates {
+                self.if_actions = actions;
+                self.best_other = other;
+                self.refresh_best();
+            }
+            self.visit_block_statement(finalizer);
+        }
+    }
+
     fn visit_catch_clause(&mut self, handler: &oxc_ast::ast::CatchClause<'a>) {
         let mut formals = self.ctx.formals.clone();
         let mut locals = self.ctx.locals.clone();
@@ -1298,8 +1347,10 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
     }
 
     fn visit_statement(&mut self, statement: &Statement<'a>) {
+        let loop_constraints = loop_body(statement).map(|_| self.constraints.clone());
         walk::walk_statement(self, statement);
-        if loop_body(statement).is_some() || matches!(statement, Statement::TryStatement(_)) {
+        if let Some(constraints) = loop_constraints {
+            self.constraints = constraints;
             let mut names = Vec::new();
             assigned_names(statement, &mut names);
             for name in names {
@@ -1425,7 +1476,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 })
             };
         }
-        self.consider_other(actions);
+        self.consider_other(actions.into_iter().map(BranchFold::finish).collect());
         self.tag_locals = incoming_tags;
         self.bindings = incoming_bindings;
         self.constraints = incoming_constraints;
@@ -1629,6 +1680,18 @@ impl BranchFold {
             dead_children: Conflicts::new(),
             dead_child_fields: HashMap::new(),
         }
+    }
+
+    fn absorb_fold(&mut self, from: BranchFold) {
+        self.dead.extend(from.dead);
+        self.dead_children.extend(from.dead_children);
+        for (name, conflicts) in from.dead_child_fields {
+            self.dead_child_fields
+                .entry(name)
+                .or_default()
+                .extend(conflicts);
+        }
+        self.absorb(from.def);
     }
 
     /// Fold one more branch of the same action into the union.
@@ -1870,6 +1933,9 @@ fn collect_returns_into<'b, 'a>(
                     // masking it makes the handler's `e` resolve to nothing, which is the
                     // truth.
                     let mut catch_scope = scope.clone();
+                    for name in written_names(&t.block.body) {
+                        catch_scope.remove(name.as_str());
+                    }
                     if let Some(param) = h.param.as_ref()
                         && let Some(name) = param.pattern.get_identifier_name()
                     {
@@ -2261,7 +2327,7 @@ fn expand_shape(
     scope: &Scope,
     ctx: &ArmCtx,
     depth: u8,
-) -> Vec<NotifActionDef> {
+) -> Vec<BranchFold> {
     if depth <= MAX_INLINE_DEPTH
         && let Some(src) = local_call_source(deref_ident(result, scope), ctx, scope)
     {
@@ -2368,7 +2434,7 @@ fn expand_helper(
     arg_srcs: &[String],
     ctx: &ArmCtx,
     depth: u8,
-) -> Vec<NotifActionDef> {
+) -> Vec<BranchFold> {
     let alloc = Allocator::default();
     let wrapped = apply_args(fn_src, arg_srcs);
     let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
@@ -2393,14 +2459,14 @@ fn expand_helper(
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
             match merged
                 .iter_mut()
-                .find(|g| g.def.action_type == action.action_type)
+                .find(|g| g.def.action_type == action.def.action_type)
             {
-                Some(fold) => fold.absorb(action),
-                None => merged.push(BranchFold::new(action)),
+                Some(fold) => fold.absorb_fold(action),
+                None => merged.push(action),
             }
         }
     }
-    merged.into_iter().map(BranchFold::finish).collect()
+    merged
 }
 
 /// Read one arm result shape into a [`NotifActionDef`].
@@ -2414,10 +2480,10 @@ fn read_action<'b, 'a>(
     scope: &Scope<'b, 'a>,
     ctx: &ArmCtx,
     depth: u8,
-) -> NotifActionDef {
-    let mut def = empty_action(wire_tag);
+) -> BranchFold {
+    let mut def = BranchFold::new(empty_action(wire_tag));
     fold_shape(result, scope, &mut def, ctx, depth);
-    def.constant_fields.sort_by(|a, b| a.name.cmp(&b.name));
+    def.def.constant_fields.sort_by(|a, b| a.name.cmp(&b.name));
     def
 }
 
@@ -2425,7 +2491,7 @@ fn read_action<'b, 'a>(
 fn fold_shape<'b, 'a>(
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
-    def: &mut NotifActionDef,
+    def: &mut BranchFold,
     ctx: &ArmCtx,
     depth: u8,
 ) {
@@ -2450,7 +2516,11 @@ fn fold_shape<'b, 'a>(
             // child.mapChildrenWithTag("participant", …)` — where every participant
             // list lives). The caller names it after the key it was bound to.
             if let Some(child) = mapped_child("", e, scope, ctx) {
-                def.children.push(child);
+                def.dead_child_fields
+                    .entry(child.def.name.clone())
+                    .or_default()
+                    .extend(child.dead_fields);
+                def.def.children.push(child.def);
             } else if let Some(src) = local_call_source(e, ctx, scope) {
                 inline_local(&src.0, &src.1, def, ctx, depth);
             }
@@ -2519,13 +2589,7 @@ fn local_call_source<'b, 'a>(
 ///
 /// The inlining happens inside this parse's own allocator, so no AST reference escapes
 /// it — the helper's contribution is accumulated straight into `def`.
-fn inline_local(
-    fn_src: &str,
-    arg_srcs: &[String],
-    def: &mut NotifActionDef,
-    ctx: &ArmCtx,
-    depth: u8,
-) {
+fn inline_local(fn_src: &str, arg_srcs: &[String], def: &mut BranchFold, ctx: &ArmCtx, depth: u8) {
     let alloc = Allocator::default();
     // Wrapped in parens so a `function name(…){…}` declaration parses as an expression,
     // and IMMEDIATELY APPLIED to the call site's argument text. A helper that only reads
@@ -2557,17 +2621,16 @@ fn inline_local(
     // carry — the same rule the switch arms use.
     let mut branches: Vec<BranchFold> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &bound) {
-        let mut one = empty_action(String::new());
+        let mut one = BranchFold::new(empty_action(String::new()));
         fold_shape(shape, &scope, &mut one, ctx, depth + 1);
         match branches
             .iter_mut()
-            .find(|b| b.def.action_type == one.action_type)
+            .find(|b| b.def.action_type == one.def.action_type)
         {
-            Some(fold) => fold.absorb(one),
-            None => branches.push(BranchFold::new(one)),
+            Some(fold) => fold.absorb_fold(one),
+            None => branches.push(one),
         }
     }
-    let branches: Vec<NotifActionDef> = branches.into_iter().map(BranchFold::finish).collect();
     // Distinct action types cannot arise here (a value-position helper contributes
     // fields, it does not pick the action), so folding the merged branches in is safe.
     for b in branches {
@@ -2582,9 +2645,14 @@ fn inline_local(
 /// The three collections are three *representations* of one namespace — a shape's keys —
 /// not three independent namespaces. Modelling them separately is what let a key exist
 /// twice in different forms.
+struct ChildShape {
+    def: NotifActionChild,
+    dead_fields: Conflicts,
+}
+
 enum KeyValue {
     Field(NotifActionField),
-    Child(NotifActionChild),
+    Child(ChildShape),
     Const(NotifConstValue),
 }
 
@@ -2595,14 +2663,20 @@ enum KeyValue {
 /// runtime — published a wire-read field *and* a constant both named `id`, and the
 /// reverse order left the stale constant behind. A later write does not merely shadow an
 /// earlier one; it replaces it, whatever form the earlier one took.
-fn write_key(def: &mut NotifActionDef, key: &str, value: KeyValue) {
-    def.fields.retain(|x| x.name != key);
-    def.children.retain(|x| x.name != key);
-    def.constant_fields.retain(|x| x.name != key);
+fn write_key(def: &mut BranchFold, key: &str, value: KeyValue) {
+    def.dead.remove(key);
+    def.dead_children.remove(key);
+    def.dead_child_fields.remove(key);
+    def.def.fields.retain(|x| x.name != key);
+    def.def.children.retain(|x| x.name != key);
+    def.def.constant_fields.retain(|x| x.name != key);
     match value {
-        KeyValue::Field(f) => def.fields.push(f),
-        KeyValue::Child(c) => def.children.push(c),
-        KeyValue::Const(v) => def.constant_fields.push(NotifActionConstant {
+        KeyValue::Field(f) => def.def.fields.push(f),
+        KeyValue::Child(c) => {
+            def.dead_child_fields.insert(key.to_string(), c.dead_fields);
+            def.def.children.push(c.def);
+        }
+        KeyValue::Const(v) => def.def.constant_fields.push(NotifActionConstant {
             name: key.to_string(),
             value: v,
         }),
@@ -2615,24 +2689,56 @@ fn write_key(def: &mut NotifActionDef, key: &str, value: KeyValue) {
 /// `actionType` included — overrides what an earlier operand wrote, the same last-write
 /// rule an object literal follows. Keeping `actionType` on first-write meant
 /// `extends({actionType: A}, helper())` where the helper returns `B` dispatched as `A`.
-fn merge_into(def: &mut NotifActionDef, from: NotifActionDef) {
+fn merge_into(def: &mut BranchFold, from: BranchFold) {
+    let BranchFold {
+        def: from,
+        dead,
+        dead_children,
+        mut dead_child_fields,
+    } = from;
     if from.action_type.is_some() {
-        def.action_type = from.action_type;
+        def.def.action_type = from.action_type;
     }
-    for f in from.fields {
-        let key = f.name.clone();
-        write_key(def, &key, KeyValue::Field(f));
+    for field in from.fields {
+        let name = field.name.clone();
+        if !dead.contains(&name) {
+            write_key(def, &name, KeyValue::Field(field));
+        }
     }
-    for c in from.children {
-        let key = c.name.clone();
-        write_key(def, &key, KeyValue::Child(c));
+    for child in from.children {
+        let name = child.name.clone();
+        if !dead_children.contains(&name) {
+            let conflicts = dead_child_fields.remove(&name).unwrap_or_default();
+            write_key(
+                def,
+                &name,
+                KeyValue::Child(ChildShape {
+                    def: child,
+                    dead_fields: conflicts,
+                }),
+            );
+        }
     }
-    for c in from.constant_fields {
-        write_key(def, &c.name.clone(), KeyValue::Const(c.value));
+    for constant in from.constant_fields {
+        write_key(def, &constant.name, KeyValue::Const(constant.value));
+    }
+    for name in dead.union(&dead_children) {
+        def.def.fields.retain(|field| field.name != *name);
+        def.def.children.retain(|child| child.name != *name);
+        def.def
+            .constant_fields
+            .retain(|constant| constant.name != *name);
+    }
+    def.dead.extend(dead);
+    def.dead_children.extend(dead_children);
+    for (name, conflicts) in dead_child_fields {
+        def.dead_child_fields
+            .entry(name)
+            .or_default()
+            .extend(conflicts);
     }
 }
 
-/// The statement list of a function expression / declaration.
 fn function_body_of<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b [Statement<'a>]> {
     match e {
         Expression::ParenthesizedExpression(p) => function_body_of(&p.expression),
@@ -2646,7 +2752,7 @@ fn function_body_of<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b [Statement<'a>]
 fn fold_object<'b, 'a>(
     obj: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
-    def: &mut NotifActionDef,
+    def: &mut BranchFold,
     ctx: &ArmCtx,
     depth: u8,
 ) {
@@ -2678,7 +2784,7 @@ fn fold_object<'b, 'a>(
             // `o("Mod").OBJECT.MEMBER`, so a fully static literal came back `None` and the
             // arm published no `actionType` at all — indistinguishable from an identity
             // the arm genuinely computes.
-            def.action_type = as_string_lit(value)
+            def.def.action_type = as_string_lit(value)
                 .map(str::to_string)
                 .or_else(|| ctx.consts.resolve(value));
             continue;
@@ -2696,7 +2802,7 @@ fn fold_object<'b, 'a>(
         if let Some(src) = local_call_source(strip_guard(value), ctx, scope)
             && depth < MAX_INLINE_DEPTH
         {
-            let mut nested = empty_action(String::new());
+            let mut nested = BranchFold::new(empty_action(String::new()));
             inline_local(&src.0, &src.1, &mut nested, ctx, depth);
             // A helper that yields nothing is a helper the inliner cannot see through —
             // typically because the value arrives through a PARAMETER
@@ -2708,7 +2814,19 @@ fn fold_object<'b, 'a>(
             // Falling through to `read_field` recovers it: the wire read is in the CALL's
             // arguments, which `find_accessor` already descends into — and it refuses the
             // key outright if two arguments disagree.
-            if nested.children.is_empty() && nested.fields.is_empty() {
+            let shape = nested.clone().finish();
+            let conflicted = !nested.dead.is_empty()
+                || !nested.dead_children.is_empty()
+                || nested
+                    .dead_child_fields
+                    .values()
+                    .any(|conflicts| !conflicts.is_empty());
+            if shape.children.is_empty()
+                && shape.fields.is_empty()
+                && shape.constant_fields.is_empty()
+                && shape.action_type.is_none()
+                && !conflicted
+            {
                 if let Some(field) = read_field(key, value, scope, ctx.consts) {
                     write_key(def, key, KeyValue::Field(field));
                 }
@@ -2723,19 +2841,41 @@ fn fold_object<'b, 'a>(
             // sees an unguarded map — reporting a collection as always present when the
             // falsy path produces none. The guard belongs to the key, not to the helper.
             let outer_absent = guard_admits_absence(value);
-            for mut c in nested.children {
+            for mut c in shape.children {
+                let conflicts = nested.dead_child_fields.remove(&c.name).unwrap_or_default();
                 c.name = key.to_string();
                 c.required &= !outer_absent;
-                write_key(def, key, KeyValue::Child(c));
+                write_key(
+                    def,
+                    key,
+                    KeyValue::Child(ChildShape {
+                        def: c,
+                        dead_fields: conflicts,
+                    }),
+                );
             }
             // Fields carry the same guard as children above. A helper whose branches
             // yield a mapped collection in one and a flat object in the other contributes
             // both kinds under `cond && helper(node)`, and only the collection was being
             // weakened — leaving a genuinely optional field marked required.
-            for mut f in nested.fields {
+            for mut f in shape.fields {
                 f.required &= !outer_absent;
                 let fkey = f.name.clone();
                 write_key(def, &fkey, KeyValue::Field(f));
+            }
+            for name in &nested.dead {
+                def.def.fields.retain(|field| field.name != *name);
+            }
+            def.dead.extend(nested.dead);
+            if !nested.dead_children.is_empty() {
+                def.def.children.retain(|child| child.name != key);
+                def.dead_children.insert(key.to_string());
+            }
+            for conflicts in nested.dead_child_fields.into_values() {
+                def.dead_child_fields
+                    .entry(key.to_string())
+                    .or_default()
+                    .extend(conflicts);
             }
             continue;
         }
@@ -2770,7 +2910,7 @@ fn mapped_child<'b, 'a>(
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
     ctx: &ArmCtx,
-) -> Option<NotifActionChild> {
+) -> Option<ChildShape> {
     // Either branch may carry the map. `strip_guard` always follows the consequent, so
     // `disabled ? 0 : node.mapChildrenWithTag(…)` — the same shape written the other way
     // round — dropped the child entirely, while the absence check beside it already looks
@@ -2785,28 +2925,32 @@ fn mapped_child<'b, 'a>(
     let call = find_mapped_call(e)?;
     let wire_tag = arg_expr(call.arguments.first()?).and_then(as_string_lit)?;
     let mut fields = Vec::new();
+    let mut dead_fields = Conflicts::new();
     for arg in &call.arguments {
         if let Some(e) = arg_expr(arg) {
-            collect_accessor_fields(e, scope, ctx, &mut fields);
+            collect_accessor_fields(e, scope, ctx, &mut fields, &mut dead_fields);
         }
     }
-    Some(NotifActionChild {
-        // `strip_guard` above deliberately reaches THROUGH a guard to find the map call,
-        // so `participants: enabled && node.mapChildrenWithTag(…)` is recovered — and on
-        // that path there is a legal execution with no collection at all. Reporting it
-        // required regardless promised a consumer a collection that may never arrive,
-        // and `BranchFold` cannot correct it: the guard sits inside one object shape
-        // rather than splitting the arm into branches it could merge.
-        //
-        // What it is NOT is `!is_guarded(e)`. `read_field` runs `value_selection` before
-        // consulting the guard precisely because a ternary between two REAL values is a
-        // choice of source, not an absence — and the one live case here is exactly that:
-        // `requests: t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]` always
-        // yields a collection. Only a literal absence on the far side makes it optional.
-        required: !guard_admits_absence(e),
-        name: key.to_string(),
-        wire_tag: wire_tag.to_string(),
-        fields,
+    Some(ChildShape {
+        dead_fields,
+        def: NotifActionChild {
+            // `strip_guard` above deliberately reaches THROUGH a guard to find the map call,
+            // so `participants: enabled && node.mapChildrenWithTag(…)` is recovered — and on
+            // that path there is a legal execution with no collection at all. Reporting it
+            // required regardless promised a consumer a collection that may never arrive,
+            // and `BranchFold` cannot correct it: the guard sits inside one object shape
+            // rather than splitting the arm into branches it could merge.
+            //
+            // What it is NOT is `!is_guarded(e)`. `read_field` runs `value_selection` before
+            // consulting the guard precisely because a ternary between two REAL values is a
+            // choice of source, not an absence — and the one live case here is exactly that:
+            // `requests: t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]` always
+            // yields a collection. Only a literal absence on the far side makes it optional.
+            required: !guard_admits_absence(e),
+            name: key.to_string(),
+            wire_tag: wire_tag.to_string(),
+            fields,
+        },
     })
 }
 
@@ -3243,6 +3387,7 @@ fn collect_accessor_fields<'b, 'a>(
     outer: &Scope<'b, 'a>,
     ctx: &ArmCtx,
     out: &mut Vec<NotifActionField>,
+    conflicts: &mut Conflicts,
 ) {
     let consts = ctx.consts;
     // No whole-body pre-pass. `collect_returns` installs the callback's own `var`
@@ -3285,10 +3430,10 @@ fn collect_accessor_fields<'b, 'a>(
             // child its whole field list. Scope still binding the name is what separates
             // the two — a terminal module name is not bound by the caller, a cycle's is.
             match as_identifier(resolved) {
-                None => collect_accessor_fields(resolved, outer, ctx, out),
+                None => collect_accessor_fields(resolved, outer, ctx, out, conflicts),
                 Some(inner) if outer.get(inner).is_none() => {
                     if let Some(src) = ctx.locals.get(inner) {
-                        collect_named_callback_fields(src, ctx, out);
+                        collect_named_callback_fields(src, ctx, out, conflicts);
                     }
                 }
                 Some(_) => {}
@@ -3299,7 +3444,7 @@ fn collect_accessor_fields<'b, 'a>(
             .filter(|n| outer.get(n).is_none())
             .and_then(|n| ctx.locals.get(n))
         {
-            collect_named_callback_fields(src, ctx, out);
+            collect_named_callback_fields(src, ctx, out, conflicts);
         }
         return;
     }
@@ -3348,6 +3493,7 @@ fn collect_accessor_fields<'b, 'a>(
         }
         apply_conflicts(&mut merged, &dead);
     }
+    conflicts.extend(dead);
     for f in merged {
         if !out.iter().any(|x| x.name == f.name) {
             out.push(f);
@@ -3359,7 +3505,12 @@ fn collect_accessor_fields<'b, 'a>(
 /// allocator the way the value-position helpers are inlined.
 ///
 /// The returned fields are owned, so nothing from that parse escapes it.
-fn collect_named_callback_fields(fn_src: &str, ctx: &ArmCtx, out: &mut Vec<NotifActionField>) {
+fn collect_named_callback_fields(
+    fn_src: &str,
+    ctx: &ArmCtx,
+    out: &mut Vec<NotifActionField>,
+    conflicts: &mut Conflicts,
+) {
     let alloc = Allocator::default();
     let wrapped = format!("({fn_src})");
     let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
@@ -3379,7 +3530,7 @@ fn collect_named_callback_fields(fn_src: &str, ctx: &ArmCtx, out: &mut Vec<Notif
         other => other,
     };
     let mut fields = Vec::new();
-    collect_accessor_fields(func, &Scope::new(), ctx, &mut fields);
+    collect_accessor_fields(func, &Scope::new(), ctx, &mut fields, conflicts);
     for f in fields {
         if !out.iter().any(|x| x.name == f.name) {
             out.push(f);
@@ -3487,14 +3638,14 @@ fn same_wire_read(a: &NotifActionField, b: &NotifActionField) -> bool {
         && a.unknown_value == b.unknown_value
 }
 
-fn extract_action_arm(wire_tag: &str, run: &[&Statement], ctx: &ArmCtx) -> Vec<NotifActionDef> {
+fn extract_action_arm(wire_tag: &str, run: &[&Statement], ctx: &ArmCtx) -> Vec<BranchFold> {
     let mut out = Vec::new();
     let shapes = arm_result_shapes_of(run);
     if shapes.is_empty() {
         // A recognised tag whose arm returns no shape (a bare flag set, an early
         // break). Still catalogued: knowing the tag is dispatched at all beats
         // omitting it.
-        out.push(empty_action(wire_tag.to_string()));
+        out.push(BranchFold::new(empty_action(wire_tag.to_string())));
         return out;
     }
     // An arm can branch into more than one shape. Which of the two it is matters:
@@ -3509,14 +3660,14 @@ fn extract_action_arm(wire_tag: &str, run: &[&Statement], ctx: &ArmCtx) -> Vec<N
         for action in expand_shape(wire_tag, shape, &scope, ctx, 0) {
             match grouped
                 .iter_mut()
-                .find(|g| g.def.action_type == action.action_type)
+                .find(|g| g.def.action_type == action.def.action_type)
             {
-                Some(fold) => fold.absorb(action),
-                None => grouped.push(BranchFold::new(action)),
+                Some(fold) => fold.absorb_fold(action),
+                None => grouped.push(action),
             }
         }
     }
-    out.extend(grouped.into_iter().map(BranchFold::finish));
+    out.extend(grouped);
     out
 }
 
@@ -3580,6 +3731,57 @@ impl<'a> Visit<'a> for WriteNames<'_> {
             );
         }
         self.visit_block_statement(&clause.body);
+        self.shadowed = outer;
+    }
+    fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+        walk::walk_call_expression(self, call);
+        let Some(function) = wa_oxc::directly_invoked_function(call) else {
+            return;
+        };
+        let (parameters, body, name, generator): (
+            &oxc_ast::ast::FormalParameters<'a>,
+            Option<&oxc_ast::ast::FunctionBody<'a>>,
+            Option<&str>,
+            bool,
+        ) = match function {
+            Expression::FunctionExpression(function) => (
+                &function.params,
+                function.body.as_ref().map(|body| body.as_ref()),
+                function.id.as_ref().map(|id| id.name.as_str()),
+                function.generator,
+            ),
+            Expression::ArrowFunctionExpression(function) => {
+                (&function.params, Some(&function.body), None, false)
+            }
+            _ => return,
+        };
+        let outer = self.shadowed.clone();
+        if let Some(name) = name {
+            self.shadowed.insert(name.to_string());
+        }
+        for parameter in &parameters.items {
+            self.shadowed.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        if let Some(rest) = &parameters.rest {
+            self.shadowed.extend(
+                rest.rest
+                    .argument
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        self.visit_formal_parameters(parameters);
+        if !generator && let Some(body) = body {
+            self.shadowed.extend(wa_oxc::function_body_bindings(body));
+            self.visit_function_body(body);
+        }
         self.shadowed = outer;
     }
     fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
@@ -3707,7 +3909,7 @@ fn extract_scoped_action_arm(
     run: &[&Statement],
     ctx: &ArmCtx,
     bindings: &Bindings,
-) -> Vec<NotifActionDef> {
+) -> Vec<BranchFold> {
     if !bindings
         .values()
         .any(|value| matches!(value, SavedBinding::Expression { .. }))
