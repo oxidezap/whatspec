@@ -97,6 +97,8 @@ impl Transports {
                     exports: HashMap<String, Option<String>>,
                     rewritten: HashSet<String>,
                     shadowed: HashSet<String>,
+                    loaders: HashSet<String>,
+                    opaque: bool,
                 }
                 impl<'a> Visit<'a> for Exports {
                     fn visit_function(
@@ -142,6 +144,71 @@ impl Transports {
                             );
                         }
                         self.visit_block_statement(&clause.body);
+                        self.shadowed = outer;
+                    }
+                    fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {
+                        self.opaque = true;
+                    }
+                    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+                        walk::walk_call_expression(self, call);
+                        let Some(function) = wa_oxc::directly_invoked_function(call) else {
+                            let loader = as_identifier(&call.callee).is_some_and(|name| {
+                                self.loaders.contains(name) && !self.shadowed.contains(name)
+                            });
+                            self.opaque |= !loader
+                                || call.arguments.len() != 1
+                                || call
+                                    .arguments
+                                    .first()
+                                    .and_then(arg_expr)
+                                    .and_then(as_string_lit)
+                                    .is_none();
+                            return;
+                        };
+                        let (parameters, body, name, generator): (
+                            &oxc_ast::ast::FormalParameters<'a>,
+                            Option<&oxc_ast::ast::FunctionBody<'a>>,
+                            Option<&str>,
+                            bool,
+                        ) = match function {
+                            Expression::FunctionExpression(function) => (
+                                &function.params,
+                                function.body.as_ref().map(|body| body.as_ref()),
+                                function.id.as_ref().map(|id| id.name.as_str()),
+                                function.generator,
+                            ),
+                            Expression::ArrowFunctionExpression(function) => {
+                                (&function.params, Some(&function.body), None, false)
+                            }
+                            _ => return,
+                        };
+                        let outer = self.shadowed.clone();
+                        if let Some(name) = name {
+                            self.shadowed.insert(name.to_string());
+                        }
+                        for parameter in &parameters.items {
+                            self.shadowed.extend(
+                                parameter
+                                    .pattern
+                                    .get_binding_identifiers()
+                                    .iter()
+                                    .map(|id| id.name.to_string()),
+                            );
+                        }
+                        if let Some(rest) = &parameters.rest {
+                            self.shadowed.extend(
+                                rest.rest
+                                    .argument
+                                    .get_binding_identifiers()
+                                    .iter()
+                                    .map(|id| id.name.to_string()),
+                            );
+                        }
+                        self.visit_formal_parameters(parameters);
+                        if !generator && let Some(body) = body {
+                            self.shadowed.extend(wa_oxc::function_body_bindings(body));
+                            self.visit_function_body(body);
+                        }
                         self.shadowed = outer;
                     }
                     fn visit_variable_declarator(
@@ -192,8 +259,25 @@ impl Transports {
                     exports: HashMap::new(),
                     rewritten: HashSet::new(),
                     shadowed: HashSet::new(),
+                    loaders: factory
+                        .params
+                        .items
+                        .iter()
+                        .skip(1)
+                        .take(3)
+                        .filter_map(|parameter| {
+                            parameter
+                                .pattern
+                                .get_identifier_name()
+                                .map(|name| name.to_string())
+                        })
+                        .collect(),
+                    opaque: false,
                 };
                 exports.visit_function_body(body);
+                if exports.opaque {
+                    continue;
+                }
                 functions.retain(|name, _| !exports.rewritten.contains(*name));
                 for (export, local) in exports.exports {
                     let Some(local) = local else { continue };
@@ -398,6 +482,18 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             walk::walk_for_of_statement(self, statement);
             self.suspended |= statement.r#await;
         }
+        fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+            let outer = self.shadowed;
+            if let Some(parameter) = &clause.param {
+                for identifier in parameter.pattern.get_binding_identifiers() {
+                    for (index, name) in self.params.iter().enumerate() {
+                        self.shadowed[index] |= identifier.name == *name;
+                    }
+                }
+            }
+            self.visit_block_statement(&clause.body);
+            self.shadowed = outer;
+        }
         fn visit_await_expression(&mut self, expression: &oxc_ast::ast::AwaitExpression<'a>) {
             walk::walk_await_expression(self, expression);
             self.suspended = true;
@@ -447,7 +543,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             walk::walk_call_expression(self, call);
             if forward {
                 self.sends += 1;
-                self.invalid |= self.suspended;
+                self.invalid |= self.suspended || self.shadowed.iter().any(|shadowed| *shadowed);
             }
         }
     }
@@ -648,4 +744,74 @@ fn ordinary_iteration_before_forwarding_remains_synchronous() {
             .0
             .contains(&("Wrapper".into(), "custom".into()))
     );
+}
+
+#[cfg(test)]
+#[test]
+fn caught_values_cannot_replace_forwarded_parameters() {
+    for parameter in ["op", "vars"] {
+        let source = format!(
+            r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{function send(op,vars){{try{{throw marker}}catch({parameter}){{return o("Relay").fetchQuery(op,vars)}}}}l.custom=send;}});"#
+        );
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{parameter}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn catch_shadowing_in_deferred_code_does_not_replace_outer_arguments() {
+    let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function send(op,vars){function logger(){try{}catch(vars){log(vars)}}return o("Relay").fetchQuery(op,vars)}l.custom=send;});"#;
+    let definitions = wa_transform::extract_module_definitions(source);
+    assert!(
+        Transports::build(source, &definitions)
+            .0
+            .contains(&("Wrapper".into(), "custom".into()))
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn immediately_invoked_functions_cannot_hide_helper_replacements() {
+    for replacement in [
+        r#"(()=>{send=changed})()"#,
+        r#"(function(){send=changed})()"#,
+    ] {
+        let source = format!(
+            r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{function send(op,vars){{return o("Relay").fetchQuery(op,vars)}}{replacement};l.custom=send;}});"#
+        );
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{replacement}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn immediate_calls_respect_local_bindings_and_generator_initialization() {
+    for (invocation, qualified) in [
+        (r#"(function(){var send=changed})()"#, true),
+        (r#"((send)=>{send=changed})(value)"#, true),
+        (r#"(function*(){send=changed})()"#, true),
+        (r#"(function*(x=(send=changed)){})()"#, false),
+        (r#"(function(x=(send=changed)){var send})()"#, false),
+        (r#"(()=>()=>{send=changed})()()"#, false),
+    ] {
+        let source = format!(
+            r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{function send(op,vars){{return o("Relay").fetchQuery(op,vars)}}{invocation};l.custom=send;}});"#
+        );
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert_eq!(
+            Transports::build(&source, &definitions)
+                .0
+                .contains(&("Wrapper".into(), "custom".into())),
+            qualified,
+            "{invocation}"
+        );
+    }
 }
