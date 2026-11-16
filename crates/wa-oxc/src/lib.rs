@@ -255,6 +255,7 @@ pub fn assignment_target_names(target: &AssignmentTarget<'_>) -> std::collection
             if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target {
                 self.0.insert(id.name.to_string());
             }
+            walk::walk_simple_assignment_target(self, target);
         }
         fn visit_assignment_target_property_identifier(
             &mut self,

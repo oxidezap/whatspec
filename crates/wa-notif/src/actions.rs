@@ -878,6 +878,8 @@ impl SwitchFinder<'_, '_> {
             }
         }
         self.tag_locals = saved_tags;
+        self.constraints
+            .retain(|key, _| self.tag_locals.contains_key(&key.expression));
     }
 
     fn save_binding(&mut self, name: &str, expression: &Expression) {
@@ -1453,6 +1455,9 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 ..Default::default()
             };
             writes.visit_call_expression(call);
+            if writes.objects {
+                self.invalidate_object(&call.callee);
+            }
             for name in writes.names {
                 self.invalidate_binding(&name);
             }
@@ -2419,6 +2424,40 @@ fn loop_body<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b Statement<'a>> {
     }
 }
 
+fn invalidate_scope_objects(scope: &mut Scope) {
+    let mut dependents: HashMap<String, Vec<&str>> = HashMap::new();
+    let mut removed = HashSet::new();
+    for (name, value) in scope.iter() {
+        let resolved = deref_ident(value, scope);
+        if saved_value_kind(resolved) != SavedValueKind::Primitive
+            && as_identifier(resolved).is_none()
+        {
+            removed.insert(*name);
+        }
+        for dependency in expression_references(value) {
+            dependents.entry(dependency).or_default().push(*name);
+        }
+    }
+    let mut pending: Vec<_> = removed.iter().copied().collect();
+    while let Some(name) = pending.pop() {
+        for dependent in dependents.get(name).into_iter().flatten() {
+            if removed.insert(*dependent) {
+                pending.push(*dependent);
+            }
+        }
+    }
+    scope.retain(|name, _| !removed.contains(name));
+}
+
+fn apply_unknown_writes(writes: WriteNames<'_>, scope: &mut Scope) {
+    if writes.objects {
+        invalidate_scope_objects(scope);
+    }
+    for name in writes.names {
+        scope.remove(name.as_str());
+    }
+}
+
 fn apply_expression_effects<'b, 'a>(expression: &'b Expression<'a>, scope: &mut Scope<'b, 'a>) {
     match expression.without_parentheses() {
         Expression::AssignmentExpression(assignment) => {
@@ -2430,6 +2469,9 @@ fn apply_expression_effects<'b, 'a>(expression: &'b Expression<'a>, scope: &mut 
                     scope.remove(name);
                 }
             } else {
+                if wa_oxc::assignment_target_has_member(&assignment.left) {
+                    invalidate_scope_objects(scope);
+                }
                 for name in wa_oxc::assignment_target_names(&assignment.left) {
                     scope.remove(name.as_str());
                 }
@@ -2448,25 +2490,19 @@ fn apply_expression_effects<'b, 'a>(expression: &'b Expression<'a>, scope: &mut 
             apply_expression_effects(&logical.left, scope);
             let mut writes = WriteNames::default();
             writes.visit_expression(&logical.right);
-            for name in writes.names {
-                scope.remove(name.as_str());
-            }
+            apply_unknown_writes(writes, scope);
         }
         Expression::ConditionalExpression(conditional) => {
             apply_expression_effects(&conditional.test, scope);
             let mut writes = WriteNames::default();
             writes.visit_expression(&conditional.consequent);
             writes.visit_expression(&conditional.alternate);
-            for name in writes.names {
-                scope.remove(name.as_str());
-            }
+            apply_unknown_writes(writes, scope);
         }
         _ => {
             let mut writes = WriteNames::default();
             writes.visit_expression(expression);
-            for name in writes.names {
-                scope.remove(name.as_str());
-            }
+            apply_unknown_writes(writes, scope);
         }
     }
 }
@@ -2495,9 +2531,9 @@ fn replay_writes<'b, 'a>(stmts: &'b [Statement<'a>], scope: &mut Scope<'b, 'a>) 
 /// Drop every binding a conditional construct may have reassigned, so statements after
 /// the rejoin do not read a value that only one path wrote.
 fn tombstone_branch_writes(s: &Statement, scope: &mut Scope) {
-    for name in written_names(std::slice::from_ref(s)) {
-        scope.remove(name.as_str());
-    }
+    let mut writes = WriteNames::default();
+    writes.visit_statement(s);
+    apply_unknown_writes(writes, scope);
 }
 
 fn collect_branches<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>>) {
@@ -3935,12 +3971,20 @@ struct HelperDefinitions<'s> {
 #[derive(Default)]
 struct WriteNames<'s> {
     names: HashSet<String>,
+    objects: bool,
     originals: Option<HelperDefinitions<'s>>,
     helpers: Option<&'s HashMap<String, String>>,
     helper_scope: Option<&'s HashSet<String>>,
     visiting: HashSet<String>,
     shadowed: HashSet<String>,
     mode: wa_oxc::StrictMode,
+}
+
+impl WriteNames<'_> {
+    fn object_write(&mut self, receiver: &Expression) {
+        self.objects |= !as_identifier(receiver.without_parentheses())
+            .is_some_and(|name| self.shadowed.contains(name));
+    }
 }
 
 impl<'a> Visit<'a> for WriteNames<'_> {
@@ -4060,10 +4104,15 @@ impl<'a> Visit<'a> for WriteNames<'_> {
         walk::walk_for_statement_left(self, left);
     }
     fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
-        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left)
-            && !self.shadowed.contains(name)
-        {
-            self.names.insert(name.to_string());
+        for name in wa_oxc::assignment_target_names(&assignment.left) {
+            if !self.shadowed.contains(&name) {
+                self.names.insert(name);
+            }
+        }
+        if let Some(member) = assignment.left.as_member_expression() {
+            self.object_write(member.object());
+        } else {
+            self.objects |= wa_oxc::assignment_target_has_member(&assignment.left);
         }
         walk::walk_assignment_expression(self, assignment);
     }
@@ -4093,7 +4142,21 @@ impl<'a> Visit<'a> for WriteNames<'_> {
         {
             self.names.insert(id.name.to_string());
         }
+        if let Some(member) = update.argument.as_member_expression() {
+            self.object_write(member.object());
+        }
         walk::walk_update_expression(self, update);
+    }
+    fn visit_unary_expression(&mut self, expression: &oxc_ast::ast::UnaryExpression<'a>) {
+        if expression.operator == oxc_syntax::operator::UnaryOperator::Delete
+            && let Some(member) = expression
+                .argument
+                .without_parentheses()
+                .as_member_expression()
+        {
+            self.object_write(member.object());
+        }
+        walk::walk_unary_expression(self, expression);
     }
 }
 

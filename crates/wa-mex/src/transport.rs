@@ -127,6 +127,7 @@ impl<'a> Visit<'a> for BindingWrites {
         {
             self.names.insert(id.name.to_string());
         }
+        walk::walk_simple_assignment_target(self, target);
     }
     fn visit_function(&mut self, function: &Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
         let outer = self.shadowed.clone();
@@ -1348,6 +1349,7 @@ fn module_loaders_respect_nested_bindings_and_captured_writes() {
     for (setup, expected) in [
         ("function local(o){o=changed}", true),
         ("var o;", true),
+        (r#"o[(o=fake,"x")]=0;"#, false),
         ("for(var o of [fake]){}", false),
         ("for(var o in values){}", false),
         ("for(let o of values){o=normalize(o)}", true),

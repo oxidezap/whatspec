@@ -3324,3 +3324,39 @@ fn deleted_action_properties_cannot_remain_required() {
         );
     }
 }
+
+#[test]
+fn arm_local_object_mutations_and_destructured_branches_do_not_keep_stale_fields() {
+    for mutation in [
+        "delete result.id",
+        "result.id++",
+        "result.id=child.attrInt(\"other\")",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{if(child.tag()==="a"){{var result={{actionType:"one",id:child.attrInt("id")}};{mutation};return result;}}}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.is_empty()),
+            "{mutation}"
+        );
+    }
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id"),count=child.attrInt("count");if(child.tag()==="a"){if(flag)({id,count}=other);return {actionType:"one",id,count};}}});"#;
+    assert!(dispatch_actions(source)[0].fields.is_empty());
+}
+
+#[test]
+fn receiver_mutations_separate_fresh_reads_from_captured_tags() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(child.tag==="a"){child.tag="b";if(child.tag==="b")return {actionType:"one"};return {actionType:"wrong"};}}});"#;
+    let actions = dispatch_actions(source);
+    assert!(
+        actions
+            .iter()
+            .any(|action| action.action_type.as_deref() == Some("one"))
+    );
+    let captured = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag;if(tag==="a"){child.tag="b";if(tag==="b")return {actionType:"wrong"};return {actionType:"one"};}}});"#;
+    let actions = dispatch_actions(captured);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
