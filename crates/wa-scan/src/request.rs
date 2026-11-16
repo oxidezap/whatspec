@@ -321,10 +321,40 @@ impl VarScope {
         if self.bundled_rpc { 32 } else { MAX_FN_DEPTH }
     }
 
+    fn has_destructured_write(&self, name: &str, offset: Option<usize>) -> bool {
+        let Some(offset) = offset else {
+            return false;
+        };
+        let binding_width = self
+            .vars
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter(|init| {
+                init.owner_fn
+                    .is_none_or(|(start, end)| start <= offset && offset < end)
+            })
+            .map(|init| {
+                init.owner_fn
+                    .map(|(start, end)| end - start)
+                    .unwrap_or(usize::MAX)
+            })
+            .min()
+            .unwrap_or(usize::MAX);
+        self.destructured_writes
+            .get(name)
+            .into_iter()
+            .flatten()
+            .any(|(start, end)| *start <= offset && offset < *end && end - start <= binding_width)
+    }
+
     /// Resolve the closest visible binding before asking whether it is a function.
     /// A nearer variable or formal shadows an outer helper too.
     fn visible_function(&self, name: &str, ref_off: Option<usize>) -> Option<(usize, usize)> {
         let offset = ref_off?;
+        if self.has_destructured_write(name, ref_off) {
+            return None;
+        }
         let initializers = self.vars.get(name)?;
         let visible = |init: &&VarInit| {
             init.owner_fn
@@ -1312,6 +1342,9 @@ pub(crate) fn resolve_child_node(
 
     // Case 2: variable reference — try every initializer (re-parsing its slice).
     if let Some(name) = as_identifier(node) {
+        if scope.has_destructured_write(name, ref_off) {
+            return Vec::new();
+        }
         if let Some(inits) = scope.vars.get(name) {
             for init in inits {
                 // A function-scoped initializer (`owner_fn`, i.e. a declaration or
@@ -2069,6 +2102,20 @@ fn resolve_function_returns_each(
     let parsed = wa_oxc::parse_cjs(&alloc, body);
     let mut merged = build_scoped_var_scope(&parsed.program);
     merged.local_merges = scope.local_merges.clone();
+    for owners in merged.destructured_writes.values_mut() {
+        for (start, end) in owners {
+            *start += body_start;
+            *end += body_start;
+        }
+    }
+    for (name, owners) in &scope.destructured_writes {
+        merged
+            .destructured_writes
+            .entry(name.clone())
+            .or_default()
+            .extend(owners.iter().copied());
+    }
+
     merged.non_sync_functions = merged
         .non_sync_functions
         .into_iter()
@@ -4355,6 +4402,16 @@ mod bundled_merge_tests {
         assert!(
             bundled_rpc_requests(
                 &asynchronous,
+                &HelperIndex::default(),
+                &MixinContributions::new()
+            )
+            .is_empty()
+        );
+        let helper_replaced =
+            source.replace("return compose(", "[compose]=[changed];return compose(");
+        assert!(
+            bundled_rpc_requests(
+                &helper_replaced,
                 &HelperIndex::default(),
                 &MixinContributions::new()
             )

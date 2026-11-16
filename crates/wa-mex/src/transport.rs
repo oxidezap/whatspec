@@ -802,6 +802,7 @@ fn forwards<'a>(
             };
             let runtime = as_member(&call.callee)
                 .and_then(|(owner, _)| as_call(owner))
+                .filter(|call| loaders.contains(&call.span.start))
                 .and_then(|owner| owner.arguments.first())
                 .and_then(arg_expr)
                 .and_then(as_string_lit);
@@ -841,6 +842,32 @@ fn apply_target<'b>(expression: &'b Expression<'_>) -> Option<&'b str> {
         return None;
     }
     as_identifier(target)
+}
+
+fn statement_exits(statement: &Statement<'_>) -> bool {
+    match statement {
+        Statement::ReturnStatement(_)
+        | Statement::ThrowStatement(_)
+        | Statement::BreakStatement(_)
+        | Statement::ContinueStatement(_) => true,
+        Statement::BlockStatement(block) => block.body.iter().any(statement_exits),
+        Statement::IfStatement(branch) => {
+            statement_exits(&branch.consequent)
+                && branch.alternate.as_ref().is_some_and(statement_exits)
+        }
+        Statement::TryStatement(statement) => {
+            statement
+                .finalizer
+                .as_ref()
+                .is_some_and(|body| body.body.iter().any(statement_exits))
+                || (statement.block.body.iter().any(statement_exits)
+                    && statement
+                        .handler
+                        .as_ref()
+                        .is_none_or(|handler| handler.body.body.iter().any(statement_exits)))
+        }
+        _ => false,
+    }
 }
 
 fn direct(
@@ -897,13 +924,27 @@ fn direct(
         loaders: &'s HashSet<u32>,
     }
     impl<'a> Visit<'a> for Probe<'_> {
+        fn visit_function_body(&mut self, body: &oxc_ast::ast::FunctionBody<'a>) {
+            for statement in &body.statements {
+                self.visit_statement(statement);
+                if statement_exits(statement) {
+                    break;
+                }
+            }
+        }
+
         fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
             let outer = self.shadowed;
             let names = wa_oxc::block_bindings(&block.body);
             for (index, name) in self.params.iter().enumerate() {
                 self.shadowed[index] |= names.contains(*name);
             }
-            walk::walk_block_statement(self, block);
+            for statement in &block.body {
+                self.visit_statement(statement);
+                if statement_exits(statement) {
+                    break;
+                }
+            }
             self.shadowed = outer;
         }
         fn visit_function(
@@ -1379,4 +1420,21 @@ fn apply_forwarders_cannot_replace_reachable_module_helpers() {
     let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function invoke(op,vars){return next.apply(this,arguments)}function next(op,vars){next=changed;return o("Relay").fetchQuery(op,vars)}function changed(op,vars){return o("Relay").fetchQuery(op,{wrapped:vars})}l.send=invoke;});"#;
     let definitions = wa_transform::extract_module_definitions(source);
     assert!(Transports::build(source, &definitions).0.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn lowered_runtimes_need_loaders_and_dead_dispatches_are_not_forwarders() {
+    for body in [
+        r#"function send(op,vars){return null;return o("Relay").fetchQuery(op,vars)}"#,
+        r#"function send(op,vars){if(flag)return null;else throw fail;return o("Relay").fetchQuery(op,vars)}"#,
+        r#"function send(op,vars){return next.apply(this,arguments)}function next(){return next=fake("asyncToGeneratorRuntime").asyncToGenerator(function*(op,vars){return yield o("Relay").fetchQuery(op,vars)}),next.apply(this,arguments)}"#,
+    ] {
+        let source = format!(r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{{body}l.send=send;}});"#);
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{body}"
+        );
+    }
 }
