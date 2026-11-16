@@ -194,15 +194,133 @@ pub fn directly_invoked_function<'b, 'a>(
     .then_some(function)
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum StrictMode {
+    Strict,
+    Sloppy,
+    #[default]
+    Unknown,
+}
+
+impl StrictMode {
+    pub fn for_body(self, body: &oxc_ast::ast::FunctionBody<'_>) -> Self {
+        if body.has_use_strict_directive() {
+            Self::Strict
+        } else {
+            self
+        }
+    }
+}
+
+pub fn block_bindings(statements: &[Statement<'_>]) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for statement in statements {
+        match statement {
+            Statement::VariableDeclaration(declaration) if !declaration.kind.is_var() => {
+                for binding in &declaration.declarations {
+                    names.extend(
+                        binding
+                            .id
+                            .get_binding_identifiers()
+                            .iter()
+                            .map(|id| id.name.to_string()),
+                    );
+                }
+            }
+            Statement::FunctionDeclaration(function) => {
+                if let Some(id) = &function.id {
+                    names.insert(id.name.to_string());
+                }
+            }
+            Statement::ClassDeclaration(class) => {
+                if let Some(id) = &class.id {
+                    names.insert(id.name.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+pub fn assignment_target_names(target: &AssignmentTarget<'_>) -> std::collections::HashSet<String> {
+    use oxc_ast_visit::{Visit, walk};
+    #[derive(Default)]
+    struct Targets(std::collections::HashSet<String>);
+    impl<'a> Visit<'a> for Targets {
+        fn visit_simple_assignment_target(
+            &mut self,
+            target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
+        ) {
+            if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target {
+                self.0.insert(id.name.to_string());
+            }
+        }
+        fn visit_assignment_target_property_identifier(
+            &mut self,
+            property: &oxc_ast::ast::AssignmentTargetPropertyIdentifier<'a>,
+        ) {
+            self.0.insert(property.binding.name.to_string());
+            if let Some(init) = &property.init {
+                self.visit_expression(init);
+            }
+        }
+        fn visit_expression(&mut self, expression: &Expression<'a>) {
+            if matches!(
+                expression,
+                Expression::FunctionExpression(_)
+                    | Expression::ArrowFunctionExpression(_)
+                    | Expression::ClassExpression(_)
+            ) {
+                return;
+            }
+            walk::walk_expression(self, expression);
+        }
+    }
+    let mut targets = Targets::default();
+    targets.visit_assignment_target(target);
+    targets.0
+}
+
+pub fn assignment_target_has_member(target: &AssignmentTarget<'_>) -> bool {
+    use oxc_ast_visit::{Visit, walk};
+    #[derive(Default)]
+    struct Members(bool);
+    impl<'a> Visit<'a> for Members {
+        fn visit_simple_assignment_target(
+            &mut self,
+            target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
+        ) {
+            self.0 |= target.as_member_expression().is_some();
+        }
+        fn visit_expression(&mut self, expression: &Expression<'a>) {
+            if matches!(
+                expression,
+                Expression::FunctionExpression(_)
+                    | Expression::ArrowFunctionExpression(_)
+                    | Expression::ClassExpression(_)
+            ) {
+                return;
+            }
+            walk::walk_expression(self, expression);
+        }
+    }
+    let mut members = Members::default();
+    members.visit_assignment_target(target);
+    members.0
+}
+
 /// Function-scoped variables and body declarations, excluding nested function interiors.
 pub fn function_body_bindings(
     body: &oxc_ast::ast::FunctionBody<'_>,
+    mode: StrictMode,
 ) -> std::collections::HashSet<String> {
     use oxc_ast_visit::{Visit, walk};
     #[derive(Default)]
     struct Binder {
         names: std::collections::HashSet<String>,
         depth: usize,
+        mode: StrictMode,
     }
     impl<'a> Visit<'a> for Binder {
         fn visit_variable_declaration(
@@ -250,12 +368,16 @@ pub fn function_body_bindings(
         fn visit_statement(&mut self, statement: &Statement<'a>) {
             match statement {
                 Statement::FunctionDeclaration(function) => {
-                    if let Some(id) = &function.id {
+                    if (self.depth == 0 || self.mode == StrictMode::Sloppy)
+                        && let Some(id) = &function.id
+                    {
                         self.names.insert(id.name.to_string());
                     }
                 }
                 Statement::ClassDeclaration(class) => {
-                    if let Some(id) = &class.id {
+                    if self.depth == 0
+                        && let Some(id) = &class.id
+                    {
                         self.names.insert(id.name.to_string());
                     }
                 }
@@ -274,7 +396,10 @@ pub fn function_body_bindings(
             walk::walk_expression(self, expression);
         }
     }
-    let mut binder = Binder::default();
+    let mut binder = Binder {
+        mode: mode.for_body(body),
+        ..Default::default()
+    };
     binder.visit_function_body(body);
     binder.names
 }
@@ -301,7 +426,7 @@ mod tests {
         else {
             panic!("function expression")
         };
-        let names = function_body_bindings(function.body.as_ref().unwrap());
+        let names = function_body_bindings(function.body.as_ref().unwrap(), StrictMode::Sloppy);
         for name in ["direct", "hoisted", "nested", "root", "loop"] {
             assert!(names.contains(name), "{name}");
         }
@@ -359,5 +484,29 @@ mod tests {
         assert_eq!(el(7), None);
         assert_eq!(el(8), None);
         assert_eq!(el(3), Some(-3)); // unary minus is folded (proto enum negatives)
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn block_declaration_ownership_depends_on_strictness() {
+    let allocator = Allocator::default();
+    let parsed = parse_cjs(
+        &allocator,
+        "(function(){{function nested(){}class Local{}}});",
+    );
+    let Statement::ExpressionStatement(statement) = &parsed.program.body[0] else {
+        panic!("function")
+    };
+    let Expression::FunctionExpression(function) = statement.expression.without_parentheses()
+    else {
+        panic!("function")
+    };
+    let body = function.body.as_ref().unwrap();
+    assert!(function_body_bindings(body, StrictMode::Sloppy).contains("nested"));
+    for mode in [StrictMode::Strict, StrictMode::Unknown] {
+        let names = function_body_bindings(body, mode);
+        assert!(!names.contains("nested"));
+        assert!(!names.contains("Local"));
     }
 }

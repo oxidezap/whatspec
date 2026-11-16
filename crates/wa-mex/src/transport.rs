@@ -99,6 +99,7 @@ impl Transports {
                     shadowed: HashSet<String>,
                     loaders: HashSet<String>,
                     opaque: bool,
+                    mode: wa_oxc::StrictMode,
                 }
                 impl<'a> Visit<'a> for Exports {
                     fn visit_function(
@@ -114,21 +115,7 @@ impl Transports {
                     }
                     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
                         let outer = self.shadowed.clone();
-                        for statement in &block.body {
-                            if let Statement::VariableDeclaration(declaration) = statement
-                                && !declaration.kind.is_var()
-                            {
-                                for binding in &declaration.declarations {
-                                    self.shadowed.extend(
-                                        binding
-                                            .id
-                                            .get_binding_identifiers()
-                                            .iter()
-                                            .map(|id| id.name.to_string()),
-                                    );
-                                }
-                            }
-                        }
+                        self.shadowed.extend(wa_oxc::block_bindings(&block.body));
                         walk::walk_block_statement(self, block);
                         self.shadowed = outer;
                     }
@@ -144,6 +131,85 @@ impl Transports {
                             );
                         }
                         self.visit_block_statement(&clause.body);
+                        self.shadowed = outer;
+                    }
+                    fn visit_new_expression(&mut self, _: &oxc_ast::ast::NewExpression<'a>) {
+                        self.opaque = true;
+                    }
+                    fn visit_update_expression(
+                        &mut self,
+                        update: &oxc_ast::ast::UpdateExpression<'a>,
+                    ) {
+                        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(
+                            id,
+                        ) = &update.argument
+                        {
+                            if !self.shadowed.contains(id.name.as_str()) {
+                                self.rewritten.insert(id.name.to_string());
+                            }
+                        } else {
+                            self.opaque = true;
+                        }
+                        walk::walk_update_expression(self, update);
+                    }
+                    fn visit_for_of_statement(
+                        &mut self,
+                        statement: &oxc_ast::ast::ForOfStatement<'a>,
+                    ) {
+                        let outer = self.shadowed.clone();
+                        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) =
+                            &statement.left
+                        {
+                            for binding in &declaration.declarations {
+                                for id in binding.id.get_binding_identifiers() {
+                                    if declaration.kind.is_var() {
+                                        if !self.shadowed.contains(id.name.as_str()) {
+                                            self.rewritten.insert(id.name.to_string());
+                                        }
+                                    } else {
+                                        self.shadowed.insert(id.name.to_string());
+                                    }
+                                }
+                            }
+                        } else if let Some(target) = statement.left.as_assignment_target() {
+                            self.opaque |= wa_oxc::assignment_target_has_member(target);
+                            for name in wa_oxc::assignment_target_names(target) {
+                                if !self.shadowed.contains(&name) {
+                                    self.rewritten.insert(name);
+                                }
+                            }
+                        }
+                        walk::walk_for_of_statement(self, statement);
+                        self.shadowed = outer;
+                    }
+                    fn visit_for_in_statement(
+                        &mut self,
+                        statement: &oxc_ast::ast::ForInStatement<'a>,
+                    ) {
+                        let outer = self.shadowed.clone();
+                        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) =
+                            &statement.left
+                        {
+                            for binding in &declaration.declarations {
+                                for id in binding.id.get_binding_identifiers() {
+                                    if declaration.kind.is_var() {
+                                        if !self.shadowed.contains(id.name.as_str()) {
+                                            self.rewritten.insert(id.name.to_string());
+                                        }
+                                    } else {
+                                        self.shadowed.insert(id.name.to_string());
+                                    }
+                                }
+                            }
+                        } else if let Some(target) = statement.left.as_assignment_target() {
+                            self.opaque |= wa_oxc::assignment_target_has_member(target);
+                            for name in wa_oxc::assignment_target_names(target) {
+                                if !self.shadowed.contains(&name) {
+                                    self.rewritten.insert(name);
+                                }
+                            }
+                        }
+                        walk::walk_for_in_statement(self, statement);
                         self.shadowed = outer;
                     }
                     fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {
@@ -183,6 +249,10 @@ impl Transports {
                             _ => return,
                         };
                         let outer = self.shadowed.clone();
+                        let outer_mode = self.mode;
+                        if let Some(body) = body {
+                            self.mode = self.mode.for_body(body);
+                        }
                         if let Some(name) = name {
                             self.shadowed.insert(name.to_string());
                         }
@@ -206,10 +276,12 @@ impl Transports {
                         }
                         self.visit_formal_parameters(parameters);
                         if !generator && let Some(body) = body {
-                            self.shadowed.extend(wa_oxc::function_body_bindings(body));
+                            self.shadowed
+                                .extend(wa_oxc::function_body_bindings(body, self.mode));
                             self.visit_function_body(body);
                         }
                         self.shadowed = outer;
+                        self.mode = outer_mode;
                     }
                     fn visit_variable_declarator(
                         &mut self,
@@ -228,11 +300,13 @@ impl Transports {
                         &mut self,
                         assignment: &oxc_ast::ast::AssignmentExpression<'a>,
                     ) {
-                        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left)
-                            && !self.shadowed.contains(name)
-                        {
-                            self.rewritten.insert(name.to_string());
+                        for name in wa_oxc::assignment_target_names(&assignment.left) {
+                            if !self.shadowed.contains(&name) {
+                                self.rewritten.insert(name);
+                            }
                         }
+                        self.opaque |= wa_oxc::assignment_target_has_member(&assignment.left)
+                            && assignment.left.as_member_expression().is_none();
                         if let Some(member) = assignment.left.as_member_expression()
                             && let Some(receiver) = member.object().get_identifier_reference()
                             && self.receivers.contains(receiver.name.as_str())
@@ -250,6 +324,16 @@ impl Transports {
                                     }
                                 })
                                 .or_insert(local);
+                        }
+                        if let Some(member) = assignment.left.as_member_expression() {
+                            self.opaque |=
+                                !member
+                                    .object()
+                                    .get_identifier_reference()
+                                    .is_some_and(|id| {
+                                        self.receivers.contains(id.name.as_str())
+                                            && !self.shadowed.contains(id.name.as_str())
+                                    });
                         }
                         walk::walk_assignment_expression(self, assignment);
                     }
@@ -273,9 +357,20 @@ impl Transports {
                         })
                         .collect(),
                     opaque: false,
+                    mode: if parsed.program.has_use_strict_directive() {
+                        wa_oxc::StrictMode::Strict
+                    } else {
+                        wa_oxc::StrictMode::Unknown
+                    }
+                    .for_body(body),
                 };
                 exports.visit_function_body(body);
-                if exports.opaque {
+                if exports.opaque
+                    || exports.receivers.iter().any(|receiver| {
+                        exports.rewritten.contains(receiver)
+                            || functions.contains_key(receiver.as_str())
+                    })
+                {
                     continue;
                 }
                 functions.retain(|name, _| !exports.rewritten.contains(*name));
@@ -423,6 +518,12 @@ fn direct(function: &Function, transports: &Transports) -> bool {
     if params.len() != 2 || function.params.rest.is_some() {
         return false;
     }
+    if let Some(body) = &function.body {
+        let bindings = wa_oxc::function_body_bindings(body, wa_oxc::StrictMode::Sloppy);
+        if params.iter().any(|name| bindings.contains(name.as_str())) {
+            return false;
+        }
+    }
     struct Probe<'s> {
         params: [&'s str; 2],
         reads: [usize; 2],
@@ -433,6 +534,15 @@ fn direct(function: &Function, transports: &Transports) -> bool {
         transports: &'s Transports,
     }
     impl<'a> Visit<'a> for Probe<'_> {
+        fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+            let outer = self.shadowed;
+            let names = wa_oxc::block_bindings(&block.body);
+            for (index, name) in self.params.iter().enumerate() {
+                self.shadowed[index] |= names.contains(*name);
+            }
+            walk::walk_block_statement(self, block);
+            self.shadowed = outer;
+        }
         fn visit_function(
             &mut self,
             function: &Function<'a>,
@@ -522,8 +632,12 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             &mut self,
             assignment: &oxc_ast::ast::AssignmentExpression<'a>,
         ) {
-            self.invalid |= wa_oxc::assignment_target_name(&assignment.left)
-                .is_some_and(|name| self.params.contains(&name));
+            let written = wa_oxc::assignment_target_names(&assignment.left);
+            self.invalid |= self
+                .params
+                .iter()
+                .enumerate()
+                .any(|(index, name)| !self.shadowed[index] && written.contains(*name));
             walk::walk_assignment_expression(self, assignment);
         }
         fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
@@ -814,4 +928,32 @@ fn immediate_calls_respect_local_bindings_and_generator_initialization() {
             "{invocation}"
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn declarations_and_factory_effects_cannot_replace_forwarders_silently() {
+    for setup in [
+        r#"function send(op,vars){function vars(){}return o("Relay").fetchQuery(op,vars)}"#,
+        r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}function mutate(){send=changed}new mutate();"#,
+        r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}for(send of [changed]){}"#,
+        r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}for(send in values){}"#,
+        r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}[send]=[changed];"#,
+    ] {
+        let source =
+            format!(r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{{setup}l.custom=send;}});"#);
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{setup}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn strict_block_functions_do_not_hide_outer_helper_replacements() {
+    let source = r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){function send(op,vars){return o("Relay").fetchQuery(op,vars)}(function(){"use strict";{function send(){}}send=changed})();l.custom=send;});"#;
+    let definitions = wa_transform::extract_module_definitions(source);
+    assert!(Transports::build(source, &definitions).0.is_empty());
 }

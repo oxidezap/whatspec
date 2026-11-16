@@ -3047,3 +3047,49 @@ fn finalizer_returns_prevent_later_dispatch_but_preserve_hoisted_helpers() {
     let hoisted = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){return helper(child);function helper(child){switch(child.tag()){case "a":return {actionType:"one"};}}}});"#;
     assert_eq!(dispatch_actions(hoisted).len(), 1);
 }
+
+#[test]
+fn saved_object_property_mutations_do_not_publish_stale_fields() {
+    for mutation in [
+        "result.id=child.attrString(\"other\")",
+        "alias.id=child.attrString(\"other\")",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var result={{actionType:"one",id:child.attrString("id")}},alias=result;{mutation};if(child.tag()==="a")return result;}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)
+                .iter()
+                .all(|action| action.fields.iter().all(|field| field.wire_name != "id")),
+            "{mutation}"
+        );
+    }
+}
+
+#[test]
+fn known_tag_conditions_prune_contradictory_returns_inside_the_arm() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();if(tag==="a"){if(tag==="b")return {actionType:"wrong"};return {actionType:"one"};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn immediate_closure_writes_invalidate_outer_wire_bindings() {
+    for invocation in [
+        "(function(){id=child.attrString(\"other\")})()",
+        "(()=>{id=child.attrString(\"other\")})()",
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var id=child.attrString("id");{invocation};if(child.tag()==="a")return {{actionType:"one",id}};}}}});"#
+        );
+        assert!(
+            dispatch_actions(&source)[0]
+                .fields
+                .iter()
+                .all(|field| field.name != "id")
+        );
+    }
+    let pure = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");(()=>{var local=0})();if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    assert_eq!(dispatch_actions(pure)[0].fields[0].wire_name, "id");
+}
