@@ -77,6 +77,20 @@ pub(crate) fn module_loader_calls(program: &oxc_ast::ast::Program<'_>) -> HashSe
         }
     }
     impl<'a> Visit<'a> for Writes {
+        fn visit_for_statement_left(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>) {
+            if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = left
+                && declaration.kind.is_var()
+            {
+                for binding in &declaration.declarations {
+                    for id in binding.id.get_binding_identifiers() {
+                        if !self.shadowed.contains(id.name.as_str()) {
+                            self.names.insert(id.name.to_string());
+                        }
+                    }
+                }
+            }
+            walk::walk_for_statement_left(self, left);
+        }
         fn visit_statement(&mut self, statement: &Statement<'a>) {
             let declared = match statement {
                 Statement::FunctionDeclaration(function) => {
@@ -1318,6 +1332,8 @@ fn module_loaders_respect_nested_bindings_and_captured_writes() {
     for (setup, expected) in [
         ("function local(o){o=changed}", true),
         ("var o;", true),
+        ("for(var o of [fake]){}", false),
+        ("for(var o in values){}", false),
         ("for(let o of values){o=normalize(o)}", true),
         ("for(let o in values){o=normalize(o)}", true),
         ("for(let o=0;o<2;o++){o=normalize(o)}", true),
