@@ -2238,6 +2238,7 @@ pub(crate) fn bundled_rpc_requests_from_program(
             if returns.is_empty() {
                 continue;
             }
+            let local_aliases = scoped_aliases(&scope, source, *start, &aliases);
             let valid = returns.iter().all(|expression| {
                 let allocator = Allocator::default();
                 let owned = format!("({expression});");
@@ -2258,7 +2259,8 @@ pub(crate) fn bundled_rpc_requests_from_program(
                     return false;
                 }
                 if callee_method(call) == Some("mergeStanzas") {
-                    return callee_object(call).and_then(|owner| resolve_owner(owner, &aliases))
+                    return callee_object(call)
+                        .and_then(|owner| resolve_owner(owner, &local_aliases))
                         == Some("WASmaxMixins")
                         && call.arguments.len() == 2;
                 }
@@ -4404,4 +4406,19 @@ mod optional_descendant_tests {
             ["extra", "protocol"]
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn a_parameter_shadowing_the_merge_alias_cannot_qualify_a_private_merge() {
+    let source = r#"__d("WASmaxShadowRPC",["WASmaxJsx","WASmaxMixins"],function(t,n,r,o,a,i,l){
+        var M=o("WASmaxMixins");
+        function make(args){return compose(o("WASmaxJsx").smax("iq",{type:"get",xmlns:"probe"}),args)}
+        function compose(dst,M){return M.mergeStanzas(dst,fragment)}
+        l.makeShadowRequest=make;
+    });"#;
+    assert!(
+        bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new())
+            .is_empty()
+    );
 }

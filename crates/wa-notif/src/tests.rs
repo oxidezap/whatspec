@@ -2658,3 +2658,47 @@ fn tag_aliases_follow_statement_order_and_branch_continuations() {
         assert!(dispatch_actions(&source).is_empty(), "{body}");
     }
 }
+
+#[test]
+fn replaced_and_async_tag_helpers_cannot_invent_actions() {
+    for helper in [
+        r#"async function select(value){return values.find(function(item){return item===value})}"#,
+        r#"function select(value){return values.find(async function(item){return item===value})}"#,
+        r#"function select(value){return values.find(function(item){return item===value})}select=function(){return "b"};"#,
+        r#"function select(value){return values.find(function(item){return item===value})}var select=unknown;"#,
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{{helper}function parse(child){{var tag=select(child.tag());if(tag==="a")return {{actionType:"wrong"}};}}}});"#
+        );
+        assert!(dispatch_actions(&source).is_empty(), "{helper}");
+    }
+}
+
+#[test]
+fn if_dispatch_resolves_preceding_bindings_and_drops_ambiguous_sources() {
+    for (setup, expected) in [
+        (r#"var id=child.attrString("id");"#, Some("id")),
+        (
+            r#"var id=child.attrString("id");id=child.attrString("other");"#,
+            Some("other"),
+        ),
+        (
+            r#"var id=child.attrString("id");if(flag)id=child.attrString("other");"#,
+            None,
+        ),
+    ] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{setup}if(child.tag()==="a")return {{actionType:"one",id}};}}}});"#
+        );
+        let actions = dispatch_actions(&source);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            actions[0]
+                .fields
+                .iter()
+                .find(|field| field.name == "id")
+                .map(|field| field.wire_name.as_str()),
+            expected
+        );
+    }
+}

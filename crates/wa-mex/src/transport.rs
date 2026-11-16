@@ -104,6 +104,17 @@ impl Transports {
                         _: oxc_syntax::scope::ScopeFlags,
                     ) {
                     }
+                    fn visit_variable_declarator(
+                        &mut self,
+                        binding: &oxc_ast::ast::VariableDeclarator<'a>,
+                    ) {
+                        if binding.init.is_some() {
+                            for identifier in binding.id.get_binding_identifiers() {
+                                self.rewritten.insert(identifier.name.to_string());
+                            }
+                        }
+                        walk::walk_variable_declarator(self, binding);
+                    }
                     fn visit_assignment_expression(
                         &mut self,
                         assignment: &oxc_ast::ast::AssignmentExpression<'a>,
@@ -169,7 +180,7 @@ fn forwards<'a>(
     if visiting.len() >= 32 || !visiting.insert(name.clone()) {
         return false;
     }
-    let result = direct(function, transports)
+    let result = (!function.generator && direct(function, transports))
         || (|| {
             let [Statement::ReturnStatement(ret)] = body.statements.as_slice() else {
                 return false;
@@ -178,9 +189,24 @@ fn forwards<'a>(
                 return false;
             };
             if let Some(target) = apply_target(expression) {
+                if function.params.rest.is_some()
+                    || function.params.items.iter().any(|parameter| {
+                        parameter.initializer.is_some()
+                            || parameter
+                                .pattern
+                                .get_binding_identifiers()
+                                .iter()
+                                .any(|identifier| identifier.name == target)
+                    })
+                {
+                    return false;
+                }
                 return functions
                     .get(target)
                     .is_some_and(|function| forwards(function, functions, transports, visiting));
+            }
+            if !function.params.items.is_empty() || function.params.rest.is_some() {
+                return false;
             }
             let Expression::SequenceExpression(sequence) = expression.without_parentheses() else {
                 return false;
@@ -214,7 +240,7 @@ fn forwards<'a>(
             else {
                 return false;
             };
-            direct(generator, transports)
+            !generator.r#async && direct(generator, transports)
         })();
     visiting.remove(&name);
     result
@@ -267,6 +293,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
         reads: [usize; 2],
         shadowed: [bool; 2],
         sends: usize,
+        suspended: bool,
         invalid: bool,
         transports: &'s Transports,
     }
@@ -278,6 +305,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
         ) {
             let before = (self.reads, self.sends);
             let outer = self.shadowed;
+            let suspended = self.suspended;
             for parameter in &function.params.items {
                 for identifier in parameter.pattern.get_binding_identifiers() {
                     for (index, name) in self.params.iter().enumerate() {
@@ -287,6 +315,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             }
             walk::walk_function(self, function, flags);
             self.shadowed = outer;
+            self.suspended = suspended;
             self.invalid |= before != (self.reads, self.sends);
         }
         fn visit_arrow_function_expression(
@@ -294,8 +323,18 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             function: &oxc_ast::ast::ArrowFunctionExpression<'a>,
         ) {
             let before = (self.reads, self.sends);
+            let suspended = self.suspended;
             walk::walk_arrow_function_expression(self, function);
+            self.suspended = suspended;
             self.invalid |= before != (self.reads, self.sends);
+        }
+        fn visit_await_expression(&mut self, expression: &oxc_ast::ast::AwaitExpression<'a>) {
+            walk::walk_await_expression(self, expression);
+            self.suspended = true;
+        }
+        fn visit_yield_expression(&mut self, expression: &oxc_ast::ast::YieldExpression<'a>) {
+            walk::walk_yield_expression(self, expression);
+            self.suspended = true;
         }
         fn visit_identifier_reference(&mut self, reference: &IdentifierReference<'a>) {
             for (index, param) in self.params.iter().enumerate() {
@@ -322,7 +361,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
             walk::walk_assignment_expression(self, assignment);
         }
         fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-            if self.transports.is_transport(call)
+            let forward = self.transports.is_transport(call)
                 && call
                     .arguments
                     .first()
@@ -334,11 +373,12 @@ fn direct(function: &Function, transports: &Transports) -> bool {
                     .get(1)
                     .and_then(arg_expr)
                     .and_then(as_identifier)
-                    == Some(self.params[1])
-            {
-                self.sends += 1;
-            }
+                    == Some(self.params[1]);
             walk::walk_call_expression(self, call);
+            if forward {
+                self.sends += 1;
+                self.invalid |= self.suspended;
+            }
         }
     }
     let mut probe = Probe {
@@ -346,6 +386,7 @@ fn direct(function: &Function, transports: &Transports) -> bool {
         reads: [0, 0],
         shadowed: [false, false],
         sends: 0,
+        suspended: false,
         invalid: false,
         transports,
     };
@@ -363,6 +404,7 @@ mod tests {
     fn discovers_direct_and_lowered_async_transports_by_their_bodies() {
         for functions in [
             r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}"#,
+            r#"async function send(op,vars){return await o("Relay").fetchQuery(op,vars)}"#,
             r#"function send(op,vars){return next.apply(this,arguments)}function next(op,vars){return o("Relay").commitMutation(op,vars)}"#,
             r#"function send(op,vars){return next.apply(this,arguments)}function next(){return next=n("asyncToGeneratorRuntime").asyncToGenerator(function*(op,vars){var reader=null,result=yield o("Relay").fetchQuery(op,vars,{reader:function(value){reader=value}});return {reader:reader,result:result}}),next.apply(this,arguments)}"#,
         ] {
@@ -454,6 +496,27 @@ fn destructuring_cannot_shift_transport_parameter_positions() {
         assert!(
             Transports::build(&source, &definitions).0.is_empty(),
             "{parameters}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn suspended_lazy_rebound_and_shadowed_wrappers_are_not_transports() {
+    for functions in [
+        r#"async function send(op,vars){await ready();return o("Relay").fetchQuery(op,vars)}"#,
+        r#"async function send(op,vars){return o("Relay").fetchQuery(op,vars,await ready())}"#,
+        r#"function send(op,vars){return next.apply(this,arguments)}function next(){return next=n("asyncToGeneratorRuntime").asyncToGenerator(function*(op,vars){yield ready();return o("Relay").fetchQuery(op,vars)}),next.apply(this,arguments)}"#,
+        r#"function* send(op,vars){return o("Relay").fetchQuery(op,vars)}"#,
+        r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}var send=unknown;"#,
+        r#"function next(op,vars){return o("Relay").fetchQuery(op,vars)}function send(next,vars){return next.apply(this,arguments)}"#,
+    ] {
+        let source =
+            format!(r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{{functions}l.custom=send;}});"#);
+        let definitions = wa_transform::extract_module_definitions(&source);
+        assert!(
+            Transports::build(&source, &definitions).0.is_empty(),
+            "{functions}"
         );
     }
 }
