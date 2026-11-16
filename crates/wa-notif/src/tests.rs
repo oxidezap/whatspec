@@ -2843,3 +2843,94 @@ fn unshadowed_receivers_share_actions_across_blocks_with_other_declarations() {
     let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,other){if(child.tag()==="a")return {actionType:"one"};{let unrelated=other;if(child.tag()==="b")return {actionType:"two"};}}});"#;
     assert_eq!(dispatch_actions(source).len(), 2);
 }
+
+#[test]
+fn a_saved_tag_value_survives_reassignment_of_its_receiver() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child,other){var tag=child.tag();child=other;if(tag==="a")return {actionType:"one"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].wire_tag, "a");
+}
+
+#[test]
+fn later_definite_writes_survive_earlier_conditional_writes_in_sequences() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id,ignored=(flag&&(id=child.attrString("old")),id=child.attrString("id"));if(child.tag()==="a")return {actionType:"one",id};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions[0].fields[0].wire_name, "id");
+}
+
+#[test]
+fn catch_parameters_shadow_outer_wire_bindings_and_helpers() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("id");try{mayThrow()}catch(id){if(child.tag()==="a")return {actionType:"one",id};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn feature_branches_fold_matching_if_arms_like_switch_arms() {
+    let module = |body: &str| {
+        format!(r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{{body}}}}});"#)
+    };
+    let switch = module(
+        r#"switch(child.tag()){case "a":if(flag)return {actionType:"one",id:child.attrString("id")};return {actionType:"one"};}"#,
+    );
+    let branches = module(
+        r#"if(flag){if(child.tag()==="a")return {actionType:"one",id:child.attrString("id")};}else{if(child.tag()==="a")return {actionType:"one"};}"#,
+    );
+    let expected = dispatch_actions(&switch);
+    assert_eq!(expected.len(), 1);
+    assert!(!expected[0].fields[0].required);
+    assert_eq!(dispatch_actions(&branches), expected);
+}
+
+#[test]
+fn captured_objects_with_dependencies_rewritten_in_an_arm_are_withheld() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");var result={actionType:"one",id};if(child.tag()==="a"){id=child.attrString("lid");return result;}}});"#;
+    assert!(
+        dispatch_actions(source)
+            .iter()
+            .all(|action| action.fields.iter().all(|field| field.wire_name != "lid"))
+    );
+    let unchanged = source.replace("id=child.attrString(\"lid\");", "");
+    assert_eq!(dispatch_actions(&unchanged)[0].fields[0].wire_name, "jid");
+}
+
+#[test]
+fn an_alternate_cannot_dispatch_a_tag_excluded_by_its_first_condition() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();if(tag==="a")return {actionType:"one"};else if(tag==="a")return {actionType:"wrong"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].action_type.as_deref(), Some("one"));
+}
+
+#[test]
+fn switch_arm_fields_use_the_evaluated_label_prefix() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var id=child.attrString("jid");switch(child.tag()){case(id=child.attrString("lid"),"skip"):break;case "b":return {actionType:"two",id};}}});"#;
+    let actions = dispatch_actions(source);
+    let action = actions
+        .iter()
+        .find(|action| action.wire_tag == "b")
+        .unwrap();
+    assert_eq!(action.fields[0].wire_name, "lid");
+}
+
+#[test]
+fn catch_tag_parameters_do_not_reuse_outer_tag_provenance() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();try{mayThrow()}catch(tag){if(tag==="a")return {actionType:"wrong"};}}});"#;
+    assert!(dispatch_actions(source).is_empty());
+}
+
+#[test]
+fn repeated_if_arms_cannot_revive_conflicting_fields() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){if(first){if(child.tag()==="a")return {actionType:"one",id:child.attrString("id")};}else if(second){if(child.tag()==="a")return {actionType:"one",id:child.attrString("other")};}else{if(child.tag()==="a")return {actionType:"one",id:child.attrString("id")};}}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].fields.iter().all(|field| field.name != "id"));
+}
+
+#[test]
+fn shadowing_a_helper_in_a_nested_block_does_not_replace_it() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function build(child){return {actionType:"one",id:child.attrString("id")}}{let build=unknown;}function parse(child){switch(child.tag()){case "a":return build(child);}}});"#;
+    assert_eq!(dispatch_actions(source)[0].fields[0].wire_name, "id");
+}

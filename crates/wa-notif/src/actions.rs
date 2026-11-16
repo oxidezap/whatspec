@@ -439,9 +439,11 @@ pub(crate) fn extract_actions(
     let mut finder = SwitchFinder {
         ctx: &ctx,
         best: None,
+        best_other: None,
         tag_locals: Default::default(),
         if_actions: Default::default(),
         bindings: Default::default(),
+        constraints: Default::default(),
     };
     finder.visit_program(&ret.program);
     finder.best.filter(|v| !v.is_empty())
@@ -569,9 +571,47 @@ struct DispatchKey {
     origins: Vec<(String, Option<u32>)>,
 }
 
+#[derive(Clone)]
+enum TagConstraint {
+    Equal(String),
+    Excluding(HashSet<String>),
+}
+
+type TagConstraints = std::collections::BTreeMap<DispatchKey, TagConstraint>;
+
+fn joined_constraints(left: &TagConstraints, right: &TagConstraints) -> TagConstraints {
+    let mut joined = TagConstraints::new();
+    for (key, left) in left {
+        let Some(right) = right.get(key) else {
+            continue;
+        };
+        let constraint = match (left, right) {
+            (TagConstraint::Equal(left), TagConstraint::Equal(right)) if left == right => {
+                Some(TagConstraint::Equal(left.clone()))
+            }
+            (TagConstraint::Equal(_), TagConstraint::Equal(_)) => None,
+            (TagConstraint::Excluding(left), TagConstraint::Excluding(right)) => {
+                let excluded: HashSet<_> = left.intersection(right).cloned().collect();
+                (!excluded.is_empty()).then_some(TagConstraint::Excluding(excluded))
+            }
+            (TagConstraint::Equal(value), TagConstraint::Excluding(excluded))
+            | (TagConstraint::Excluding(excluded), TagConstraint::Equal(value)) => {
+                let mut excluded = excluded.clone();
+                excluded.remove(value);
+                (!excluded.is_empty()).then_some(TagConstraint::Excluding(excluded))
+            }
+        };
+        if let Some(constraint) = constraint {
+            joined.insert(key.clone(), constraint);
+        }
+    }
+    joined
+}
+
 struct DispatchState {
     tags: HashMap<String, u32>,
     bindings: Bindings,
+    constraints: TagConstraints,
 }
 
 struct SwitchFinder<'c, 'a> {
@@ -579,12 +619,14 @@ struct SwitchFinder<'c, 'a> {
     /// The richest action union seen so far (a module can hold more than one
     /// const-keyed switch; the payload union is the one with the most arms).
     best: Option<Vec<NotifActionDef>>,
+    best_other: Option<Vec<NotifActionDef>>,
     /// Locals bound to a child's TAG in the function currently being walked
     /// (`var a = t.tag()`), so a switch can be identified by what it dispatches ON
     /// rather than by how many arms it happens to have.
     tag_locals: HashMap<String, u32>,
-    if_actions: std::collections::BTreeMap<DispatchKey, Vec<NotifActionDef>>,
+    if_actions: std::collections::BTreeMap<DispatchKey, Vec<BranchFold>>,
     bindings: Bindings,
+    constraints: TagConstraints,
 }
 
 /// Whether `e` reads a node's tag — `t.tag()` or `t.tag`.
@@ -596,7 +638,81 @@ fn is_tag_read(e: &Expression) -> bool {
 }
 
 impl SwitchFinder<'_, '_> {
+    fn state(&self) -> DispatchState {
+        DispatchState {
+            tags: self.tag_locals.clone(),
+            bindings: self.bindings.clone(),
+            constraints: self.constraints.clone(),
+        }
+    }
+
+    fn restore_state(&mut self, state: DispatchState) {
+        self.tag_locals = state.tags;
+        self.bindings = state.bindings;
+        self.constraints = state.constraints;
+    }
+
+    fn join_state(&mut self, other: &DispatchState) {
+        self.tag_locals
+            .retain(|name, origin| other.tags.get(name) == Some(origin));
+        self.bindings
+            .retain(|name, value| other.bindings.get(name) == Some(value));
+        self.constraints = joined_constraints(&self.constraints, &other.constraints);
+    }
+
+    fn constrain_tag(&mut self, key: &DispatchKey, tag: &str, equal: bool) -> bool {
+        match self.constraints.get_mut(key) {
+            Some(TagConstraint::Equal(known)) => (known == tag) == equal,
+            Some(TagConstraint::Excluding(excluded)) => {
+                if equal {
+                    if excluded.contains(tag) {
+                        return false;
+                    }
+                    self.constraints
+                        .insert(key.clone(), TagConstraint::Equal(tag.to_string()));
+                } else {
+                    excluded.insert(tag.to_string());
+                }
+                true
+            }
+            None => {
+                self.constraints.insert(
+                    key.clone(),
+                    if equal {
+                        TagConstraint::Equal(tag.to_string())
+                    } else {
+                        TagConstraint::Excluding(HashSet::from([tag.to_string()]))
+                    },
+                );
+                true
+            }
+        }
+    }
+
+    fn tag_condition(&self, expression: &Expression) -> Option<(DispatchKey, String)> {
+        let Expression::BinaryExpression(test) = expression.without_parentheses() else {
+            return None;
+        };
+        if test.operator != oxc_syntax::operator::BinaryOperator::StrictEquality {
+            return None;
+        }
+        [(&test.left, &test.right), (&test.right, &test.left)]
+            .into_iter()
+            .find_map(|(value, label)| {
+                let on_tag = self.reads_tag(value)
+                    || as_identifier(value).is_some_and(|name| self.tag_locals.contains_key(name));
+                if !on_tag {
+                    return None;
+                }
+                Some((
+                    self.dispatch_key(value),
+                    dispatch_tag(label, self.ctx.consts)?,
+                ))
+            })
+    }
+
     fn invalidate_binding(&mut self, name: &str) {
+        self.tag_locals.remove(name);
         let mut pending = vec![name.to_string()];
         while let Some(name) = pending.pop() {
             pending.extend(
@@ -606,7 +722,6 @@ impl SwitchFinder<'_, '_> {
                     .map(|(name, _)| name.clone()),
             );
             self.bindings.remove(&name);
-            self.tag_locals.remove(&name);
         }
     }
 
@@ -669,9 +784,32 @@ impl SwitchFinder<'_, '_> {
                 .collect()
         };
         DispatchKey {
-            expression: self.ctx.source[span.start as usize..span.end as usize].to_string(),
+            expression: as_identifier(value).map(str::to_string).unwrap_or_else(|| {
+                self.ctx.source[span.start as usize..span.end as usize].to_string()
+            }),
             origins,
         }
+    }
+
+    fn refresh_best(&mut self) {
+        self.best = self.best_other.clone();
+        for folds in self.if_actions.values() {
+            let actions: Vec<_> = folds.iter().cloned().map(BranchFold::finish).collect();
+            if actions.iter().any(is_meaningful)
+                && actions.len() > self.best.as_ref().map_or(0, Vec::len)
+            {
+                self.best = Some(actions);
+            }
+        }
+    }
+
+    fn consider_other(&mut self, actions: Vec<NotifActionDef>) {
+        if actions.iter().any(is_meaningful)
+            && actions.len() > self.best_other.as_ref().map_or(0, Vec::len)
+        {
+            self.best_other = Some(actions);
+        }
+        self.refresh_best();
     }
 
     fn reads_tag(&self, expression: &Expression) -> bool {
@@ -730,18 +868,17 @@ impl SwitchFinder<'_, '_> {
             return;
         }
         let key = self.dispatch_key(value);
-        let actions = self.if_actions.entry(key).or_default();
-        actions.extend(extract_scoped_action_arm(
-            &tag,
-            &run,
-            self.ctx,
-            &self.bindings,
-        ));
-        if actions.iter().any(is_meaningful)
-            && actions.len() > self.best.as_ref().map_or(0, Vec::len)
-        {
-            self.best = Some(actions.clone());
+        let folds = self.if_actions.entry(key).or_default();
+        for action in extract_scoped_action_arm(&tag, &run, self.ctx, &self.bindings) {
+            if let Some(fold) = folds.iter_mut().find(|fold| {
+                fold.def.wire_tag == action.wire_tag && fold.def.action_type == action.action_type
+            }) {
+                fold.absorb(action);
+            } else {
+                folds.push(BranchFold::new(action));
+            }
         }
+        self.refresh_best();
     }
 }
 
@@ -862,20 +999,17 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
+            best_other: None,
             tag_locals: HashMap::new(),
             if_actions: Default::default(),
             bindings: parameter_bindings(&function.params),
+            constraints: Default::default(),
         };
         if let Some(body) = &function.body {
             nested.visit_function_body(body);
         }
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
-        {
-            self.best = Some(best);
+        if let Some(best) = nested.best {
+            self.consider_other(best);
         }
     }
 
@@ -909,18 +1043,15 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
+            best_other: None,
             tag_locals: HashMap::new(),
             if_actions: Default::default(),
             bindings: parameter_bindings(&function.params),
+            constraints: Default::default(),
         };
         nested.visit_function_body(&function.body);
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
-        {
-            self.best = Some(best);
+        if let Some(best) = nested.best {
+            self.consider_other(best);
         }
     }
 
@@ -969,9 +1100,11 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
+            best_other: self.best_other.clone(),
             tag_locals: self.tag_locals.clone(),
             if_actions: self.if_actions.clone(),
             bindings: self.bindings.clone(),
+            constraints: self.constraints.clone(),
         };
         // Lexical bindings hide inherited aliases before their initialization too.
         for statement in &block.body {
@@ -1022,15 +1155,10 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
         self.tag_locals = outgoing;
         self.bindings = outgoing_bindings;
+        self.constraints = nested.constraints;
         self.if_actions = nested.if_actions;
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
-        {
-            self.best = Some(best);
-        }
+        self.best_other = nested.best_other;
+        self.refresh_best();
     }
 
     fn visit_function_body(&mut self, body: &oxc_ast::ast::FunctionBody<'a>) {
@@ -1055,18 +1183,15 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         let mut nested = SwitchFinder {
             ctx: &ctx,
             best: None,
+            best_other: None,
             tag_locals: HashMap::new(),
             if_actions: Default::default(),
             bindings: self.bindings.clone(),
+            constraints: self.constraints.clone(),
         };
         walk::walk_function_body(&mut nested, body);
-        if let Some(best) = nested.best
-            && self
-                .best
-                .as_ref()
-                .is_none_or(|previous| best.len() > previous.len())
-        {
-            self.best = Some(best);
+        if let Some(best) = nested.best {
+            self.consider_other(best);
         }
     }
 
@@ -1113,11 +1238,63 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
     }
 
-    fn visit_expression(&mut self, expression: &Expression<'a>) {
-        walk::walk_expression(self, expression);
-        for name in conditional_writes(expression) {
-            self.invalidate_binding(name);
+    fn visit_logical_expression(&mut self, expression: &oxc_ast::ast::LogicalExpression<'a>) {
+        self.visit_expression(&expression.left);
+        let incoming = self.state();
+        self.visit_expression(&expression.right);
+        self.join_state(&incoming);
+    }
+
+    fn visit_conditional_expression(
+        &mut self,
+        expression: &oxc_ast::ast::ConditionalExpression<'a>,
+    ) {
+        self.visit_expression(&expression.test);
+        let incoming = self.state();
+        self.visit_expression(&expression.consequent);
+        let consequent = self.state();
+        self.restore_state(incoming);
+        self.visit_expression(&expression.alternate);
+        self.join_state(&consequent);
+    }
+
+    fn visit_catch_clause(&mut self, handler: &oxc_ast::ast::CatchClause<'a>) {
+        let mut formals = self.ctx.formals.clone();
+        let mut locals = self.ctx.locals.clone();
+        let mut bindings = self.bindings.clone();
+        let mut tags = self.tag_locals.clone();
+        if let Some(parameter) = &handler.param {
+            for identifier in parameter.pattern.get_binding_identifiers() {
+                let name = identifier.name.to_string();
+                formals.insert(name.clone());
+                locals.remove(&name);
+                tags.remove(&name);
+                bindings.insert(
+                    name,
+                    SavedBinding::Unknown {
+                        origin: identifier.span.start,
+                    },
+                );
+            }
         }
+        let ctx = ArmCtx {
+            formals: &formals,
+            locals: &locals,
+            ..*self.ctx
+        };
+        let mut nested = SwitchFinder {
+            ctx: &ctx,
+            best: None,
+            best_other: self.best_other.clone(),
+            tag_locals: tags,
+            if_actions: self.if_actions.clone(),
+            bindings,
+            constraints: self.constraints.clone(),
+        };
+        nested.visit_block_statement(&handler.body);
+        self.if_actions = nested.if_actions;
+        self.best_other = nested.best_other;
+        self.refresh_best();
     }
 
     fn visit_statement(&mut self, statement: &Statement<'a>) {
@@ -1133,31 +1310,39 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
 
     fn visit_if_statement(&mut self, branch: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&branch.test);
-        self.record_if_dispatch(branch);
-        let incoming = self.tag_locals.clone();
-        let incoming_bindings = self.bindings.clone();
-        self.visit_statement(&branch.consequent);
-        let consequent = self.tag_locals.clone();
-        let consequent_bindings = self.bindings.clone();
-        self.tag_locals = incoming;
-        self.bindings = incoming_bindings;
-        if let Some(alternate) = &branch.alternate {
-            self.visit_statement(alternate);
-        }
-        let consequent_exits = list_exits_refs(&[&branch.consequent], false);
-        let alternate_exits = branch
-            .alternate
+        let incoming = self.state();
+        let condition = self.tag_condition(&branch.test);
+        let consequent_possible = condition
             .as_ref()
-            .is_some_and(|statement| list_exits_refs(&[statement], false));
-        if !consequent_exits {
-            if alternate_exits {
-                self.tag_locals = consequent;
-                self.bindings = consequent_bindings;
-            } else {
-                self.tag_locals
-                    .retain(|name, origin| consequent.get(name) == Some(origin));
-                self.bindings
-                    .retain(|name, span| consequent_bindings.get(name) == Some(span));
+            .is_none_or(|(key, tag)| self.constrain_tag(key, tag, true));
+        let mut continuations = Vec::new();
+        if consequent_possible {
+            self.record_if_dispatch(branch);
+            self.visit_statement(&branch.consequent);
+            if !list_exits_refs(&[&branch.consequent], false) {
+                continuations.push(self.state());
+            }
+        }
+        self.restore_state(incoming);
+        let alternate_possible = condition
+            .as_ref()
+            .is_none_or(|(key, tag)| self.constrain_tag(key, tag, false));
+        if alternate_possible {
+            if let Some(alternate) = &branch.alternate {
+                self.visit_statement(alternate);
+            }
+            if !branch
+                .alternate
+                .as_ref()
+                .is_some_and(|statement| list_exits_refs(&[statement], false))
+            {
+                continuations.push(self.state());
+            }
+        }
+        if let Some(first) = continuations.pop() {
+            self.restore_state(first);
+            for continuation in continuations {
+                self.join_state(&continuation);
             }
         }
     }
@@ -1169,29 +1354,16 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         // "most arms" tie-break and publish non-wire constants as `wireTag`s.
         let on_tag = self.reads_tag(&switch.discriminant)
             || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains_key(n));
-        let actions = if on_tag {
-            extract_switch(switch, self.ctx, &self.bindings)
-        } else {
-            Vec::new()
-        };
-        // A const-keyed switch whose arms only cause side effects is not a payload action
-        // union — it is an ordinary child dispatch, already described by the
-        // notification's `content` and sub-discriminants. `account_sync` has one, and
-        // cataloguing it minted 11 phantom actions with no action type, field, constant
-        // or child, inflating the count with entries a consumer can do nothing with. An
-        // individual empty arm is still kept (knowing a tag is dispatched beats omitting
-        // it); a switch where EVERY arm is empty is rejected whole.
-        if actions.iter().any(is_meaningful)
-            && actions.len() > self.best.as_ref().map_or(0, Vec::len)
-        {
-            self.best = Some(actions);
-        }
+        let mut actions = Vec::new();
+        let mut seen_tags = HashSet::new();
         self.visit_expression(&switch.discriminant);
         let incoming_tags = self.tag_locals.clone();
         let incoming_bindings = self.bindings.clone();
+        let incoming_constraints = self.constraints.clone();
         let mut labels = DispatchState {
             tags: incoming_tags.clone(),
             bindings: incoming_bindings.clone(),
+            constraints: self.constraints.clone(),
         };
         let label_writes: HashSet<String> = switch
             .cases
@@ -1200,26 +1372,45 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             .flat_map(expression_writes)
             .collect();
         let mut fallthrough: Option<DispatchState> = None;
-        for case in &switch.cases {
+        for (index, case) in switch.cases.iter().enumerate() {
             self.tag_locals = labels.tags.clone();
             self.bindings = labels.bindings.clone();
+            self.constraints = labels.constraints.clone();
             if let Some(test) = &case.test {
                 self.visit_expression(test);
             }
             labels = DispatchState {
                 tags: self.tag_locals.clone(),
                 bindings: self.bindings.clone(),
+                constraints: self.constraints.clone(),
             };
             if case.test.is_none() {
                 for name in &label_writes {
                     self.invalidate_binding(name);
                 }
             }
+            if on_tag
+                && let Some(wire_tag) = case
+                    .test
+                    .as_ref()
+                    .and_then(|test| dispatch_tag(test, self.ctx.consts))
+                && seen_tags.insert(wire_tag.clone())
+            {
+                let run = fall_through_body(&switch.cases[index..])
+                    .unwrap_or_else(|| as_refs(&case.consequent));
+                actions.extend(extract_scoped_action_arm(
+                    &wire_tag,
+                    &run,
+                    self.ctx,
+                    &self.bindings,
+                ));
+            }
             if let Some(state) = &fallthrough {
                 self.tag_locals
                     .retain(|name, origin| state.tags.get(name) == Some(origin));
                 self.bindings
                     .retain(|name, value| state.bindings.get(name) == Some(value));
+                self.constraints = joined_constraints(&self.constraints, &state.constraints);
             }
             for statement in &case.consequent {
                 self.visit_statement(statement);
@@ -1230,11 +1421,14 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
                 Some(DispatchState {
                     tags: self.tag_locals.clone(),
                     bindings: self.bindings.clone(),
+                    constraints: self.constraints.clone(),
                 })
             };
         }
+        self.consider_other(actions);
         self.tag_locals = incoming_tags;
         self.bindings = incoming_bindings;
+        self.constraints = incoming_constraints;
         for name in &label_writes {
             self.invalidate_binding(name);
         }
@@ -1250,33 +1444,6 @@ fn is_meaningful(a: &NotifActionDef) -> bool {
         || !a.fields.is_empty()
         || !a.constant_fields.is_empty()
         || !a.children.is_empty()
-}
-
-/// Read every arm of a const-keyed child-tag switch into [`NotifActionDef`]s.
-fn extract_switch(
-    switch: &SwitchStatement,
-    ctx: &ArmCtx,
-    bindings: &Bindings,
-) -> Vec<NotifActionDef> {
-    let mut out = Vec::new();
-    for (i, case) in switch.cases.iter().enumerate() {
-        let Some(wire_tag) = case.test.as_ref().and_then(|t| dispatch_tag(t, ctx.consts)) else {
-            continue;
-        };
-        // `case TAG_A: case TAG_B: return {…}` — a fall-through label runs the next case
-        // that actually produces something. Stopping at the first NON-EMPTY consequent is
-        // not enough: a label may do setup or log first (`case TAG_A: log();`) and still
-        // fall through, and treating that as its own arm loses the action type and every
-        // field of a legally dispatched tag. Search forward for the first case that
-        // yields a result shape instead.
-        // …but the chain ENDS at a terminating statement. `case A: log(); break; case B:
-        // return {…}` does not fall through, and scanning past the `break` would publish
-        // B's action type and fields under A's wire tag — a shape that tag never produces.
-        let run: Vec<&Statement> =
-            fall_through_body(&switch.cases[i..]).unwrap_or_else(|| as_refs(&case.consequent));
-        out.extend(extract_scoped_action_arm(&wire_tag, &run, ctx, bindings));
-    }
-    out
 }
 
 /// The body a case actually runs, following the fall-through chain.
@@ -1443,6 +1610,7 @@ fn empty_action(wire_tag: String) -> NotifActionDef {
 /// reads is refused, because reporting one of them describes the other branch's payload
 /// wrongly. Distinct from composition *within* one shape (`babelHelpers.extends`, a
 /// duplicate object key), where the last write simply wins — see [`merge_into`].
+#[derive(Clone)]
 struct BranchFold {
     def: NotifActionDef,
     /// Scalar keys two branches disagreed on.
@@ -3353,6 +3521,12 @@ fn extract_action_arm(wire_tag: &str, run: &[&Statement], ctx: &ArmCtx) -> Vec<N
 }
 
 fn dispatch_tag(expression: &Expression, consts: &ConstResolver) -> Option<String> {
+    if let Expression::SequenceExpression(sequence) = expression.without_parentheses() {
+        return sequence
+            .expressions
+            .last()
+            .and_then(|last| dispatch_tag(last, consts));
+    }
     as_string_lit(expression.without_parentheses())
         .map(str::to_string)
         .or_else(|| consts.resolve(expression))
@@ -3367,14 +3541,51 @@ struct HelperDefinitions<'s> {
 struct WriteNames<'s> {
     names: HashSet<String>,
     originals: Option<HelperDefinitions<'s>>,
+    shadowed: HashSet<String>,
 }
 
 impl<'a> Visit<'a> for WriteNames<'_> {
     fn visit_function(&mut self, _: &oxc_ast::ast::Function<'a>, _: oxc_syntax::scope::ScopeFlags) {
     }
     fn visit_arrow_function_expression(&mut self, _: &oxc_ast::ast::ArrowFunctionExpression<'a>) {}
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        let outer = self.shadowed.clone();
+        for statement in &block.body {
+            if let Statement::VariableDeclaration(declaration) = statement
+                && !declaration.kind.is_var()
+            {
+                for binding in &declaration.declarations {
+                    self.shadowed.extend(
+                        binding
+                            .id
+                            .get_binding_identifiers()
+                            .iter()
+                            .map(|id| id.name.to_string()),
+                    );
+                }
+            }
+        }
+        walk::walk_block_statement(self, block);
+        self.shadowed = outer;
+    }
+    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+        let outer = self.shadowed.clone();
+        if let Some(parameter) = &clause.param {
+            self.shadowed.extend(
+                parameter
+                    .pattern
+                    .get_binding_identifiers()
+                    .iter()
+                    .map(|id| id.name.to_string()),
+            );
+        }
+        self.visit_block_statement(&clause.body);
+        self.shadowed = outer;
+    }
     fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
-        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left) {
+        if let Some(name) = wa_oxc::assignment_target_name(&assignment.left)
+            && !self.shadowed.contains(name)
+        {
             self.names.insert(name.to_string());
         }
         walk::walk_assignment_expression(self, assignment);
@@ -3391,7 +3602,7 @@ impl<'a> Visit<'a> for WriteNames<'_> {
                             source == &originals.source[span.start as usize..span.end as usize]
                         })
                 });
-                if !original {
+                if !original && !self.shadowed.contains(identifier.name.as_str()) {
                     self.names.insert(identifier.name.to_string());
                 }
             }
@@ -3401,6 +3612,7 @@ impl<'a> Visit<'a> for WriteNames<'_> {
     fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
         if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
             &update.argument
+            && !self.shadowed.contains(id.name.as_str())
         {
             self.names.insert(id.name.to_string());
         }
@@ -3502,8 +3714,15 @@ fn extract_scoped_action_arm(
     {
         return extract_action_arm(wire_tag, run, ctx);
     }
+    let arm_writes: HashSet<String> = run
+        .iter()
+        .flat_map(|statement| written_names(std::slice::from_ref(*statement)))
+        .collect();
     let mut source = String::from("(function(){");
     for (name, value) in bindings {
+        if arm_writes.iter().any(|name| value.depends_on(name)) {
+            continue;
+        }
         let SavedBinding::Expression { start, end, .. } = value else {
             continue;
         };
