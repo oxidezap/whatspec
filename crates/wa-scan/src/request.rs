@@ -2228,7 +2228,17 @@ pub(crate) fn bundled_rpc_requests_from_program(
             if scope.vars.get(destination).is_some_and(|writes| {
                 writes.iter().any(|write| {
                     write.owner_fn.is_some_and(|(owner_start, owner_end)| {
-                        *start <= owner_start && owner_end <= *end
+                        *start <= owner_start
+                            && owner_end <= *end
+                            && !scope.lexical_params.iter().any(
+                                |(shadow_start, shadow_end, parameters)| {
+                                    *start < *shadow_start
+                                        && *shadow_end <= *end
+                                        && *shadow_start <= owner_start
+                                        && owner_end <= *shadow_end
+                                        && parameters.contains(destination)
+                                },
+                            )
                     })
                 })
             }) {
@@ -4421,4 +4431,28 @@ fn a_parameter_shadowing_the_merge_alias_cannot_qualify_a_private_merge() {
         bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new())
             .is_empty()
     );
+}
+
+#[cfg(test)]
+#[test]
+fn nested_parameter_writes_do_not_invalidate_the_outer_merge_destination() {
+    let source = r#"__d("WASmaxNestedRPC",["WASmaxJsx","WASmaxMixins"],function(t,n,r,o,a,i,l){
+        function make(args){return compose(o("WASmaxJsx").smax("iq",{xmlns:"probe"}))}
+        function compose(dst){function unrelated(dst){dst=0;return dst;}var fragment=o("WASmaxJsx").smax("iq",{type:"get"});return o("WASmaxMixins").mergeStanzas(dst,fragment)}
+        l.makeNestedRequest=make;
+    });"#;
+    let requests =
+        bundled_rpc_requests(source, &HelperIndex::default(), &MixinContributions::new());
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]
+            .2
+            .attrs
+            .iter()
+            .any(|attribute| attribute.name == "xmlns")
+    );
+    let captured = source
+        .replace("function unrelated(dst)", "function unrelated(other)")
+        .replace("var fragment=", "unrelated(1);var fragment=");
+    assert!(crate::scan_iq_stanzas(&captured).stanzas.is_empty());
 }

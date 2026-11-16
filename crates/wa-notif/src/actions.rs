@@ -537,6 +537,11 @@ impl<'a> Visit<'a> for LocalFns {
     }
 }
 
+struct DispatchState {
+    tags: HashMap<String, u32>,
+    bindings: std::collections::BTreeMap<String, (u32, u32)>,
+}
+
 struct SwitchFinder<'c, 'a> {
     ctx: &'c ArmCtx<'c, 'a>,
     /// The richest action union seen so far (a module can hold more than one
@@ -858,7 +863,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
             ctx: &ctx,
             best: None,
             tag_locals: self.tag_locals.clone(),
-            if_actions: Default::default(),
+            if_actions: self.if_actions.clone(),
             bindings: self.bindings.clone(),
         };
         // Lexical bindings hide inherited aliases before their initialization too.
@@ -905,6 +910,7 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         }
         self.tag_locals = outgoing;
         self.bindings = outgoing_bindings;
+        self.if_actions = nested.if_actions;
         if let Some(best) = nested.best
             && self
                 .best
@@ -1053,14 +1059,11 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         // "most arms" tie-break and publish non-wire constants as `wireTag`s.
         let on_tag = self.reads_tag(&switch.discriminant)
             || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains_key(n));
-        if !on_tag {
-            walk::walk_switch_statement(self, switch);
-            for case in &switch.cases {
-                self.discard_rewritten_tags(&case.consequent);
-            }
-            return;
-        }
-        let actions = extract_switch(switch, self.ctx, &self.bindings);
+        let actions = if on_tag {
+            extract_switch(switch, self.ctx, &self.bindings)
+        } else {
+            Vec::new()
+        };
         // A const-keyed switch whose arms only cause side effects is not a payload action
         // union — it is an ordinary child dispatch, already described by the
         // notification's `content` and sub-discriminants. `account_sync` has one, and
@@ -1073,7 +1076,31 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
         {
             self.best = Some(actions);
         }
-        walk::walk_switch_statement(self, switch);
+        self.visit_expression(&switch.discriminant);
+        let incoming_tags = self.tag_locals.clone();
+        let incoming_bindings = self.bindings.clone();
+        let mut fallthrough: Option<DispatchState> = None;
+        for case in &switch.cases {
+            self.tag_locals = incoming_tags.clone();
+            self.bindings = incoming_bindings.clone();
+            if let Some(state) = &fallthrough {
+                self.tag_locals
+                    .retain(|name, origin| state.tags.get(name) == Some(origin));
+                self.bindings
+                    .retain(|name, span| state.bindings.get(name) == Some(span));
+            }
+            self.visit_switch_case(case);
+            fallthrough = if terminates(&case.consequent) {
+                None
+            } else {
+                Some(DispatchState {
+                    tags: self.tag_locals.clone(),
+                    bindings: self.bindings.clone(),
+                })
+            };
+        }
+        self.tag_locals = incoming_tags;
+        self.bindings = incoming_bindings;
         for case in &switch.cases {
             self.discard_rewritten_tags(&case.consequent);
         }

@@ -510,6 +510,7 @@ fn suspended_lazy_rebound_and_shadowed_wrappers_are_not_transports() {
         r#"function* send(op,vars){return o("Relay").fetchQuery(op,vars)}"#,
         r#"function send(op,vars){return o("Relay").fetchQuery(op,vars)}var send=unknown;"#,
         r#"function next(op,vars){return o("Relay").fetchQuery(op,vars)}function send(next,vars){return next.apply(this,arguments)}"#,
+        r#"function next(op,vars){return o("Relay").fetchQuery(op,vars)}function send(op,vars,next){return next.apply(this,arguments)}"#,
     ] {
         let source =
             format!(r#"__d("Wrapper",[],function(t,n,r,o,a,i,l){{{functions}l.custom=send;}});"#);

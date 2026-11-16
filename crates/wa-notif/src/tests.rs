@@ -2702,3 +2702,27 @@ fn if_dispatch_resolves_preceding_bindings_and_drops_ambiguous_sources() {
         );
     }
 }
+
+#[test]
+fn bare_blocks_preserve_accumulated_actions_for_the_same_tag_binding() {
+    let source = r#"__d("Handler",[],function(t,n,r,o,a,i,l){function parse(child){var tag=child.tag();{if(tag==="a")return {actionType:"one"};}if(tag==="b")return {actionType:"two"};}});"#;
+    let actions = dispatch_actions(source);
+    assert_eq!(actions.len(), 2);
+    assert_eq!(
+        actions
+            .iter()
+            .map(|action| action.wire_tag.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+}
+
+#[test]
+fn switch_case_entries_cannot_borrow_tag_bindings_from_other_cases() {
+    for separation in ["break;", ""] {
+        let source = format!(
+            r#"__d("Handler",[],function(t,n,r,o,a,i,l){{function parse(child){{var tag="a";switch(mode){{case 0:var tag=child.tag();{separation}case 1:if(tag==="a")return {{actionType:"wrong"}};}}}}}});"#
+        );
+        assert!(dispatch_actions(&source).is_empty(), "{separation}");
+    }
+}
