@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.5.0",
-  "waVersion": "2.3000.1052559453",
+  "waVersion": "2.3000.1054751086",
   "requests": [
     {
       "tag": "notification",
@@ -1479,7 +1479,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInMdPasskeyPrologueRequestNotificationRequest",
+      "module": "WASmaxMdPasskeyPrologueRequestNotificationRPC",
       "shape": {
         "parserName": "parsePasskeyPrologueRequestNotificationRequest",
         "assertions": [
@@ -1578,7 +1578,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInMdPrimaryHelloNotifyCompanionRequest",
+      "module": "WASmaxMdPrimaryHelloNotifyCompanionRPC",
       "shape": {
         "parserName": "parsePrimaryHelloNotifyCompanionRequest",
         "assertions": [
@@ -1683,7 +1683,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInMdRefreshCodeNotifyCompanionRequest",
+      "module": "WASmaxMdRefreshCodeNotifyCompanionRPC",
       "shape": {
         "parserName": "parseRefreshCodeNotifyCompanionRequest",
         "assertions": [
@@ -1793,7 +1793,7 @@
     },
     {
       "tag": "notification",
-      "module": "WASmaxInMdSetPrimaryEphemeralIdentityNotificationRequest",
+      "module": "WASmaxMdSetPrimaryEphemeralIdentityNotificationRPC",
       "shape": {
         "parserName": "parseSetPrimaryEphemeralIdentityNotificationRequest",
         "assertions": [
@@ -5965,7 +5965,7 @@
     },
     {
       "tag": "iq",
-      "module": "WASmaxInMdSetRegRequest",
+      "module": "WASmaxMdSetRegRPC",
       "shape": {
         "parserName": "parseSetRegRequest",
         "assertions": [
@@ -6045,7 +6045,7 @@
             "name": "pairSuccessDeviceJid",
             "wireName": "jid",
             "type": "device_jid",
-            "parserRequired": true,
+            "parserRequired": false,
             "sourcePath": [
               "pair-success",
               "device"
@@ -6250,7 +6250,7 @@
     },
     {
       "tag": "iq",
-      "module": "WASmaxInMdSetToCompanionRequest",
+      "module": "WASmaxMdSetToCompanionRPC",
       "shape": {
         "parserName": "parseSetToCompanionRequest",
         "assertions": [

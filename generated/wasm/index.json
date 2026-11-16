@@ -1,11 +1,17 @@
 {
   "schemaVersion": "4.5.0",
-  "waVersion": "2.3000.1052559453",
+  "waVersion": "2.3000.1054751086",
   "binaries": [
     {
-      "name": "/wasm/whatsapp/versioned/c73edd705435d0d22b19fd3817c9bed536d8bc6a5fbe8a927cbd277fa26fff4f/wa_voip_shared.wasm",
+      "name": "/wasm/whatsapp/versioned/c96a282034e1d4d525bc7b20dc1a864950519e82c9d94e60930f5869650cc59b/wa_voip_shared.wasm",
       "modules": [
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ]
+    },
+    {
+      "name": "crypto_utils_v2.wasm",
+      "modules": [
+        "ls_voprf_utils_v3"
       ]
     },
     {
@@ -62,192 +68,22 @@
       "wasmHint": []
     },
     {
-      "bxId": "110635",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110636",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110646",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110647",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
       "bxId": "110648",
       "consumers": [
-        "WAWebMusicMessage.react"
+        "WAWebMusicVinylCard.react"
       ],
       "wasmHint": []
-    },
-    {
-      "bxId": "110658",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110659",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110694",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110695",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110732",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110733",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110735",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110736",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110750",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110751",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110762",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
-    },
-    {
-      "bxId": "110763",
-      "consumers": [
-        "WAWebVoipWebWasmBxRefs",
-        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
-      ],
-      "wasmHint": [
-        "moduleName",
-        "wasmBinaryLiteral"
-      ]
     },
     {
       "bxId": "110767",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -259,6 +95,12 @@
       "bxId": "110768",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -270,6 +112,12 @@
       "bxId": "110772",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -281,6 +129,12 @@
       "bxId": "110773",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -289,9 +143,24 @@
       ]
     },
     {
+      "bxId": "110774",
+      "consumers": [
+        "LSVoprfWasmV3"
+      ],
+      "wasmHint": [
+        "moduleName"
+      ]
+    },
+    {
       "bxId": "110778",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -303,6 +172,12 @@
       "bxId": "110779",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -314,6 +189,12 @@
       "bxId": "110782",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -325,6 +206,12 @@
       "bxId": "110783",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -336,6 +223,12 @@
       "bxId": "110806",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -347,6 +240,12 @@
       "bxId": "110807",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -358,6 +257,12 @@
       "bxId": "110809",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -369,6 +274,12 @@
       "bxId": "110810",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -520,6 +431,12 @@
       "bxId": "110929",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -531,6 +448,12 @@
       "bxId": "110930",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -542,6 +465,12 @@
       "bxId": "110937",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
@@ -553,12 +482,273 @@
       "bxId": "110938",
       "consumers": [
         "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
         "WAWebVoipWebWasmLoader_ContentAddressed_internal"
       ],
       "wasmHint": [
         "moduleName",
         "wasmBinaryLiteral"
       ]
+    },
+    {
+      "bxId": "110947",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "110948",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "110981",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "110982",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111007",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111008",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111016",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111017",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111098",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111099",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111117",
+      "consumers": [
+        "WAGetUrlSpoofChecksWasm"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmModuleCacheDep"
+      ]
+    },
+    {
+      "bxId": "111118",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111119",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111203",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111204",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
+      "bxId": "111240",
+      "consumers": [
+        "WAWebHatchUploadDataFilesDialog.react"
+      ],
+      "wasmHint": []
     },
     {
       "bxId": "13603",
@@ -580,6 +770,23 @@
         "WAWebBizAiAssetResolver"
       ],
       "wasmHint": []
+    },
+    {
+      "bxId": "14949",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
     },
     {
       "bxId": "25218",
@@ -665,6 +872,16 @@
       "wasmHint": []
     },
     {
+      "bxId": "47418",
+      "consumers": [
+        "WAWebEBGetLabyrinthWaWasm"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmModuleCacheDep"
+      ]
+    },
+    {
       "bxId": "47437",
       "consumers": [
         "WAGetLiboqsWasm"
@@ -684,6 +901,23 @@
       ]
     },
     {
+      "bxId": "5991",
+      "consumers": [
+        "WAWebVoipWebWasmBxRefs",
+        "WAWebVoipWebWasmBxRefsCarrier1",
+        "WAWebVoipWebWasmBxRefsCarrier2",
+        "WAWebVoipWebWasmBxRefsCarrier3",
+        "WAWebVoipWebWasmBxRefsCarrier4",
+        "WAWebVoipWebWasmBxRefsCarrier5",
+        "WAWebVoipWebWasmBxRefsCarrier6",
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
+    },
+    {
       "bxId": "78755",
       "consumers": [
         "WAWebAuraRingtonePlayback"
@@ -696,6 +930,13 @@
         "WAWebBizAdCreationPreviewMediaRenderers.react",
         "WAWebBizAdDetailsThumbnail.react",
         "WAWebBizAdManagementThumbnail.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "88218",
+      "consumers": [
+        "WAWebAndroidTabletIllustration.react"
       ],
       "wasmHint": []
     },

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "4.5.0",
-  "waVersion": "2.3000.1052559453",
+  "waVersion": "2.3000.1054751086",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -163,6 +163,31 @@
             "key_id": "string",
             "ttl_seconds": "number"
           }
+        }
+      }
+    },
+    "AddLabyrinthPeerDevice": {
+      "originalName": "WAWebAddLabyrinthPeerDeviceJobMutation",
+      "docId": "28391075017241740",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "wa_labyrinth_add_peer_device": {
+          "__typename": "string",
+          "backup_id": "string",
+          "device_id": "string",
+          "error_code": "string",
+          "message": "string"
         }
       }
     },
@@ -854,6 +879,48 @@
         }
       }
     },
+    "BrResolvePaymentAccountLink": {
+      "originalName": "WAWebBrResolvePaymentAccountLinkQuery",
+      "docId": "28887515270916004",
+      "operationKind": "query",
+      "variables": [
+        "request"
+      ],
+      "variablesShape": {
+        "request": {
+          "code": {
+            "sensitive_string_value": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "code": {
+              "presence": "always",
+              "fields": {
+                "sensitive_string_value": {
+                  "presence": "conditional"
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa_resolve_payment_account_link": {
+          "business_jid": "string",
+          "payment_account": {
+            "account_type": "string",
+            "holder_name": "string",
+            "identifier_type": "string",
+            "identifier_value": "string"
+          },
+          "verified_name": "string"
+        }
+      }
+    },
     "CachedToken": {
       "originalName": "WAWebMexCachedTokenJobMutation",
       "docId": "27013462064904056",
@@ -1375,6 +1442,51 @@
         }
       }
     },
+    "CreateEnforcementAppeal": {
+      "originalName": "WAWebMexCreateEnforcementAppealJobMutation",
+      "docId": "9848815108513025",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "additional_appeal_reason": "string",
+          "appeal_reason": "string",
+          "enforcement_id": "string",
+          "entity_id": "string",
+          "locale": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "additional_appeal_reason": {
+              "presence": "conditional"
+            },
+            "appeal_reason": {
+              "presence": "conditional"
+            },
+            "enforcement_id": {
+              "presence": "conditional"
+            },
+            "entity_id": {
+              "presence": "conditional"
+            },
+            "locale": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa2_create_enforcement_appeal": {
+          "appeal_creation_time": "number",
+          "appeal_state": "string"
+        }
+      }
+    },
     "CreateInviteCode": {
       "originalName": "WAWebMexCreateInviteCodeJobMutation",
       "docId": "28250338504572715",
@@ -1685,6 +1797,35 @@
         }
       }
     },
+    "CustomerManagerCustomerProfileCustomFieldCreate": {
+      "originalName": "WAWebCustomerManagerCustomerProfileCustomFieldCreateMutation",
+      "docId": "29247696401505705",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xfb_wa_create_customer_profile_custom_field": {
+          "wa_customer_profile_custom_field": {
+            "currency": "string",
+            "currency_decimal_places": "string",
+            "enum_option_keys": "string",
+            "enum_values": "string",
+            "field_type": "string",
+            "id": "string",
+            "name": "string"
+          }
+        }
+      }
+    },
     "CustomerManagerStartTrial": {
       "originalName": "WAWebCustomerManagerStartTrialMutation",
       "docId": "28905083339086977",
@@ -1799,7 +1940,8 @@
           "inviter_name": "string",
           "source": "string",
           "target_id": "string",
-          "target_type": "string"
+          "target_type": "string",
+          "utm_campaign": "string"
         }
       },
       "variablesPresence": {
@@ -1819,6 +1961,9 @@
               "presence": "conditional"
             },
             "target_type": {
+              "presence": "always"
+            },
+            "utm_campaign": {
               "presence": "always"
             }
           }
@@ -1857,41 +2002,6 @@
           "partner_name": "string",
           "success": "string"
         }
-      }
-    },
-    "FetchAboutStatus": {
-      "originalName": "WAWebMexFetchAboutStatusJobQuery",
-      "docId": "24535500086059408",
-      "operationKind": "query",
-      "variables": [
-        "user"
-      ],
-      "variablesShape": {
-        "user": {
-          "user_id": "string"
-        }
-      },
-      "variablesPresence": {
-        "user": {
-          "presence": "always",
-          "fields": {
-            "user_id": {
-              "presence": "conditional"
-            }
-          }
-        }
-      },
-      "response": {
-        "xwa2_users_updates_since": [
-          {
-            "updates": [
-              {
-                "__typename": "string",
-                "text": "string"
-              }
-            ]
-          }
-        ]
       }
     },
     "FetchAllNewslettersMetadata": {
@@ -2111,7 +2221,7 @@
     },
     "FetchGroupInfo": {
       "originalName": "WAWebMexFetchGroupInfoJobQuery",
-      "docId": "27508847222068472",
+      "docId": "29024140840540682",
       "operationKind": "query",
       "variables": [
         "id",
@@ -2202,6 +2312,9 @@
               "expiration_time_in_sec": "string"
             },
             "general_chat": "string",
+            "group_custom_reactions": {
+              "default_reactions": "string"
+            },
             "growth_locked2": {
               "locked": "string"
             },
@@ -2240,7 +2353,7 @@
     },
     "FetchGroupInfoIncludBots": {
       "originalName": "WAWebMexFetchGroupInfoIncludBotsJobQuery",
-      "docId": "27795062750123057",
+      "docId": "28713479051667101",
       "operationKind": "query",
       "variables": [
         "id",
@@ -2333,6 +2446,9 @@
               "expiration_time_in_sec": "string"
             },
             "general_chat": "string",
+            "group_custom_reactions": {
+              "default_reactions": "string"
+            },
             "group_safety_check": "string",
             "growth_locked2": {
               "locked": "string"
@@ -2371,7 +2487,7 @@
     },
     "FetchGroupInfoIncludBotsJobAcp2": {
       "originalName": "WAWebMexFetchGroupInfoIncludBotsJobAcp2Query",
-      "docId": "28036426022701940",
+      "docId": "29507325772288344",
       "operationKind": "query",
       "variables": [
         "id",
@@ -2464,6 +2580,9 @@
               "expiration_time_in_sec": "string"
             },
             "general_chat": "string",
+            "group_custom_reactions": {
+              "default_reactions": "string"
+            },
             "group_safety_check": "string",
             "growth_locked2": {
               "locked": "string"
@@ -2503,7 +2622,7 @@
     },
     "FetchGroupInfoJobAcp2": {
       "originalName": "WAWebMexFetchGroupInfoJobAcp2Query",
-      "docId": "38735621546085739",
+      "docId": "29680065408278914",
       "operationKind": "query",
       "variables": [
         "id",
@@ -2594,6 +2713,9 @@
               "expiration_time_in_sec": "string"
             },
             "general_chat": "string",
+            "group_custom_reactions": {
+              "default_reactions": "string"
+            },
             "growth_locked2": {
               "locked": "string"
             },
@@ -2659,6 +2781,240 @@
         }
       }
     },
+    "FetchGroupInviteInfo": {
+      "originalName": "WAWebMexFetchGroupInviteInfoJobQuery",
+      "docId": "40409254805339535",
+      "operationKind": "query",
+      "variables": [
+        "include_username",
+        "invite_code"
+      ],
+      "variablesShape": {
+        "include_username": "boolean",
+        "invite_code": "string"
+      },
+      "variablesPresence": {
+        "include_username": {
+          "presence": "undetermined"
+        },
+        "invite_code": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa2_group_query_by_id": {
+          "__typename": "string",
+          "creation_time": "number",
+          "creator": {
+            "id": "string",
+            "pn": "string",
+            "username_info": {
+              "__typename": "string",
+              "username": "string"
+            }
+          },
+          "description": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "id": "string",
+            "value": "string"
+          },
+          "id": "string",
+          "membership_approval_request": "string",
+          "membership_approval_requests": {
+            "edges": [
+              {
+                "node": {
+                  "__typename": "string"
+                }
+              }
+            ]
+          },
+          "missing_participant_identification": "string",
+          "num_sub_groups": "string",
+          "participants": {
+            "edges": [
+              {
+                "join_time": "number",
+                "node": {
+                  "display_name": "string",
+                  "id": "string",
+                  "lid": "string",
+                  "pn": "string",
+                  "username_info": {
+                    "__typename": "string",
+                    "username": "string"
+                  }
+                },
+                "role": "string"
+              }
+            ]
+          },
+          "properties": {
+            "capi": "string",
+            "closed_by_membership_approval_mode": "string",
+            "ephemeral": {
+              "expiration_time_in_sec": "string"
+            },
+            "general_chat": "string",
+            "lid_migration_state": {
+              "addressing_mode": "string"
+            },
+            "membership_approval_mode_enabled": "boolean",
+            "parent_group_jid": "string",
+            "parent_group_subject": {
+              "value": "string"
+            }
+          },
+          "subject": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "value": "string"
+          },
+          "total_participants_count": "number"
+        }
+      }
+    },
+    "FetchGroupInviteInfoJobAddRequest": {
+      "originalName": "WAWebMexFetchGroupInviteInfoJobAddRequestQuery",
+      "docId": "30474441202158153",
+      "operationKind": "query",
+      "variables": [
+        "add_request",
+        "group_jid",
+        "include_username"
+      ],
+      "variablesShape": {
+        "add_request": {
+          "admin": "string",
+          "code": "string",
+          "expiration": "string"
+        },
+        "group_jid": "string",
+        "include_username": "boolean"
+      },
+      "variablesPresence": {
+        "add_request": {
+          "presence": "always",
+          "fields": {
+            "admin": {
+              "presence": "conditional"
+            },
+            "code": {
+              "presence": "conditional"
+            },
+            "expiration": {
+              "presence": "conditional"
+            }
+          }
+        },
+        "group_jid": {
+          "presence": "conditional"
+        },
+        "include_username": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xwa2_group_query_by_id": {
+          "__typename": "string",
+          "creation_time": "number",
+          "creator": {
+            "id": "string",
+            "pn": "string",
+            "username_info": {
+              "__typename": "string",
+              "username": "string"
+            }
+          },
+          "description": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "id": "string",
+            "value": "string"
+          },
+          "id": "string",
+          "membership_approval_request": "string",
+          "membership_approval_requests": {
+            "edges": [
+              {
+                "node": {
+                  "__typename": "string"
+                }
+              }
+            ]
+          },
+          "missing_participant_identification": "string",
+          "num_sub_groups": "string",
+          "participants": {
+            "edges": [
+              {
+                "join_time": "number",
+                "node": {
+                  "display_name": "string",
+                  "id": "string",
+                  "lid": "string",
+                  "pn": "string",
+                  "username_info": {
+                    "__typename": "string",
+                    "username": "string"
+                  }
+                },
+                "role": "string"
+              }
+            ]
+          },
+          "properties": {
+            "capi": "string",
+            "closed_by_membership_approval_mode": "string",
+            "ephemeral": {
+              "expiration_time_in_sec": "string"
+            },
+            "general_chat": "string",
+            "lid_migration_state": {
+              "addressing_mode": "string"
+            },
+            "membership_approval_mode_enabled": "boolean",
+            "parent_group_jid": "string",
+            "parent_group_subject": {
+              "value": "string"
+            }
+          },
+          "subject": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "value": "string"
+          },
+          "total_participants_count": "number"
+        }
+      }
+    },
     "FetchGroupIsInternal": {
       "originalName": "WAWebMexFetchGroupIsInternalJobQuery",
       "docId": "34119218944390847",
@@ -2686,7 +3042,7 @@
     },
     "FetchIntegritySignals": {
       "originalName": "WAWebMexFetchIntegritySignalsQuery",
-      "docId": "26438847999065394",
+      "docId": "28951872044481435",
       "operationKind": "query",
       "variables": [
         "input"
@@ -2748,10 +3104,213 @@
             "integrity_signals_info": {
               "__typename": "string",
               "is_new_account": "boolean",
-              "is_suspicious_start_chat": "boolean"
+              "is_suspicious_start_chat": "boolean",
+              "join_date_ms": "number"
             }
           }
         ]
+      }
+    },
+    "FetchLabyrinthEpochChain": {
+      "originalName": "WAWebFetchLabyrinthEpochChainJobQuery",
+      "docId": "28763143453350226",
+      "operationKind": "query",
+      "response": {
+        "wa_labyrinth_fetch_epoch_chain": {
+          "__typename": "string",
+          "active_epoch_id": "string",
+          "backup_id": "string",
+          "error_code": "string",
+          "message": "string"
+        }
+      }
+    },
+    "FetchLinkedGroupInfo": {
+      "originalName": "WAWebMexFetchLinkedGroupInfoJobQuery",
+      "docId": "29608014298802449",
+      "operationKind": "query",
+      "variables": [
+        "group_jid",
+        "include_username",
+        "sub_group_jid_hint"
+      ],
+      "variablesShape": {
+        "group_jid": "string",
+        "include_username": "boolean",
+        "sub_group_jid_hint": "string"
+      },
+      "variablesPresence": {
+        "group_jid": {
+          "presence": "undetermined"
+        },
+        "include_username": {
+          "presence": "undetermined"
+        },
+        "sub_group_jid_hint": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xwa2_group_query_by_id": {
+          "__typename": "string",
+          "creation_time": "number",
+          "creator": {
+            "id": "string",
+            "pn": "string",
+            "username_info": {
+              "__typename": "string",
+              "username": "string"
+            }
+          },
+          "description": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "id": "string",
+            "value": "string"
+          },
+          "id": "string",
+          "membership_approval_request": "string",
+          "participants": {
+            "edges": [
+              {
+                "join_time": "number",
+                "node": {
+                  "display_name": "string",
+                  "id": "string",
+                  "lid": "string",
+                  "pn": "string",
+                  "username_info": {
+                    "__typename": "string",
+                    "username": "string"
+                  }
+                },
+                "role": "string"
+              }
+            ]
+          },
+          "properties": {
+            "admin_request_required": "boolean",
+            "hidden_group": "string",
+            "membership_approval_mode_enabled": "boolean"
+          },
+          "state": "string",
+          "subject": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "value": "string"
+          },
+          "total_participants_count": "number"
+        }
+      }
+    },
+    "FetchMembershipApprovalRequests": {
+      "originalName": "WAWebMexFetchMembershipApprovalRequestsJobQuery",
+      "docId": "40086730520941352",
+      "operationKind": "query",
+      "variables": [
+        "id",
+        "include_username",
+        "query_context"
+      ],
+      "variablesShape": {
+        "id": "string",
+        "include_username": "boolean",
+        "query_context": "string"
+      },
+      "variablesPresence": {
+        "id": {
+          "presence": "undetermined"
+        },
+        "include_username": {
+          "presence": "undetermined"
+        },
+        "query_context": {
+          "presence": "always"
+        }
+      },
+      "response": {
+        "xwa2_group_query_by_id": {
+          "__typename": "string",
+          "id": "string",
+          "membership_approval_requests": {
+            "edges": [
+              {
+                "node": {
+                  "request_method": "string",
+                  "request_time": "number",
+                  "requestor": {
+                    "id": "string",
+                    "jid": "string",
+                    "pn": "string",
+                    "username_info": {
+                      "__typename": "string",
+                      "username": "string"
+                    }
+                  },
+                  "user": {
+                    "id": "string",
+                    "jid": "string",
+                    "pn": "string",
+                    "username_info": {
+                      "__typename": "string",
+                      "username": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "FetchMetaOnePromoEligibility": {
+      "originalName": "WAWebFetchMetaOnePromoEligibilityQuery",
+      "docId": "29257892627140750",
+      "operationKind": "query",
+      "variables": [
+        "request"
+      ],
+      "variablesShape": {
+        "request": {
+          "promo_platforms": [
+            "string"
+          ]
+        }
+      },
+      "variablesPresence": {
+        "request": {
+          "presence": "always",
+          "fields": {
+            "promo_platforms": {
+              "presence": "undetermined"
+            }
+          }
+        }
+      },
+      "response": {
+        "eligibility": {
+          "subscriptionPromos": [
+            {
+              "isEligible": "string",
+              "platform": "string",
+              "promoType": "string"
+            }
+          ]
+        }
       }
     },
     "FetchNewChatMessageCappingInfo": {
@@ -3859,6 +4418,52 @@
         "xfb_wa_biz_get_oidc_state": "string"
       }
     },
+    "FetchPhoneNumberSharingSettings": {
+      "originalName": "WAWebFetchPhoneNumberSharingSettingsQuery",
+      "docId": "29271621015855816",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "deny_list": {
+            "dhash": "string"
+          }
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "deny_list": {
+              "presence": "always",
+              "fields": {
+                "dhash": {
+                  "presence": "conditional"
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa2_privacy_phone_number_sharing_get": {
+          "deny_list": {
+            "dhash": "string",
+            "entries": [
+              {
+                "__typename": "string",
+                "group_jid": "string",
+                "pn_jid": "string",
+                "user_jid": "string"
+              }
+            ]
+          },
+          "setting": "string"
+        }
+      }
+    },
     "FetchPlaintextLinkPreview": {
       "originalName": "WAWebMexFetchPlaintextLinkPreviewJobQuery",
       "docId": "9101130456653613",
@@ -4412,7 +5017,7 @@
     },
     "FetchSubscriptions": {
       "originalName": "WAWebFetchSubscriptionsQuery",
-      "docId": "35324254123840149",
+      "docId": "29102521762691581",
       "operationKind": "query",
       "variables": [
         "data"
@@ -4437,7 +5042,6 @@
           "feature_flags": [
             {
               "enabled": "boolean",
-              "expiration_time": "number",
               "limit": "number",
               "name": "string"
             }
@@ -4447,7 +5051,6 @@
               "creation_time": "number",
               "end_time": "number",
               "id": "string",
-              "is_platform_changed": "boolean",
               "source": "string",
               "start_time": "number",
               "status": "string",
@@ -4614,6 +5217,34 @@
         }
       }
     },
+    "GetDsbInfo": {
+      "originalName": "WAWebMexGetDsbInfoJobMutation",
+      "docId": "9982897848413251",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "entity_id": "string"
+        }
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "always",
+          "fields": {
+            "entity_id": {
+              "presence": "conditional"
+            }
+          }
+        }
+      },
+      "response": {
+        "xwa2_get_dsb_info": {
+          "reference_number": "number"
+        }
+      }
+    },
     "GetFBAccountPages": {
       "originalName": "WAWebGetFBAccountPagesQuery",
       "docId": "24564518546541529",
@@ -4765,7 +5396,7 @@
     },
     "GetPrivacySettings": {
       "originalName": "WAWebMexGetPrivacySettingsQuery",
-      "docId": "25637004609323493",
+      "docId": "29205276772462415",
       "operationKind": "query",
       "variables": [
         "input"
@@ -5021,21 +5652,21 @@
           "presence": "always",
           "fields": {
             "entry_point": {
-              "presence": "conditional"
+              "presence": "undetermined"
             },
             "group_jid": {
               "presence": "conditional"
             },
             "participants": {
-              "presence": "always",
+              "presence": "undetermined",
               "items": {
                 "presence": "always",
                 "fields": {
                   "participant": {
-                    "presence": "conditional"
+                    "presence": "undetermined"
                   },
                   "server_sent_sms": {
-                    "presence": "always"
+                    "presence": "undetermined"
                   }
                 }
               }
@@ -5172,55 +5803,6 @@
         "xwa2_submit_integrity_challenge_response": {
           "error_message": "string",
           "success": "string"
-        }
-      }
-    },
-    "InternalDirectoryFetchMembers": {
-      "originalName": "WAWebInternalDirectoryFetchMembersJobQuery",
-      "docId": "28645118498472724",
-      "operationKind": "query",
-      "variables": [
-        "after",
-        "first"
-      ],
-      "variablesShape": {
-        "after": {
-          "invalidLidCount": "string"
-        },
-        "first": "string"
-      },
-      "variablesPresence": {
-        "after": {
-          "presence": "conditional",
-          "fields": {
-            "invalidLidCount": {
-              "presence": "undetermined"
-            }
-          }
-        },
-        "first": {
-          "presence": "always"
-        }
-      },
-      "response": {
-        "xwa_whatsapp_for_work_employee_directory": {
-          "edges": [
-            {
-              "node": {
-                "designation": "string",
-                "enrollment_status": "string",
-                "id": "string",
-                "lid": "string",
-                "member_id": "string",
-                "name": "string",
-                "team": "string"
-              }
-            }
-          ],
-          "page_info": {
-            "end_cursor": "string",
-            "has_next_page": "boolean"
-          }
         }
       }
     },
@@ -5671,7 +6253,7 @@
     },
     "OrgAdminGraphQLAdminRoster": {
       "originalName": "WAWebOrgAdminGraphQLAdminRosterQuery",
-      "docId": "40493889943531509",
+      "docId": "29083233177980933",
       "operationKind": "query",
       "variables": [
         "orgID"
@@ -5694,6 +6276,7 @@
                   "email_address": "string",
                   "id": "string",
                   "invite_expiry": "string",
+                  "last_name": "string",
                   "member_lid": "string",
                   "member_tag": "string",
                   "name": "string",
@@ -5767,7 +6350,7 @@
     },
     "OrgAdminGraphQLDirectoryPage": {
       "originalName": "WAWebOrgAdminGraphQLDirectoryPageQuery",
-      "docId": "28707165072226731",
+      "docId": "29733500879600698",
       "operationKind": "query",
       "variables": [
         "first",
@@ -5794,6 +6377,7 @@
               "count": "number",
               "nodes": [
                 {
+                  "display_last_name": "string",
                   "display_name": "string",
                   "lid": "string",
                   "member_tag": "string",
@@ -5809,6 +6393,33 @@
             "org_member_updated_ts_usec": "string"
           },
           "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLEventRsvpCounts": {
+      "originalName": "WAWebOrgAdminGraphQLEventRsvpCountsQuery",
+      "docId": "30041328192122316",
+      "operationKind": "query",
+      "variables": [
+        "eventID"
+      ],
+      "variablesShape": {
+        "eventID": "string"
+      },
+      "variablesPresence": {
+        "eventID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_event_get": {
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string"
+            }
+          }
         }
       }
     },
@@ -5861,7 +6472,7 @@
     },
     "OrgAdminGraphQLInviteMembers": {
       "originalName": "WAWebOrgAdminGraphQLInviteMembersMutation",
-      "docId": "28461077290259979",
+      "docId": "28796979909930872",
       "operationKind": "mutation",
       "variables": [
         "orgID",
@@ -5913,6 +6524,28 @@
       },
       "response": {
         "xwa_org_invite_members": {
+          "error_reason": "string",
+          "status": "string"
+        }
+      }
+    },
+    "OrgAdminGraphQLLeave": {
+      "originalName": "WAWebOrgAdminGraphQLLeaveMutation",
+      "docId": "29001080236228055",
+      "operationKind": "mutation",
+      "variables": [
+        "orgID"
+      ],
+      "variablesShape": {
+        "orgID": "string"
+      },
+      "variablesPresence": {
+        "orgID": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_org_leave": {
           "error_reason": "string",
           "status": "string"
         }
@@ -6080,7 +6713,7 @@
     },
     "OrgAdminGraphQLMemberSearch": {
       "originalName": "WAWebOrgAdminGraphQLMemberSearchQuery",
-      "docId": "28641250612201754",
+      "docId": "29953677947553394",
       "operationKind": "query",
       "variables": [
         "after",
@@ -6146,6 +6779,7 @@
           "nodes": [
             {
               "member": {
+                "display_last_name": "string",
                 "display_name": "string",
                 "lid": "string",
                 "member_tag": "string",
@@ -6234,12 +6868,13 @@
     },
     "OrgAdminGraphQLSendManagedGroupEmailInvites": {
       "originalName": "WAWebOrgAdminGraphQLSendManagedGroupEmailInvitesMutation",
-      "docId": "38981821098132867",
+      "docId": "29088707084112709",
       "operationKind": "mutation",
       "variables": [
         "gid",
         "orgID",
-        "rosterEntryIDs"
+        "rosterEntryIDs",
+        "utmCampaign"
       ],
       "variablesShape": {
         "gid": "string",
@@ -6251,7 +6886,8 @@
           "member_tag_options": "string",
           "org_id": "string",
           "secondary_member_tag_name": "string"
-        }
+        },
+        "utmCampaign": "string"
       },
       "variablesPresence": {
         "gid": {
@@ -6282,6 +6918,9 @@
               "presence": "undetermined"
             }
           }
+        },
+        "utmCampaign": {
+          "presence": "always"
         }
       },
       "response": {
@@ -6505,21 +7144,24 @@
     },
     "OrgMemberUpdateNotificationHandler": {
       "originalName": "WAWebMexOrgMemberUpdateNotificationHandlerQuery",
-      "docId": "29119014437722960",
+      "docId": "29436659042625391",
       "operationKind": "query",
       "response": {
         "xwa2_notify_org_on_member_update": {
           "members": [
             {
+              "display_last_name": "string",
               "display_name": "string",
               "member_action": "string",
               "member_lid": "string",
               "member_tag": "string",
-              "role": "string"
+              "role": "string",
+              "username": "string"
             }
           ],
           "org_id": "string",
-          "org_member_updated_ts_usec": "string"
+          "org_member_updated_ts_usec": "string",
+          "phash": "string"
         }
       }
     },
@@ -6535,7 +7177,7 @@
     },
     "QueryCatalog": {
       "originalName": "WAWebQueryCatalogQuery",
-      "docId": "30445081048424116",
+      "docId": "29516483177936279",
       "operationKind": "query",
       "variables": [
         "request"
@@ -6713,7 +7355,7 @@
     },
     "QueryCatalogHasCategories": {
       "originalName": "WAWebQueryCatalogHasCategoriesQuery",
-      "docId": "9746549555457302",
+      "docId": "29139727815639514",
       "operationKind": "query",
       "variables": [
         "request"
@@ -6760,7 +7402,7 @@
     },
     "QueryCatalogProduct": {
       "originalName": "WAWebQueryCatalogProductQuery",
-      "docId": "9660926520672123",
+      "docId": "28846496438335971",
       "operationKind": "query",
       "variables": [
         "request"
@@ -6923,7 +7565,7 @@
     },
     "QueryProductCollections": {
       "originalName": "WAWebQueryProductCollectionsQuery",
-      "docId": "9430970660362540",
+      "docId": "29398139243143451",
       "operationKind": "query",
       "variables": [
         "request"
@@ -7106,7 +7748,7 @@
     },
     "QueryProductListCatalog": {
       "originalName": "WAWebQueryProductListCatalogJobQuery",
-      "docId": "30125049463760630",
+      "docId": "29053768057577183",
       "operationKind": "query",
       "variables": [
         "request"
@@ -7272,7 +7914,7 @@
     },
     "QueryProductSingleCollection": {
       "originalName": "WAWebQueryProductSingleCollectionQuery",
-      "docId": "9546992575408789",
+      "docId": "40688642257401415",
       "operationKind": "query",
       "variables": [
         "request"
@@ -7707,30 +8349,17 @@
     },
     "SharableEventAddInvitations": {
       "originalName": "WAWebSharableEventAddInvitationsJobMutation",
-      "docId": "27221189747579014",
+      "docId": "29278149721778873",
       "operationKind": "mutation",
       "variables": [
         "input"
       ],
       "variablesShape": {
-        "input": {
-          "event_id": "string",
-          "invited_user_lids": [
-            "string"
-          ]
-        }
+        "input": "string"
       },
       "variablesPresence": {
         "input": {
-          "presence": "always",
-          "fields": {
-            "event_id": {
-              "presence": "conditional"
-            },
-            "invited_user_lids": {
-              "presence": "undetermined"
-            }
-          }
+          "presence": "undetermined"
         }
       },
       "response": {
@@ -7741,6 +8370,81 @@
             "is_retryable": "boolean",
             "newly_added_lids": "string",
             "successful_count": "number"
+          },
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string",
+              "not_going": "string"
+            },
+            "invitation_list": [
+              {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            ],
+            "last_updated_ts_usec": "string",
+            "total_invited_count": "number"
+          }
+        }
+      }
+    },
+    "SharableEventCreate": {
+      "originalName": "WAWebSharableEventCreateJobMutation",
+      "docId": "29484741347800001",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xwa_event_create": {
+          "privacy_aware_event": {
+            "call_link": {
+              "is_waiting_room_enabled": "boolean",
+              "media_type": "string",
+              "token": "string"
+            },
+            "cover_image": {
+              "is_preset_image": "boolean",
+              "uri": "string"
+            },
+            "cover_image_handle": "string",
+            "created_ts_sec": "string",
+            "creator_lid": "string",
+            "description": "string",
+            "end_ts_sec": "string",
+            "id": "string",
+            "last_updated_ts_usec": "string",
+            "location": {
+              "address": "string",
+              "coordinates": {
+                "latitude": "string",
+                "longitude": "string"
+              },
+              "name": "string",
+              "web_url": "string"
+            },
+            "max_additional_guests": "string",
+            "name": "string",
+            "reminder_ts_sec": "string",
+            "start_ts_sec": "string",
+            "status": "string"
           },
           "privacy_aware_invitation": {
             "count_by_rsvp_status": {
@@ -7804,26 +8508,11 @@
         "input"
       ],
       "variablesShape": {
-        "input": {
-          "event_id": "string",
-          "event_last_updated_ts_usec": "string",
-          "invitation_last_updated_ts_usec": "string"
-        }
+        "input": "string"
       },
       "variablesPresence": {
         "input": {
-          "presence": "always",
-          "fields": {
-            "event_id": {
-              "presence": "conditional"
-            },
-            "event_last_updated_ts_usec": {
-              "presence": "conditional"
-            },
-            "invitation_last_updated_ts_usec": {
-              "presence": "conditional"
-            }
-          }
+          "presence": "undetermined"
         }
       },
       "response": {
@@ -7903,6 +8592,161 @@
         }
       }
     },
+    "SharableEventJoinViaLink": {
+      "originalName": "WAWebSharableEventJoinViaLinkJobMutation",
+      "docId": "29149501904676456",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xwa_event_join_via_link": {
+          "privacy_aware_event": {
+            "call_link": {
+              "is_waiting_room_enabled": "boolean",
+              "media_type": "string",
+              "token": "string"
+            },
+            "cover_image": {
+              "is_preset_image": "boolean",
+              "uri": "string"
+            },
+            "cover_image_handle": "string",
+            "created_ts_sec": "string",
+            "creator_lid": "string",
+            "description": "string",
+            "end_ts_sec": "string",
+            "id": "string",
+            "last_updated_ts_usec": "string",
+            "location": {
+              "address": "string",
+              "coordinates": {
+                "latitude": "string",
+                "longitude": "string"
+              },
+              "name": "string",
+              "web_url": "string"
+            },
+            "max_additional_guests": "string",
+            "name": "string",
+            "reminder_ts_sec": "string",
+            "start_ts_sec": "string",
+            "status": "string"
+          },
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string",
+              "not_going": "string"
+            },
+            "invitation_list": [
+              {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            ],
+            "last_updated_ts_usec": "string",
+            "total_invited_count": "number"
+          }
+        }
+      }
+    },
+    "SharableEventLinkPreview": {
+      "originalName": "WAWebSharableEventLinkPreviewJobQuery",
+      "docId": "29420835400939876",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "undetermined"
+        }
+      },
+      "response": {
+        "xwa_event_get_link_preview": {
+          "creator_pushname": "string",
+          "privacy_aware_event": {
+            "call_link": {
+              "is_waiting_room_enabled": "boolean",
+              "media_type": "string",
+              "token": "string"
+            },
+            "cover_image": {
+              "is_preset_image": "boolean",
+              "uri": "string"
+            },
+            "cover_image_handle": "string",
+            "created_ts_sec": "string",
+            "creator_lid": "string",
+            "description": "string",
+            "end_ts_sec": "string",
+            "id": "string",
+            "last_updated_ts_usec": "string",
+            "location": {
+              "address": "string",
+              "coordinates": {
+                "latitude": "string",
+                "longitude": "string"
+              },
+              "name": "string",
+              "web_url": "string"
+            },
+            "max_additional_guests": "string",
+            "name": "string",
+            "region": "string",
+            "reminder_ts_sec": "string",
+            "start_ts_sec": "string",
+            "status": "string"
+          },
+          "privacy_aware_invitation": {
+            "count_by_rsvp_status": {
+              "going": "string",
+              "maybe": "string",
+              "no_response": "string",
+              "not_going": "string"
+            },
+            "invitation_list": [
+              {
+                "created_ts_sec": "string",
+                "extra_guest_count": "number",
+                "guest_name": "string",
+                "invitee_lid": "string",
+                "is_wa_user": "boolean",
+                "last_updated_ts_sec": "string",
+                "phone_number": "number",
+                "rsvp_status": "string",
+                "username": "string"
+              }
+            ],
+            "last_updated_ts_usec": "string",
+            "total_invited_count": "number"
+          },
+          "privacy_aware_my_invitation": {
+            "__typename": "string"
+          }
+        }
+      }
+    },
     "SharableEventList": {
       "originalName": "WAWebSharableEventListJobQuery",
       "docId": "28535944269435609",
@@ -7911,39 +8755,11 @@
         "input"
       ],
       "variablesShape": {
-        "input": {
-          "categories": [
-            "string"
-          ],
-          "page_size": "number",
-          "time_range": {
-            "end_ts_sec": "string",
-            "start_ts_sec": "string"
-          }
-        }
+        "input": "string"
       },
       "variablesPresence": {
         "input": {
-          "presence": "always",
-          "fields": {
-            "categories": {
-              "presence": "always"
-            },
-            "page_size": {
-              "presence": "always"
-            },
-            "time_range": {
-              "presence": "always",
-              "fields": {
-                "end_ts_sec": {
-                  "presence": "always"
-                },
-                "start_ts_sec": {
-                  "presence": "always"
-                }
-              }
-            }
-          }
+          "presence": "undetermined"
         }
       },
       "response": {
@@ -8215,30 +9031,17 @@
     },
     "SharableEventRemoveInvitations": {
       "originalName": "WAWebSharableEventRemoveInvitationsJobMutation",
-      "docId": "28775803215445491",
+      "docId": "28792445590414542",
       "operationKind": "mutation",
       "variables": [
         "input"
       ],
       "variablesShape": {
-        "input": {
-          "event_id": "string",
-          "invited_user_lids": [
-            "string"
-          ]
-        }
+        "input": "string"
       },
       "variablesPresence": {
         "input": {
-          "presence": "always",
-          "fields": {
-            "event_id": {
-              "presence": "conditional"
-            },
-            "invited_user_lids": {
-              "presence": "undetermined"
-            }
-          }
+          "presence": "undetermined"
         }
       },
       "response": {
@@ -8281,7 +9084,7 @@
       },
       "variablesPresence": {
         "input": {
-          "presence": "conditional"
+          "presence": "undetermined"
         }
       },
       "response": {
@@ -8453,6 +9256,27 @@
           "error_message": "string",
           "success": "string",
           "task_id": "string"
+        }
+      }
+    },
+    "SupportChatAuthRefresh": {
+      "originalName": "WAWebSupportChatAuthRefreshMutation",
+      "docId": "39847245038253740",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "variablesPresence": {
+        "input": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa_wa_support_chat_auth_refresh": {
+          "status": "string"
         }
       }
     },
@@ -8634,6 +9458,43 @@
         }
       }
     },
+    "UpdateNewsletterAdminProfile": {
+      "originalName": "WAWebMexUpdateNewsletterAdminProfileJobMutation",
+      "docId": "27871895895845117",
+      "operationKind": "mutation",
+      "variables": [
+        "admin_profile",
+        "newsletter_id"
+      ],
+      "variablesShape": {
+        "admin_profile": "string",
+        "newsletter_id": "string"
+      },
+      "variablesPresence": {
+        "admin_profile": {
+          "presence": "conditional"
+        },
+        "newsletter_id": {
+          "presence": "conditional"
+        }
+      },
+      "response": {
+        "xwa2_newsletter_admin_profile_update": {
+          "admin_profile": {
+            "id": "string",
+            "name": "string",
+            "picture": {
+              "direct_path": "string",
+              "id": "string"
+            }
+          },
+          "id": "string",
+          "state": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "UpdateNewsletterAdminProfileSetting": {
       "originalName": "WAWebMexUpdateNewsletterAdminProfileSettingJobMutation",
       "docId": "28226671310350649",
@@ -8756,17 +9617,15 @@
     },
     "Usync": {
       "originalName": "WAWebMexUsyncQuery",
-      "docId": "28496738596651319",
+      "docId": "28340427968970000",
       "operationKind": "query",
       "variables": [
-        "include_about_status",
         "include_country_code",
         "include_orgs",
         "include_username",
         "input"
       ],
       "variablesShape": {
-        "include_about_status": "boolean",
         "include_country_code": "boolean",
         "include_orgs": "boolean",
         "include_username": "boolean",
@@ -8776,9 +9635,6 @@
         }
       },
       "variablesPresence": {
-        "include_about_status": {
-          "presence": "always"
-        },
         "include_country_code": {
           "presence": "always"
         },
@@ -8804,12 +9660,6 @@
         "xwa2_fetch_wa_users": [
           {
             "__typename": "string",
-            "about_status_info": {
-              "__typename": "string",
-              "status": "string",
-              "text": "string",
-              "timestamp": "number"
-            },
             "country_code": "string",
             "id": "string",
             "jid": "string",
@@ -8817,6 +9667,7 @@
               "__typename": "string",
               "orgs": [
                 {
+                  "display_last_name": "string",
                   "display_name": "string",
                   "member_tag": "string",
                   "org_id": "string",

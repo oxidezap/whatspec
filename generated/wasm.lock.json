@@ -1,34 +1,36 @@
 {
-  "waVersion": "2.3000.1052559453",
-  "wasmSetHash": "905d7c6b0b4769fd8bbd3d8860d9ef4e415873c65a00b85573461549695a2375",
-  "wasmCount": 24,
+  "waVersion": "2.3000.1054751086",
+  "wasmSetHash": "5a6aaa42bcd17b5839f933c1cbfb70d75faae93578e6ceeb061c544cb86505f6",
+  "wasmCount": 26,
   "bootloader": {
-    "handlesFromPage": 5,
+    "handlesFromPage": 7,
     "wasmHandles": {
-      "110635": "https://static.whatsapp.net/rsrc.php/y5/r/YZSJvG7jrxR.wasm",
-      "110646": "https://static.whatsapp.net/rsrc.php/y0/r/pd7k1qo71fJ.wasm",
-      "110658": "https://static.whatsapp.net/rsrc.php/ya/r/d_7AxwK1h8o.wasm",
-      "110694": "https://static.whatsapp.net/rsrc.php/yh/r/CBshtY8xzYA.wasm",
-      "110732": "https://static.whatsapp.net/rsrc.php/yf/r/OO4CUlyTAPs.wasm",
-      "110735": "https://static.whatsapp.net/rsrc.php/ym/r/pe6gxHiec6s.wasm",
-      "110750": "https://static.whatsapp.net/rsrc.php/yL/r/otxAnOzKU7q.wasm",
-      "110762": "https://static.whatsapp.net/rsrc.php/yx/r/MwjTn6Hy3xz.wasm",
       "110767": "https://static.whatsapp.net/rsrc.php/yk/r/gd9Q6QUL_tV.wasm",
       "110772": "https://static.whatsapp.net/rsrc.php/yq/r/_HRGlptBHj3.wasm",
+      "110774": "https://static.whatsapp.net/rsrc.php/yL/r/ODRYXeI7Svn.wasm",
       "110778": "https://static.whatsapp.net/rsrc.php/yD/r/pBcHmVFPa3H.wasm",
       "110782": "https://static.whatsapp.net/rsrc.php/y9/r/wOQ76Ool-UY.wasm",
       "110806": "https://static.whatsapp.net/rsrc.php/y5/r/jPv2XExDUtV.wasm",
       "110809": "https://static.whatsapp.net/rsrc.php/y-/r/7LTVt7riUu7.wasm",
       "110929": "https://static.whatsapp.net/rsrc.php/yi/r/FKu7d20aQei.wasm",
       "110937": "https://static.whatsapp.net/rsrc.php/yd/r/u-Bw8hwXJGE.wasm",
+      "110947": "https://static.whatsapp.net/rsrc.php/yz/r/_yrX-t2YZ6m.wasm",
+      "110981": "https://static.whatsapp.net/rsrc.php/yG/r/-qEX3G_xaHP.wasm",
+      "111007": "https://static.whatsapp.net/rsrc.php/yR/r/16wryVm0LBZ.wasm",
+      "111016": "https://static.whatsapp.net/rsrc.php/yj/r/Q77uGJ_qxli.wasm",
+      "111098": "https://static.whatsapp.net/rsrc.php/y6/r/Me4aulzlWft.wasm",
+      "111117": "https://static.whatsapp.net/rsrc.php/yM/r/4qTtu5P5pX2.wasm",
+      "111118": "https://static.whatsapp.net/rsrc.php/ys/r/4ovTQYfwbTY.wasm",
+      "111203": "https://static.whatsapp.net/rsrc.php/y6/r/rEjXwUYzMaj.wasm",
       "237": "https://static.whatsapp.net/rsrc.php/yR/r/ayqr5HQtlkb.wasm",
       "31390": "https://static.whatsapp.net/rsrc.php/yl/r/php8T1oSIZM.wasm",
-      "32180": "https://static.whatsapp.net/rsrc.php/yk/r/jXNNwxgnc5P.wasm",
-      "33861": "https://static.whatsapp.net/rsrc.php/yQ/r/cwIIoVpnOVZ.wasm",
+      "32180": "https://static.whatsapp.net/rsrc.php/yK/r/xITnYFuHrtk.wasm",
+      "33861": "https://static.whatsapp.net/rsrc.php/ye/r/C8-xwdSZekL.wasm",
       "47437": "https://static.whatsapp.net/rsrc.php/ye/r/-5fSEd7-h_f.wasm",
+      "5991": "https://static.whatsapp.net/rsrc.php/yx/r/y3qrLWQpj95.wasm",
       "6946": "https://static.whatsapp.net/rsrc.php/yf/r/rogm88TRRiw.wasm",
-      "78864": "https://static.whatsapp.net/rsrc.php/yi/r/ehkI4b5kDZC.wasm",
-      "78865": "https://static.whatsapp.net/rsrc.php/y3/r/9k6b6egDYCF.wasm"
+      "78864": "https://static.whatsapp.net/rsrc.php/yS/r/_tYBomLtLBk.wasm",
+      "78865": "https://static.whatsapp.net/rsrc.php/yL/r/EwsxMkB1ss0.wasm"
     },
     "requests": 4,
     "failedRequests": 0,
@@ -43,46 +45,18 @@
       "size": 11383838
     },
     {
-      "bxId": "110735",
-      "fileName": "pe6gxHiec6s.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/ym/r/pe6gxHiec6s.wasm",
-      "sha256": "18240076108466f78573eebf3b708245441a1137a0b326b37cd3a5e489982e56",
-      "size": 11330202
-    },
-    {
-      "bxId": "78865",
-      "fileName": "9k6b6egDYCF.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/y3/r/9k6b6egDYCF.wasm",
-      "sha256": "1a961e99873848c0e3339cc679e2d24fe685a9cb3975f622fec24e1130b27006",
-      "size": 11734433
-    },
-    {
-      "bxId": "78864",
-      "fileName": "ehkI4b5kDZC.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yi/r/ehkI4b5kDZC.wasm",
-      "sha256": "1a961e99873848c0e3339cc679e2d24fe685a9cb3975f622fec24e1130b27006",
-      "size": 11734433
-    },
-    {
-      "bxId": "110646",
-      "fileName": "pd7k1qo71fJ.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/y0/r/pd7k1qo71fJ.wasm",
-      "sha256": "1ca67ab2b8b6804e4b38996b70de25f23c4bac07e70f88fb5e6995975e913717",
-      "size": 11219362
-    },
-    {
-      "bxId": "110762",
-      "fileName": "MwjTn6Hy3xz.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yx/r/MwjTn6Hy3xz.wasm",
-      "sha256": "1e61bd4a715ed872cf5b8a0b0f527d24103e8fa0dcad20ee9f3eb707fced3f2d",
-      "size": 11351742
-    },
-    {
       "bxId": "47437",
       "fileName": "-5fSEd7-h_f.wasm",
       "url": "https://static.whatsapp.net/rsrc.php/ye/r/-5fSEd7-h_f.wasm",
       "sha256": "2b314a325fe2a22159c685501c9db84c620fa19c6dd63b7c7fe540525c427165",
       "size": 37282
+    },
+    {
+      "bxId": "111118",
+      "fileName": "4ovTQYfwbTY.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/ys/r/4ovTQYfwbTY.wasm",
+      "sha256": "317b0d80a831cd15b7f79e578ec3e1bd25329133590db6e9c02975d34aa35dd0",
+      "size": 11510703
     },
     {
       "bxId": "110806",
@@ -92,11 +66,11 @@
       "size": 11383134
     },
     {
-      "bxId": "110750",
-      "fileName": "otxAnOzKU7q.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yL/r/otxAnOzKU7q.wasm",
-      "sha256": "36fbf8c2030073613c71269bc9db7b9931a0859f1a0297088c0c90b2008f4b3c",
-      "size": 11346361
+      "bxId": "111098",
+      "fileName": "Me4aulzlWft.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/y6/r/Me4aulzlWft.wasm",
+      "sha256": "39ef675a575b770ed723b51500f6d83b31313b50b007966792ade6bd96825d23",
+      "size": 11506266
     },
     {
       "bxId": "110778",
@@ -106,25 +80,53 @@
       "size": 11377189
     },
     {
-      "bxId": "110732",
-      "fileName": "OO4CUlyTAPs.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yf/r/OO4CUlyTAPs.wasm",
-      "sha256": "4f70a5c55e70375eaab7c6614fe51910aaea96fc3e6abaabca3710c434e9351c",
-      "size": 11305544
+      "bxId": "110981",
+      "fileName": "-qEX3G_xaHP.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yG/r/-qEX3G_xaHP.wasm",
+      "sha256": "44ef0533bb825ebee97f304f85ab1ac3ca50f4c4243ff1a066ee774f9fd418e7",
+      "size": 11490048
     },
     {
-      "bxId": "110694",
-      "fileName": "CBshtY8xzYA.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yh/r/CBshtY8xzYA.wasm",
-      "sha256": "5713c060bcb4f2962599bdf2d0956ad90b2cd927afb4dc5c53099b4116e485c1",
-      "size": 11273962
+      "bxId": "111007",
+      "fileName": "16wryVm0LBZ.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yR/r/16wryVm0LBZ.wasm",
+      "sha256": "5610b788bdeef8d4e5c8b46554b6ba4956ad284a5415514c93f06ecfeba6fc5b",
+      "size": 11483641
+    },
+    {
+      "bxId": "5991",
+      "fileName": "y3qrLWQpj95.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yx/r/y3qrLWQpj95.wasm",
+      "sha256": "5a6c6fa08285354464bb60f5598937e02aa57e18332b98339787c0e935ab25d0",
+      "size": 11511618
+    },
+    {
+      "bxId": "110774",
+      "fileName": "ODRYXeI7Svn.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yL/r/ODRYXeI7Svn.wasm",
+      "sha256": "70d37a628e35ff4293b084a7a8efeafaf0a9d5ebe30d2d50dfc4678d95ed8876",
+      "size": 245654
+    },
+    {
+      "bxId": "111117",
+      "fileName": "4qTtu5P5pX2.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yM/r/4qTtu5P5pX2.wasm",
+      "sha256": "7f32fdb637497ae85bbaa68320d7109253f8ea2ac44af81f0f1f8870048d741b",
+      "size": 92230
     },
     {
       "bxId": "33861",
-      "fileName": "cwIIoVpnOVZ.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yQ/r/cwIIoVpnOVZ.wasm",
-      "sha256": "60439fceeb646797527de411a04c701b43864ac83534ffebf0d0c6eb6b749843",
-      "size": 4521469
+      "fileName": "C8-xwdSZekL.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/ye/r/C8-xwdSZekL.wasm",
+      "sha256": "828c7eb04be22ba98bc84781471e3cd1b909ba1dfb83994a4dc511206d1f1412",
+      "size": 4717594
+    },
+    {
+      "bxId": "111016",
+      "fileName": "Q77uGJ_qxli.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yj/r/Q77uGJ_qxli.wasm",
+      "sha256": "898cc150d5a0069f1a2313b7c0d429c14768def128a0d6aa8d4e1d49ab829fa7",
+      "size": 11492186
     },
     {
       "bxId": "110809",
@@ -134,11 +136,18 @@
       "size": 11407565
     },
     {
-      "bxId": "110658",
-      "fileName": "d_7AxwK1h8o.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/ya/r/d_7AxwK1h8o.wasm",
-      "sha256": "aa89b3b3ca215ed9314f4a140c2a55ab84d08ab2b596194b8f80c7dcf34a5b08",
-      "size": 11273718
+      "bxId": "78865",
+      "fileName": "EwsxMkB1ss0.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yL/r/EwsxMkB1ss0.wasm",
+      "sha256": "a4df9edbda84bd9ace5ccf45fc25974fbd66060612d30a2af4c877945c44de31",
+      "size": 11967886
+    },
+    {
+      "bxId": "78864",
+      "fileName": "_tYBomLtLBk.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yS/r/_tYBomLtLBk.wasm",
+      "sha256": "a4df9edbda84bd9ace5ccf45fc25974fbd66060612d30a2af4c877945c44de31",
+      "size": 11967886
     },
     {
       "bxId": "237",
@@ -155,13 +164,6 @@
       "size": 11363577
     },
     {
-      "bxId": "110635",
-      "fileName": "YZSJvG7jrxR.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/y5/r/YZSJvG7jrxR.wasm",
-      "sha256": "c02028313d6fdcb2450fcad43d444e8e32c1f716ba06163725c78d6cf3d6305b",
-      "size": 11226098
-    },
-    {
       "bxId": "6946",
       "fileName": "rogm88TRRiw.wasm",
       "url": "https://static.whatsapp.net/rsrc.php/yf/r/rogm88TRRiw.wasm",
@@ -176,13 +178,6 @@
       "size": 11492008
     },
     {
-      "bxId": "32180",
-      "fileName": "jXNNwxgnc5P.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yk/r/jXNNwxgnc5P.wasm",
-      "sha256": "c73edd705435d0d22b19fd3817c9bed536d8bc6a5fbe8a927cbd277fa26fff4f",
-      "size": 11492008
-    },
-    {
       "bxId": "31390",
       "fileName": "php8T1oSIZM.wasm",
       "url": "https://static.whatsapp.net/rsrc.php/yl/r/php8T1oSIZM.wasm",
@@ -190,11 +185,32 @@
       "size": 381499
     },
     {
+      "bxId": "111203",
+      "fileName": "rEjXwUYzMaj.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/y6/r/rEjXwUYzMaj.wasm",
+      "sha256": "c96a282034e1d4d525bc7b20dc1a864950519e82c9d94e60930f5869650cc59b",
+      "size": 11649894
+    },
+    {
+      "bxId": "32180",
+      "fileName": "xITnYFuHrtk.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yK/r/xITnYFuHrtk.wasm",
+      "sha256": "c96a282034e1d4d525bc7b20dc1a864950519e82c9d94e60930f5869650cc59b",
+      "size": 11649894
+    },
+    {
       "bxId": "110929",
       "fileName": "FKu7d20aQei.wasm",
       "url": "https://static.whatsapp.net/rsrc.php/yi/r/FKu7d20aQei.wasm",
       "sha256": "e170c01ca2d47ec61a0969ffff1c08157667de3020a5d541e00f0ab19291641a",
       "size": 11442311
+    },
+    {
+      "bxId": "110947",
+      "fileName": "_yrX-t2YZ6m.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yz/r/_yrX-t2YZ6m.wasm",
+      "sha256": "e3add27b0222d7ea2334c20af57072038f38cca5ab89db0ebcdfc2b07f316604",
+      "size": 11495409
     },
     {
       "bxId": "110767",
