@@ -219,6 +219,27 @@ fn generated_pilot_requests_and_responses_execute() {
             .request;
     ir.stanzas.push(op);
 
+    let mut op = subject.clone();
+    op.module_name = "RequiredContent".into();
+    op.exported_function = Some("makeRequiredContent".into());
+    op.response = Default::default();
+    op.response.fields = vec![wa_ir::ParsedField {
+        method: "child".into(),
+        name: "body".into(),
+        tag: Some("body".into()),
+        field_type: wa_ir::ParsedFieldType::String,
+        parser_required: true,
+        children: Some(vec![wa_ir::ParsedField {
+            method: "contentString".into(),
+            name: "content".into(),
+            field_type: wa_ir::ParsedFieldType::String,
+            parser_required: true,
+            ..Default::default()
+        }]),
+        ..Default::default()
+    }];
+    ir.stanzas.push(op);
+
     let dir = std::env::temp_dir().join(format!("whatspec-iq-runtime-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let generated = wa_codegen::generate_iq(&ir);

@@ -607,7 +607,7 @@ pub(crate) fn content_decoder(method: &str) -> &'static str {
 fn content_read_required(f: &ParsedField, node_var: &str, flit: &str, _fmsg: &str) -> String {
     let method = f.method.as_str();
     let absent = format!(
-        "ok_or_else(|| IqResponseError::MissingContent {{ tag: {node_var}.tag.to_string() }})?"
+        "ok_or_else(|| IqResponseError::MissingContent {{ tag: {node_var}.tag().to_string() }})?"
     );
     // `contentUint(N)` is N big-endian BYTES, not text, which is why it is asked before the
     // classifier — folding them into a `u64` cannot fail once the payload is there.
@@ -2406,7 +2406,7 @@ mod tests {
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
             src.contains(
-                r#"n.content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag.to_string() })?.to_vec();"#
+                r#"n.content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag().to_string() })?.to_vec();"#
             ) && src.contains(
                 r#"iq_ensure!(element_value.len() == 32, IqResponseError::WrongLength { field: "elementValue", length: element_value.len() });"#
             ),
@@ -2431,7 +2431,7 @@ mod tests {
         let int = src("contentInt", "integer");
         assert!(
             int.contains(
-                r#"content_str().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag.to_string() })?"#
+                r#"content_str().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag().to_string() })?"#
             ) && int.contains(
                 r#".parse::<u64>().map_err(|_| IqResponseError::NotANumber { field: "elementValue" })?"#
             ),
@@ -2450,7 +2450,7 @@ mod tests {
         let uint = src("contentUint", "integer");
         assert!(
             uint.contains(
-                r#"content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag.to_string() })?"#
+                r#"content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag().to_string() })?"#
             ) && uint.contains("fold(0u64"),
             "a required uint demands its bytes and folds them: {uint}"
         );
