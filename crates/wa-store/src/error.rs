@@ -1,6 +1,13 @@
 use std::error::Error;
 use std::fmt;
 
+fn combine_context(existing: Option<String>, new_ctx: String) -> Option<String> {
+    Some(match existing {
+        Some(prev) => format!("{new_ctx}: {prev}"),
+        None => new_ctx,
+    })
+}
+
 /// An error encountered during capture validation, archive decompression, or restoration.
 #[derive(Debug)]
 pub enum StoreError {
@@ -21,8 +28,11 @@ pub enum StoreError {
         context: Option<String>,
         source: url::ParseError,
     },
-    /// An error from the underlying HTTP client.
-    Fetch(wa_fetch::FetchError),
+    /// An error from the underlying HTTP client, optionally with context.
+    Fetch {
+        context: Option<String>,
+        source: wa_fetch::FetchError,
+    },
 }
 
 impl StoreError {
@@ -34,19 +44,22 @@ impl StoreError {
         let ctx = context.into();
         match self {
             Self::Message(msg) => Self::Message(format!("{ctx}: {msg}")),
-            Self::Io { context: _, source } => Self::Io {
-                context: Some(ctx),
+            Self::Io { context, source } => Self::Io {
+                context: combine_context(context, ctx),
                 source,
             },
-            Self::Json { context: _, source } => Self::Json {
-                context: Some(ctx),
+            Self::Json { context, source } => Self::Json {
+                context: combine_context(context, ctx),
                 source,
             },
-            Self::Url { context: _, source } => Self::Url {
-                context: Some(ctx),
+            Self::Url { context, source } => Self::Url {
+                context: combine_context(context, ctx),
                 source,
             },
-            Self::Fetch(err) => Self::Message(format!("{ctx}: {err}")),
+            Self::Fetch { context, source } => Self::Fetch {
+                context: combine_context(context, ctx),
+                source,
+            },
         }
     }
 
@@ -57,11 +70,19 @@ impl StoreError {
         }
     }
 
+    pub fn fetch_error(&self) -> Option<&wa_fetch::FetchError> {
+        match self {
+            Self::Fetch { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         match self {
             Self::Io { source, .. } => (source as &dyn std::any::Any).downcast_ref::<T>(),
             Self::Json { source, .. } => (source as &dyn std::any::Any).downcast_ref::<T>(),
             Self::Url { source, .. } => (source as &dyn std::any::Any).downcast_ref::<T>(),
+            Self::Fetch { source, .. } => (source as &dyn std::any::Any).downcast_ref::<T>(),
             _ => None,
         }
     }
@@ -95,7 +116,14 @@ impl fmt::Display for StoreError {
                 context: None,
                 source,
             } => write!(f, "{source}"),
-            Self::Fetch(err) => write!(f, "{err}"),
+            Self::Fetch {
+                context: Some(ctx),
+                source,
+            } => write!(f, "{ctx}: {source}"),
+            Self::Fetch {
+                context: None,
+                source,
+            } => write!(f, "{source}"),
         }
     }
 }
@@ -107,7 +135,7 @@ impl Error for StoreError {
             Self::Io { source, .. } => Some(source),
             Self::Json { source, .. } => Some(source),
             Self::Url { source, .. } => Some(source),
-            Self::Fetch(err) => Some(err),
+            Self::Fetch { source, .. } => Some(source),
         }
     }
 }
@@ -141,7 +169,10 @@ impl From<url::ParseError> for StoreError {
 
 impl From<wa_fetch::FetchError> for StoreError {
     fn from(source: wa_fetch::FetchError) -> Self {
-        Self::Fetch(source)
+        Self::Fetch {
+            context: None,
+            source,
+        }
     }
 }
 
@@ -200,3 +231,41 @@ macro_rules! ensure {
 
 pub(crate) use bail;
 pub(crate) use ensure;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_accumulates_and_preserves_source() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let store_err = StoreError::from(io_err)
+            .with_context("read lockfile /tmp/a")
+            .with_context("restore");
+
+        assert_eq!(
+            store_err.to_string(),
+            "restore: read lockfile /tmp/a: file not found"
+        );
+        assert!(store_err.source().is_some());
+        assert_eq!(
+            store_err.io_error().map(|e| e.kind()),
+            Some(std::io::ErrorKind::NotFound)
+        );
+    }
+
+    #[test]
+    fn fetch_error_retains_typed_source_with_context() {
+        let fetch_err = wa_fetch::FetchError::new("network down");
+        let store_err = StoreError::from(fetch_err)
+            .with_context("downloading archive")
+            .with_context("resolve");
+
+        assert_eq!(
+            store_err.to_string(),
+            "resolve: downloading archive: network down"
+        );
+        assert!(store_err.source().is_some());
+        assert!(store_err.fetch_error().is_some());
+    }
+}
