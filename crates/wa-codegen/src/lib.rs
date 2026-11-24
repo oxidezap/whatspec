@@ -109,7 +109,7 @@ pub fn generate_iq(ir: &IqIr) -> String {
          \x20       name: &'static str,\n\
          \x20   },\n\
          \x20   MissingContent {\n\
-         \x20       tag: &'static str,\n\
+         \x20       tag: String,\n\
          \x20   },\n\
          \x20   NotANumber {\n\
          \x20       field: &'static str,\n\
@@ -469,7 +469,7 @@ mod tests {
         // The leaf is required, so the read demands the content — the same rule the ordinary
         // content read takes, and the one this path's discriminator signature now claims.
         assert!(c.contains(
-            r#"let body = body_node.content_str().ok_or(IqResponseError::MissingAttribute { name: "body" })?.to_string();"#
+            r#"let body = body_node.content_str().ok_or_else(|| IqResponseError::MissingContent { tag: body_node.tag.to_string() })?.to_string();"#
         ));
     }
 
@@ -519,7 +519,7 @@ mod tests {
         // A required leaf demands its content, and the signature records it.
         let src = module(wrapper(true));
         assert!(
-            src.contains(r#"ok_or(IqResponseError::MissingAttribute { name: "detail" })?"#),
+            src.contains(r#"ok_or_else(|| IqResponseError::MissingContent { tag: detail_node.tag.to_string() })?"#),
             "a required content leaf is demanded: {src}"
         );
         // An OPTIONAL leaf under a required child still defaults — the field is typed by the

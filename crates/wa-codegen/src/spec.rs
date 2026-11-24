@@ -28,7 +28,7 @@ pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> b
 
 use crate::emit::{VariantCtx, emit_child_builder, emit_response_parser};
 use crate::fields::{collect_response_fields, rust_attr_type};
-use crate::naming::{fmt_lit_inner, pascal_case, rust_ident, rust_lit};
+use crate::naming::{pascal_case, rust_ident, rust_lit};
 
 /// Length of the common prefix shared by the variant tags, backed up to a word
 /// boundary (next ASCII-uppercase char). Lets `GetBlockListResponseSuccessWithMatch`
@@ -1075,7 +1075,7 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                         "{indent}if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ iq_bail!(IqResponseError::NotSuccessResponse {{ reason: {}.into() }}); }}",
                         rust_lit(name),
                         rust_lit(value),
-                        rust_lit(&format!("{} != {}", fmt_lit_inner(name), fmt_lit_inner(value))),
+                        rust_lit(&format!("{} != {}", name, value)),
                     ));
                 }
             }
@@ -1084,7 +1084,7 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                     lines.push(format!(
                         "{indent}if response.content_str() != Some({}) {{ iq_bail!(IqResponseError::NotSuccessResponse {{ reason: {}.into() }}); }}",
                         rust_lit(value),
-                        rust_lit(&format!("content != {}", fmt_lit_inner(value))),
+                        rust_lit(&format!("content != {}", value)),
                     ));
                 }
             }
@@ -1111,7 +1111,7 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                         lines.push(format!(
                             "{indent}if response.get_optional_child({}).is_none() {{ iq_bail!(IqResponseError::NotSuccessResponse {{ reason: {}.into() }}); }}",
                             rust_lit(name),
-                            rust_lit(&format!("missing <{}>", fmt_lit_inner(name))),
+                            rust_lit(&format!("missing <{}>", name)),
                         ));
                     }
                 }
@@ -3137,6 +3137,31 @@ mod tests {
             .unwrap();
         header.enum_keys = Some(vec!["error".into()]);
         assert!(direct_error_payload(&v).is_none());
+    }
+
+    #[test]
+    fn success_guard_reasons_preserve_wire_text() {
+        let mut op = stanza("GuardText", None);
+        let mut v = conflict_variant(vec![]);
+        v.kind = ResponseVariantKind::Success;
+        v.assertions = [
+            AssertionKind::Attr,
+            AssertionKind::Content,
+            AssertionKind::Child,
+        ]
+        .into_iter()
+        .map(|kind| wa_ir::ResponseAssertion {
+            kind,
+            name: Some("a{\"}".into()),
+            value: Some("{\\}".into()),
+            reference_path: None,
+        })
+        .collect();
+        op.response.variants = vec![v];
+        let lines = emit_success_guards(&op, "").join("\n");
+        for reason in ["a{\"} != {\\}", "content != {\\}", "missing <a{\"}>"] {
+            assert!(lines.contains(&rust_lit(reason)), "{lines}");
+        }
     }
 
     #[test]

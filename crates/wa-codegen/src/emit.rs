@@ -274,7 +274,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // preserved flavor (UserJid/LidUserJid/…) is parsed as a JID, not a String.
         t if t.is_jid() => {
             let mut out = vec![format!(
-                "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid()).ok_or(IqResponseError::MissingAttribute {{ name: {flit} }})?;"
+                "{indent}let {name} = {node_var}.get_attr({flit}).ok_or(IqResponseError::MissingAttribute {{ name: {flit} }})?.to_jid().ok_or(IqResponseError::NotAJid {{ field: {flit} }})?;"
             )];
             out.extend(jid_literal_pin(f, node_var, &flit, &fmsg, indent, false));
             out
@@ -606,7 +606,9 @@ pub(crate) fn content_decoder(method: &str) -> &'static str {
 /// the right answer.
 fn content_read_required(f: &ParsedField, node_var: &str, flit: &str, _fmsg: &str) -> String {
     let method = f.method.as_str();
-    let absent = format!("ok_or(IqResponseError::MissingAttribute {{ name: {flit} }})?");
+    let absent = format!(
+        "ok_or_else(|| IqResponseError::MissingContent {{ tag: {node_var}.tag.to_string() }})?"
+    );
     // `contentUint(N)` is N big-endian BYTES, not text, which is why it is asked before the
     // classifier — folding them into a `u64` cannot fail once the payload is there.
     if method == "contentUint" {
@@ -1003,7 +1005,7 @@ fn emit_struct_reads(
                     // missing from a response the parser turns away.
                     lines.push(format!("{inner}let {id} = {leaf_read}"));
                     lines.push(format!(
-                        "{inner}    .ok_or(IqResponseError::MissingContent {{ tag: {lit} }})?;"
+                        "{inner}    .ok_or_else(|| IqResponseError::MissingContent {{ tag: {lit}.to_string() }})?;"
                     ));
                     lines.extend(band.iter().map(|c| format!("{inner}{c}")));
                     lines.push(format!("{inner}Some({id})"));
@@ -2404,7 +2406,7 @@ mod tests {
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
             src.contains(
-                r#"n.content_bytes().ok_or(IqResponseError::MissingAttribute { name: "elementValue" })?.to_vec();"#
+                r#"n.content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag.to_string() })?.to_vec();"#
             ) && src.contains(
                 r#"iq_ensure!(element_value.len() == 32, IqResponseError::WrongLength { field: "elementValue", length: element_value.len() });"#
             ),
@@ -2429,7 +2431,7 @@ mod tests {
         let int = src("contentInt", "integer");
         assert!(
             int.contains(
-                r#"content_str().ok_or(IqResponseError::MissingAttribute { name: "elementValue" })?"#
+                r#"content_str().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag.to_string() })?"#
             ) && int.contains(
                 r#".parse::<u64>().map_err(|_| IqResponseError::NotANumber { field: "elementValue" })?"#
             ),
@@ -2448,7 +2450,7 @@ mod tests {
         let uint = src("contentUint", "integer");
         assert!(
             uint.contains(
-                r#"content_bytes().ok_or(IqResponseError::MissingAttribute { name: "elementValue" })?"#
+                r#"content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag.to_string() })?"#
             ) && uint.contains("fold(0u64"),
             "a required uint demands its bytes and folds them: {uint}"
         );
@@ -2610,6 +2612,7 @@ mod tests {
         }))
         .expect("field");
         let unpinned = emit_field_parse(&f, "n", "").join("\n");
+        assert!(unpinned.contains(r#".ok_or(IqResponseError::MissingAttribute { name: "from" })?.to_jid().ok_or(IqResponseError::NotAJid { field: "from" })?"#), "{unpinned}");
         assert!(
             !unpinned.contains("ensure!"),
             "nothing pinned, nothing checked: {unpinned}"
@@ -4303,7 +4306,7 @@ mod tests {
         // required, so an empty element is a rejection and not an absence — the committed `erid`
         // child is that shape and was being accepted.
         assert!(
-            src.contains(r#"IqResponseError::MissingContent { tag: "weight" }"#),
+            src.contains(r#"IqResponseError::MissingContent { tag: "weight".to_string() }"#),
             "a present child with no payload is an error: {src}"
         );
     }
@@ -4363,7 +4366,7 @@ mod tests {
         .join("\n");
         assert!(
             src.contains(r#"match n.get_optional_child("weight") {"#)
-                && src.contains(r#".ok_or(IqResponseError::MissingContent { tag: "weight" })?;"#),
+                && src.contains(r#".ok_or_else(|| IqResponseError::MissingContent { tag: "weight".to_string() })?;"#),
             "a present element must carry its required payload: {src}"
         );
     }
