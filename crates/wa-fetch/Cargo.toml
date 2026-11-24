@@ -14,10 +14,9 @@ default = ["native"]
 # the on-disk version-keyed bundle cache (needs std::fs, serde, sha2). Disable to
 # keep only the WASM-safe HttpClient port + discovery parser, for a
 # browser-`fetch` adapter to drive.
-native = ["dep:ureq", "dep:rustls-rustcrypto", "dep:serde"]
+native = ["dep:ureq", "dep:rustls-rustcrypto", "dep:serde", "dep:wa-text"]
 
 [dependencies]
-anyhow = { workspace = true }
 # The published 0.0.2-alpha still uses vulnerable crypto-bigint 0.5. The
 # maintained upstream has migrated to the corrected RustCrypto generation.
 # Replace this revision with a release containing it once one is published.
@@ -31,7 +30,7 @@ serde_json = { workspace = true }
 # drops ring; `rustls-webpki-roots` keeps the bundled roots.
 ureq = { version = "3.3.0", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
 # Pure/WASM-safe; provides the shared sha256_hex used by the bundle cache.
-wa-text = { workspace = true }
+wa-text = { workspace = true, optional = true }
 
 [[example]]
 name = "discover"
@@ -44,4 +43,5 @@ path = "examples/btarchive.rs"
 required-features = ["native"]
 
 [dev-dependencies]
+anyhow = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }

@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Context, Result};
+use crate::http::{FetchError, Result};
 use serde_json::Value;
 
 use crate::http::HttpClient;
@@ -87,16 +87,16 @@ pub struct Sources {
 pub fn discover_bundle_urls_with(client: &impl HttpClient, url: &str) -> Result<Discovered> {
     let resp = client
         .get(url, DISCOVERY_HEADERS, DISCOVERY_MAX_BYTES)
-        .with_context(|| format!("GET {url}"))?;
+        .map_err(|e| e.context(format!("GET {url}")))?;
     // A non-2xx response is an error/anti-bot page, not the entry document — fail
     // loud rather than scraping whatever stray `<script>` tags it happens to carry.
     if !(200..300).contains(&resp.status) {
-        anyhow::bail!(
+        return Err(FetchError::new(format!(
             "GET {url} returned HTTP {} (expected 2xx); {} bytes — likely an error or \
              anti-bot page, not the WhatsApp Web entry page.",
             resp.status,
             resp.body.len()
-        );
+        )));
     }
     let html = String::from_utf8_lossy(&resp.body);
     discover_from_html(resp.status, &html, url)
