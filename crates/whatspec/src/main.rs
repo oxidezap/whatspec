@@ -128,7 +128,8 @@ fn parse_restore_args(args: &[String]) -> Result<restore::RestoreOptions> {
 
 #[cfg(feature = "fetch")]
 fn restore_cmd(args: &[String]) -> Result<()> {
-    restore::restore(&parse_restore_args(args)?)
+    restore::restore(&parse_restore_args(args)?)?;
+    Ok(())
 }
 
 #[cfg(not(feature = "fetch"))]
