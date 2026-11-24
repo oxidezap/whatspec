@@ -244,8 +244,8 @@ fn emit_response_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
         .into_iter()
         .map(|condition| {
             format!(
-                "{indent}if !({condition}) {{ anyhow::bail!({}); }}",
-                rust_lit(&format!("{}: response guard failed", op.module_name))
+                "{indent}if !({condition}) {{ iq_bail!(IqResponseError::ResponseGuardFailed {{ module: {} }}); }}",
+                rust_lit(&op.module_name)
             )
         })
         .collect()
@@ -631,12 +631,12 @@ fn emit_direct_error_parser(
     let ename = crate::union::enum_name(payload, sname);
     let mut lines = vec![
         format!(
-            "{indent}let error = response.get_optional_child(\"error\").ok_or_else(|| anyhow::anyhow!(\"missing error\"))?;"
+            "{indent}let error = response.get_optional_child(\"error\").ok_or_else(|| IqResponseError::MissingChild {{ tag: \"error\" }})?;"
         ),
         format!(
-            "{indent}let code = error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str().as_ref())).ok_or_else(|| anyhow::anyhow!(\"invalid error code\"))?;"
+            "{indent}let code = error.get_attr(\"code\").and_then(|v| __iq_error_code(v.as_str().as_ref())).ok_or_else(|| IqResponseError::InvalidErrorCode)?;"
         ),
-        format!("{indent}let payload = (|| -> Result<{ename}, anyhow::Error> {{"),
+        format!("{indent}let payload = (|| -> Result<{ename}, IqResponseError> {{"),
     ];
     for (variant, arm) in payload
         .union_variants
@@ -673,7 +673,7 @@ fn emit_direct_error_parser(
         }
         lines.push(format!("{indent}    if {} {{", conditions.join(" && ")));
         lines.push(format!(
-            "{indent}        let parsed = (|| -> Result<{struct_name}, anyhow::Error> {{"
+            "{indent}        let parsed = (|| -> Result<{struct_name}, IqResponseError> {{"
         ));
         lines.extend(crate::emit::emit_struct_parser(
             &fields,
@@ -690,7 +690,7 @@ fn emit_direct_error_parser(
         lines.push(format!("{indent}    }}"));
     }
     lines.push(format!(
-        "{indent}    anyhow::bail!(\"no error payload matched\")"
+        "{indent}    iq_bail!(IqResponseError::NoErrorPayloadMatched)"
     ));
     lines.push(format!("{indent}}})()?;"));
     let header = v
@@ -1007,7 +1007,7 @@ fn emit_outcome_parse(
             indent.to_string()
         };
         lines.push(format!(
-            "{body}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
+            "{body}let __r: Result<{sname}, IqResponseError> = (|| -> Result<{sname}, IqResponseError> {{"
         ));
         if let Some(payload) = direct_error_payload(v) {
             lines.extend(emit_direct_error_parser(
@@ -1030,7 +1030,7 @@ fn emit_outcome_parse(
             .iter()
             .filter(|f| f.parser_required && f.field_type == wa_ir::ParsedFieldType::Union)
         {
-            lines.push(format!("{body}let __r = __r.and_then(|value| {{ if value.{}.is_none() {{ anyhow::bail!({}); }} Ok(value) }});", rust_ident(&field.name), rust_lit(&format!("{}: required payload {} did not match", v.tag, field.name))));
+            lines.push(format!("{body}let __r = __r.and_then(|value| {{ if value.{}.is_none() {{ iq_bail!(IqResponseError::RequiredPayloadMismatch {{ variant: {}, field: {} }}); }} Ok(value) }});", rust_ident(&field.name), rust_lit(&v.tag), rust_lit(&field.name)));
         }
         if unique {
             lines.push(format!("{body}return Ok({enum_name}::{vname}(__r?));"));
@@ -1044,7 +1044,8 @@ fn emit_outcome_parse(
         }
     }
     lines.push(format!(
-        "{indent}anyhow::bail!(\"{enum_name}: no response variant matched\")"
+        "{indent}iq_bail!(IqResponseError::NoResponseVariantMatched {{ union_name: {} }})",
+        rust_lit(enum_name)
     ));
     lines
 }
@@ -1071,20 +1072,19 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
             AssertionKind::Attr => {
                 if let (Some(name), Some(value)) = (&a.name, &a.value) {
                     lines.push(format!(
-                        "{indent}if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"not a success response: {} != {}\"); }}",
+                        "{indent}if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ iq_bail!(IqResponseError::NotSuccessResponse {{ reason: {}.into() }}); }}",
                         rust_lit(name),
                         rust_lit(value),
-                        fmt_lit_inner(name),
-                        fmt_lit_inner(value),
+                        rust_lit(&format!("{} != {}", fmt_lit_inner(name), fmt_lit_inner(value))),
                     ));
                 }
             }
             AssertionKind::Content => {
                 if let Some(value) = &a.value {
                     lines.push(format!(
-                        "{indent}if response.content_str() != Some({}) {{ anyhow::bail!(\"not a success response: content != {}\"); }}",
+                        "{indent}if response.content_str() != Some({}) {{ iq_bail!(IqResponseError::NotSuccessResponse {{ reason: {}.into() }}); }}",
                         rust_lit(value),
-                        fmt_lit_inner(value),
+                        rust_lit(&format!("content != {}", fmt_lit_inner(value))),
                     ));
                 }
             }
@@ -1109,9 +1109,9 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                         });
                     if required_by_all {
                         lines.push(format!(
-                            "{indent}if response.get_optional_child({}).is_none() {{ anyhow::bail!(\"not a success response: missing <{}>\"); }}",
+                            "{indent}if response.get_optional_child({}).is_none() {{ iq_bail!(IqResponseError::NotSuccessResponse {{ reason: {}.into() }}); }}",
                             rust_lit(name),
-                            fmt_lit_inner(name),
+                            rust_lit(&format!("missing <{}>", fmt_lit_inner(name))),
                         ));
                     }
                 }
@@ -1407,11 +1407,8 @@ pub(crate) fn generate_spec_diagnosed(
     if needs_context && rejection.is_none() {
         lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
         lines.push(format!(
-            "        anyhow::bail!({})",
-            rust_lit(&format!(
-                "{}: guards.request_context_required: use parse_response_with_request",
-                op.module_name
-            ))
+            "        Err(IqResponseError::RequestContextRequired {{ module: {}, guard: \"request_context_required\" }}.into())",
+            rust_lit(&op.module_name)
         ));
         lines.push("    }".into());
         // The runtime must hand over the immutable stanza it actually sent,
@@ -1427,24 +1424,24 @@ pub(crate) fn generate_spec_diagnosed(
             lines.push("    fn handles_iq_errors(&self) -> bool { true }".into());
         }
         lines.push("    fn parse_response_with_context(&self, response: &wacore_binary::NodeRef<'_>, request: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".into());
-        lines.push("        Self::parse_sent_response(response, request)".into());
+        lines.push("        Ok(Self::parse_sent_response(response, request)?)".into());
         lines.push("    }".into());
         lines.push("}".into());
         lines.push(format!("impl {spec_name} {{"));
-        lines.push(format!("    pub fn parse_sent_response(response: &wacore_binary::NodeRef<'_>, request: &wacore_binary::NodeRef<'_>) -> Result<{response_type_name}, anyhow::Error> {{"));
-        lines.push("        anyhow::ensure!(request.tag.as_ref() == \"iq\", \"request context is not an IQ\");".into());
-        lines.push("        let request_id = request.get_attr(\"id\").ok_or_else(|| anyhow::anyhow!(\"request context has no id\"))?;".into());
-        lines.push("        let request_to = request.get_attr(\"to\").ok_or_else(|| anyhow::anyhow!(\"request context has no to\"))?;".into());
+        lines.push(format!("    pub fn parse_sent_response(response: &wacore_binary::NodeRef<'_>, request: &wacore_binary::NodeRef<'_>) -> Result<{response_type_name}, IqResponseError> {{"));
+        lines.push("        iq_ensure!(request.tag.as_ref() == \"iq\", IqResponseError::RequestContextNotIq);".into());
+        lines.push("        let request_id = request.get_attr(\"id\").ok_or_else(|| IqResponseError::RequestContextMissingId)?;".into());
+        lines.push("        let request_to = request.get_attr(\"to\").ok_or_else(|| IqResponseError::RequestContextMissingTo)?;".into());
         lines.push("        Self::parse_correlated_response(response, request_id.as_str().as_ref(), request_to.as_str().as_ref())".into());
         lines.push("    }".into());
-        lines.push(format!("    pub fn parse_response_with_request(&self, response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, anyhow::Error> {{"));
+        lines.push(format!("    pub fn parse_response_with_request(&self, response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, IqResponseError> {{"));
         lines.push(
             "        Self::parse_correlated_response(response, request_id, request_to)".into(),
         );
         lines.push("    }".into());
-        lines.push(format!("    fn parse_correlated_response(response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, anyhow::Error> {{"));
+        lines.push(format!("    fn parse_correlated_response(response: &wacore_binary::NodeRef<'_>, request_id: &str, request_to: &str) -> Result<{response_type_name}, IqResponseError> {{"));
         for (wire, value) in correlation.as_ref().unwrap() {
-            lines.push(format!("        if response.get_attr({}).map(|v| v.as_str()).as_deref() != Some({value}) {{ anyhow::bail!({}); }}", rust_lit(wire), rust_lit(&format!("{}: response.{wire} does not match {value}", op.module_name))));
+            lines.push(format!("        if response.get_attr({}).map(|v| v.as_str()).as_deref() != Some({value}) {{ iq_bail!(IqResponseError::CorrelationMismatch {{ module: {}, field: {}, expected: {value}.to_string() }}); }}", rust_lit(wire), rust_lit(&op.module_name), rust_lit(wire)));
         }
         lines.extend(emit_response_guards(op, "        "));
         if use_union {
@@ -1465,8 +1462,9 @@ pub(crate) fn generate_spec_diagnosed(
     } else if let Some(reason) = rejection {
         lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
         lines.push(format!(
-            "        anyhow::bail!({})",
-            rust_lit(&format!("{}: {reason}", op.module_name)),
+            "        Err(IqResponseError::Rejection {{ module: {}, reason: {} }}.into())",
+            rust_lit(&op.module_name),
+            rust_lit(reason)
         ));
     } else if use_union {
         lines.push(
@@ -1476,29 +1474,36 @@ pub(crate) fn generate_spec_diagnosed(
         lines.push(
             "    fn parse_response(&self, response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string()
         );
-        lines.extend(emit_response_guards(op, "        "));
+        lines.push(
+            "        let __parsed: Result<Self::Response, IqResponseError> = (|| {".to_string(),
+        );
+        lines.extend(emit_response_guards(op, "            "));
         lines.extend(emit_outcome_parse(
             op,
             &outcome_info,
             &response_type_name,
-            "        ",
+            "            ",
         ));
+        lines.push("        })();".to_string());
+        lines.push("        Ok(__parsed?)".to_string());
     } else {
         lines.push("    #[allow(clippy::needless_update, unused_variables)]".to_string());
         lines.push(format!(
             "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {{"
         ));
-        // A single-shape FALLBACK (op had variants the outcome union couldn't separate)
-        // mirrors the success shape; guard it so a non-success response fails rather
-        // than decoding to all-defaults. A pure single-shape op adds nothing here.
-        lines.extend(emit_response_guards(op, "        "));
-        lines.extend(emit_success_guards(op, "        "));
+        lines.push(
+            "        let __parsed: Result<Self::Response, IqResponseError> = (|| {".to_string(),
+        );
+        lines.extend(emit_response_guards(op, "            "));
+        lines.extend(emit_success_guards(op, "            "));
         lines.extend(emit_response_parser(
             &op.response.fields,
             &response_type_name,
-            "        ",
+            "            ",
             child_prefix,
         ));
+        lines.push("        })();".to_string());
+        lines.push("        Ok(__parsed?)".to_string());
     }
     lines.push("    }".to_string());
     lines.push("}".to_string());
@@ -2191,7 +2196,7 @@ mod tests {
         assert!(
             guards[0].contains(
                 "response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"result\")"
-            ) && guards[0].contains("anyhow::bail!"),
+            ) && guards[0].contains("iq_bail!"),
             "{}",
             guards[0]
         );
@@ -2385,7 +2390,9 @@ mod tests {
             "{code}"
         );
         assert!(
-            code.contains("MakeGetThingRequestResponse: no response variant matched"),
+            code.contains(
+                "NoResponseVariantMatched { union_name: \"MakeGetThingRequestResponse\" }"
+            ),
             "{code}"
         );
     }
@@ -3360,7 +3367,7 @@ mod tests {
             assert!(code.contains("self.target.clone()"));
             assert!(!code.contains("outcomes.unemittable"), "{code}");
             assert!(code.contains("pub fn parse_response_with_request"));
-            assert!(code.contains("guards.request_context_required"));
+            assert!(code.contains("request_context_required"));
             assert!(code.contains("Some(request_id)"));
             assert!(code.contains("Some(request_to)"));
             assert!(code.contains("::ClientError("));

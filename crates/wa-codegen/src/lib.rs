@@ -71,6 +71,144 @@ pub fn generate_iq(ir: &IqIr) -> String {
         ir.wa_version
     ));
 
+    out.push_str(
+        "macro_rules! iq_bail {\n\
+         \x20   ($err:expr) => {\n\
+         \x20       return Err($err)\n\
+         \x20   };\n\
+         }\n\n\
+         macro_rules! iq_ensure {\n\
+         \x20   ($cond:expr, $err:expr) => {\n\
+         \x20       if !($cond) {\n\
+         \x20           return Err($err);\n\
+         \x20       }\n\
+         \x20   };\n\
+         }\n\n\
+         /// Typed error returned by generated IQ response parsers.\n\
+         #[derive(Debug, Clone, PartialEq, Eq)]\n\
+         pub enum IqResponseError {\n\
+         \x20   RequestContextNotIq,\n\
+         \x20   RequestContextMissingId,\n\
+         \x20   RequestContextMissingTo,\n\
+         \x20   RequestContextRequired {\n\
+         \x20       module: &'static str,\n\
+         \x20       guard: &'static str,\n\
+         \x20   },\n\
+         \x20   CorrelationMismatch {\n\
+         \x20       module: &'static str,\n\
+         \x20       field: &'static str,\n\
+         \x20       expected: String,\n\
+         \x20   },\n\
+         \x20   ResponseGuardFailed {\n\
+         \x20       module: &'static str,\n\
+         \x20   },\n\
+         \x20   MissingChild {\n\
+         \x20       tag: &'static str,\n\
+         \x20   },\n\
+         \x20   MissingAttribute {\n\
+         \x20       name: &'static str,\n\
+         \x20   },\n\
+         \x20   MissingContent {\n\
+         \x20       tag: &'static str,\n\
+         \x20   },\n\
+         \x20   NotANumber {\n\
+         \x20       field: &'static str,\n\
+         \x20   },\n\
+         \x20   NotAJid {\n\
+         \x20       field: &'static str,\n\
+         \x20   },\n\
+         \x20   OutOfRange {\n\
+         \x20       field: &'static str,\n\
+         \x20       value: String,\n\
+         \x20   },\n\
+         \x20   WrongLength {\n\
+         \x20       field: &'static str,\n\
+         \x20       length: usize,\n\
+         \x20   },\n\
+         \x20   ValueNotAccepted {\n\
+         \x20       field: &'static str,\n\
+         \x20       value: String,\n\
+         \x20   },\n\
+         \x20   ValuePinnedMismatch {\n\
+         \x20       field: &'static str,\n\
+         \x20       expected: &'static str,\n\
+         \x20       value: String,\n\
+         \x20   },\n\
+         \x20   PayloadRejected {\n\
+         \x20       union_name: &'static str,\n\
+         \x20       arm: &'static str,\n\
+         \x20   },\n\
+         \x20   InvalidErrorCode,\n\
+         \x20   NoErrorPayloadMatched,\n\
+         \x20   RequiredPayloadMismatch {\n\
+         \x20       variant: &'static str,\n\
+         \x20       field: &'static str,\n\
+         \x20   },\n\
+         \x20   NoResponseVariantMatched {\n\
+         \x20       union_name: &'static str,\n\
+         \x20   },\n\
+         \x20   NotSuccessResponse {\n\
+         \x20       reason: String,\n\
+         \x20   },\n\
+         \x20   Rejection {\n\
+         \x20       module: &'static str,\n\
+         \x20       reason: &'static str,\n\
+         \x20   },\n\
+         \x20   Other(String),\n\
+         }\n\n\
+         impl std::fmt::Display for IqResponseError {\n\
+         \x20   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n\
+         \x20       match self {\n\
+         \x20           Self::RequestContextNotIq => write!(f, \"request context is not an IQ\"),\n\
+         \x20           Self::RequestContextMissingId => write!(f, \"request context has no id\"),\n\
+         \x20           Self::RequestContextMissingTo => write!(f, \"request context has no to\"),\n\
+         \x20           Self::RequestContextRequired { module, guard } => {\n\
+         \x20               write!(f, \"{module}: guards.{guard}: use parse_response_with_request\")\n\
+         \x20           }\n\
+         \x20           Self::CorrelationMismatch { module, field, expected } => {\n\
+         \x20               write!(f, \"{module}: response.{field} does not match {expected}\")\n\
+         \x20           }\n\
+         \x20           Self::ResponseGuardFailed { module } => {\n\
+         \x20               write!(f, \"{module}: response guard failed\")\n\
+         \x20           }\n\
+         \x20           Self::MissingChild { tag } => write!(f, \"missing <{tag}>\"),\n\
+         \x20           Self::MissingAttribute { name } => write!(f, \"missing {name}\"),\n\
+         \x20           Self::MissingContent { tag } => write!(f, \"<{tag}> has no content\"),\n\
+         \x20           Self::NotANumber { field } => write!(f, \"{field} not a number\"),\n\
+         \x20           Self::NotAJid { field } => write!(f, \"{field} not a JID\"),\n\
+         \x20           Self::OutOfRange { field, value } => write!(f, \"{field} out of range: {value}\"),\n\
+         \x20           Self::WrongLength { field, length } => write!(f, \"{field} wrong length: {length}\"),\n\
+         \x20           Self::ValueNotAccepted { field, value } => write!(f, \"{field} not accepted: {value}\"),\n\
+         \x20           Self::ValuePinnedMismatch { field, expected, value } => {\n\
+         \x20               write!(f, \"{field} is pinned to {expected}: {value}\")\n\
+         \x20           }\n\
+         \x20           Self::PayloadRejected { union_name, arm } => {\n\
+         \x20               write!(f, \"{union_name}: {arm} payload rejected\")\n\
+         \x20           }\n\
+         \x20           Self::InvalidErrorCode => write!(f, \"invalid error code\"),\n\
+         \x20           Self::NoErrorPayloadMatched => write!(f, \"no error payload matched\"),\n\
+         \x20           Self::RequiredPayloadMismatch { variant, field } => {\n\
+         \x20               write!(f, \"{variant}: required payload {field} did not match\")\n\
+         \x20           }\n\
+         \x20           Self::NoResponseVariantMatched { union_name } => {\n\
+         \x20               write!(f, \"{union_name}: no response variant matched\")\n\
+         \x20           }\n\
+         \x20           Self::NotSuccessResponse { reason } => {\n\
+         \x20               write!(f, \"not a success response: {reason}\")\n\
+         \x20           }\n\
+         \x20           Self::Rejection { module, reason } => write!(f, \"{module}: {reason}\"),\n\
+         \x20           Self::Other(msg) => write!(f, \"{msg}\"),\n\
+         \x20       }\n\
+         \x20   }\n\
+         }\n\n\
+         impl std::error::Error for IqResponseError {}\n\n\
+         impl From<std::num::ParseIntError> for IqResponseError {\n\
+         \x20   fn from(_: std::num::ParseIntError) -> Self {\n\
+         \x20       Self::NotANumber { field: \"unknown\" }\n\
+         \x20   }\n\
+         }\n\n",
+    );
+
     for namespace in &order {
         let operations = &groups[namespace];
         let module_name = snake_case(namespace);
@@ -116,6 +254,7 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     lines.push("use crate::iq::spec::IqSpec;".to_string());
     lines.push("use crate::request::InfoQuery;".to_string());
+    lines.push("pub use super::IqResponseError;".to_string());
     if needs_node_builder {
         // `NodeBuilder` + `NodeContent::Nodes` are only used when a request has
         // child nodes. Response parsing goes through `NodeRef`'s own methods.
@@ -326,11 +465,11 @@ mod tests {
             "must not collapse to `content`"
         );
         assert!(c.contains("let headline_node = response.get_optional_child(\"headline\")"));
-        assert!(c.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <headline>\"))?;"));
+        assert!(c.contains(".ok_or(IqResponseError::MissingChild { tag: \"headline\" })?;"));
         // The leaf is required, so the read demands the content — the same rule the ordinary
         // content read takes, and the one this path's discriminator signature now claims.
         assert!(c.contains(
-            r#"let body = body_node.content_str().ok_or_else(|| anyhow::anyhow!("missing body"))?.to_string();"#
+            r#"let body = body_node.content_str().ok_or(IqResponseError::MissingAttribute { name: "body" })?.to_string();"#
         ));
     }
 
@@ -380,7 +519,7 @@ mod tests {
         // A required leaf demands its content, and the signature records it.
         let src = module(wrapper(true));
         assert!(
-            src.contains(r#"ok_or_else(|| anyhow::anyhow!("missing detail"))?"#),
+            src.contains(r#"ok_or(IqResponseError::MissingAttribute { name: "detail" })?"#),
             "a required content leaf is demanded: {src}"
         );
         // An OPTIONAL leaf under a required child still defaults — the field is typed by the
