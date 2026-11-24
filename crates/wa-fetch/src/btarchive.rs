@@ -38,9 +38,7 @@
 //! the archive adds is reach *backwards*: a revision no longer served anywhere still
 //! resolves here.
 
-use anyhow::{Result, bail};
-
-use crate::http::HttpClient;
+use crate::http::{FetchError, HttpClient, Result};
 use crate::util::{UA, host_of};
 
 /// Where the archive is addressed from. Constant, not derived from any server payload —
@@ -152,13 +150,13 @@ pub fn lookup_archive_with(
     match resp.status {
         301..=308 => {
             let Some(location) = resp.location else {
-                bail!(
+                return Err(FetchError::new(format!(
                     "GET {url} returned HTTP {} with no Location header",
                     resp.status
-                );
+                )));
             };
             let payload_url = accept_payload_location(&location)
-                .map_err(|why| anyhow::anyhow!("GET {url}: {why}"))?;
+                .map_err(|why| FetchError::new(format!("GET {url}: {why}")))?;
             let payload_host = host_of(&payload_url).unwrap_or_default();
             Ok(ArchiveLookup::Published(Box::new(ArchiveLocation {
                 revision,
@@ -169,12 +167,14 @@ pub fn lookup_archive_with(
             })))
         }
         404 => Ok(ArchiveLookup::NotPublished { revision, app }),
-        400 => bail!(
+        400 => Err(FetchError::new(format!(
             "GET {url} returned HTTP 400 — the endpoint rejects a request without the \
              fetch-metadata headers a browser navigation carries; this build sends them, \
              so a 400 means the check changed shape."
-        ),
-        status => bail!("GET {url} returned HTTP {status} (expected a 3xx or 404)"),
+        ))),
+        status => Err(FetchError::new(format!(
+            "GET {url} returned HTTP {status} (expected a 3xx or 404)"
+        ))),
     }
 }
 

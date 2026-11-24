@@ -52,7 +52,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use crate::http::{FetchError, Result};
 use serde::{Deserialize, Serialize};
 use wa_text::sha256_hex;
 
@@ -300,18 +300,17 @@ impl BundleCache {
         wasm: &[Bundle],
         handles: &BTreeMap<String, String>,
     ) -> Result<()> {
-        let mut manifest = self.read_manifest().with_context(|| {
-            format!(
+        let mut manifest = self.read_manifest().ok_or_else(|| {
+            FetchError::new(format!(
                 "no cache manifest at {} — store the JS bundles before their wasm",
                 self.dir.display()
-            )
+            ))
         })?;
         if !manifest.complete || manifest.wa_version != wa_version {
-            anyhow::bail!(
+            return Err(FetchError::new(format!(
                 "cache holds {} (complete: {}), refusing to attach wasm for {wa_version}",
-                manifest.wa_version,
-                manifest.complete
-            );
+                manifest.wa_version, manifest.complete
+            )));
         }
         // Replace rather than merge: the resolved wasm set for a version is whatever this
         // run found, and a stale entry from an earlier run would claim coverage it can no
@@ -354,12 +353,14 @@ impl BundleCache {
     /// Write every bundle into `dir` (created if needed), returning their integrity
     /// records in input order.
     fn write_set(&self, bundles: &[Bundle], dir: &std::path::Path) -> Result<Vec<BundleEntry>> {
-        fs::create_dir_all(dir).with_context(|| format!("create cache dir {}", dir.display()))?;
+        fs::create_dir_all(dir)
+            .map_err(|e| FetchError::new(format!("create cache dir {}: {e}", dir.display())))?;
         let mut entries = Vec::with_capacity(bundles.len());
         for b in bundles {
             let path = dir.join(cache_file_name(&b.url));
-            fs::write(&path, &b.bytes)
-                .with_context(|| format!("write cache file {}", path.display()))?;
+            fs::write(&path, &b.bytes).map_err(|e| {
+                FetchError::new(format!("write cache file {}: {e}", path.display()))
+            })?;
             entries.push(BundleEntry {
                 url: b.url.clone(),
                 file_name: b.file_name.clone(),
@@ -382,9 +383,15 @@ impl BundleCache {
         let json = serde_json::to_string_pretty(manifest)? + "\n";
         let final_path = self.manifest_path();
         let tmp = final_path.with_extension("json.tmp");
-        fs::write(&tmp, json).with_context(|| format!("write {}", tmp.display()))?;
-        fs::rename(&tmp, &final_path)
-            .with_context(|| format!("commit {} -> {}", tmp.display(), final_path.display()))?;
+        fs::write(&tmp, json)
+            .map_err(|e| FetchError::new(format!("write {}: {e}", tmp.display())))?;
+        fs::rename(&tmp, &final_path).map_err(|e| {
+            FetchError::new(format!(
+                "commit {} -> {}: {e}",
+                tmp.display(),
+                final_path.display()
+            ))
+        })?;
         Ok(())
     }
 
@@ -393,11 +400,13 @@ impl BundleCache {
     pub fn clear(&self) -> Result<()> {
         let manifest = self.manifest_path();
         if manifest.exists() {
-            fs::remove_file(&manifest).with_context(|| format!("remove {}", manifest.display()))?;
+            fs::remove_file(&manifest)
+                .map_err(|e| FetchError::new(format!("remove {}: {e}", manifest.display())))?;
         }
         for dir in [self.bundles_dir(), self.wasm_dir()] {
             if dir.exists() {
-                fs::remove_dir_all(&dir).with_context(|| format!("remove {}", dir.display()))?;
+                fs::remove_dir_all(&dir)
+                    .map_err(|e| FetchError::new(format!("remove {}: {e}", dir.display())))?;
             }
         }
         Ok(())

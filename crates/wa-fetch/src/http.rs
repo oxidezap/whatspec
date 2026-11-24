@@ -47,6 +47,26 @@ impl fmt::Display for FetchError {
 
 impl Error for FetchError {}
 
+pub type Result<T, E = FetchError> = std::result::Result<T, E>;
+
+impl From<std::io::Error> for FetchError {
+    fn from(err: std::io::Error) -> Self {
+        Self::new(err.to_string())
+    }
+}
+
+impl From<serde_json::Error> for FetchError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::new(err.to_string())
+    }
+}
+
+impl From<std::str::Utf8Error> for FetchError {
+    fn from(err: std::str::Utf8Error) -> Self {
+        Self::new(err.to_string())
+    }
+}
+
 /// A response observed *without* following redirects: status, raw `Location`
 /// and the bounded response body.
 ///
