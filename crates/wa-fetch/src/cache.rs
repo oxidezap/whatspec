@@ -354,13 +354,12 @@ impl BundleCache {
     /// records in input order.
     fn write_set(&self, bundles: &[Bundle], dir: &std::path::Path) -> Result<Vec<BundleEntry>> {
         fs::create_dir_all(dir)
-            .map_err(|e| FetchError::new(format!("create cache dir {}: {e}", dir.display())))?;
+            .map_err(|e| FetchError::io(format!("create cache dir {}", dir.display()), e))?;
         let mut entries = Vec::with_capacity(bundles.len());
         for b in bundles {
             let path = dir.join(cache_file_name(&b.url));
-            fs::write(&path, &b.bytes).map_err(|e| {
-                FetchError::new(format!("write cache file {}: {e}", path.display()))
-            })?;
+            fs::write(&path, &b.bytes)
+                .map_err(|e| FetchError::io(format!("write cache file {}", path.display()), e))?;
             entries.push(BundleEntry {
                 url: b.url.clone(),
                 file_name: b.file_name.clone(),
@@ -383,14 +382,12 @@ impl BundleCache {
         let json = serde_json::to_string_pretty(manifest)? + "\n";
         let final_path = self.manifest_path();
         let tmp = final_path.with_extension("json.tmp");
-        fs::write(&tmp, json)
-            .map_err(|e| FetchError::new(format!("write {}: {e}", tmp.display())))?;
+        fs::write(&tmp, json).map_err(|e| FetchError::io(format!("write {}", tmp.display()), e))?;
         fs::rename(&tmp, &final_path).map_err(|e| {
-            FetchError::new(format!(
-                "commit {} -> {}: {e}",
-                tmp.display(),
-                final_path.display()
-            ))
+            FetchError::io(
+                format!("commit {} -> {}", tmp.display(), final_path.display()),
+                e,
+            )
         })?;
         Ok(())
     }
@@ -401,12 +398,12 @@ impl BundleCache {
         let manifest = self.manifest_path();
         if manifest.exists() {
             fs::remove_file(&manifest)
-                .map_err(|e| FetchError::new(format!("remove {}: {e}", manifest.display())))?;
+                .map_err(|e| FetchError::io(format!("remove {}", manifest.display()), e))?;
         }
         for dir in [self.bundles_dir(), self.wasm_dir()] {
             if dir.exists() {
                 fs::remove_dir_all(&dir)
-                    .map_err(|e| FetchError::new(format!("remove {}: {e}", dir.display())))?;
+                    .map_err(|e| FetchError::io(format!("remove {}", dir.display()), e))?;
             }
         }
         Ok(())

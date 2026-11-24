@@ -87,7 +87,7 @@ pub struct Sources {
 pub fn discover_bundle_urls_with(client: &impl HttpClient, url: &str) -> Result<Discovered> {
     let resp = client
         .get(url, DISCOVERY_HEADERS, DISCOVERY_MAX_BYTES)
-        .map_err(|e| FetchError::new(format!("GET {url}: {e}")))?;
+        .map_err(|e| e.context(format!("GET {url}")))?;
     // A non-2xx response is an error/anti-bot page, not the entry document — fail
     // loud rather than scraping whatever stray `<script>` tags it happens to carry.
     if !(200..300).contains(&resp.status) {

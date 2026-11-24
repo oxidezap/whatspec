@@ -157,7 +157,7 @@ pub fn download_bundles(urls: &[String], opts: &DownloadOptions) -> DownloadOutc
 fn fetch_bytes(client: &impl HttpClient, url: &str, max_bytes: u64) -> Result<Vec<u8>> {
     let resp = client
         .get(url, &[("User-Agent", UA)], max_bytes)
-        .map_err(|e| FetchError::new(format!("GET {url}: {e}")))?;
+        .map_err(|e| e.context(format!("GET {url}")))?;
     if !(200..300).contains(&resp.status) {
         return Err(FetchError::new(format!("HTTP {} for {url}", resp.status)));
     }
@@ -184,7 +184,7 @@ const MAX_EXTENSION: usize = 16;
 #[cfg(feature = "native")]
 pub fn save_bundles(bundles: &[Bundle], dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir)
-        .map_err(|e| FetchError::new(format!("create dir {}: {e}", dir.display())))?;
+        .map_err(|e| FetchError::io(format!("create dir {}", dir.display()), e))?;
     // Distinct URLs can share a last path segment across CDN shards, and some WA
     // segments overflow NAME_MAX; a bounded, unique name derived from the URL keeps
     // saving from clobbering or erroring (the dump must round-trip through
@@ -194,7 +194,7 @@ pub fn save_bundles(bundles: &[Bundle], dir: &Path) -> Result<()> {
         let name = disk_file_name(&b.file_name, &b.url, &mut used);
         let path = dir.join(&name);
         std::fs::write(&path, &b.bytes)
-            .map_err(|e| FetchError::new(format!("write {}: {e}", path.display())))?;
+            .map_err(|e| FetchError::io(format!("write {}", path.display()), e))?;
     }
     Ok(())
 }
