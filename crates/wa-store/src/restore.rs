@@ -24,7 +24,9 @@ use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use crate::error::{StoreContext as _, StoreError, bail};
+
+type Result<T> = std::result::Result<T, StoreError>;
 use wa_fetch::{Bundle, BundleCache, HttpClient, UreqClient, bundle_file_name};
 
 use crate::archive::decompress;
@@ -329,7 +331,10 @@ fn read_wasm_lock(path: &Path) -> Result<crate::lock::WasmLock> {
     let lock: crate::lock::WasmLock = serde_json::from_str(&raw)
         .with_context(|| format!("parse wasm lockfile {}", path.display()))?;
     lock.verify_self_consistent().map_err(|why| {
-        anyhow::anyhow!("wasm lockfile {} is inconsistent: {why}", path.display())
+        StoreError::msg(format!(
+            "wasm lockfile {} is inconsistent: {why}",
+            path.display()
+        ))
     })?;
     Ok(lock)
 }
@@ -342,8 +347,12 @@ fn read_lock(path: &Path) -> Result<BundleLock> {
     // The lock anchors the whole reproducibility chain — reject a hand-edited or
     // corrupted one (setHash/bundleCount out of sync with its bundle list) before
     // trusting it to select and verify an archive.
-    lock.verify_self_consistent()
-        .map_err(|why| anyhow::anyhow!("lockfile {} is inconsistent: {why}", path.display()))?;
+    lock.verify_self_consistent().map_err(|why| {
+        StoreError::msg(format!(
+            "lockfile {} is inconsistent: {why}",
+            path.display()
+        ))
+    })?;
     Ok(lock)
 }
 
@@ -358,7 +367,7 @@ fn resolve_archive(opts: &RestoreOptions, asset_stem: &str) -> Result<Vec<u8>> {
     if let Some(loc) = &opts.archive {
         if is_http_url(loc) {
             return download_opt(loc)?
-                .ok_or_else(|| anyhow::anyhow!("archive not found (HTTP 404): {loc}"));
+                .ok_or_else(|| StoreError::msg(format!("archive not found (HTTP 404): {loc}")));
         }
         let path = Path::new(loc);
         if path.is_file() {

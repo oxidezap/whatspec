@@ -7,6 +7,11 @@
 pub mod lock;
 
 #[cfg(feature = "capture-restore")]
+pub mod error;
+#[cfg(feature = "capture-restore")]
+pub use error::StoreError;
+
+#[cfg(feature = "capture-restore")]
 pub mod capture;
 
 #[cfg(feature = "restore")]

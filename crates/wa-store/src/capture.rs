@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::error::{StoreContext as _, StoreError, bail, ensure};
+
+type Result<T> = std::result::Result<T, StoreError>;
 use serde::Deserialize;
 #[cfg(feature = "restore")]
 use wa_fetch::UreqClient;
@@ -163,7 +165,7 @@ fn release_url(repo: &str, tag: &str) -> Result<url::Url> {
     let mut endpoint = url::Url::parse("https://api.github.com")?;
     endpoint
         .path_segments_mut()
-        .map_err(|_| anyhow::anyhow!("GitHub API URL cannot hold path segments"))?
+        .map_err(|_| StoreError::msg("GitHub API URL cannot hold path segments"))?
         .extend(["repos", owner, name, "releases", "tags", tag]);
     Ok(endpoint)
 }
@@ -337,7 +339,7 @@ fn persist(directory: &Path, selected: Vec<(PathBuf, Vec<u8>)>) -> Result<()> {
     for (name, bytes) in selected {
         let mut file = tempfile::NamedTempFile::new_in(directory)?;
         file.write_all(&bytes)?;
-        file.persist(directory.join(name))?;
+        file.persist(directory.join(name)).map_err(|e| e.error)?;
     }
     Ok(())
 }

@@ -1,5 +1,7 @@
-use anyhow::{Context, Result, bail, ensure};
+use crate::error::{StoreContext as _, StoreError, bail, ensure};
 use std::io::Read;
+
+type Result<T> = std::result::Result<T, StoreError>;
 
 /// Magic bytes identifying the two archive envelopes `restore` accepts, so the
 /// decompressor is chosen by content (not a filename/extension a caller controls).
