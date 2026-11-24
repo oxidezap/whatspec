@@ -37,7 +37,7 @@ use crate::fields::{
     RustChildStruct, RustEnum, RustEnumVariant, RustField, byte_band, collect_response_fields,
     contradictory_band, enum_values, int_band, integer_width, is_attr_field, rust_field_type,
 };
-use crate::naming::{fmt_lit_inner, pascal_case, rust_ident, rust_lit};
+use crate::naming::{pascal_case, rust_ident, rust_lit};
 use crate::spec::parser_is_valid;
 
 /// The codegen-able shape of a `type=union` field.
@@ -669,7 +669,7 @@ fn emit_tag_discriminated(
     // first-success reading did — labels it as something it is not.
     if descend.is_empty() {
         lines.push(format!(
-            "{indent}let {field} = (|| -> Result<Option<{enum_name}>, anyhow::Error> {{"
+            "{indent}let {field} = (|| -> Result<Option<{enum_name}>, IqResponseError> {{"
         ));
         emit_tag_cascade(
             enum_name,
@@ -684,7 +684,7 @@ fn emit_tag_discriminated(
         let node = descend_opt_expr(node_var, descend);
         lines.push(format!("{indent}let {field} = match {node} {{"));
         lines.push(format!(
-            "{indent}    Some(n) => (|| -> Result<Option<{enum_name}>, anyhow::Error> {{"
+            "{indent}    Some(n) => (|| -> Result<Option<{enum_name}>, IqResponseError> {{"
         ));
         emit_tag_cascade(
             enum_name,
@@ -774,7 +774,7 @@ fn emit_tag_cascade(
         };
         let inner = format!("{body_indent}    ");
         lines.push(format!(
-            "{body_indent}let __r: Result<{struct_name}, anyhow::Error> = (|| -> Result<{struct_name}, anyhow::Error> {{"
+            "{body_indent}let __r: Result<{struct_name}, IqResponseError> = (|| -> Result<{struct_name}, IqResponseError> {{"
         ));
         // The per-variant struct is its OWN prefix, so child item structs match the
         // names `collect_response_fields(&a.fields, &struct_name)` generated.
@@ -934,10 +934,10 @@ fn emit_attr_discriminated(
         } else {
             lines.push(format!("{indent}    Some({}) => {{", rust_lit(&a.value)));
             lines.push(format!(
-                "{indent}        anyhow::ensure!({}, \"{}: {} payload rejected\");",
+                "{indent}        iq_ensure!({}, IqResponseError::PayloadRejected {{ union_name: {}, arm: {} }});",
                 required.join(" && "),
-                fmt_lit_inner(field),
-                fmt_lit_inner(&a.value)
+                rust_lit(field),
+                rust_lit(&a.value)
             ));
             lines.push(format!("{indent}        Some({payload})"));
             lines.push(format!("{indent}    }}"));
@@ -1551,7 +1551,7 @@ mod tests {
         assert!(
             src.contains("Some(\"calladd\") => {")
                 && src.contains(
-                    "anyhow::ensure!(node.get_attr(\"value\").is_some(), \"name_dispatch: calladd payload rejected\");"
+                    "iq_ensure!(node.get_attr(\"value\").is_some(), IqResponseError::PayloadRejected { union_name: \"name_dispatch\", arm: \"calladd\" });"
                 ),
             "a required leaf gates its arm rather than being defaulted: {src}"
         );
@@ -1585,7 +1585,7 @@ mod tests {
         let src = lines.join("\n");
         assert!(
             src.contains(
-                r#"anyhow::ensure!(node.get_attr("count").and_then(|v| v.as_str().parse().ok()).is_some()"#
+                r#"iq_ensure!(node.get_attr("count").and_then(|v| v.as_str().parse().ok()).is_some()"#
             ),
             "the check decodes rather than checking presence, and is fatal inside the arm: {src}"
         );
@@ -1635,7 +1635,7 @@ mod tests {
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains(r#"anyhow::ensure!(node.content_bytes().is_some_and(|b| b.len() == 32)"#),
+            src.contains(r#"iq_ensure!(node.content_bytes().is_some_and(|b| b.len() == 32)"#),
             "the raw accessor is probed, the pinned length checked, and a failure is fatal \
              inside the arm rather than a fall-through to `_ => None`: {src}"
         );
@@ -1921,7 +1921,7 @@ mod tests {
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains(r#"Some("a") => {"#) && src.contains("anyhow::ensure!("),
+            src.contains(r#"Some("a") => {"#) && src.contains("iq_ensure!("),
             "the discriminator selects the arm and the payload is fatal inside it:\n{src}"
         );
         assert!(
@@ -2149,7 +2149,7 @@ mod tests {
             "the second arm is still tried on a miss:\n{code}"
         );
         assert!(
-            !code.contains("anyhow::bail!(\"Alpha:"),
+            !code.contains("Alpha:"),
             "no pin check left inside the payload closure:\n{code}"
         );
     }

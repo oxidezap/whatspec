@@ -59,7 +59,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // The attribute path below has read the same flag since the round it was written; this
         // one asked only the accessor spelling, and no content accessor spells optionality.
         let optional_leaf = !f.parser_required;
-        let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var);
+        let mut out = raw_length_check(Some(f), &name, &flit, &fmsg, indent, node_var);
         out.push(if optional_leaf {
             // …and it must DECODE what is there. `content_decoder_opt` ends its integer spelling
             // in `parse().ok()`, so a relaxed `contentInt` holding `invalid` was filed as absent
@@ -68,12 +68,12 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             // read of the same kind of leaf, was not.
             format!(
                 "{indent}let {name} = {};",
-                content_read_relaxed(f, node_var, &fmsg)
+                content_read_relaxed(f, node_var, &flit, &fmsg)
             )
         } else {
             format!(
                 "{indent}let {name} = {};",
-                content_read_required(f, node_var, &fmsg)
+                content_read_required(f, node_var, &flit, &fmsg)
             )
         });
         // The same band the attribute path enforces. A content leaf declaring `intMin: -10`
@@ -103,11 +103,11 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         if let Some(test) = super::fields::int_band(f, &name) {
             out.push(if optional_leaf {
                 format!(
-                    "{indent}anyhow::ensure!({}, \"{fmsg} out of range: {{:?}}\", {name});",
+                    "{indent}iq_ensure!({}, IqResponseError::OutOfRange {{ field: {flit}, value: format!(\"{{:?}}\", {name}) }});",
                     checked_value(test)
                 )
             } else {
-                format!("{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});")
+                format!("{indent}iq_ensure!({test}, IqResponseError::OutOfRange {{ field: {flit}, value: format!(\"{{}}\", {name}) }});")
             });
         }
         // And the length a bytes accessor pins, which this path decoded and ignored entirely:
@@ -124,12 +124,12 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         {
             out.push(if optional_leaf {
                 format!(
-                    "{indent}anyhow::ensure!({}, \"{fmsg} wrong length: {{:?}}\", {name});",
+                    "{indent}iq_ensure!({}, IqResponseError::WrongLength {{ field: {flit}, length: {name}.as_ref().map_or(0, |b| b.len()) }});",
                     checked_ref(test)
                 )
             } else {
                 format!(
-                    "{indent}anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {name}.len());"
+                    "{indent}iq_ensure!({test}, IqResponseError::WrongLength {{ field: {flit}, length: {name}.len() }});"
                 )
             });
         }
@@ -139,8 +139,15 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // …and the two constraint helpers that already spell both shapes are told which one
         // this is. "A content decoder never yields an `Option`" was true of the decoder and not
         // of the FIELD, which is the distinction this whole branch had missed.
-        out.extend(enum_membership(f, &name, &fmsg, indent, optional_leaf));
-        out.extend(literal_pin(f, &name, &fmsg, indent, optional_leaf));
+        out.extend(enum_membership(
+            f,
+            &name,
+            &flit,
+            &fmsg,
+            indent,
+            optional_leaf,
+        ));
+        out.extend(literal_pin(f, &name, &flit, &fmsg, indent, optional_leaf));
         return out;
     }
     if !wap::is_attr_method(method) {
@@ -182,7 +189,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                         format!("{indent}let {name} = match {read} {{"),
                         format!("{indent}    Some({name}) => {{"),
                         format!(
-                            "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                            "{indent}        iq_ensure!({test}, IqResponseError::OutOfRange {{ field: {flit}, value: format!(\"{{}}\", {name}) }});"
                         ),
                         format!("{indent}        Some({name})"),
                         format!("{indent}    }}"),
@@ -197,12 +204,12 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                     format!("{indent}    Some({name}) => {{"),
                     format!("{indent}        let {name}: {width} = {name}.as_str().parse()"),
                     format!(
-                        "{indent}            .map_err(|_| anyhow::anyhow!(\"{fmsg} not a number\"))?;"
+                        "{indent}            .map_err(|_| IqResponseError::NotANumber {{ field: {flit} }})?;"
                     ),
                 ];
                 if let Some(test) = &band {
                     lines.push(format!(
-                        "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                        "{indent}        iq_ensure!({test}, IqResponseError::OutOfRange {{ field: {flit}, value: format!(\"{{}}\", {name}) }});"
                     ));
                 }
                 lines.push(format!("{indent}        Some({name})"));
@@ -211,7 +218,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                 lines.push(format!("{indent}}};"));
                 lines
             };
-            out.extend(literal_pin(f, &name, &fmsg, indent, true));
+            out.extend(literal_pin(f, &name, &flit, &fmsg, indent, true));
             out
         }
         ParsedFieldType::Integer => {
@@ -220,16 +227,21 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                     "{indent}let {name}: {} = {node_var}.get_attr({flit})",
                     super::fields::integer_width(f)
                 ),
-                format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
+                format!(
+                    "{indent}    .ok_or(IqResponseError::MissingAttribute {{ name: {flit} }})?"
+                ),
                 format!("{indent}    .as_str()"),
-                format!("{indent}    .parse()?;"),
+                format!("{indent}    .parse()"),
+                format!(
+                    "{indent}    .map_err(|_| IqResponseError::NotANumber {{ field: {flit} }})?;"
+                ),
             ];
             if let Some(test) = &band {
                 out.push(format!(
-                    "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                    "{indent}iq_ensure!({test}, IqResponseError::OutOfRange {{ field: {flit}, value: format!(\"{{}}\", {name}) }});"
                 ));
             }
-            out.extend(literal_pin(f, &name, &fmsg, indent, false));
+            out.extend(literal_pin(f, &name, &flit, &fmsg, indent, false));
             out
         }
         // An OPTIONAL JID must come first: `rust_field_type` declares `Option<Jid>` for a
@@ -249,7 +261,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                 vec![
                     format!("{indent}let {name} = match {node_var}.get_attr({flit}) {{"),
                     format!(
-                        "{indent}    Some({name}) => Some({name}.to_jid().ok_or_else(|| anyhow::anyhow!(\"{fmsg} not a JID\"))?),"
+                        "{indent}    Some({name}) => Some({name}.to_jid().ok_or(IqResponseError::NotAJid {{ field: {flit} }})?),"
                     ),
                     format!("{indent}    None => None,"),
                     format!("{indent}}};"),
@@ -262,7 +274,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // preserved flavor (UserJid/LidUserJid/…) is parsed as a JID, not a String.
         t if t.is_jid() => {
             let mut out = vec![format!(
-                "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid()).ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?;"
+                "{indent}let {name} = {node_var}.get_attr({flit}).ok_or(IqResponseError::MissingAttribute {{ name: {flit} }})?.to_jid().ok_or(IqResponseError::NotAJid {{ field: {flit} }})?;"
             )];
             out.extend(jid_literal_pin(f, node_var, &flit, &fmsg, indent, false));
             out
@@ -271,19 +283,21 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             let mut out = vec![format!(
                 "{indent}let {name} = {node_var}.get_attr({flit}).map(|v| v.as_str().to_string());"
             )];
-            out.extend(enum_membership(f, &name, &fmsg, indent, true));
-            out.extend(literal_pin(f, &name, &fmsg, indent, true));
+            out.extend(enum_membership(f, &name, &flit, &fmsg, indent, true));
+            out.extend(literal_pin(f, &name, &flit, &fmsg, indent, true));
             out
         }
         _ => {
             let mut out = vec![
                 format!("{indent}let {name} = {node_var}.get_attr({flit})"),
-                format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
+                format!(
+                    "{indent}    .ok_or(IqResponseError::MissingAttribute {{ name: {flit} }})?"
+                ),
                 format!("{indent}    .as_str()"),
                 format!("{indent}    .to_string();"),
             ];
-            out.extend(enum_membership(f, &name, &fmsg, indent, false));
-            out.extend(literal_pin(f, &name, &fmsg, indent, false));
+            out.extend(enum_membership(f, &name, &flit, &fmsg, indent, false));
+            out.extend(literal_pin(f, &name, &flit, &fmsg, indent, false));
             out
         }
     }
@@ -300,7 +314,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
 /// Only the integer-from-text spelling can fail: bytes are bytes, a `contentUint` fold cannot
 /// fail once the payload is there, and a string is already a string. The rest are the optional
 /// decoders unchanged, which keeps one function rather than a fork per kind.
-fn content_read_relaxed(f: &ParsedField, node_var: &str, fmsg: &str) -> String {
+fn content_read_relaxed(f: &ParsedField, node_var: &str, flit: &str, _fmsg: &str) -> String {
     let method = f.method.as_str();
     if method == "contentUint" {
         return format!(
@@ -310,7 +324,7 @@ fn content_read_relaxed(f: &ParsedField, node_var: &str, fmsg: &str) -> String {
     match wap::method_field_type(method) {
         ParsedFieldType::Bytes => format!("{node_var}.content_bytes().map(|b| b.to_vec())"),
         ParsedFieldType::Integer => format!(
-            "{node_var}.content_str().map(|s| s.parse::<{}>().map_err(|_| anyhow::anyhow!(\"{fmsg} not a number\"))).transpose()?",
+            "{node_var}.content_str().map(|s| s.parse::<{}>().map_err(|_| IqResponseError::NotANumber {{ field: {flit} }})).transpose()?",
             super::fields::integer_width(f)
         ),
         _ => format!("{node_var}.content_str().map(|s| s.to_string())"),
@@ -351,7 +365,7 @@ fn jid_literal_pin(
     f: &ParsedField,
     node_var: &str,
     flit: &str,
-    fmsg: &str,
+    _fmsg: &str,
     indent: &str,
     optional: bool,
 ) -> Vec<String> {
@@ -368,7 +382,7 @@ fn jid_literal_pin(
         format!("{raw} == Some({pin})")
     };
     vec![format!(
-        "{indent}anyhow::ensure!({test}, \"{fmsg} not accepted: {{:?}}\", {raw});"
+        "{indent}iq_ensure!({test}, IqResponseError::ValueNotAccepted {{ field: {flit}, value: format!(\"{{:?}}\", {raw}) }});"
     )]
 }
 
@@ -385,7 +399,8 @@ fn jid_literal_pin(
 fn literal_pin(
     f: &ParsedField,
     name: &str,
-    fmsg: &str,
+    flit: &str,
+    _fmsg: &str,
     indent: &str,
     optional: bool,
 ) -> Vec<String> {
@@ -437,10 +452,10 @@ fn literal_pin(
             if bytes.is_empty() {
                 return match optional {
                     true => vec![format!(
-                        "{indent}anyhow::ensure!({name}.as_deref().is_none_or(<[u8]>::is_empty), \"{fmsg} is pinned to an empty payload: {{:?}}\", {name});"
+                        "{indent}iq_ensure!({name}.as_deref().is_none_or(<[u8]>::is_empty), IqResponseError::ValuePinnedMismatch {{ field: {flit}, expected: \"an empty payload\", value: format!(\"{{:?}}\", {name}) }});"
                     )],
                     false => vec![format!(
-                        "{indent}anyhow::ensure!({name}.is_empty(), \"{fmsg} is pinned to an empty payload: {{:?}}\", {name});"
+                        "{indent}iq_ensure!({name}.is_empty(), IqResponseError::ValuePinnedMismatch {{ field: {flit}, expected: \"an empty payload\", value: format!(\"{{:?}}\", {name}) }});"
                     )],
                 };
             }
@@ -461,8 +476,8 @@ fn literal_pin(
         _ => return Vec::new(),
     };
     vec![format!(
-        "{indent}anyhow::ensure!({test}, \"{fmsg} is pinned to {}: {{:?}}\", {name});",
-        fmt_lit_inner(lit)
+        "{indent}iq_ensure!({test}, IqResponseError::ValuePinnedMismatch {{ field: {flit}, expected: {}, value: format!(\"{{:?}}\", {name}) }});",
+        rust_lit(lit)
     )]
 }
 
@@ -475,7 +490,8 @@ fn literal_pin(
 fn raw_length_check(
     leaf: Option<&ParsedField>,
     id: &str,
-    fmsg: &str,
+    flit: &str,
+    _fmsg: &str,
     indent: &str,
     node: &str,
 ) -> Vec<String> {
@@ -507,7 +523,7 @@ fn raw_length_check(
         "is_none_or"
     };
     vec![format!(
-        "{indent}anyhow::ensure!({node}.content_bytes().{present}(|b| b.len() == {n}), \"{fmsg} wrong length: {{}}\", {node}.content_bytes().map_or(0, |b| b.len()));"
+        "{indent}iq_ensure!({node}.content_bytes().{present}(|b| b.len() == {n}), IqResponseError::WrongLength {{ field: {flit}, length: {node}.content_bytes().map_or(0, |b| b.len()) }});"
     )]
 }
 
@@ -526,7 +542,8 @@ fn raw_length_check(
 fn enum_membership(
     f: &ParsedField,
     name: &str,
-    fmsg: &str,
+    flit: &str,
+    _fmsg: &str,
     indent: &str,
     optional: bool,
 ) -> Vec<String> {
@@ -552,7 +569,7 @@ fn enum_membership(
         format!("matches!({name}.as_str(), {})", lits(str::to_string))
     };
     vec![format!(
-        "{indent}anyhow::ensure!({test}, \"{fmsg} not accepted: {{:?}}\", {name});"
+        "{indent}iq_ensure!({test}, IqResponseError::ValueNotAccepted {{ field: {flit}, value: format!(\"{{:?}}\", {name}) }});"
     )]
 }
 
@@ -587,9 +604,11 @@ pub(crate) fn content_decoder(method: &str) -> &'static str {
 /// The union ARM keeps `content_decoder`: by the time an arm's members are built its guard has
 /// already established both facts, so defaulting there can only be reached where the default is
 /// the right answer.
-fn content_read_required(f: &ParsedField, node_var: &str, fmsg: &str) -> String {
+fn content_read_required(f: &ParsedField, node_var: &str, flit: &str, _fmsg: &str) -> String {
     let method = f.method.as_str();
-    let absent = format!("ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?");
+    let absent = format!(
+        "ok_or_else(|| IqResponseError::MissingContent {{ tag: {node_var}.tag().to_string() }})?"
+    );
     // `contentUint(N)` is N big-endian BYTES, not text, which is why it is asked before the
     // classifier — folding them into a `u64` cannot fail once the payload is there.
     if method == "contentUint" {
@@ -602,7 +621,7 @@ fn content_read_required(f: &ParsedField, node_var: &str, fmsg: &str) -> String 
         // The one spelling where PRESENT is not enough: text that does not parse is a value the
         // accessor rejects, and the width is written out so the parse has a type to reach for.
         ParsedFieldType::Integer => format!(
-            "{node_var}.content_str().{absent}.parse::<{}>().map_err(|_| anyhow::anyhow!(\"{fmsg} not a number\"))?",
+            "{node_var}.content_str().{absent}.parse::<{}>().map_err(|_| IqResponseError::NotANumber {{ field: {flit} }})?",
             super::fields::integer_width(f)
         ),
         _ => format!("{node_var}.content_str().{absent}.to_string()"),
@@ -765,8 +784,8 @@ fn descend_from(
             rust_lit(seg)
         ));
         lines.push(format!(
-            "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-            fmt_lit_inner(seg)
+            "{indent}    .ok_or(IqResponseError::MissingChild {{ tag: {} }})?;",
+            rust_lit(seg)
         ));
         vars.insert(key, var.clone());
         parent = var;
@@ -907,7 +926,7 @@ fn emit_struct_reads(
                 let mut out = Vec::new();
                 if let Some(test) = super::fields::int_band(c, &id) {
                     out.push(format!(
-                        "anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
+                        "iq_ensure!({test}, IqResponseError::OutOfRange {{ field: {lit}, value: format!(\"{{}}\", {id}) }});"
                     ));
                 }
                 // The leaf's vocabulary, which the two other content paths enforce and this one
@@ -921,20 +940,20 @@ fn emit_struct_reads(
                         .collect::<Vec<_>>()
                         .join(" | ");
                     out.push(format!(
-                        "anyhow::ensure!(matches!({id}.as_str(), {arms}), \"{fmsg} not accepted: {{:?}}\", {id});"
+                        "iq_ensure!(matches!({id}.as_str(), {arms}), IqResponseError::ValueNotAccepted {{ field: {lit}, value: format!(\"{{:?}}\", {id}) }});"
                     ));
                 } else if wap::method_field_type(&c.method) == ParsedFieldType::Bytes
                     && let Some(test) = super::fields::byte_band(c, &id)
                 {
                     out.push(format!(
-                        "anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {id}.len());"
+                        "iq_ensure!({test}, IqResponseError::WrongLength {{ field: {lit}, length: {id}.len() }});"
                     ));
                 }
                 // …and the exact value the accessor pins, which the two other content paths
                 // compare and this one never did. Additive, not exclusive: a pinned payload has
                 // a length as well, and both are part of what the source accepts. The value
                 // inside the arm below is unwrapped, so the pin is asked of a present one.
-                out.extend(literal_pin(c, &id, &fmsg, "", false));
+                out.extend(literal_pin(c, &id, &lit, &fmsg, "", false));
                 out
             });
             // Same two sources as the declared type, or the initializer will not match it.
@@ -960,6 +979,7 @@ fn emit_struct_reads(
                 lines.extend(raw_length_check(
                     leaf,
                     &id,
+                    &lit,
                     &fmsg,
                     &inner,
                     &format!("{id}_node"),
@@ -976,7 +996,7 @@ fn emit_struct_reads(
                 // but "must decode", and a gate no input can move is worse than no gate. Whether
                 // ABSENCE is an error is the separate question the arms below hold.
                 let leaf_read = match leaf {
-                    Some(c) => content_read_relaxed(c, &format!("{id}_node"), &fmsg),
+                    Some(c) => content_read_relaxed(c, &format!("{id}_node"), &lit, &fmsg),
                     None => format!("{id}_node.{opt_read}"),
                 };
                 if leaf.is_some_and(|c| c.parser_required) {
@@ -985,7 +1005,7 @@ fn emit_struct_reads(
                     // missing from a response the parser turns away.
                     lines.push(format!("{inner}let {id} = {leaf_read}"));
                     lines.push(format!(
-                        "{inner}    .ok_or_else(|| anyhow::anyhow!(\"<{fmsg}> has no content\"))?;"
+                        "{inner}    .ok_or_else(|| IqResponseError::MissingContent {{ tag: {lit}.to_string() }})?;"
                     ));
                     lines.extend(band.iter().map(|c| format!("{inner}{c}")));
                     lines.push(format!("{inner}Some({id})"));
@@ -1008,12 +1028,12 @@ fn emit_struct_reads(
                     "{indent}let {id}_node = {base}.get_optional_child({lit})"
                 ));
                 lines.push(format!(
-                    "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-                    fmt_lit_inner(tag)
+                    "{indent}    .ok_or(IqResponseError::MissingChild {{ tag: {lit} }})?;",
                 ));
                 lines.extend(raw_length_check(
                     leaf,
                     &id,
+                    &lit,
                     &fmsg,
                     indent,
                     &format!("{id}_node"),
@@ -1031,7 +1051,7 @@ fn emit_struct_reads(
                 lines.push(match leaf.filter(|_| demands) {
                     Some(c) => format!(
                         "{indent}let {id} = {};",
-                        content_read_required(c, &format!("{id}_node"), &fmsg)
+                        content_read_required(c, &format!("{id}_node"), &lit, &fmsg)
                     ),
                     None => format!("{indent}let {id} = {id}_node.{req_read};"),
                 });
@@ -1220,8 +1240,8 @@ fn emit_struct_reads(
                     rust_lit(tag)
                 ));
                 lines.push(format!(
-                    "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-                    fmt_lit_inner(tag)
+                    "{indent}    .ok_or(IqResponseError::MissingChild {{ tag: {} }})?;",
+                    rust_lit(tag)
                 ));
                 emit_struct_reads(
                     kids,
@@ -2324,7 +2344,7 @@ mod tests {
                 "integer",
                 // Still an `Option`, and a payload it cannot read is a rejection rather than an
                 // absence — the fallible relaxed decoder, as on the flattened-child path.
-                r#"n.content_str().map(|s| s.parse::<u64>().map_err(|_| anyhow::anyhow!("elementValue not a number"))).transpose()?;"#,
+                r#"n.content_str().map(|s| s.parse::<u64>().map_err(|_| IqResponseError::NotANumber { field: "elementValue" })).transpose()?;"#,
             ),
             (
                 "contentBytes",
@@ -2386,9 +2406,9 @@ mod tests {
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
             src.contains(
-                r#"n.content_bytes().ok_or_else(|| anyhow::anyhow!("missing elementValue"))?.to_vec();"#
+                r#"n.content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag().to_string() })?.to_vec();"#
             ) && src.contains(
-                r#"anyhow::ensure!(element_value.len() == 32, "elementValue wrong length: {}", element_value.len());"#
+                r#"iq_ensure!(element_value.len() == 32, IqResponseError::WrongLength { field: "elementValue", length: element_value.len() });"#
             ),
             "a required leaf demands its content: {src}"
         );
@@ -2411,9 +2431,9 @@ mod tests {
         let int = src("contentInt", "integer");
         assert!(
             int.contains(
-                r#"content_str().ok_or_else(|| anyhow::anyhow!("missing elementValue"))?"#
+                r#"content_str().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag().to_string() })?"#
             ) && int.contains(
-                r#".parse::<u64>().map_err(|_| anyhow::anyhow!("elementValue not a number"))?"#
+                r#".parse::<u64>().map_err(|_| IqResponseError::NotANumber { field: "elementValue" })?"#
             ),
             "a required integer must be present and parse: {int}"
         );
@@ -2430,7 +2450,7 @@ mod tests {
         let uint = src("contentUint", "integer");
         assert!(
             uint.contains(
-                r#"content_bytes().ok_or_else(|| anyhow::anyhow!("missing elementValue"))?"#
+                r#"content_bytes().ok_or_else(|| IqResponseError::MissingContent { tag: n.tag().to_string() })?"#
             ) && uint.contains("fold(0u64"),
             "a required uint demands its bytes and folds them: {uint}"
         );
@@ -2461,7 +2481,7 @@ mod tests {
             "signed by its range: {src}"
         );
         assert!(
-            src.contains(r#"anyhow::ensure!((-10000i64..=10000i64).contains(&weight)"#),
+            src.contains(r#"iq_ensure!((-10000i64..=10000i64).contains(&weight)"#),
             "and the band is enforced after decoding: {src}"
         );
     }
@@ -2481,7 +2501,7 @@ mod tests {
             "still the content decoder: {src}"
         );
         assert!(
-            src.contains(r#"anyhow::ensure!((-10i64..=10i64).contains(&weight)"#),
+            src.contains(r#"iq_ensure!((-10i64..=10i64).contains(&weight)"#),
             "and the band is enforced after decoding: {src}"
         );
     }
@@ -2498,7 +2518,8 @@ mod tests {
         };
         let strict = read("attrInt");
         assert!(
-            strict.contains(r#".map_err(|_| anyhow::anyhow!("expiration not a number"))?;"#),
+            strict
+                .contains(r#".map_err(|_| IqResponseError::NotANumber { field: "expiration" })?;"#),
             "a present value must parse: {strict}"
         );
         assert!(
@@ -2523,7 +2544,8 @@ mod tests {
         f.method = "attrIntRange".into();
         let banded = emit_field_parse(&f, "n", "").join("\n");
         assert!(
-            banded.contains(r#".map_err(|_| anyhow::anyhow!("expiration not a number"))?;"#)
+            banded
+                .contains(r#".map_err(|_| IqResponseError::NotANumber { field: "expiration" })?;"#)
                 && banded.contains("(1u64..=10u64).contains(&expiration)"),
             "parse then band: {banded}"
         );
@@ -2546,7 +2568,7 @@ mod tests {
         let required = src("attrUserJid", true);
         assert!(
             required.contains(
-                r#"anyhow::ensure!(n.get_attr("from").map(|v| v.as_str()).as_deref() == Some("s.whatsapp.net")"#
+                r#"iq_ensure!(n.get_attr("from").map(|v| v.as_str()).as_deref() == Some("s.whatsapp.net")"#
             ),
             "the required read is pinned: {required}"
         );
@@ -2568,7 +2590,7 @@ mod tests {
         .expect("field");
         let relaxed = emit_field_parse(&f, "n", "").join("\n");
         assert!(
-            relaxed.contains(r#".to_jid().ok_or_else(|| anyhow::anyhow!("from not a JID"))?"#)
+            relaxed.contains(r#".to_jid().ok_or(IqResponseError::NotAJid { field: "from" })?"#)
                 && relaxed.contains("None => None,"),
             "a present value must convert, and an absent one stays absent: {relaxed}"
         );
@@ -2590,6 +2612,7 @@ mod tests {
         }))
         .expect("field");
         let unpinned = emit_field_parse(&f, "n", "").join("\n");
+        assert!(unpinned.contains(r#".ok_or(IqResponseError::MissingAttribute { name: "from" })?.to_jid().ok_or(IqResponseError::NotAJid { field: "from" })?"#), "{unpinned}");
         assert!(
             !unpinned.contains("ensure!"),
             "nothing pinned, nothing checked: {unpinned}"
@@ -2620,7 +2643,7 @@ mod tests {
             "absence is still absence: {src}"
         );
         assert!(
-            src.contains(r#"anyhow::ensure!(weight <= 10u64"#),
+            src.contains(r#"iq_ensure!(weight <= 10u64"#),
             "and a present value is checked: {src}"
         );
         assert!(
@@ -2837,7 +2860,7 @@ mod tests {
         let src = emit_struct_parser(&[child("contentInt", false)], "n", "R", "", "P").join("\n");
         assert!(
             src.contains(
-                r#".map(|s| s.parse::<u64>().map_err(|_| anyhow::anyhow!("participant_count not a number"))).transpose()?"#
+                r#".map(|s| s.parse::<u64>().map_err(|_| IqResponseError::NotANumber { field: "participant_count" })).transpose()?"#
             ),
             "a present payload must decode: {src}"
         );
@@ -2871,7 +2894,7 @@ mod tests {
         let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
         assert!(
             src.contains(r#"item_item.get_optional_child("background")"#)
-                && src.contains("missing <background>"),
+                && src.contains(r#"MissingChild { tag: "background" }"#),
             "the path is descended, and a REQUIRED field fails on an absent wrapper: {src}"
         );
         assert!(
@@ -2897,7 +2920,7 @@ mod tests {
         let src = emit_struct_parser(&[outer], "n", "R", "", "P").join("\n");
         assert!(
             src.contains(r#"part_item.get_optional_child("background")"#)
-                && src.contains("missing <background>"),
+                && src.contains(r#"MissingChild { tag: "background" }"#),
             "the nested loop descends too, and a REQUIRED field still fails on absence: {src}"
         );
         // …and a RELAXED field's wrapper is no more present than the field itself: descending
@@ -3883,7 +3906,7 @@ mod tests {
             "absent optional child should default its fields:\n{code}"
         );
         assert!(
-            !code.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <suspended>\"))"),
+            !code.contains(".ok_or(IqResponseError::MissingChild { tag: \"suspended\" })"),
             "optional child must NOT bail when absent:\n{code}"
         );
     }
@@ -3899,7 +3922,7 @@ mod tests {
         let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
         assert!(
             code.contains("let group = response.get_optional_child(\"group\")")
-                && code.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <group>\"))?"),
+                && code.contains(".ok_or(IqResponseError::MissingChild { tag: \"group\" })?"),
             "required child must fail-fast when absent:\n{code}"
         );
     }
@@ -4250,7 +4273,7 @@ mod tests {
             .join("\n");
             assert!(
                 src.contains(
-                    r#"anyhow::ensure!((-10i64..=10i64).contains(&weight), "weight out of range"#
+                    r#"iq_ensure!((-10i64..=10i64).contains(&weight), IqResponseError::OutOfRange"#
                 ),
                 "the leaf's band is enforced (required={required}): {src}"
             );
@@ -4275,7 +4298,7 @@ mod tests {
             "an absent CHILD stays absent: {src}"
         );
         assert!(
-            src.contains("anyhow::ensure!((-10i64..=10i64).contains(&weight)"),
+            src.contains("iq_ensure!((-10i64..=10i64).contains(&weight)"),
             "a value outside the band is an error: {src}"
         );
         // …and a present child with no payload is a third case, which the chained
@@ -4283,7 +4306,7 @@ mod tests {
         // required, so an empty element is a rejection and not an absence — the committed `erid`
         // child is that shape and was being accepted.
         assert!(
-            src.contains(r#"anyhow::anyhow!("<weight> has no content")"#),
+            src.contains(r#"IqResponseError::MissingContent { tag: "weight".to_string() }"#),
             "a present child with no payload is an error: {src}"
         );
     }
@@ -4300,7 +4323,7 @@ mod tests {
             "an absent payload is allowed: {src}"
         );
         assert!(
-            src.contains("anyhow::ensure!((-10i64..=10i64).contains(&weight)"),
+            src.contains("iq_ensure!((-10i64..=10i64).contains(&weight)"),
             "a present one is still checked: {src}"
         );
     }
@@ -4343,7 +4366,7 @@ mod tests {
         .join("\n");
         assert!(
             src.contains(r#"match n.get_optional_child("weight") {"#)
-                && src.contains(r#".ok_or_else(|| anyhow::anyhow!("<weight> has no content"))?;"#),
+                && src.contains(r#".ok_or_else(|| IqResponseError::MissingContent { tag: "weight".to_string() })?;"#),
             "a present element must carry its required payload: {src}"
         );
     }
@@ -4390,9 +4413,7 @@ mod tests {
             };
             let src = emit_field_parse(&f, "n", "").join("\n");
             assert!(
-                src.contains(&format!(
-                    "anyhow::ensure!({want}, \"elementValue wrong length"
-                )),
+                src.contains(&format!("iq_ensure!({want}, IqResponseError::WrongLength")),
                 "the declared length is enforced: {src}"
             );
         }
@@ -4443,7 +4464,7 @@ mod tests {
         // And before the fold, not after: the decoded value is a number and has no length to
         // take. Ordering it the other way round emits code that does not compile.
         assert!(
-            src.find("wrong length").unwrap() < src.find("let element_value").unwrap(),
+            src.find("WrongLength").unwrap() < src.find("let element_value").unwrap(),
             "the check precedes the decode: {src}"
         );
     }
@@ -4461,7 +4482,7 @@ mod tests {
             let src =
                 emit_struct_parser(&[child_over(leaf, required)], "n", "R", "", "P").join("\n");
             assert!(
-                src.contains(r#"anyhow::ensure!(weight.len() == 32, "weight wrong length"#),
+                src.contains(r#"iq_ensure!(weight.len() == 32, IqResponseError::WrongLength"#),
                 "the leaf's length is enforced (required={required}): {src}"
             );
         }
@@ -4584,7 +4605,7 @@ mod tests {
         for (lo, hi) in [(Some(5), Some(-1)), (Some(0), Some(-1)), (Some(5), Some(3))] {
             let src = emit_field_parse(&ranged("weight", lo, hi, true), "n", "").join("\n");
             assert!(
-                src.contains(r#"anyhow::ensure!(false, "weight out of range"#),
+                src.contains(r#"iq_ensure!(false, IqResponseError::OutOfRange"#),
                 "nothing satisfies {lo:?}..={hi:?}: {src}"
             );
         }
@@ -4682,59 +4703,33 @@ mod tests {
 
     #[test]
     fn a_diagnostic_never_borrows_a_brace_from_the_wire() {
-        // Every message the emitter writes is the first argument of `anyhow!`, `ensure!` or
-        // `bail!` — a FORMAT string whether or not it takes arguments. A pinned value, a wire
-        // attribute name or a child tag holding `{` or `}` therefore became a placeholder in
-        // the generated Rust: this pin produced a message with two extra placeholders and one
-        // argument, and the emitted module stopped compiling. Nothing in CI compiles that
-        // module, so an otherwise valid IR would have shipped a broken consumer.
+        // Pinned values, wire attribute names or child tags holding `{` or `}` are emitted
+        // as structured fields in IqResponseError rather than format string placeholders.
         let mut f = ranged("type", None, None, true);
         f.method = "attrString".into();
         f.literal_value = Some("{}".into());
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
-            src.contains(r#"is pinned to {{}}: {:?}"#),
-            "the pin's braces are doubled, not left as placeholders: {src}"
-        );
-        // Exactly the one placeholder the message passes an argument for.
-        let msg = src
-            .lines()
-            .find(|l| l.contains("is pinned to"))
-            .expect("the ensure line");
-        // From the message literal's own opening quote — the line also carries the COMPARISON,
-        // whose `"{}"` is the pin itself and not part of the format string. My first draft of
-        // this bound took the first quote on the line and counted that one too.
-        let start = msg
-            .find("\"type is pinned to")
-            .expect("the message literal")
-            + 1;
-        let body = &msg[start..start + msg[start..].find('"').expect("close quote")];
-        assert_eq!(
-            body.replace("{{", "")
-                .replace("}}", "")
-                .matches('{')
-                .count(),
-            1,
-            "one placeholder, one argument: {msg}"
+            src.contains(r#"expected: "{}""#),
+            "the pin is preserved without format string escaping: {src}"
         );
 
-        // The same for the WIRE name, which reaches the message by a different route.
+        // The same for the WIRE name.
         let mut f = ranged("od{d}", None, None, true);
         f.method = "attrString".into();
         f.wire_name = Some("od{d}".into());
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
-            src.contains("missing od{{d}}"),
-            "the wire name's braces are doubled too: {src}"
+            src.contains(r#"name: "od{d}""#),
+            "the wire name is preserved: {src}"
         );
 
-        // The bound: a name with no braces is embedded exactly as before, so the escaping
-        // narrows nothing it should not.
+        // An ordinary name is untouched.
         let mut f = ranged("plain", None, None, true);
         f.method = "attrString".into();
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
-            src.contains(r#"missing plain"#) && !src.contains("{{"),
+            src.contains(r#"name: "plain""#),
             "an ordinary name is untouched: {src}"
         );
     }
