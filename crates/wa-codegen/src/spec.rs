@@ -1348,6 +1348,7 @@ pub(crate) fn generate_spec_diagnosed(
     // ── IqSpec impl ──
     lines.push(format!("impl IqSpec for {spec_name} {{"));
     lines.push(format!("    type Response = {response_type_name};"));
+    lines.push("    type Error = IqResponseError;".into());
     lines.push(String::new());
     lines.extend(build_iq_lines);
     lines.push(String::new());
@@ -1405,9 +1406,9 @@ pub(crate) fn generate_spec_diagnosed(
         };
     let needs_context = correlation.as_ref().is_ok_and(|refs| !refs.is_empty());
     if needs_context && rejection.is_none() {
-        lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
+        lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, Self::Error> {".to_string());
         lines.push(format!(
-            "        Err(IqResponseError::RequestContextRequired {{ module: {}, guard: \"request_context_required\" }}.into())",
+            "        Err(IqResponseError::RequestContextRequired {{ module: {}, guard: \"request_context_required\" }})",
             rust_lit(&op.module_name)
         ));
         lines.push("    }".into());
@@ -1423,8 +1424,8 @@ pub(crate) fn generate_spec_diagnosed(
         {
             lines.push("    fn handles_iq_errors(&self) -> bool { true }".into());
         }
-        lines.push("    fn parse_response_with_context(&self, response: &wacore_binary::NodeRef<'_>, request: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".into());
-        lines.push("        Ok(Self::parse_sent_response(response, request)?)".into());
+        lines.push("    fn parse_response_with_context(&self, response: &wacore_binary::NodeRef<'_>, request: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, Self::Error> {".into());
+        lines.push("        Self::parse_sent_response(response, request)".into());
         lines.push("    }".into());
         lines.push("}".into());
         lines.push(format!("impl {spec_name} {{"));
@@ -1460,9 +1461,9 @@ pub(crate) fn generate_spec_diagnosed(
             ));
         }
     } else if let Some(reason) = rejection {
-        lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string());
+        lines.push("    fn parse_response(&self, _response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, Self::Error> {".to_string());
         lines.push(format!(
-            "        Err(IqResponseError::Rejection {{ module: {}, reason: {} }}.into())",
+            "        Err(IqResponseError::Rejection {{ module: {}, reason: {} }})",
             rust_lit(&op.module_name),
             rust_lit(reason)
         ));
@@ -1472,7 +1473,7 @@ pub(crate) fn generate_spec_diagnosed(
                 .to_string(),
         );
         lines.push(
-            "    fn parse_response(&self, response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string()
+            "    fn parse_response(&self, response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, Self::Error> {".to_string()
         );
         lines.push(
             "        let __parsed: Result<Self::Response, IqResponseError> = (|| {".to_string(),
@@ -1485,11 +1486,11 @@ pub(crate) fn generate_spec_diagnosed(
             "            ",
         ));
         lines.push("        })();".to_string());
-        lines.push("        Ok(__parsed?)".to_string());
+        lines.push("        __parsed".to_string());
     } else {
         lines.push("    #[allow(clippy::needless_update, unused_variables)]".to_string());
         lines.push(format!(
-            "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {{"
+            "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, Self::Error> {{"
         ));
         lines.push(
             "        let __parsed: Result<Self::Response, IqResponseError> = (|| {".to_string(),
@@ -1503,7 +1504,7 @@ pub(crate) fn generate_spec_diagnosed(
             child_prefix,
         ));
         lines.push("        })();".to_string());
-        lines.push("        Ok(__parsed?)".to_string());
+        lines.push("        __parsed".to_string());
     }
     lines.push("    }".to_string());
     lines.push("}".to_string());
