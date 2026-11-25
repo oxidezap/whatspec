@@ -221,6 +221,9 @@ fn error(code: &str, text: Option<&str>) -> Node {
 }
 /// Exercise generated requests and parsers against captured node expectations.
 fn main() {
+    let debug_sample = generated::IqResponseError::WrongLength { field: "payload", length: 7 };
+    assert_eq!(format!("{debug_sample:?}"), debug_sample.to_string());
+    assert_eq!(debug_sample.to_string(), "payload wrong length: 7");
     for choice in [None, Some(false), Some(true)] {
         let spec = MakeNullableParentSpec::new("dedup", Some("ctx".into()), choice, Some(MakeNullableParentParentInput { parent_args_has_parent_group_default_membership_approval_mode_present: choice }));
         let request = spec.build_iq();
