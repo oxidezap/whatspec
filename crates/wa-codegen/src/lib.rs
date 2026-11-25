@@ -85,7 +85,7 @@ pub fn generate_iq(ir: &IqIr) -> String {
          \x20   };\n\
          }\n\n\
          /// Typed error returned by generated IQ response parsers.\n\
-         #[derive(Debug, Clone, PartialEq, Eq)]\n\
+         #[derive(Clone, PartialEq, Eq)]\n\
          pub enum IqResponseError {\n\
          \x20   RequestContextNotIq,\n\
          \x20   RequestContextMissingId,\n\
@@ -199,6 +199,11 @@ pub fn generate_iq(ir: &IqIr) -> String {
          \x20           Self::Rejection { module, reason } => write!(f, \"{module}: {reason}\"),\n\
          \x20           Self::Other(msg) => write!(f, \"{msg}\"),\n\
          \x20       }\n\
+         \x20   }\n\
+         }\n\n\
+         impl std::fmt::Debug for IqResponseError {\n\
+         \x20   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n\
+         \x20       std::fmt::Display::fmt(self, f)\n\
          \x20   }\n\
          }\n\n\
          impl std::error::Error for IqResponseError {}\n\n\
