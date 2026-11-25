@@ -925,6 +925,7 @@ mod tests {
         assert!(c.contains("pub limit: u64,"));
         assert!(c.contains("pub fn new(jid: &Jid, limit: u64) -> Self {"));
         assert!(c.contains("impl IqSpec for QueryTestSpec {"));
+        assert!(c.contains("type Error = IqResponseError;"));
         assert!(c.contains("fn build_iq(&self) -> InfoQuery<'static> {"));
         assert!(c.contains("NodeBuilder::new(\"query\")"));
         assert!(c.contains(".attr(\"jid\", self.jid.clone())"));
@@ -934,7 +935,7 @@ mod tests {
         assert!(c.contains("pub status: String,"));
         // Parses against the real wacore API: `&NodeRef` + `get_attr`/`as_str`.
         assert!(c.contains(
-            "fn parse_response(&self, response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {"
+            "fn parse_response(&self, response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, Self::Error> {"
         ));
         assert!(c.contains("let status = response.get_attr(\"status\")"));
         assert!(c.contains(".as_str()"));

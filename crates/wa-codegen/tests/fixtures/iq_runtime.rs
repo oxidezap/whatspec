@@ -183,18 +183,19 @@ pub mod iq {
     pub mod spec {
         pub trait IqSpec {
             type Response;
+            type Error: Into<Box<dyn std::error::Error + Send + Sync>>;
             fn build_iq(&self) -> crate::request::InfoQuery<'static>;
             fn parse_response(
                 &self,
                 response: &crate::NodeRef<'_>,
-            ) -> Result<Self::Response, anyhow::Error>;
+            ) -> Result<Self::Response, Self::Error>;
             fn uses_contextual_response(&self) -> bool { false }
             fn handles_iq_errors(&self) -> bool { false }
             fn parse_response_with_context(
                 &self,
                 response: &crate::NodeRef<'_>,
                 _request: &crate::NodeRef<'_>,
-            ) -> Result<Self::Response, anyhow::Error> { self.parse_response(response) }
+            ) -> Result<Self::Response, Self::Error> { self.parse_response(response) }
         }
     }
 }
